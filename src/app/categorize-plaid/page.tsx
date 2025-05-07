@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { usePlaidLink } from 'react-plaid-link'
 import { supabase } from '../../lib/supabaseClient'
-import Select from 'react-select'
+import dynamic from 'next/dynamic'
 import Papa from 'papaparse'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -48,6 +48,8 @@ type CSVRow = {
   Description: string
 }
 
+const Select = dynamic(() => import('react-select'), { ssr: false })
+
 export default function Page() {
   const [linkToken, setLinkToken] = useState<string | null>(null)
   const [importedTransactions, setImportedTransactions] = useState<Transaction[]>([])
@@ -81,6 +83,9 @@ export default function Page() {
     error: null,
     selectedTransactions: new Set()
   })
+
+  const [selectedToAdd, setSelectedToAdd] = useState<Set<string>>(new Set())
+  const [selectedAdded, setSelectedAdded] = useState<Set<string>>(new Set())
 
   // 1️⃣ Plaid Link Token
   useEffect(() => {
@@ -677,7 +682,7 @@ export default function Page() {
                         <table className="min-w-full divide-y divide-gray-200">
                           <thead className="bg-gray-50">
                             <tr>
-                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-8 text-center">
                                 <input
                                   type="checkbox"
                                   checked={importModal.csvData.length > 0 && importModal.selectedTransactions.size === importModal.csvData.length}
@@ -697,15 +702,15 @@ export default function Page() {
                                   className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
                                 />
                               </th>
-                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
-                              <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-8 text-center">Date</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-8 text-center">Description</th>
+                              <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-8 text-center">Amount</th>
                             </tr>
                           </thead>
                           <tbody className="bg-white divide-y divide-gray-200">
                             {importModal.csvData.map((tx) => (
                               <tr key={tx.id}>
-                                <td className="px-4 py-2 whitespace-nowrap">
+                                <td className="px-4 py-2 whitespace-nowrap w-8 text-center">
                                   <input
                                     type="checkbox"
                                     checked={importModal.selectedTransactions.has(tx.id)}
@@ -724,13 +729,13 @@ export default function Page() {
                                     className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
                                   />
                                 </td>
-                                <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">
+                                <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900 w-8 text-center">
                                   {formatDate(tx.date)}
                                 </td>
-                                <td className="px-4 py-2 text-sm text-gray-900">
+                                <td className="px-4 py-2 text-sm text-gray-900 w-8 text-center">
                                   {tx.description}
                                 </td>
-                                <td className="px-4 py-2 text-sm text-gray-900 text-right">
+                                <td className="px-4 py-2 text-sm text-gray-900 text-right w-8 text-center">
                                   ${tx.amount.toFixed(2)}
                                 </td>
                               </tr>
@@ -738,14 +743,14 @@ export default function Page() {
                           </tbody>
                           <tfoot className="bg-gray-50">
                             <tr>
-                              <td colSpan={3} className="px-4 py-2 text-sm font-medium text-gray-900">
+                              <td colSpan={3} className="px-4 py-2 text-sm font-medium text-gray-900 w-8 text-center">
                                 {importModal.selectedTransactions.size > 0 && (
                                   <span className="text-gray-600">
                                     {importModal.selectedTransactions.size} selected
                                   </span>
                                 )}
                               </td>
-                              <td className="px-4 py-2 text-sm font-medium text-gray-900 text-right">
+                              <td className="px-4 py-2 text-sm font-medium text-gray-900 text-right w-8 text-center">
                                 ${importModal.csvData.reduce((sum, tx) => sum + tx.amount, 0).toFixed(2)}
                               </td>
                             </tr>
@@ -842,34 +847,76 @@ export default function Page() {
           <table className="w-full border-collapse border border-gray-300">
             <thead className="bg-gray-100">
               <tr>
-                <th className="border p-1">Date</th>
-                <th className="border p-1">Description</th>
-                <th className="border p-1">Amount</th>
-                <th className="border p-1">Category</th>
-                <th className="border p-1">Action</th>
+                <th className="border p-1 w-8 text-center">
+                  <input
+                    type="checkbox"
+                    checked={imported.length > 0 && selectedToAdd.size === imported.length}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedToAdd(new Set(imported.map(tx => tx.id)))
+                      } else {
+                        setSelectedToAdd(new Set())
+                      }
+                    }}
+                    className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                  />
+                </th>
+                <th className="border p-1 w-8 text-center">Date</th>
+                <th className="border p-1 w-8 text-center">Description</th>
+                <th className="border p-1 w-8 text-center">Amount</th>
+                <th className="border p-1 w-8 text-center">Category</th>
+                <th className="border p-1 w-8 text-center">Action</th>
               </tr>
             </thead>
             <tbody>
               {imported.map(tx => (
                 <tr key={tx.id}>
-                  <td className="border p-1">{formatDate(tx.date)}</td>
-                  <td className="border p-1">{tx.description}</td>
-                  <td className="border p-1">{tx.amount}</td>
-                  <td className="border p-1" style={{ minWidth: 200 }}>
+                  <td className="border p-1 w-8 text-center">
+                    <input
+                      type="checkbox"
+                      checked={selectedToAdd.has(tx.id)}
+                      onChange={(e) => {
+                        const newSelected = new Set(selectedToAdd)
+                        if (e.target.checked) {
+                          newSelected.add(tx.id)
+                        } else {
+                          newSelected.delete(tx.id)
+                        }
+                        setSelectedToAdd(newSelected)
+                      }}
+                      className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                    />
+                  </td>
+                  <td className="border p-1 w-8 text-center">{formatDate(tx.date)}</td>
+                  <td className="border p-1 w-8 text-center">{tx.description}</td>
+                  <td className="border p-1 w-8 text-center">{tx.amount}</td>
+                  <td className="border p-1 w-8 text-center" style={{ minWidth: 200 }}>
                     <Select
                       options={categoryOptions}
                       value={categoryOptions.find(opt => opt.value === selectedCategories[tx.id]) || categoryOptions[0]}
                       onChange={(selectedOption) => {
-                        setSelectedCategories(prev => ({
-                          ...prev,
-                          [tx.id]: selectedOption?.value || ''
-                        }));
+                        if (selectedToAdd.has(tx.id) && selectedToAdd.size > 1) {
+                          // Update all selected transactions
+                          setSelectedCategories(prev => {
+                            const updated = { ...prev };
+                            selectedToAdd.forEach(id => {
+                              updated[id] = selectedOption?.value || '';
+                            });
+                            return updated;
+                          });
+                        } else {
+                          // Update only this transaction
+                          setSelectedCategories(prev => ({
+                            ...prev,
+                            [tx.id]: selectedOption?.value || ''
+                          }));
+                        }
                       }}
                       isSearchable
                       styles={{ control: (base) => ({ ...base, minHeight: '30px', fontSize: '0.875rem' }) }}
                     />
                   </td>
-                  <td className="border p-1">
+                  <td className="border p-1 w-8 text-center">
                     <button
                       onClick={async () => {
                         if (selectedCategories[tx.id]) {
@@ -879,6 +926,11 @@ export default function Page() {
                             delete copy[tx.id];
                             return copy;
                           });
+                          setSelectedToAdd(prev => {
+                            const next = new Set(prev)
+                            next.delete(tx.id)
+                            return next
+                          })
                         }
                       }}
                       className="border px-2 py-1 rounded bg-gray-100 hover:bg-gray-200"
@@ -891,6 +943,32 @@ export default function Page() {
               ))}
             </tbody>
           </table>
+          {selectedToAdd.size > 0 && (() => {
+            const selectedTransactions = imported.filter(tx => selectedToAdd.has(tx.id));
+            return (
+              <div className="mt-2 flex justify-end">
+                <button
+                  onClick={async () => {
+                    for (const tx of selectedTransactions) {
+                      if (selectedCategories[tx.id]) {
+                        await addTransaction(tx, selectedCategories[tx.id]);
+                      }
+                    }
+                    setSelectedCategories(prev => {
+                      const copy = { ...prev };
+                      selectedTransactions.forEach(tx => delete copy[tx.id]);
+                      return copy;
+                    });
+                    setSelectedToAdd(new Set());
+                  }}
+                  className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200"
+                  disabled={!selectedTransactions.every(tx => selectedCategories[tx.id])}
+                >
+                  Add Selected ({selectedToAdd.size})
+                </button>
+              </div>
+            );
+          })()}
         </div>
 
         {/* Added */}
@@ -911,11 +989,25 @@ export default function Page() {
           <table className="w-full border-collapse border border-gray-300">
             <thead className="bg-gray-100">
               <tr>
-                <th className="border p-1">Date</th>
-                <th className="border p-1">Description</th>
-                <th className="border p-1">Amount</th>
-                <th className="border p-1">Category</th>
-                <th className="border p-1">Undo</th>
+                <th className="border p-1 w-8 text-center">
+                  <input
+                    type="checkbox"
+                    checked={confirmed.length > 0 && selectedAdded.size === confirmed.length}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedAdded(new Set(confirmed.map(tx => tx.id)))
+                      } else {
+                        setSelectedAdded(new Set())
+                      }
+                    }}
+                    className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                  />
+                </th>
+                <th className="border p-1 w-8 text-center">Date</th>
+                <th className="border p-1 w-8 text-center">Description</th>
+                <th className="border p-1 w-8 text-center">Amount</th>
+                <th className="border p-1 w-8 text-center">Category</th>
+                <th className="border p-1 w-8 text-center">Undo</th>
               </tr>
             </thead>
             <tbody>
@@ -925,11 +1017,27 @@ export default function Page() {
                 const category = categories.find(c => c.id === categoryId);
                 return (
                   <tr key={tx.id}>
-                    <td className="border p-1">{formatDate(tx.date)}</td>
-                    <td className="border p-1">{tx.description}</td>
-                    <td className="border p-1">{tx.amount}</td>
-                    <td className="border p-1">{category ? category.name : 'Uncategorized'}</td>
-                    <td className="border p-1">
+                    <td className="border p-1 w-8 text-center">
+                      <input
+                        type="checkbox"
+                        checked={selectedAdded.has(tx.id)}
+                        onChange={(e) => {
+                          const newSelected = new Set(selectedAdded)
+                          if (e.target.checked) {
+                            newSelected.add(tx.id)
+                          } else {
+                            newSelected.delete(tx.id)
+                          }
+                          setSelectedAdded(newSelected)
+                        }}
+                        className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                      />
+                    </td>
+                    <td className="border p-1 w-8 text-center">{formatDate(tx.date)}</td>
+                    <td className="border p-1 w-8 text-center">{tx.description}</td>
+                    <td className="border p-1 w-8 text-center">{tx.amount}</td>
+                    <td className="border p-1 w-8 text-center" style={{ minWidth: 200 }}>{category ? category.name : 'Uncategorized'}</td>
+                    <td className="border p-1 w-8 text-center">
                       <button
                         onClick={e => { e.stopPropagation(); undoTransaction(tx); }}
                         className="border px-2 py-1 rounded bg-gray-100 hover:bg-gray-200"
@@ -942,6 +1050,24 @@ export default function Page() {
               })}
             </tbody>
           </table>
+          {selectedAdded.size > 0 && (() => {
+            const selectedConfirmed = confirmed.filter(tx => selectedAdded.has(tx.id));
+            return (
+              <div className="mt-2 flex justify-end">
+                <button
+                  onClick={async () => {
+                    for (const tx of selectedConfirmed) {
+                      await undoTransaction(tx);
+                    }
+                    setSelectedAdded(new Set());
+                  }}
+                  className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200"
+                >
+                  Undo Selected ({selectedAdded.size})
+                </button>
+              </div>
+            );
+          })()}
 
           {/* Manual transaction form */}
           <div className="border rounded p-2 space-x-2 mt-2 bg-gray-50 flex flex-wrap items-center gap-2">
