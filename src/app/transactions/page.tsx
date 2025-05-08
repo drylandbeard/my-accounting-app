@@ -2629,7 +2629,7 @@ export default function Page() {
                     </td>
                     <td className="border p-1 w-8 text-center">{formatDate(tx.date)}</td>
                     <td className="border p-1 w-8 text-center" style={{ minWidth: 250 }}>{tx.description}</td>
-                    <td className="border p-1 w-8 text-center">{getDisplayAmountForSelectedAccount(tx, selectedAccountIdInCOA)}</td>
+                    <td className="border p-1 w-8 text-center">{tx.amount}</td>
                     <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>{category ? category.name : 'Uncategorized'}</td>
                     <td className="border p-1 w-8 text-center">
                       <button
