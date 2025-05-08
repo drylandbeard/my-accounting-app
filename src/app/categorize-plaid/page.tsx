@@ -14,6 +14,8 @@ type Transaction = {
   amount: number
   plaid_account_id: string | null
   plaid_account_name: string | null
+  debit_account_id?: string
+  credit_account_id?: string
 }
 
 type Category = {
@@ -46,6 +48,11 @@ type CSVRow = {
   Date: string
   Amount: string
   Description: string
+}
+
+type SortConfig = {
+  key: 'date' | 'description' | 'amount' | null;
+  direction: 'asc' | 'desc';
 }
 
 const Select = dynamic(() => import('react-select'), { ssr: false })
@@ -86,6 +93,43 @@ export default function Page() {
 
   const [selectedToAdd, setSelectedToAdd] = useState<Set<string>>(new Set())
   const [selectedAdded, setSelectedAdded] = useState<Set<string>>(new Set())
+
+  const [toAddSortConfig, setToAddSortConfig] = useState<SortConfig>({ key: null, direction: 'asc' });
+  const [addedSortConfig, setAddedSortConfig] = useState<SortConfig>({ key: null, direction: 'asc' });
+
+  const [editModal, setEditModal] = useState<{
+    isOpen: boolean;
+    transaction: Transaction | null;
+  }>({
+    isOpen: false,
+    transaction: null
+  });
+
+  // Add new state for account edit modal
+  const [accountEditModal, setAccountEditModal] = useState<{
+    isOpen: boolean;
+    account: Account | null;
+    newName: string;
+  }>({
+    isOpen: false,
+    account: null,
+    newName: ''
+  });
+
+  // Add new state for category creation modal
+  const [newCategoryModal, setNewCategoryModal] = useState<{
+    isOpen: boolean;
+    name: string;
+    type: string;
+    parent_id: string | null;
+    transactionId: string | null;
+  }>({
+    isOpen: false,
+    name: '',
+    type: 'Expense',
+    parent_id: null,
+    transactionId: null
+  });
 
   // 1️⃣ Plaid Link Token
   useEffect(() => {
@@ -166,18 +210,31 @@ export default function Page() {
   // 3️⃣ Actions
   const addTransaction = async (tx: Transaction, selectedCategoryId: string) => {
     const category = categories.find(c => c.id === selectedCategoryId);
-    if (!category) return;
+    if (!category) {
+      alert('Selected category not found. Please try again.');
+      return;
+    }
 
     // Find the selected account in chart_of_accounts by plaid_account_id (can be Asset or Liability)
     const selectedAccount = categories.find(
       c => c.plaid_account_id === selectedAccountId
     );
-    const selectedAccountIdInCOA = selectedAccount?.id;
-    const selectedAccountType = selectedAccount?.type;
-    if (!selectedAccountIdInCOA) {
-      alert('Account not found in chart of accounts.');
+
+    if (!selectedAccount) {
+      console.error('Account details:', {
+        selectedAccountId,
+        availableAccounts: categories.filter(c => c.plaid_account_id).map(c => ({
+          id: c.id,
+          name: c.name,
+          plaid_account_id: c.plaid_account_id
+        }))
+      });
+      alert(`Account not found in chart of accounts. Please ensure the account "${accounts.find(a => a.plaid_account_id === selectedAccountId)?.plaid_account_name}" is properly set up in your chart of accounts.`);
       return;
     }
+
+    const selectedAccountIdInCOA = selectedAccount.id;
+    const selectedAccountType = selectedAccount.type;
 
     let debit_account_id, credit_account_id;
     if (selectedAccountType === 'Asset') {
@@ -337,8 +394,9 @@ export default function Page() {
 
   // 4️⃣ Category dropdown
   const categoryOptions = [
-    { value: '', label: 'Uncategorized' },
-    ...categories.map(c => ({ value: c.id, label: c.name }))
+    { value: '', label: 'Select' },
+    ...categories.map(c => ({ value: c.id, label: c.name })),
+    { value: 'add_new', label: '+ Add new category' }
   ]
 
   const formatDate = (dateString: string) => {
@@ -348,23 +406,80 @@ export default function Page() {
     return `${date.getUTCMonth() + 1}/${date.getUTCDate()}/${date.getUTCFullYear()}`
   }
 
-  // 5️⃣ Filters
-  const imported = importedTransactions
-    .filter(tx => tx.plaid_account_id === selectedAccountId)
-    .filter(tx =>
-      searchToAdd === '' ||
-      tx.description.toLowerCase().includes(searchToAdd.toLowerCase()) ||
-      tx.date.includes(searchToAdd) ||
-      String(tx.amount).includes(searchToAdd)
-    );
-  const confirmed = confirmedTransactions
-    .filter(tx => tx.plaid_account_id === selectedAccountId)
-    .filter(tx =>
-      searchAdded === '' ||
-      tx.description.toLowerCase().includes(searchAdded.toLowerCase()) ||
-      tx.date.includes(searchAdded) ||
-      String(tx.amount).includes(searchAdded)
-    );
+  // Add sorting function
+  const sortTransactions = (transactions: Transaction[], sortConfig: SortConfig) => {
+    if (!sortConfig.key) return transactions;
+
+    return [...transactions].sort((a, b) => {
+      if (sortConfig.key === 'date') {
+        return sortConfig.direction === 'asc' 
+          ? new Date(a.date).getTime() - new Date(b.date).getTime()
+          : new Date(b.date).getTime() - new Date(a.date).getTime();
+      }
+      if (sortConfig.key === 'description') {
+        return sortConfig.direction === 'asc'
+          ? a.description.localeCompare(b.description)
+          : b.description.localeCompare(a.description);
+      }
+      if (sortConfig.key === 'amount') {
+        return sortConfig.direction === 'asc'
+          ? a.amount - b.amount
+          : b.amount - a.amount;
+      }
+      return 0;
+    });
+  };
+
+  const handleSort = (key: 'date' | 'description' | 'amount', section: 'toAdd' | 'added') => {
+    if (section === 'toAdd') {
+      setToAddSortConfig(current => ({
+        key,
+        direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc'
+      }));
+    } else {
+      setAddedSortConfig(current => ({
+        key,
+        direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc'
+      }));
+    }
+  };
+
+  // Update the imported transactions to use sorting
+  const imported = sortTransactions(
+    importedTransactions
+      .filter(tx => tx.plaid_account_id === selectedAccountId)
+      .filter(tx =>
+        searchToAdd === '' ||
+        tx.description.toLowerCase().includes(searchToAdd.toLowerCase()) ||
+        tx.date.includes(searchToAdd) ||
+        String(tx.amount).includes(searchToAdd)
+      ),
+    toAddSortConfig
+  );
+
+  // Update the confirmed transactions to use sorting
+  const confirmed = sortTransactions(
+    confirmedTransactions
+      .filter(tx => tx.plaid_account_id === selectedAccountId)
+      .filter(tx => {
+        if (searchAdded === '') return true;
+        
+        // Get the category name for this transaction
+        const isAccountDebit = tx.debit_account_id === selectedAccountIdInCOA;
+        const categoryId = isAccountDebit ? tx.credit_account_id : tx.debit_account_id;
+        const category = categories.find(c => c.id === categoryId);
+        const categoryName = category ? category.name : '';
+
+        return (
+          tx.description.toLowerCase().includes(searchAdded.toLowerCase()) ||
+          tx.date.includes(searchAdded) ||
+          String(tx.amount).includes(searchAdded) ||
+          categoryName.toLowerCase().includes(searchAdded.toLowerCase())
+        );
+      }),
+    addedSortConfig
+  );
+
   const accountName = accounts.find(a => a.plaid_account_id === selectedAccountId)?.plaid_account_name || ''
   const currentBalance = accounts.find(a => a.plaid_account_id === selectedAccountId)?.current_balance || 0
 
@@ -545,6 +660,122 @@ export default function Page() {
     e.stopPropagation()
     handleFileUpload(e)
   }
+
+  const handleEditTransaction = async (updatedTransaction: Transaction) => {
+    if (!editModal.transaction) return;
+
+    // Find the category based on the selected category ID
+    const category = categories.find(c => c.id === updatedTransaction.debit_account_id || c.id === updatedTransaction.credit_account_id);
+    if (!category) return;
+
+    // Find the selected account in chart_of_accounts
+    const selectedAccount = categories.find(c => c.plaid_account_id === selectedAccountId);
+    if (!selectedAccount) return;
+
+    const selectedAccountIdInCOA = selectedAccount.id;
+    const selectedAccountType = selectedAccount.type;
+
+    let debit_account_id, credit_account_id;
+    if (selectedAccountType === 'Asset') {
+      if (category.type === 'Expense') {
+        debit_account_id = category.id;
+        credit_account_id = selectedAccountIdInCOA;
+      } else if (category.type === 'Revenue') {
+        debit_account_id = selectedAccountIdInCOA;
+        credit_account_id = category.id;
+      } else if (category.type === 'Equity') {
+        debit_account_id = selectedAccountIdInCOA;
+        credit_account_id = category.id;
+      } else {
+        debit_account_id = category.id;
+        credit_account_id = selectedAccountIdInCOA;
+      }
+    } else if (selectedAccountType === 'Liability') {
+      if (category.type === 'Expense') {
+        debit_account_id = category.id;
+        credit_account_id = selectedAccountIdInCOA;
+      } else if (category.type === 'Revenue') {
+        debit_account_id = selectedAccountIdInCOA;
+        credit_account_id = category.id;
+      } else if (category.type === 'Equity') {
+        debit_account_id = selectedAccountIdInCOA;
+        credit_account_id = category.id;
+      } else {
+        debit_account_id = category.id;
+        credit_account_id = selectedAccountIdInCOA;
+      }
+    } else {
+      if (category.type === 'Expense') {
+        debit_account_id = category.id;
+        credit_account_id = selectedAccountIdInCOA;
+      } else if (category.type === 'Revenue') {
+        debit_account_id = selectedAccountIdInCOA;
+        credit_account_id = category.id;
+      } else if (category.type === 'Equity') {
+        debit_account_id = selectedAccountIdInCOA;
+        credit_account_id = category.id;
+      } else {
+        debit_account_id = category.id;
+        credit_account_id = selectedAccountIdInCOA;
+      }
+    }
+
+    await supabase
+      .from('transactions')
+      .update({
+        date: updatedTransaction.date,
+        description: updatedTransaction.description,
+        amount: updatedTransaction.amount,
+        debit_account_id,
+        credit_account_id
+      })
+      .eq('id', editModal.transaction.id);
+
+    setEditModal({ isOpen: false, transaction: null });
+    refreshAll();
+  };
+
+  // Add handler for updating account name
+  const handleUpdateAccountName = async () => {
+    if (!accountEditModal.account || !accountEditModal.newName.trim()) return;
+
+    await supabase
+      .from('accounts')
+      .update({ plaid_account_name: accountEditModal.newName.trim() })
+      .eq('plaid_account_id', accountEditModal.account.plaid_account_id);
+
+    setAccountEditModal({ isOpen: false, account: null, newName: '' });
+    refreshAll();
+  };
+
+  // Add handler for creating new category
+  const handleCreateCategory = async () => {
+    if (!newCategoryModal.name.trim()) return;
+
+    const { data, error } = await supabase
+      .from('chart_of_accounts')
+      .insert([{
+        name: newCategoryModal.name.trim(),
+        type: newCategoryModal.type,
+        parent_id: newCategoryModal.parent_id
+      }])
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error creating category:', error);
+      return;
+    }
+
+    // After creating the category, set it as selected for the current transaction
+    setSelectedCategories(prev => ({
+      ...prev,
+      [newCategoryModal.transactionId]: data.id
+    }));
+
+    setNewCategoryModal({ isOpen: false, name: '', type: 'Expense', parent_id: null, transactionId: null });
+    refreshAll();
+  };
 
   // --- RENDER ---
 
@@ -732,7 +963,7 @@ export default function Page() {
                                 <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900 w-8 text-center">
                                   {formatDate(tx.date)}
                                 </td>
-                                <td className="px-4 py-2 text-sm text-gray-900 w-8 text-center">
+                                <td className="px-4 py-2 text-sm text-gray-900 w-8 text-center" style={{ minWidth: 250 }}>
                                   {tx.description}
                                 </td>
                                 <td className="px-4 py-2 text-sm text-gray-900 text-right w-8 text-center">
@@ -815,6 +1046,268 @@ export default function Page() {
         </div>
       )}
 
+      {/* Edit Transaction Modal */}
+      {editModal.isOpen && editModal.transaction && (
+        <div 
+          className="fixed inset-0 backdrop-blur-sm bg-white/30 flex items-center justify-center z-50"
+          onClick={() => setEditModal({ isOpen: false, transaction: null })}
+        >
+          <div 
+            className="bg-white rounded-lg p-6 w-[400px] max-h-[80vh] overflow-y-auto shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold">Edit Transaction</h2>
+              <button
+                onClick={() => setEditModal({ isOpen: false, transaction: null })}
+                className="text-gray-500 hover:text-gray-700 text-xl"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Date
+                </label>
+                <input
+                  type="date"
+                  value={editModal.transaction.date}
+                  onChange={(e) => setEditModal(prev => ({
+                    ...prev,
+                    transaction: prev.transaction ? {
+                      ...prev.transaction,
+                      date: e.target.value
+                    } : null
+                  }))}
+                  className="w-full border px-2 py-1 rounded"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Description
+                </label>
+                <input
+                  type="text"
+                  value={editModal.transaction.description}
+                  onChange={(e) => setEditModal(prev => ({
+                    ...prev,
+                    transaction: prev.transaction ? {
+                      ...prev.transaction,
+                      description: e.target.value
+                    } : null
+                  }))}
+                  className="w-full border px-2 py-1 rounded"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Amount
+                </label>
+                <input
+                  type="number"
+                  value={editModal.transaction.amount}
+                  onChange={(e) => setEditModal(prev => ({
+                    ...prev,
+                    transaction: prev.transaction ? {
+                      ...prev.transaction,
+                      amount: parseFloat(e.target.value)
+                    } : null
+                  }))}
+                  className="w-full border px-2 py-1 rounded"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Category
+                </label>
+                <Select
+                  options={categoryOptions}
+                  value={categoryOptions.find(opt => {
+                    const isAccountDebit = editModal.transaction?.debit_account_id === selectedAccountIdInCOA;
+                    const categoryId = isAccountDebit ? editModal.transaction?.credit_account_id : editModal.transaction?.debit_account_id;
+                    return opt.value === categoryId;
+                  })}
+                  onChange={(selectedOption) => {
+                    if (selectedOption && editModal.transaction) {
+                      const updatedTransaction = { ...editModal.transaction };
+                      const isAccountDebit = updatedTransaction.debit_account_id === selectedAccountIdInCOA;
+                      if (isAccountDebit) {
+                        updatedTransaction.credit_account_id = selectedOption.value;
+                      } else {
+                        updatedTransaction.debit_account_id = selectedOption.value;
+                      }
+                      setEditModal(prev => ({
+                        ...prev,
+                        transaction: updatedTransaction
+                      }));
+                    }
+                  }}
+                  isSearchable
+                  styles={{ control: (base) => ({ ...base, minHeight: '30px', fontSize: '0.875rem' }) }}
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end mt-6">
+              <button
+                onClick={() => editModal.transaction && handleEditTransaction(editModal.transaction)}
+                className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
+              >
+                Update
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Account Edit Modal */}
+      {accountEditModal.isOpen && accountEditModal.account && (
+        <div 
+          className="fixed inset-0 backdrop-blur-sm bg-white/30 flex items-center justify-center z-50"
+          onClick={() => setAccountEditModal({ isOpen: false, account: null, newName: '' })}
+        >
+          <div 
+            className="bg-white rounded-lg p-6 w-[400px] max-h-[80vh] overflow-y-auto shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold">Edit Account Name</h2>
+              <button
+                onClick={() => setAccountEditModal({ isOpen: false, account: null, newName: '' })}
+                className="text-gray-500 hover:text-gray-700 text-xl"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Account Name
+                </label>
+                <input
+                  type="text"
+                  value={accountEditModal.newName}
+                  onChange={(e) => setAccountEditModal(prev => ({
+                    ...prev,
+                    newName: e.target.value
+                  }))}
+                  className="w-full border px-2 py-1 rounded"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end mt-6">
+              <button
+                onClick={handleUpdateAccountName}
+                className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
+              >
+                Update
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* New Category Modal */}
+      {newCategoryModal.isOpen && (
+        <div 
+          className="fixed inset-0 backdrop-blur-sm bg-white/30 flex items-center justify-center z-50"
+          onClick={() => setNewCategoryModal({ isOpen: false, name: '', type: 'Expense', parent_id: null, transactionId: null })}
+        >
+          <div 
+            className="bg-white rounded-lg p-6 w-[400px] max-h-[80vh] overflow-y-auto shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold">Add New Category</h2>
+              <button
+                onClick={() => setNewCategoryModal({ isOpen: false, name: '', type: 'Expense', parent_id: null, transactionId: null })}
+                className="text-gray-500 hover:text-gray-700 text-xl"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Category Name
+                </label>
+                <input
+                  type="text"
+                  value={newCategoryModal.name}
+                  onChange={(e) => setNewCategoryModal(prev => ({
+                    ...prev,
+                    name: e.target.value
+                  }))}
+                  className="w-full border px-2 py-1 rounded"
+                  placeholder="Enter category name"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Type
+                </label>
+                <select
+                  value={newCategoryModal.type}
+                  onChange={(e) => setNewCategoryModal(prev => ({
+                    ...prev,
+                    type: e.target.value
+                  }))}
+                  className="w-full border px-2 py-1 rounded"
+                >
+                  <option value="Expense">Expense</option>
+                  <option value="Revenue">Revenue</option>
+                  <option value="Asset">Asset</option>
+                  <option value="Liability">Liability</option>
+                  <option value="Equity">Equity</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Parent Account (Optional)
+                </label>
+                <Select
+                  options={[
+                    { value: '', label: 'None' },
+                    ...categories
+                      .filter(c => c.type === newCategoryModal.type)
+                      .map(c => ({ value: c.id, label: c.name }))
+                  ]}
+                  value={newCategoryModal.parent_id ? 
+                    { value: newCategoryModal.parent_id, label: categories.find(c => c.id === newCategoryModal.parent_id)?.name || '' } :
+                    { value: '', label: 'None' }
+                  }
+                  onChange={(selectedOption) => setNewCategoryModal(prev => ({
+                    ...prev,
+                    parent_id: selectedOption?.value || null
+                  }))}
+                  isSearchable
+                  styles={{ control: (base) => ({ ...base, minHeight: '30px', fontSize: '0.875rem' }) }}
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end mt-6">
+              <button
+                onClick={handleCreateCategory}
+                className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
+              >
+                Create
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Mini-nav for accounts */}
       <div className="space-x-2 mb-4">
         {accounts.map(acc => (
@@ -823,7 +1316,19 @@ export default function Page() {
             onClick={() => setSelectedAccountId(acc.plaid_account_id)}
             className={`border px-3 py-1 rounded ${acc.plaid_account_id === selectedAccountId ? 'bg-gray-200 font-semibold' : 'bg-gray-100 hover:bg-gray-200'}`}
           >
-            {acc.plaid_account_name}
+            <span 
+              onClick={(e) => {
+                e.stopPropagation();
+                setAccountEditModal({
+                  isOpen: true,
+                  account: acc,
+                  newName: acc.plaid_account_name
+                });
+              }}
+              className="hover:underline"
+            >
+              {acc.plaid_account_name}
+            </span>
           </button>
         ))}
       </div>
@@ -861,9 +1366,24 @@ export default function Page() {
                     className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
                   />
                 </th>
-                <th className="border p-1 w-8 text-center">Date</th>
-                <th className="border p-1 w-8 text-center">Description</th>
-                <th className="border p-1 w-8 text-center">Amount</th>
+                <th 
+                  className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
+                  onClick={() => handleSort('date', 'toAdd')}
+                >
+                  Date {toAddSortConfig.key === 'date' && (toAddSortConfig.direction === 'asc' ? '↑' : '↓')}
+                </th>
+                <th 
+                  className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
+                  onClick={() => handleSort('description', 'toAdd')}
+                >
+                  Description {toAddSortConfig.key === 'description' && (toAddSortConfig.direction === 'asc' ? '↑' : '↓')}
+                </th>
+                <th 
+                  className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
+                  onClick={() => handleSort('amount', 'toAdd')}
+                >
+                  Amount {toAddSortConfig.key === 'amount' && (toAddSortConfig.direction === 'asc' ? '↑' : '↓')}
+                </th>
                 <th className="border p-1 w-8 text-center">Category</th>
                 <th className="border p-1 w-8 text-center">Action</th>
               </tr>
@@ -888,15 +1408,24 @@ export default function Page() {
                     />
                   </td>
                   <td className="border p-1 w-8 text-center">{formatDate(tx.date)}</td>
-                  <td className="border p-1 w-8 text-center">{tx.description}</td>
+                  <td className="border p-1 w-8 text-center" style={{ minWidth: 250 }}>{tx.description}</td>
                   <td className="border p-1 w-8 text-center">{tx.amount}</td>
-                  <td className="border p-1 w-8 text-center" style={{ minWidth: 200 }}>
+                  <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
                     <Select
                       options={categoryOptions}
                       value={categoryOptions.find(opt => opt.value === selectedCategories[tx.id]) || categoryOptions[0]}
                       onChange={(selectedOption) => {
+                        if (selectedOption?.value === 'add_new') {
+                          setNewCategoryModal({ 
+                            isOpen: true, 
+                            name: '', 
+                            type: 'Expense', 
+                            parent_id: null,
+                            transactionId: tx.id 
+                          });
+                          return;
+                        }
                         if (selectedToAdd.has(tx.id) && selectedToAdd.size > 1) {
-                          // Update all selected transactions
                           setSelectedCategories(prev => {
                             const updated = { ...prev };
                             selectedToAdd.forEach(id => {
@@ -905,7 +1434,6 @@ export default function Page() {
                             return updated;
                           });
                         } else {
-                          // Update only this transaction
                           setSelectedCategories(prev => ({
                             ...prev,
                             [tx.id]: selectedOption?.value || ''
@@ -913,7 +1441,13 @@ export default function Page() {
                         }
                       }}
                       isSearchable
-                      styles={{ control: (base) => ({ ...base, minHeight: '30px', fontSize: '0.875rem' }) }}
+                      styles={{ 
+                        control: (base) => ({ 
+                          ...base, 
+                          minHeight: '30px', 
+                          fontSize: '0.875rem'
+                        }) 
+                      }}
                     />
                   </td>
                   <td className="border p-1 w-8 text-center">
@@ -1003,9 +1537,24 @@ export default function Page() {
                     className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
                   />
                 </th>
-                <th className="border p-1 w-8 text-center">Date</th>
-                <th className="border p-1 w-8 text-center">Description</th>
-                <th className="border p-1 w-8 text-center">Amount</th>
+                <th 
+                  className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
+                  onClick={() => handleSort('date', 'added')}
+                >
+                  Date {addedSortConfig.key === 'date' && (addedSortConfig.direction === 'asc' ? '↑' : '↓')}
+                </th>
+                <th 
+                  className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
+                  onClick={() => handleSort('description', 'added')}
+                >
+                  Description {addedSortConfig.key === 'description' && (addedSortConfig.direction === 'asc' ? '↑' : '↓')}
+                </th>
+                <th 
+                  className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
+                  onClick={() => handleSort('amount', 'added')}
+                >
+                  Amount {addedSortConfig.key === 'amount' && (addedSortConfig.direction === 'asc' ? '↑' : '↓')}
+                </th>
                 <th className="border p-1 w-8 text-center">Category</th>
                 <th className="border p-1 w-8 text-center">Undo</th>
               </tr>
@@ -1016,7 +1565,15 @@ export default function Page() {
                 const categoryId = isAccountDebit ? tx.credit_account_id : tx.debit_account_id;
                 const category = categories.find(c => c.id === categoryId);
                 return (
-                  <tr key={tx.id}>
+                  <tr 
+                    key={tx.id}
+                    onClick={(e) => {
+                      // Only open modal if click is not in the first column
+                      if ((e.target as HTMLElement).closest('td:first-child')) return;
+                      setEditModal({ isOpen: true, transaction: tx });
+                    }}
+                    className="cursor-pointer hover:bg-gray-50"
+                  >
                     <td className="border p-1 w-8 text-center">
                       <input
                         type="checkbox"
@@ -1034,9 +1591,9 @@ export default function Page() {
                       />
                     </td>
                     <td className="border p-1 w-8 text-center">{formatDate(tx.date)}</td>
-                    <td className="border p-1 w-8 text-center">{tx.description}</td>
+                    <td className="border p-1 w-8 text-center" style={{ minWidth: 250 }}>{tx.description}</td>
                     <td className="border p-1 w-8 text-center">{tx.amount}</td>
-                    <td className="border p-1 w-8 text-center" style={{ minWidth: 200 }}>{category ? category.name : 'Uncategorized'}</td>
+                    <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>{category ? category.name : 'Uncategorized'}</td>
                     <td className="border p-1 w-8 text-center">
                       <button
                         onClick={e => { e.stopPropagation(); undoTransaction(tx); }}
@@ -1071,7 +1628,21 @@ export default function Page() {
 
           {/* Manual transaction form */}
           <div className="border rounded p-2 space-x-2 mt-2 bg-gray-50 flex flex-wrap items-center gap-2">
-            <input type="date" value={manualDate} onChange={(e) => setManualDate(e.target.value)} className="border px-2 py-1" />
+            <div className="relative">
+              <input 
+                type="date" 
+                value={manualDate} 
+                onChange={(e) => setManualDate(e.target.value)} 
+                className="border px-2 py-1 w-[32px] h-[32px] appearance-none cursor-pointer"
+                style={{
+                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='18' rx='2' ry='2'%3E%3C/rect%3E%3Cline x1='16' y1='2' x2='16' y2='6'%3E%3C/line%3E%3Cline x1='8' y1='2' x2='8' y2='6'%3E%3C/line%3E%3Cline x1='3' y1='10' x2='21' y2='10'%3E%3C/line%3E%3C/svg%3E")`,
+                  backgroundRepeat: 'no-repeat',
+                  backgroundPosition: 'center',
+                  backgroundSize: '16px',
+                  color: 'transparent'
+                }}
+              />
+            </div>
             <input type="text" placeholder="Description" value={manualDescription} onChange={(e) => setManualDescription(e.target.value)} className="border px-2 py-1" />
             <input type="number" placeholder="Amount" value={manualAmount} onChange={(e) => setManualAmount(e.target.value)} className="border px-2 py-1" />
             <Select
@@ -1079,7 +1650,7 @@ export default function Page() {
               value={categoryOptions.find(opt => opt.value === manualCategoryId) || categoryOptions[0]}
               onChange={selectedOption => setManualCategoryId(selectedOption?.value || '')}
               isSearchable
-              styles={{ control: (base) => ({ ...base, minHeight: '30px', fontSize: '0.875rem', width: 200 }) }}
+              styles={{ control: (base) => ({ ...base, minHeight: '30px', fontSize: '0.875rem' }) }}
               className="inline-block"
             />
             <button
