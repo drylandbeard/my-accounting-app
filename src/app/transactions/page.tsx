@@ -27,11 +27,12 @@ type Category = {
 }
 
 type Account = {
-  plaid_account_id: string
+  plaid_account_id: string | null
   plaid_account_name: string
   starting_balance: number | null
   current_balance: number | null
   last_synced: string | null
+  is_manual?: boolean
 }
 
 type ImportModalState = {
@@ -129,6 +130,32 @@ export default function Page() {
     type: 'Expense',
     parent_id: null,
     transactionId: null
+  });
+
+  // Add new state for manual account creation modal
+  const [manualAccountModal, setManualAccountModal] = useState<{
+    isOpen: boolean;
+    name: string;
+    type: string;
+    startingBalance: string;
+  }>({
+    isOpen: false,
+    name: '',
+    type: 'Asset',
+    startingBalance: '0'
+  });
+
+  // Add new state for account names modal
+  const [accountNamesModal, setAccountNamesModal] = useState<{
+    isOpen: boolean;
+    accounts: { id: string; name: string }[];
+    accountToDelete: string | null;
+    deleteConfirmation: string;
+  }>({
+    isOpen: false,
+    accounts: [],
+    accountToDelete: null,
+    deleteConfirmation: ''
   });
 
   // 1️⃣ Plaid Link Token
@@ -777,6 +804,123 @@ export default function Page() {
     refreshAll();
   };
 
+  // Add function to create manual account
+  const createManualAccount = async () => {
+    if (!manualAccountModal.name.trim()) return;
+
+    const manualAccountId = uuidv4(); // Generate a unique ID for the manual account
+
+    // Insert into accounts table
+    const { error: accountError } = await supabase.from('accounts').insert({
+      plaid_account_id: manualAccountId,
+      plaid_account_name: manualAccountModal.name.trim(),
+      starting_balance: parseFloat(manualAccountModal.startingBalance) || 0,
+      current_balance: parseFloat(manualAccountModal.startingBalance) || 0,
+      last_synced: new Date().toISOString(),
+      is_manual: true
+    });
+
+    if (accountError) {
+      console.error('Error creating manual account:', accountError);
+      return;
+    }
+
+    // Insert into chart_of_accounts table
+    const { error: coaError } = await supabase.from('chart_of_accounts').insert({
+      name: manualAccountModal.name.trim(),
+      type: manualAccountModal.type,
+      plaid_account_id: manualAccountId
+    });
+
+    if (coaError) {
+      console.error('Error creating chart of accounts entry:', coaError);
+      return;
+    }
+
+    setManualAccountModal({
+      isOpen: false,
+      name: '',
+      type: 'Asset',
+      startingBalance: '0'
+    });
+
+    // Set the newly created account as selected
+    setSelectedAccountId(manualAccountId);
+    refreshAll();
+  };
+
+  // Add function to handle account name updates
+  const handleUpdateAccountNames = async () => {
+    try {
+      for (const account of accountNamesModal.accounts) {
+        // Update accounts table
+        await supabase
+          .from('accounts')
+          .update({ plaid_account_name: account.name.trim() })
+          .eq('plaid_account_id', account.id);
+
+        // Update chart_of_accounts table
+        await supabase
+          .from('chart_of_accounts')
+          .update({ name: account.name.trim() })
+          .eq('plaid_account_id', account.id);
+      }
+
+      setAccountNamesModal({ isOpen: false, accounts: [], accountToDelete: null, deleteConfirmation: '' });
+      refreshAll();
+    } catch (error) {
+      console.error('Error updating account names:', error);
+    }
+  };
+
+  // Add function to handle account deletion
+  const handleDeleteAccount = async (accountId: string) => {
+    try {
+      // Delete from accounts table
+      await supabase
+        .from('accounts')
+        .delete()
+        .eq('plaid_account_id', accountId);
+
+      // Delete from chart_of_accounts table
+      await supabase
+        .from('chart_of_accounts')
+        .delete()
+        .eq('plaid_account_id', accountId);
+
+      // Delete related transactions
+      await supabase
+        .from('transactions')
+        .delete()
+        .eq('plaid_account_id', accountId);
+
+      // Delete related imported transactions
+      await supabase
+        .from('imported_transactions')
+        .delete()
+        .eq('plaid_account_id', accountId);
+
+      // Remove the deleted account from the modal's accounts list
+      const updatedAccounts = accountNamesModal.accounts.filter(acc => acc.id !== accountId);
+      setAccountNamesModal(prev => ({
+        ...prev,
+        accounts: updatedAccounts,
+        accountToDelete: null,
+        deleteConfirmation: ''
+      }));
+
+      // If the deleted account was selected, select the first remaining account
+      if (selectedAccountId === accountId && updatedAccounts.length > 0) {
+        setSelectedAccountId(updatedAccounts[0].id);
+      }
+
+      refreshAll();
+    } catch (error) {
+      console.error('Error deleting account:', error);
+      alert('Failed to delete account. Please try again.');
+    }
+  };
+
   // --- RENDER ---
 
   return (
@@ -797,7 +941,40 @@ export default function Page() {
           >
             Import CSV
           </button>
+          <button
+            onClick={() => setManualAccountModal({ isOpen: true, name: '', type: 'Asset', startingBalance: '0' })}
+            className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-600"
+          >
+            Add Manual Account
+          </button>
+          <button
+            onClick={() => setAccountNamesModal({
+              isOpen: true,
+              accounts: accounts.map(acc => ({
+                id: acc.plaid_account_id,
+                name: acc.plaid_account_name
+              })),
+              accountToDelete: null,
+              deleteConfirmation: ''
+            })}
+            className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-600"
+          >
+            Edit Accounts
+          </button>
         </div>
+      </div>
+
+      {/* Mini-nav for accounts */}
+      <div className="space-x-2 mb-4">
+        {accounts.map(acc => (
+          <button
+            key={acc.plaid_account_id}
+            onClick={() => setSelectedAccountId(acc.plaid_account_id)}
+            className={`border px-3 py-1 rounded ${acc.plaid_account_id === selectedAccountId ? 'bg-gray-200 font-semibold' : 'bg-gray-100 hover:bg-gray-200'}`}
+          >
+            {acc.plaid_account_name}
+          </button>
+        ))}
       </div>
 
       {/* Import Modal */}
@@ -1172,7 +1349,7 @@ export default function Page() {
           onClick={() => setAccountEditModal({ isOpen: false, account: null, newName: '' })}
         >
           <div 
-            className="bg-white rounded-lg p-6 w-[400px] max-h-[80vh] overflow-y-auto shadow-xl"
+            className="bg-white rounded-lg p-6 w-[500px] max-h-[80vh] overflow-y-auto shadow-xl"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex justify-between items-center mb-4">
@@ -1308,30 +1485,189 @@ export default function Page() {
         </div>
       )}
 
-      {/* Mini-nav for accounts */}
-      <div className="space-x-2 mb-4">
-        {accounts.map(acc => (
-          <button
-            key={acc.plaid_account_id}
-            onClick={() => setSelectedAccountId(acc.plaid_account_id)}
-            className={`border px-3 py-1 rounded ${acc.plaid_account_id === selectedAccountId ? 'bg-gray-200 font-semibold' : 'bg-gray-100 hover:bg-gray-200'}`}
+      {/* Manual Account Modal */}
+      {manualAccountModal.isOpen && (
+        <div 
+          className="fixed inset-0 backdrop-blur-sm bg-white/30 flex items-center justify-center z-50"
+          onClick={() => setManualAccountModal({ isOpen: false, name: '', type: 'Asset', startingBalance: '0' })}
+        >
+          <div 
+            className="bg-white rounded-lg p-6 w-[400px] max-h-[80vh] overflow-y-auto shadow-xl"
+            onClick={e => e.stopPropagation()}
           >
-            <span 
-              onClick={(e) => {
-                e.stopPropagation();
-                setAccountEditModal({
-                  isOpen: true,
-                  account: acc,
-                  newName: acc.plaid_account_name
-                });
-              }}
-              className="hover:underline"
-            >
-              {acc.plaid_account_name}
-            </span>
-          </button>
-        ))}
-      </div>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold">Add New Manual Account</h2>
+              <button
+                onClick={() => setManualAccountModal({ isOpen: false, name: '', type: 'Asset', startingBalance: '0' })}
+                className="text-gray-500 hover:text-gray-700 text-xl"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Account Name
+                </label>
+                <input
+                  type="text"
+                  value={manualAccountModal.name}
+                  onChange={(e) => setManualAccountModal(prev => ({
+                    ...prev,
+                    name: e.target.value
+                  }))}
+                  className="w-full border px-2 py-1 rounded"
+                  placeholder="Enter account name"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Type
+                </label>
+                <select
+                  value={manualAccountModal.type}
+                  onChange={(e) => setManualAccountModal(prev => ({
+                    ...prev,
+                    type: e.target.value
+                  }))}
+                  className="w-full border px-2 py-1 rounded"
+                >
+                  <option value="Asset">Asset</option>
+                  <option value="Liability">Liability</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Starting Balance
+                </label>
+                <input
+                  type="number"
+                  value={manualAccountModal.startingBalance}
+                  onChange={(e) => setManualAccountModal(prev => ({
+                    ...prev,
+                    startingBalance: e.target.value
+                  }))}
+                  className="w-full border px-2 py-1 rounded"
+                  placeholder="Enter starting balance"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end mt-6">
+              <button
+                onClick={createManualAccount}
+                className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
+                disabled={!manualAccountModal.name.trim() || !manualAccountModal.type.trim() || !manualAccountModal.startingBalance.trim()}
+              >
+                Create
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Account Names Modal */}
+      {accountNamesModal.isOpen && (
+        <div 
+          className="fixed inset-0 backdrop-blur-sm bg-white/30 flex items-center justify-center z-50"
+          onClick={() => setAccountNamesModal({ isOpen: false, accounts: [], accountToDelete: null, deleteConfirmation: '' })}
+        >
+          <div 
+            className="bg-white rounded-lg p-6 w-[500px] max-h-[80vh] overflow-y-auto shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold">Edit Accounts</h2>
+              <button
+                onClick={() => setAccountNamesModal({ isOpen: false, accounts: [], accountToDelete: null, deleteConfirmation: '' })}
+                className="text-gray-500 hover:text-gray-700 text-xl"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {accountNamesModal.accounts.map((account, index) => (
+                <div key={account.id} className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={account.name}
+                      onChange={(e) => {
+                        const newAccounts = [...accountNamesModal.accounts];
+                        newAccounts[index] = { ...account, name: e.target.value };
+                        setAccountNamesModal(prev => ({
+                          ...prev,
+                          accounts: newAccounts
+                        }));
+                      }}
+                      className="flex-1 border px-2 py-1 rounded"
+                    />
+                    <button
+                      onClick={() => setAccountNamesModal(prev => ({
+                        ...prev,
+                        accountToDelete: account.id
+                      }))}
+                      className="text-red-600 hover:text-red-800 px-2 py-1"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                  {accountNamesModal.accountToDelete === account.id && (
+                    <div className="bg-red-50 p-3 rounded border border-red-200">
+                      <p className="text-sm text-red-700 mb-2">
+                        Warning: This will permanently delete the account and all its transactions.
+                        Type "delete" to confirm.
+                      </p>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={accountNamesModal.deleteConfirmation}
+                          onChange={(e) => setAccountNamesModal(prev => ({
+                            ...prev,
+                            deleteConfirmation: e.target.value
+                          }))}
+                          placeholder="Type 'delete' to confirm"
+                          className="flex-1 border px-2 py-1 rounded"
+                        />
+                        <button
+                          onClick={() => handleDeleteAccount(account.id)}
+                          disabled={accountNamesModal.deleteConfirmation !== 'delete'}
+                          className="px-3 py-1 bg-red-600 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Confirm Delete
+                        </button>
+                        <button
+                          onClick={() => setAccountNamesModal(prev => ({
+                            ...prev,
+                            accountToDelete: null,
+                            deleteConfirmation: ''
+                          }))}
+                          className="px-3 py-1 border rounded"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="flex justify-end mt-6">
+              <button
+                onClick={handleUpdateAccountNames}
+                className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex gap-8">
         {/* To Add */}
