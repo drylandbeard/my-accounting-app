@@ -25,7 +25,7 @@ export default function NavBar() {
 
       <div className="space-x-6 flex">
         <NavLink href="/categorize-plaid" label="Transactions" />
-        <NavLink href="/chart-of-accounts" label="Categories" />
+        <NavLink href="/categories" label="Categories" />
         <NavLink href="/reports/pnl" label="Profit & Loss" />
         <NavLink href="/reports/balance-sheet" label="Balance Sheet" />
       </div>
