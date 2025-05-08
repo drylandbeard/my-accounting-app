@@ -551,7 +551,7 @@ export default function Page() {
   return (
     <div className="p-4 bg-white text-gray-900 font-sans text-sm space-y-6">
       <div className="flex justify-between items-center mb-4">
-        <h1 className="text-xl font-semibold">Transactions4000</h1>
+        <h1 className="text-xl font-semibold">Transactions5000</h1>
         <div className="space-x-2">
           <button
             onClick={() => open()}
