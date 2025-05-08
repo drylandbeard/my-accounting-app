@@ -72,11 +72,21 @@ export default function ChartOfAccountsPage() {
       const matchesType = account.type.toLowerCase().includes(searchLower);
       const matchesSubtype = account.subtype?.toLowerCase().includes(searchLower) ?? false;
       
-      // Find parent account if this is a subcategory
-      const parentAccount = account.parent_id ? accounts.find(acc => acc.id === account.parent_id) : null;
-      const matchesParent = parentAccount?.name.toLowerCase().includes(searchLower) ?? false;
+      // If this account matches the search, include it
+      if (matchesName || matchesType || matchesSubtype) return true;
       
-      return matchesName || matchesType || matchesSubtype || matchesParent;
+      // If this is a parent account, check if any of its children match
+      if (account.parent_id === null) {
+        const hasMatchingChild = accounts.some(child => 
+          child.parent_id === account.id && 
+          (child.name.toLowerCase().includes(searchLower) ||
+           child.type.toLowerCase().includes(searchLower) ||
+           (child.subtype?.toLowerCase().includes(searchLower) ?? false))
+        );
+        return hasMatchingChild;
+      }
+      
+      return false;
     })
     .sort((a, b) => {
       // If one is a parent of the other, parent comes first
@@ -116,8 +126,52 @@ export default function ChartOfAccountsPage() {
   }
 
   const handleDelete = async (id: string) => {
+    // First check if this is a parent category
+    const { data: subcategories } = await supabase
+      .from('chart_of_accounts')
+      .select('id')
+      .eq('parent_id', id);
+
+    if (subcategories && subcategories.length > 0) {
+      // This is a parent category, check if any subcategories have transactions
+      const subcategoryIds = subcategories.map(sub => sub.id);
+      const { data: transactions, error: txError } = await supabase
+        .from('transactions')
+        .select('id')
+        .or(`debit_account_id.in.(${subcategoryIds.join(',')}),credit_account_id.in.(${subcategoryIds.join(',')})`)
+        .limit(1);
+
+      if (txError) {
+        console.error('Error checking transactions:', txError);
+        return;
+      }
+
+      if (transactions && transactions.length > 0) {
+        alert('This category cannot be deleted because it contains subcategories that are used in existing transactions. Please reassign or delete the transactions first.');
+        return;
+      }
+    } else {
+      // This is a regular category, check if it has transactions
+      const { data: transactions, error: txError } = await supabase
+        .from('transactions')
+        .select('id')
+        .or(`debit_account_id.eq.${id},credit_account_id.eq.${id}`)
+        .limit(1);
+
+      if (txError) {
+        console.error('Error checking transactions:', txError);
+        return;
+      }
+
+      if (transactions && transactions.length > 0) {
+        alert('This category cannot be deleted because it is used in existing transactions. Please reassign or delete the transactions first.');
+        return;
+      }
+    }
+
     const { error } = await supabase.from('chart_of_accounts').delete().eq('id', id)
     if (!error) {
+      setEditingId(null)
       fetchAccounts()
       fetchParentOptions()
     }
@@ -158,39 +212,40 @@ export default function ChartOfAccountsPage() {
 
   // Helper to display subaccounts indented
   const renderAccounts = (accounts: Category[], parentId: string | null = null, level = 0) => {
-    // First get all parent accounts (those without a parent)
+    // Get all parent accounts
     const parentAccounts = accounts.filter(acc => acc.parent_id === null);
     
-    return parentAccounts.map(parent => (
-      <>
-        <tr key={parent.id}>
-          <td style={{ paddingLeft: `${level * 16 + 4}px` }} className="border p-1 text-sm">
-            {parent.name}
-          </td>
-          <td className="border p-1 text-sm">{parent.type}</td>
-          <td className="border p-1 text-sm">{parent.subtype || ''}</td>
-          <td className="border p-1 text-sm"></td>
-          <td className="border p-1 text-sm">
-            <div className="flex gap-2 justify-center">
-              <button
-                onClick={() => handleEdit(parent)}
-                className="text-blue-600 hover:underline text-xs"
-              >
-                Edit
-              </button>
-              <button
-                onClick={() => handleDelete(parent.id)}
-                className="text-red-600 hover:underline text-xs"
-              >
-                Delete
-              </button>
-            </div>
-          </td>
-        </tr>
-        {/* Render subaccounts */}
-        {accounts
-          .filter(acc => acc.parent_id === parent.id)
-          .map(subAcc => (
+    return parentAccounts.map(parent => {
+      // Get subaccounts for this parent
+      const subAccounts = accounts.filter(acc => acc.parent_id === parent.id);
+      
+      // If there are no subaccounts and parent doesn't match search, don't show parent
+      if (subAccounts.length === 0 && !accounts.includes(parent)) {
+        return null;
+      }
+      
+      return (
+        <>
+          <tr key={parent.id}>
+            <td style={{ paddingLeft: `${level * 16 + 4}px` }} className="border p-1 text-sm">
+              {parent.name}
+            </td>
+            <td className="border p-1 text-sm">{parent.type}</td>
+            <td className="border p-1 text-sm">{parent.subtype || ''}</td>
+            <td className="border p-1 text-sm"></td>
+            <td className="border p-1 text-sm">
+              <div className="flex gap-2 justify-center">
+                <button
+                  onClick={() => handleEdit(parent)}
+                  className="text-xs hover:underline"
+                >
+                  Edit
+                </button>
+              </div>
+            </td>
+          </tr>
+          {/* Render subaccounts */}
+          {subAccounts.map(subAcc => (
             <tr key={subAcc.id}>
               <td style={{ paddingLeft: `${(level + 1) * 16 + 4}px` }} className="border p-1 text-sm">
                 {subAcc.name}
@@ -202,22 +257,17 @@ export default function ChartOfAccountsPage() {
                 <div className="flex gap-2 justify-center">
                   <button
                     onClick={() => handleEdit(subAcc)}
-                    className="text-blue-600 hover:underline text-xs"
+                    className="text-xs hover:underline"
                   >
                     Edit
-                  </button>
-                  <button
-                    onClick={() => handleDelete(subAcc.id)}
-                    className="text-red-600 hover:underline text-xs"
-                  >
-                    Delete
                   </button>
                 </div>
               </td>
             </tr>
           ))}
-      </>
-    ));
+        </>
+      );
+    }).filter(Boolean); // Remove null entries
   }
 
   return (
@@ -278,7 +328,7 @@ export default function ChartOfAccountsPage() {
           </select>
           <button
             type="submit"
-            className="bg-blue-600 text-white px-3 py-1 rounded text-sm w-16"
+            className="border px-3 py-1 rounded text-sm w-16"
           >
             Add
           </button>
@@ -313,63 +363,90 @@ export default function ChartOfAccountsPage() {
               </tbody>
             </table>
             {editingId && (
-              <div className="p-4 border-t border-gray-200">
-                <div className="text-sm font-semibold mb-2">Edit Category</div>
-                <form onSubmit={handleUpdate} className="flex gap-2 items-center w-full">
-                  <input
-                    type="text"
-                    placeholder="Name"
-                    value={editName}
-                    onChange={e => setEditName(e.target.value)}
-                    className="border px-2 py-1 text-sm flex-1"
-                    required
-                  />
-                  <select
-                    value={editType}
-                    onChange={e => setEditType(e.target.value)}
-                    className="border px-2 py-1 text-sm w-24"
-                    required
-                  >
-                    <option value="">Type...</option>
-                    {ACCOUNT_TYPES.map(type => (
-                      <option key={type} value={type}>{type}</option>
-                    ))}
-                  </select>
-                  <input
-                    type="text"
-                    placeholder="Subtype"
-                    value={editSubtype}
-                    onChange={e => setEditSubtype(e.target.value)}
-                    className="border px-2 py-1 text-sm w-24"
-                  />
-                  <select
-                    value={editParentId || ''}
-                    onChange={e => setEditParentId(e.target.value || null)}
-                    className="border px-2 py-1 text-sm flex-1"
-                  >
-                    <option value="">No Parent</option>
-                    {parentOptions
-                      .filter(opt => opt.type === editType || !editType)
-                      .map(opt => (
-                        <option key={opt.id} value={opt.id}>
-                          {opt.name} ({opt.type})
-                        </option>
-                      ))}
-                  </select>
-                  <button
-                    type="submit"
-                    className="bg-blue-600 text-white px-3 py-1 rounded text-sm w-16"
-                  >
-                    Save
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleCancelEdit}
-                    className="border px-3 py-1 rounded text-sm w-16"
-                  >
-                    Cancel
-                  </button>
-                </form>
+              <div 
+                className="fixed inset-0 backdrop-blur-sm flex items-center justify-center"
+                onClick={(e) => {
+                  // Only close if clicking the overlay, not its children
+                  if (e.target === e.currentTarget) {
+                    handleCancelEdit();
+                  }
+                }}
+              >
+                <div className="bg-white p-4 rounded-lg w-96">
+                  <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-lg font-bold">Edit Category</h2>
+                    <button
+                      type="button"
+                      onClick={handleCancelEdit}
+                      className="text-gray-500 hover:text-gray-700"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <form onSubmit={handleUpdate} className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Name</label>
+                      <input
+                        type="text"
+                        value={editName}
+                        onChange={e => setEditName(e.target.value)}
+                        className="w-full border px-2 py-1 text-sm"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Type</label>
+                      <select
+                        value={editType}
+                        onChange={e => setEditType(e.target.value)}
+                        className="w-full border px-2 py-1 text-sm"
+                        required
+                      >
+                        <option value="">Select Type</option>
+                        {ACCOUNT_TYPES.map(type => (
+                          <option key={type} value={type}>{type}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Subtype (Optional)</label>
+                      <input
+                        type="text"
+                        value={editSubtype}
+                        onChange={e => setEditSubtype(e.target.value)}
+                        className="w-full border px-2 py-1 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Parent Category (Optional)</label>
+                      <select
+                        value={editParentId || ''}
+                        onChange={e => setEditParentId(e.target.value || null)}
+                        className="w-full border px-2 py-1 text-sm"
+                      >
+                        <option value="">None</option>
+                        {parentOptions.map(option => (
+                          <option key={option.id} value={option.id}>{option.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex justify-end space-x-2 pt-4">
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(editingId)}
+                        className="px-4 py-2 text-sm text-red-600 hover:text-red-800"
+                      >
+                        Delete Category
+                      </button>
+                      <button
+                        type="submit"
+                        className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
+                      >
+                        Update
+                      </button>
+                    </div>
+                  </form>
+                </div>
               </div>
             )}
           </>
