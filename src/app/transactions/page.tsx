@@ -617,16 +617,12 @@ export default function Page() {
       .filter(tx => tx.credit_account_id === selectedAccountIdInCOA)
       .reduce((sum, tx) => sum + Number(tx.amount), 0);
 
-  // Helper to get the display amount for a transaction
-  function getDisplayAmount(tx: Transaction, category: Category | undefined) {
-    if (!category) return Number(tx.amount);
-    if (category.type === 'Revenue') {
-      return Math.abs(Number(tx.amount)); // Show income as positive
-    }
-    if (category.type === 'Expense' || category.type === 'COGS') {
-      return -Math.abs(Number(tx.amount)); // Show expenses as negative
-    }
-    return Number(tx.amount); // Default for other types
+  // Helper to get the display amount for a transaction relative to the selected account
+  function getDisplayAmountForSelectedAccount(tx: Transaction, selectedAccountIdInCOA: string | undefined) {
+    if (!selectedAccountIdInCOA) return Number(tx.amount);
+    if (tx.debit_account_id === selectedAccountIdInCOA) return Number(tx.amount);
+    if (tx.credit_account_id === selectedAccountIdInCOA) return -Number(tx.amount);
+    return Number(tx.amount);
   }
 
   const downloadTemplate = () => {
@@ -2427,92 +2423,95 @@ export default function Page() {
               </tr>
             </thead>
             <tbody>
-              {imported.map(tx => (
-                <tr key={tx.id}>
-                  <td className="border p-1 w-8 text-center">
-                    <input
-                      type="checkbox"
-                      checked={selectedToAdd.has(tx.id)}
-                      onChange={(e) => {
-                        const newSelected = new Set(selectedToAdd)
-                        if (e.target.checked) {
-                          newSelected.add(tx.id)
-                        } else {
-                          newSelected.delete(tx.id)
-                        }
-                        setSelectedToAdd(newSelected)
-                      }}
-                      className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
-                    />
-                  </td>
-                  <td className="border p-1 w-8 text-center">{formatDate(tx.date)}</td>
-                  <td className="border p-1 w-8 text-center" style={{ minWidth: 250 }}>{tx.description}</td>
-                  <td className="border p-1 w-8 text-center">{tx.amount}</td>
-                  <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
-                    <Select
-                      options={categoryOptions}
-                      value={categoryOptions.find(opt => opt.value === selectedCategories[tx.id]) || categoryOptions[0]}
-                      onChange={(selectedOption) => {
-                        if (selectedOption?.value === 'add_new') {
-                          setNewCategoryModal({ 
-                            isOpen: true, 
-                            name: '', 
-                            type: 'Expense', 
-                            parent_id: null,
-                            transactionId: tx.id 
-                          });
-                          return;
-                        }
-                        if (selectedToAdd.has(tx.id) && selectedToAdd.size > 1) {
-                          setSelectedCategories(prev => {
-                            const updated = { ...prev };
-                            selectedToAdd.forEach(id => {
-                              updated[id] = selectedOption?.value || '';
+              {imported.map(tx => {
+                const category = categories.find(c => c.id === selectedCategories[tx.id]);
+                return (
+                  <tr key={tx.id}>
+                    <td className="border p-1 w-8 text-center">
+                      <input
+                        type="checkbox"
+                        checked={selectedToAdd.has(tx.id)}
+                        onChange={(e) => {
+                          const newSelected = new Set(selectedToAdd)
+                          if (e.target.checked) {
+                            newSelected.add(tx.id)
+                          } else {
+                            newSelected.delete(tx.id)
+                          }
+                          setSelectedToAdd(newSelected)
+                        }}
+                        className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                      />
+                    </td>
+                    <td className="border p-1 w-8 text-center">{formatDate(tx.date)}</td>
+                    <td className="border p-1 w-8 text-center" style={{ minWidth: 250 }}>{tx.description}</td>
+                    <td className="border p-1 w-8 text-center">{getDisplayAmountForSelectedAccount(tx, selectedAccountIdInCOA)}</td>
+                    <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
+                      <Select
+                        options={categoryOptions}
+                        value={categoryOptions.find(opt => opt.value === selectedCategories[tx.id]) || categoryOptions[0]}
+                        onChange={(selectedOption) => {
+                          if (selectedOption?.value === 'add_new') {
+                            setNewCategoryModal({ 
+                              isOpen: true, 
+                              name: '', 
+                              type: 'Expense', 
+                              parent_id: null,
+                              transactionId: tx.id 
                             });
-                            return updated;
-                          });
-                        } else {
-                          setSelectedCategories(prev => ({
-                            ...prev,
-                            [tx.id]: selectedOption?.value || ''
-                          }));
-                        }
-                      }}
-                      isSearchable
-                      styles={{ 
-                        control: (base) => ({ 
-                          ...base, 
-                          minHeight: '30px', 
-                          fontSize: '0.875rem'
-                        }) 
-                      }}
-                    />
-                  </td>
-                  <td className="border p-1 w-8 text-center">
-                    <button
-                      onClick={async () => {
-                        if (selectedCategories[tx.id]) {
-                          await addTransaction(tx, selectedCategories[tx.id]);
-                          setSelectedCategories(prev => {
-                            const copy = { ...prev };
-                            delete copy[tx.id];
-                            return copy;
-                          });
-                          setSelectedToAdd(prev => {
-                            const next = new Set(prev)
-                            next.delete(tx.id)
-                            return next
-                          })
-                        }
-                      }}
-                      className="border px-2 py-1 rounded bg-gray-100 hover:bg-gray-200"
-                      disabled={!selectedCategories[tx.id]}
-                    >
-                      Add
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                            return;
+                          }
+                          if (selectedToAdd.has(tx.id) && selectedToAdd.size > 1) {
+                            setSelectedCategories(prev => {
+                              const updated = { ...prev };
+                              selectedToAdd.forEach(id => {
+                                updated[id] = selectedOption?.value || '';
+                              });
+                              return updated;
+                            });
+                          } else {
+                            setSelectedCategories(prev => ({
+                              ...prev,
+                              [tx.id]: selectedOption?.value || ''
+                            }));
+                          }
+                        }}
+                        isSearchable
+                        styles={{ 
+                          control: (base) => ({ 
+                            ...base, 
+                            minHeight: '30px', 
+                            fontSize: '0.875rem'
+                          }) 
+                        }}
+                      />
+                    </td>
+                    <td className="border p-1 w-8 text-center">
+                      <button
+                        onClick={async () => {
+                          if (selectedCategories[tx.id]) {
+                            await addTransaction(tx, selectedCategories[tx.id]);
+                            setSelectedCategories(prev => {
+                              const copy = { ...prev };
+                              delete copy[tx.id];
+                              return copy;
+                            });
+                            setSelectedToAdd(prev => {
+                              const next = new Set(prev)
+                              next.delete(tx.id)
+                              return next
+                            })
+                          }
+                        }}
+                        className="border px-2 py-1 rounded bg-gray-100 hover:bg-gray-200"
+                        disabled={!selectedCategories[tx.id]}
+                      >
+                        Add
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
           {selectedToAdd.size > 0 && (() => {
@@ -2630,7 +2629,7 @@ export default function Page() {
                     </td>
                     <td className="border p-1 w-8 text-center">{formatDate(tx.date)}</td>
                     <td className="border p-1 w-8 text-center" style={{ minWidth: 250 }}>{tx.description}</td>
-                    <td className="border p-1 w-8 text-center">{getDisplayAmount(tx, category)}</td>
+                    <td className="border p-1 w-8 text-center">{getDisplayAmountForSelectedAccount(tx, selectedAccountIdInCOA)}</td>
                     <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>{category ? category.name : 'Uncategorized'}</td>
                     <td className="border p-1 w-8 text-center">
                       <button
