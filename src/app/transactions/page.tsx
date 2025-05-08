@@ -56,6 +56,16 @@ type SortConfig = {
   direction: 'asc' | 'desc';
 }
 
+type JournalEntry = {
+  date: string
+  description: string
+  entries: {
+    account_id: string
+    amount: number
+    type: 'debit' | 'credit'
+  }[]
+}
+
 const Select = dynamic(() => import('react-select'), { ssr: false })
 
 export default function Page() {
@@ -137,12 +147,10 @@ export default function Page() {
     isOpen: boolean;
     name: string;
     type: string;
-    startingBalance: string;
   }>({
     isOpen: false,
     name: '',
-    type: 'Asset',
-    startingBalance: '0'
+    type: 'Asset'
   });
 
   // Add new state for account names modal
@@ -156,6 +164,81 @@ export default function Page() {
     accounts: [],
     accountToDelete: null,
     deleteConfirmation: ''
+  });
+
+  // Add journal entry modal state
+  const [journalEntryModal, setJournalEntryModal] = useState<{
+    isOpen: boolean;
+    date: string;
+    description: string;
+    entries: {
+      account_id: string;
+      amount: number;
+      type: 'debit' | 'credit';
+    }[];
+  }>({
+    isOpen: false,
+    date: new Date().toISOString().split('T')[0],
+    description: '',
+    entries: []
+  });
+
+  // Add state for past journal entries modal
+  const [pastJournalEntriesModal, setPastJournalEntriesModal] = useState<{
+    isOpen: boolean;
+    entries: {
+      id: string;
+      date: string;
+      description: string;
+      transactions: {
+        account_id: string;
+        account_name: string;
+        amount: number;
+        type: 'debit' | 'credit';
+      }[];
+    }[];
+  }>({
+    isOpen: false,
+    entries: []
+  });
+
+  // Add state for editing past journal entries
+  const [editJournalEntryModal, setEditJournalEntryModal] = useState<{
+    isOpen: boolean;
+    entry: {
+      id: string;
+      date: string;
+      description: string;
+      transactions: {
+        account_id: string;
+        account_name: string;
+        amount: number;
+        type: 'debit' | 'credit';
+      }[];
+    } | null;
+  }>({
+    isOpen: false,
+    entry: null
+  });
+
+  // Add state for past journal entries search
+  const [pastJournalEntriesSearch, setPastJournalEntriesSearch] = useState('');
+
+  // Add function to filter past journal entries
+  const filteredPastJournalEntries = pastJournalEntriesModal.entries.filter(entry => {
+    const searchLower = pastJournalEntriesSearch.toLowerCase();
+    
+    // Search in date
+    if (entry.date.toLowerCase().includes(searchLower)) return true;
+    
+    // Search in description
+    if (entry.description.toLowerCase().includes(searchLower)) return true;
+    
+    // Search in account names and amounts
+    return entry.transactions.some(tx => 
+      tx.account_name.toLowerCase().includes(searchLower) ||
+      tx.amount.toString().includes(searchLower)
+    );
   });
 
   // 1️⃣ Plaid Link Token
@@ -471,6 +554,12 @@ export default function Page() {
     }
   };
 
+  // Find the selected account in chart_of_accounts by plaid_account_id (can be Asset or Liability)
+  const selectedAccount = categories.find(
+    c => c.plaid_account_id === selectedAccountId
+  );
+  const selectedAccountIdInCOA = selectedAccount?.id;
+
   // Update the imported transactions to use sorting
   const imported = sortTransactions(
     importedTransactions
@@ -487,7 +576,15 @@ export default function Page() {
   // Update the confirmed transactions to use sorting
   const confirmed = sortTransactions(
     confirmedTransactions
-      .filter(tx => tx.plaid_account_id === selectedAccountId)
+      .filter(tx => {
+        // Include transactions from the selected account OR manual entries that involve the selected account
+        if (tx.plaid_account_id === selectedAccountId) return true;
+        if (tx.plaid_account_id === 'MANUAL_ENTRY') {
+          // For manual entries, check if the selected account is involved in either debit or credit
+          return tx.debit_account_id === selectedAccountIdInCOA || tx.credit_account_id === selectedAccountIdInCOA;
+        }
+        return false;
+      })
       .filter(tx => {
         if (searchAdded === '') return true;
         
@@ -509,12 +606,6 @@ export default function Page() {
 
   const accountName = accounts.find(a => a.plaid_account_id === selectedAccountId)?.plaid_account_name || ''
   const currentBalance = accounts.find(a => a.plaid_account_id === selectedAccountId)?.current_balance || 0
-
-  // Find the selected account in chart_of_accounts by plaid_account_id (can be Asset or Liability)
-  const selectedAccount = categories.find(
-    c => c.plaid_account_id === selectedAccountId
-  );
-  const selectedAccountIdInCOA = selectedAccount?.id;
 
   // Calculate the Switch (Accounting) Balance for the selected account
   const switchBalance =
@@ -840,8 +931,7 @@ export default function Page() {
     setManualAccountModal({
       isOpen: false,
       name: '',
-      type: 'Asset',
-      startingBalance: '0'
+      type: 'Asset'
     });
 
     // Set the newly created account as selected
@@ -851,26 +941,16 @@ export default function Page() {
 
   // Add function to handle account name updates
   const handleUpdateAccountNames = async () => {
-    try {
-      for (const account of accountNamesModal.accounts) {
-        // Update accounts table
+    for (const account of accountNamesModal.accounts) {
+      if (account.id) {  // Only update if id exists
         await supabase
           .from('accounts')
-          .update({ plaid_account_name: account.name.trim() })
-          .eq('plaid_account_id', account.id);
-
-        // Update chart_of_accounts table
-        await supabase
-          .from('chart_of_accounts')
-          .update({ name: account.name.trim() })
+          .update({ plaid_account_name: account.name })
           .eq('plaid_account_id', account.id);
       }
-
-      setAccountNamesModal({ isOpen: false, accounts: [], accountToDelete: null, deleteConfirmation: '' });
-      refreshAll();
-    } catch (error) {
-      console.error('Error updating account names:', error);
     }
+    refreshAll();
+    setAccountNamesModal({ isOpen: false, accounts: [], accountToDelete: null, deleteConfirmation: '' });
   };
 
   // Add function to handle account deletion
@@ -921,6 +1001,168 @@ export default function Page() {
     }
   };
 
+  // Add function to add a new journal entry line
+  const addJournalEntryLine = () => {
+    setJournalEntryModal(prev => ({
+      ...prev,
+      entries: [...prev.entries, { account_id: '', amount: 0, type: 'debit' }]
+    }));
+  };
+
+  // Add function to remove a journal entry line
+  const removeJournalEntryLine = (index: number) => {
+    setJournalEntryModal(prev => ({
+      ...prev,
+      entries: prev.entries.filter((_, i) => i !== index)
+    }));
+  };
+
+  // Add function to save journal entry
+  const saveJournalEntry = async () => {
+    // Validate that debits equal credits
+    const totalDebits = journalEntryModal.entries
+      .filter(e => e.type === 'debit')
+      .reduce((sum, e) => sum + e.amount, 0);
+    const totalCredits = journalEntryModal.entries
+      .filter(e => e.type === 'credit')
+      .reduce((sum, e) => sum + e.amount, 0);
+
+    if (Math.abs(totalDebits - totalCredits) > 0.01) {
+      alert('Total debits must equal total credits');
+      return;
+    }
+
+    // Create a transaction for each entry
+    for (const entry of journalEntryModal.entries) {
+      await supabase.from('transactions').insert([{
+        date: journalEntryModal.date,
+        description: journalEntryModal.description,
+        amount: entry.amount,
+        debit_account_id: entry.type === 'debit' ? entry.account_id : null,
+        credit_account_id: entry.type === 'credit' ? entry.account_id : null,
+        plaid_account_id: 'MANUAL_ENTRY',  // Special identifier for manual entries
+        plaid_account_name: 'Manual Journal Entry'  // Special identifier for manual entries
+      }]);
+    }
+
+    // Reset modal and refresh data
+    setJournalEntryModal({
+      isOpen: false,
+      date: new Date().toISOString().split('T')[0],
+      description: '',
+      entries: []
+    });
+    refreshAll();
+  };
+
+  // Add function to fetch past journal entries
+  const fetchPastJournalEntries = async () => {
+    const { data: transactions } = await supabase
+      .from('transactions')
+      .select('*')
+      .eq('plaid_account_id', 'MANUAL_ENTRY')
+      .order('date', { ascending: false });
+
+    if (transactions) {
+      // Group transactions by description and date to form journal entries
+      const groupedEntries = transactions.reduce((acc: any, tx) => {
+        const key = `${tx.date}_${tx.description}`;
+        if (!acc[key]) {
+          acc[key] = {
+            id: tx.id,
+            date: tx.date,
+            description: tx.description,
+            transactions: []
+          };
+        }
+        
+        // Find the account name
+        const account = categories.find(c => c.id === (tx.debit_account_id || tx.credit_account_id));
+        
+        acc[key].transactions.push({
+          account_id: tx.debit_account_id || tx.credit_account_id,
+          account_name: account?.name || 'Unknown Account',
+          amount: tx.amount,
+          type: tx.debit_account_id ? 'debit' : 'credit'
+        });
+        
+        return acc;
+      }, {});
+
+      setPastJournalEntriesModal(prev => ({
+        ...prev,
+        entries: Object.values(groupedEntries)
+      }));
+    }
+  };
+
+  // Add function to handle editing journal entry
+  const handleEditJournalEntry = async () => {
+    if (!editJournalEntryModal.entry) return;
+
+    // Validate that debits equal credits
+    const totalDebits = editJournalEntryModal.entry.transactions
+      .filter(tx => tx.type === 'debit')
+      .reduce((sum, tx) => sum + tx.amount, 0);
+    const totalCredits = editJournalEntryModal.entry.transactions
+      .filter(tx => tx.type === 'credit')
+      .reduce((sum, tx) => sum + tx.amount, 0);
+
+    if (Math.abs(totalDebits - totalCredits) > 0.01) {
+      alert('Total debits must equal total credits');
+      return;
+    }
+
+    // Delete existing transactions
+    await supabase
+      .from('transactions')
+      .delete()
+      .eq('plaid_account_id', 'MANUAL_ENTRY')
+      .eq('date', editJournalEntryModal.entry.date)
+      .eq('description', editJournalEntryModal.entry.description);
+
+    // Create new transactions
+    for (const tx of editJournalEntryModal.entry.transactions) {
+      await supabase.from('transactions').insert([{
+        date: editJournalEntryModal.entry.date,
+        description: editJournalEntryModal.entry.description,
+        amount: tx.amount,
+        debit_account_id: tx.type === 'debit' ? tx.account_id : null,
+        credit_account_id: tx.type === 'credit' ? tx.account_id : null,
+        plaid_account_id: 'MANUAL_ENTRY',
+        plaid_account_name: 'Manual Journal Entry'
+      }]);
+    }
+
+    setEditJournalEntryModal({ isOpen: false, entry: null });
+    fetchPastJournalEntries();
+    refreshAll();
+  };
+
+  // Add function to remove a transaction from edit modal
+  const removeEditTransaction = (index: number) => {
+    if (!editJournalEntryModal.entry) return;
+    setEditJournalEntryModal(prev => ({
+      ...prev,
+      entry: prev.entry ? {
+        ...prev.entry,
+        transactions: prev.entry.transactions.filter((_, i) => i !== index)
+      } : null
+    }));
+  };
+
+  // Add function to add a new transaction to edit modal
+  const addEditTransaction = () => {
+    if (!editJournalEntryModal.entry) return;
+    setEditJournalEntryModal(prev => ({
+      ...prev,
+      entry: prev.entry ? {
+        ...prev.entry,
+        transactions: [...prev.entry.transactions, { account_id: '', account_name: '', amount: 0, type: 'debit' }]
+      } : null
+    }));
+  };
+
   // --- RENDER ---
 
   return (
@@ -942,7 +1184,7 @@ export default function Page() {
             Import CSV
           </button>
           <button
-            onClick={() => setManualAccountModal({ isOpen: true, name: '', type: 'Asset', startingBalance: '0' })}
+            onClick={() => setManualAccountModal({ isOpen: true, name: '', type: 'Asset' })}
             className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-600"
           >
             Add Manual Account
@@ -950,16 +1192,24 @@ export default function Page() {
           <button
             onClick={() => setAccountNamesModal({
               isOpen: true,
-              accounts: accounts.map(acc => ({
-                id: acc.plaid_account_id,
-                name: acc.plaid_account_name
-              })),
+              accounts: accounts
+                .filter(acc => acc.plaid_account_id)  // Only include accounts with valid IDs
+                .map(acc => ({
+                  id: acc.plaid_account_id,
+                  name: acc.plaid_account_name
+                })),
               accountToDelete: null,
               deleteConfirmation: ''
             })}
             className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-600"
           >
             Edit Accounts
+          </button>
+          <button
+            onClick={() => setJournalEntryModal(prev => ({ ...prev, isOpen: true }))}
+            className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-600 ml-2"
+          >
+            Add JE
           </button>
         </div>
       </div>
@@ -1489,7 +1739,7 @@ export default function Page() {
       {manualAccountModal.isOpen && (
         <div 
           className="fixed inset-0 backdrop-blur-sm bg-white/30 flex items-center justify-center z-50"
-          onClick={() => setManualAccountModal({ isOpen: false, name: '', type: 'Asset', startingBalance: '0' })}
+          onClick={() => setManualAccountModal({ isOpen: false, name: '', type: 'Asset' })}
         >
           <div 
             className="bg-white rounded-lg p-6 w-[400px] max-h-[80vh] overflow-y-auto shadow-xl"
@@ -1498,7 +1748,7 @@ export default function Page() {
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold">Add New Manual Account</h2>
               <button
-                onClick={() => setManualAccountModal({ isOpen: false, name: '', type: 'Asset', startingBalance: '0' })}
+                onClick={() => setManualAccountModal({ isOpen: false, name: '', type: 'Asset' })}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
                 ×
@@ -1538,29 +1788,13 @@ export default function Page() {
                   <option value="Liability">Liability</option>
                 </select>
               </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Starting Balance
-                </label>
-                <input
-                  type="number"
-                  value={manualAccountModal.startingBalance}
-                  onChange={(e) => setManualAccountModal(prev => ({
-                    ...prev,
-                    startingBalance: e.target.value
-                  }))}
-                  className="w-full border px-2 py-1 rounded"
-                  placeholder="Enter starting balance"
-                />
-              </div>
             </div>
 
             <div className="flex justify-end mt-6">
               <button
                 onClick={createManualAccount}
                 className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
-                disabled={!manualAccountModal.name.trim() || !manualAccountModal.type.trim() || !manualAccountModal.startingBalance.trim()}
+                disabled={!manualAccountModal.name.trim() || !manualAccountModal.type.trim()}
               >
                 Create
               </button>
@@ -1669,14 +1903,482 @@ export default function Page() {
         </div>
       )}
 
+      {/* Journal Entry Modal */}
+      {journalEntryModal.isOpen && (
+        <div className="fixed inset-0 backdrop-blur-sm bg-white/30 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-lg w-[800px] max-h-[80vh] overflow-y-auto shadow-xl">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold">Add Journal Entry</h2>
+              <button
+                onClick={() => setJournalEntryModal(prev => ({ ...prev, isOpen: false }))}
+                className="text-gray-500 hover:text-gray-700 text-xl"
+              >
+                ×
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Date
+                  </label>
+                  <input
+                    type="date"
+                    value={journalEntryModal.date}
+                    onChange={(e) => setJournalEntryModal(prev => ({
+                      ...prev,
+                      date: e.target.value
+                    }))}
+                    className="w-full border px-2 py-1 rounded"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Description
+                  </label>
+                  <input
+                    type="text"
+                    value={journalEntryModal.description}
+                    onChange={(e) => setJournalEntryModal(prev => ({
+                      ...prev,
+                      description: e.target.value
+                    }))}
+                    className="w-full border px-2 py-1 rounded"
+                    placeholder="Enter description"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <h3 className="font-medium">Journal Entries</h3>
+                  <button
+                    onClick={addJournalEntryLine}
+                    className="text-sm text-blue-600 hover:text-blue-800"
+                  >
+                    + Add Line
+                  </button>
+                </div>
+
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Account</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Type</th>
+                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Amount</th>
+                        <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-16"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {journalEntryModal.entries.map((entry, index) => (
+                        <tr key={index}>
+                          <td className="px-4 py-2">
+                            <select
+                              value={entry.account_id}
+                              onChange={(e) => {
+                                const newEntries = [...journalEntryModal.entries];
+                                newEntries[index].account_id = e.target.value;
+                                setJournalEntryModal(prev => ({
+                                  ...prev,
+                                  entries: newEntries
+                                }));
+                              }}
+                              className="w-full border px-2 py-1 rounded"
+                            >
+                              <option value="">Select Account</option>
+                              {categories.map(c => (
+                                <option key={c.id} value={c.id}>{c.name}</option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="px-4 py-2">
+                            <select
+                              value={entry.type}
+                              onChange={(e) => {
+                                const newEntries = [...journalEntryModal.entries];
+                                newEntries[index].type = e.target.value as 'debit' | 'credit';
+                                setJournalEntryModal(prev => ({
+                                  ...prev,
+                                  entries: newEntries
+                                }));
+                              }}
+                              className="w-full border px-2 py-1 rounded"
+                            >
+                              <option value="debit">Debit</option>
+                              <option value="credit">Credit</option>
+                            </select>
+                          </td>
+                          <td className="px-4 py-2">
+                            <input
+                              type="number"
+                              value={entry.amount}
+                              onChange={(e) => {
+                                const newEntries = [...journalEntryModal.entries];
+                                newEntries[index].amount = parseFloat(e.target.value) || 0;
+                                setJournalEntryModal(prev => ({
+                                  ...prev,
+                                  entries: newEntries
+                                }));
+                              }}
+                              className="w-full border px-2 py-1 rounded text-right"
+                              placeholder="0.00"
+                            />
+                          </td>
+                          <td className="px-4 py-2 text-center">
+                            <button
+                              onClick={() => removeJournalEntryLine(index)}
+                              className="text-red-600 hover:text-red-800"
+                            >
+                              ×
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="bg-gray-50">
+                      <tr>
+                        <td colSpan={2} className="px-4 py-2 text-sm font-medium text-gray-900">
+                          Total Debits: ${journalEntryModal.entries
+                            .filter(e => e.type === 'debit')
+                            .reduce((sum, e) => sum + e.amount, 0)
+                            .toFixed(2)}
+                        </td>
+                        <td colSpan={2} className="px-4 py-2 text-sm font-medium text-gray-900 text-right">
+                          Total Credits: ${journalEntryModal.entries
+                            .filter(e => e.type === 'credit')
+                            .reduce((sum, e) => sum + e.amount, 0)
+                            .toFixed(2)}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end mt-6 gap-2">
+              <button
+                onClick={() => {
+                  fetchPastJournalEntries();
+                  setPastJournalEntriesModal(prev => ({ ...prev, isOpen: true }));
+                }}
+                className="px-4 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50"
+              >
+                View Past Entries
+              </button>
+              <button
+                onClick={() => setJournalEntryModal(prev => ({ ...prev, isOpen: false }))}
+                className="px-4 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveJournalEntry}
+                className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
+                disabled={!journalEntryModal.description.trim() || journalEntryModal.entries.length === 0}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Past Journal Entries Modal */}
+      {pastJournalEntriesModal.isOpen && (
+        <div className="fixed inset-0 backdrop-blur-sm bg-white/30 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-lg w-[800px] max-h-[80vh] overflow-y-auto shadow-xl">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold">Past Journal Entries</h2>
+              <button
+                onClick={() => setPastJournalEntriesModal(prev => ({ ...prev, isOpen: false }))}
+                className="text-gray-500 hover:text-gray-700 text-xl"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="mb-4">
+              <input
+                type="text"
+                placeholder="Search by date, description, account, or amount..."
+                value={pastJournalEntriesSearch}
+                onChange={(e) => setPastJournalEntriesSearch(e.target.value)}
+                className="w-full border px-3 py-2 rounded"
+              />
+            </div>
+
+            <div className="space-y-6">
+              {filteredPastJournalEntries.map((entry, index) => (
+                <div key={index} className="border rounded-lg p-4">
+                  <div className="flex justify-between items-center mb-2">
+                    <div>
+                      <span className="font-medium">{entry.date}</span>
+                      <span className="mx-2">-</span>
+                      <span>{entry.description}</span>
+                    </div>
+                    <button
+                      onClick={() => setEditJournalEntryModal({ isOpen: true, entry })}
+                      className="text-blue-600 hover:text-blue-800 px-2 py-1"
+                    >
+                      Edit
+                    </button>
+                  </div>
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-2">Account</th>
+                        <th className="text-center py-2">Type</th>
+                        <th className="text-right py-2">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {entry.transactions.map((tx, txIndex) => (
+                        <tr key={txIndex} className="border-b">
+                          <td className="py-2">{tx.account_name}</td>
+                          <td className="text-center py-2 capitalize">{tx.type}</td>
+                          <td className="text-right py-2">${tx.amount.toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ))}
+              {filteredPastJournalEntries.length === 0 && (
+                <div className="text-center text-gray-500 py-4">
+                  {pastJournalEntriesSearch ? 'No matching journal entries found.' : 'No journal entries found.'}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Journal Entry Modal */}
+      {editJournalEntryModal.isOpen && editJournalEntryModal.entry && (
+        <div className="fixed inset-0 backdrop-blur-sm bg-white/30 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-lg w-[800px] max-h-[80vh] overflow-y-auto shadow-xl">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold">Edit Journal Entry</h2>
+              <button
+                onClick={() => setEditJournalEntryModal({ isOpen: false, entry: null })}
+                className="text-gray-500 hover:text-gray-700 text-xl"
+              >
+                ×
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Date
+                  </label>
+                  <input
+                    type="date"
+                    value={editJournalEntryModal.entry.date}
+                    onChange={(e) => setEditJournalEntryModal(prev => ({
+                      ...prev,
+                      entry: prev.entry ? {
+                        ...prev.entry,
+                        date: e.target.value
+                      } : null
+                    }))}
+                    className="w-full border px-2 py-1 rounded"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Description
+                  </label>
+                  <input
+                    type="text"
+                    value={editJournalEntryModal.entry.description}
+                    onChange={(e) => setEditJournalEntryModal(prev => ({
+                      ...prev,
+                      entry: prev.entry ? {
+                        ...prev.entry,
+                        description: e.target.value
+                      } : null
+                    }))}
+                    className="w-full border px-2 py-1 rounded"
+                    placeholder="Enter description"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <h3 className="font-medium">Journal Entries</h3>
+                  <button
+                    onClick={addEditTransaction}
+                    className="text-sm text-blue-600 hover:text-blue-800"
+                  >
+                    + Add Line
+                  </button>
+                </div>
+
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Account</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Type</th>
+                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Amount</th>
+                        <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-16"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {editJournalEntryModal.entry.transactions.map((tx, index) => (
+                        <tr key={index}>
+                          <td className="px-4 py-2">
+                            <select
+                              value={tx.account_id}
+                              onChange={(e) => {
+                                const newTransactions = [...editJournalEntryModal.entry!.transactions];
+                                newTransactions[index].account_id = e.target.value;
+                                newTransactions[index].account_name = categories.find(c => c.id === e.target.value)?.name || '';
+                                setEditJournalEntryModal(prev => ({
+                                  ...prev,
+                                  entry: prev.entry ? {
+                                    ...prev.entry,
+                                    transactions: newTransactions
+                                  } : null
+                                }));
+                              }}
+                              className="w-full border px-2 py-1 rounded"
+                            >
+                              <option value="">Select Account</option>
+                              {categories.map(c => (
+                                <option key={c.id} value={c.id}>{c.name}</option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="px-4 py-2">
+                            <select
+                              value={tx.type}
+                              onChange={(e) => {
+                                const newTransactions = [...editJournalEntryModal.entry!.transactions];
+                                newTransactions[index].type = e.target.value as 'debit' | 'credit';
+                                setEditJournalEntryModal(prev => ({
+                                  ...prev,
+                                  entry: prev.entry ? {
+                                    ...prev.entry,
+                                    transactions: newTransactions
+                                  } : null
+                                }));
+                              }}
+                              className="w-full border px-2 py-1 rounded"
+                            >
+                              <option value="debit">Debit</option>
+                              <option value="credit">Credit</option>
+                            </select>
+                          </td>
+                          <td className="px-4 py-2">
+                            <input
+                              type="number"
+                              value={tx.amount}
+                              onChange={(e) => {
+                                const newTransactions = [...editJournalEntryModal.entry!.transactions];
+                                newTransactions[index].amount = parseFloat(e.target.value) || 0;
+                                setEditJournalEntryModal(prev => ({
+                                  ...prev,
+                                  entry: prev.entry ? {
+                                    ...prev.entry,
+                                    transactions: newTransactions
+                                  } : null
+                                }));
+                              }}
+                              className="w-full border px-2 py-1 rounded text-right"
+                              placeholder="0.00"
+                            />
+                          </td>
+                          <td className="px-4 py-2 text-center">
+                            <button
+                              onClick={() => removeEditTransaction(index)}
+                              className="text-red-600 hover:text-red-800"
+                            >
+                              ×
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="bg-gray-50">
+                      <tr>
+                        <td colSpan={2} className="px-4 py-2 text-sm font-medium text-gray-900">
+                          Total Debits: ${editJournalEntryModal.entry.transactions
+                            .filter(tx => tx.type === 'debit')
+                            .reduce((sum, tx) => sum + tx.amount, 0)
+                            .toFixed(2)}
+                        </td>
+                        <td colSpan={2} className="px-4 py-2 text-sm font-medium text-gray-900 text-right">
+                          Total Credits: ${editJournalEntryModal.entry.transactions
+                            .filter(tx => tx.type === 'credit')
+                            .reduce((sum, tx) => sum + tx.amount, 0)
+                            .toFixed(2)}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end mt-6 gap-2">
+              <button
+                onClick={() => setEditJournalEntryModal({ isOpen: false, entry: null })}
+                className="px-4 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleEditJournalEntry}
+                className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
+                disabled={!editJournalEntryModal.entry.description.trim() || editJournalEntryModal.entry.transactions.length === 0}
+              >
+                Save Changes
+              </button>
+              <button
+                onClick={async () => {
+                  if (!window.confirm('Are you sure you want to delete this journal entry? This cannot be undone.')) return;
+                  await supabase
+                    .from('transactions')
+                    .delete()
+                    .eq('plaid_account_id', 'MANUAL_ENTRY')
+                    .eq('date', editJournalEntryModal.entry.date)
+                    .eq('description', editJournalEntryModal.entry.description);
+                  setEditJournalEntryModal({ isOpen: false, entry: null });
+                  fetchPastJournalEntries();
+                  refreshAll();
+                }}
+                className="px-4 py-2 text-sm bg-red-600 text-white rounded hover:bg-red-700"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex gap-8">
         {/* To Add */}
         <div className="w-1/2 space-y-2">
           <h2 className="font-semibold text-lg mb-1 flex items-center">
             To Add
-            <span className="ml-4 text-gray-500 text-base font-normal">
-              (Current Balance: ${currentBalance.toFixed(2)})
-            </span>
+            {(() => {
+              const selected = accounts.find(a => a.plaid_account_id === selectedAccountId);
+              if (!selected || selected.is_manual) return null;
+              return (
+                <span className="ml-4 text-gray-500 text-base font-normal">
+                  (Current Balance: ${currentBalance.toFixed(2)})
+                </span>
+              );
+            })()}
           </h2>
           <input
             type="text"
@@ -1928,7 +2630,7 @@ export default function Page() {
                     </td>
                     <td className="border p-1 w-8 text-center">{formatDate(tx.date)}</td>
                     <td className="border p-1 w-8 text-center" style={{ minWidth: 250 }}>{tx.description}</td>
-                    <td className="border p-1 w-8 text-center">{tx.amount}</td>
+                    <td className="border p-1 w-8 text-center">{getDisplayAmount(tx, category)}</td>
                     <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>{category ? category.name : 'Uncategorized'}</td>
                     <td className="border p-1 w-8 text-center">
                       <button
