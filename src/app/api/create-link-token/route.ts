@@ -8,10 +8,10 @@ export async function GET() {
         client_user_id: 'unique-user-id', // static for now
       },
       client_name: 'Your Accounting App',
-      products: ['transactions'],
-      country_codes: ['US'],
+      products: [(process.env.PLAID_PRODUCTS as any) || 'transactions'],
+      country_codes: [(process.env.PLAID_COUNTRY_CODE as any) || 'US'],
       language: 'en',
-      redirect_uri: 'http://localhost:3000', // only needed if you're using OAuth, fine to leave
+      redirect_uri: process.env.PLAID_REDIRECT_URI, // use env variable!
     })
 
     return NextResponse.json({ link_token: response.data.link_token })
