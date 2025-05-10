@@ -16,6 +16,8 @@ type Transaction = {
   plaid_account_name: string | null
   debit_account_id?: string
   credit_account_id?: string
+  spent?: number
+  received?: number
 }
 
 type Category = {
@@ -397,14 +399,17 @@ export default function Page() {
     await supabase.from('transactions').insert([{
       date: tx.date,
       description: tx.description,
-      amount: tx.amount,
+      spent: tx.spent ?? 0,
+      received: tx.received ?? 0,
       debit_account_id,
       credit_account_id,
       plaid_account_id: tx.plaid_account_id,
       plaid_account_name: tx.plaid_account_name,
     }]);
 
+    // Remove from imported_transactions
     await supabase.from('imported_transactions').delete().eq('id', tx.id);
+
     refreshAll();
   };
 
@@ -608,14 +613,10 @@ export default function Page() {
   const currentBalance = accounts.find(a => a.plaid_account_id === selectedAccountId)?.current_balance || 0
 
   // Calculate the Switch (Accounting) Balance for the selected account
-  const switchBalance =
-    confirmedTransactions
-      .filter(tx => tx.debit_account_id === selectedAccountIdInCOA)
-      .reduce((sum, tx) => sum + Number(tx.amount), 0)
-    -
-    confirmedTransactions
-      .filter(tx => tx.credit_account_id === selectedAccountIdInCOA)
-      .reduce((sum, tx) => sum + Number(tx.amount), 0);
+  // Simply total received minus total spent
+  const switchBalance = confirmedTransactions.reduce((sum, tx) => {
+    return sum + (tx.received ?? 0) - (tx.spent ?? 0);
+  }, 0);
 
   // Helper to get the display amount for a transaction relative to the selected account
   function getDisplayAmountForSelectedAccount(tx: Transaction, selectedAccountIdInCOA: string | undefined) {
@@ -2412,12 +2413,8 @@ export default function Page() {
                 >
                   Description {toAddSortConfig.key === 'description' && (toAddSortConfig.direction === 'asc' ? '↑' : '↓')}
                 </th>
-                <th 
-                  className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
-                  onClick={() => handleSort('amount', 'toAdd')}
-                >
-                  Amount {toAddSortConfig.key === 'amount' && (toAddSortConfig.direction === 'asc' ? '↑' : '↓')}
-                </th>
+                <th className="border p-1 w-8 text-center">Spent</th>
+                <th className="border p-1 w-8 text-center">Received</th>
                 <th className="border p-1 w-8 text-center">Category</th>
                 <th className="border p-1 w-8 text-center">Action</th>
               </tr>
@@ -2445,7 +2442,8 @@ export default function Page() {
                     </td>
                     <td className="border p-1 w-8 text-center">{formatDate(tx.date)}</td>
                     <td className="border p-1 w-8 text-center" style={{ minWidth: 250 }}>{tx.description}</td>
-                    <td className="border p-1 w-8 text-center">{getDisplayAmountForSelectedAccount(tx, selectedAccountIdInCOA)}</td>
+                    <td className="border p-1 w-8 text-center">{tx.spent ? `$${tx.spent.toFixed(2)}` : ''}</td>
+                    <td className="border p-1 w-8 text-center">{tx.received ? `$${tx.received.toFixed(2)}` : ''}</td>
                     <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
                       <Select
                         options={categoryOptions}
@@ -2546,9 +2544,6 @@ export default function Page() {
         <div className="w-1/2 space-y-2">
           <h2 className="font-semibold text-lg mb-1 flex items-center">
             Added
-            <span className="ml-4 text-gray-500 text-base font-normal">
-              (Switch Balance: ${switchBalance.toFixed(2)})
-            </span>
           </h2>
           <input
             type="text"
@@ -2586,12 +2581,8 @@ export default function Page() {
                 >
                   Description {addedSortConfig.key === 'description' && (addedSortConfig.direction === 'asc' ? '↑' : '↓')}
                 </th>
-                <th 
-                  className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
-                  onClick={() => handleSort('amount', 'added')}
-                >
-                  Amount {addedSortConfig.key === 'amount' && (addedSortConfig.direction === 'asc' ? '↑' : '↓')}
-                </th>
+                <th className="border p-1 w-8 text-center">Spent</th>
+                <th className="border p-1 w-8 text-center">Received</th>
                 <th className="border p-1 w-8 text-center">Category</th>
                 <th className="border p-1 w-8 text-center">Undo</th>
               </tr>
@@ -2629,7 +2620,8 @@ export default function Page() {
                     </td>
                     <td className="border p-1 w-8 text-center">{formatDate(tx.date)}</td>
                     <td className="border p-1 w-8 text-center" style={{ minWidth: 250 }}>{tx.description}</td>
-                    <td className="border p-1 w-8 text-center">{tx.amount}</td>
+                    <td className="border p-1 w-8 text-center">{tx.spent ? `$${tx.spent.toFixed(2)}` : ''}</td>
+                    <td className="border p-1 w-8 text-center">{tx.received ? `$${tx.received.toFixed(2)}` : ''}</td>
                     <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>{category ? category.name : 'Uncategorized'}</td>
                     <td className="border p-1 w-8 text-center">
                       <button
