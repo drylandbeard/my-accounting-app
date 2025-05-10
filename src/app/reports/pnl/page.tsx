@@ -16,7 +16,8 @@ type Transaction = {
   id: string
   date: string
   description: string
-  amount: number
+  spent: number
+  received: number
   debit_account_id: string
   credit_account_id: string
 }
@@ -166,15 +167,11 @@ export default function Page() {
     if (account.type === 'Revenue') {
       return transactions
         .filter(tx => tx.credit_account_id === account.id)
-        .reduce((sum, tx) => sum + Number(tx.amount), 0)
-    } else if (account.type === 'Expense') {
+        .reduce((sum, tx) => sum + Number(tx.received), 0)
+    } else if (account.type === 'Expense' || account.type === 'COGS') {
       return transactions
         .filter(tx => tx.debit_account_id === account.id)
-        .reduce((sum, tx) => sum + -Number(tx.amount), 0)
-    } else if (account.type === 'COGS') {
-      return transactions
-        .filter(tx => tx.debit_account_id === account.id)
-        .reduce((sum, tx) => sum + -Number(tx.amount), 0)
+        .reduce((sum, tx) => sum + Number(tx.spent), 0)
     }
     return 0
   }
@@ -376,7 +373,8 @@ export default function Page() {
         .update({
           date: updatedTx.date,
           description: updatedTx.description,
-          amount: updatedTx.amount,
+          spent: updatedTx.spent,
+          received: updatedTx.received,
           debit_account_id: updatedTx.debit_account_id,
           credit_account_id: updatedTx.credit_account_id
         })
@@ -435,15 +433,11 @@ export default function Page() {
     if (account.type === 'Revenue') {
       return monthTransactions
         .filter(tx => tx.credit_account_id === account.id)
-        .reduce((sum, tx) => sum + Number(tx.amount), 0)
-    } else if (account.type === 'Expense') {
+        .reduce((sum, tx) => sum + Number(tx.received), 0)
+    } else if (account.type === 'Expense' || account.type === 'COGS') {
       return monthTransactions
         .filter(tx => tx.debit_account_id === account.id)
-        .reduce((sum, tx) => sum + -Number(tx.amount), 0)
-    } else if (account.type === 'COGS') {
-      return monthTransactions
-        .filter(tx => tx.debit_account_id === account.id)
-        .reduce((sum, tx) => sum + -Number(tx.amount), 0)
+        .reduce((sum, tx) => sum + Number(tx.spent), 0)
     }
     return 0
   }
@@ -476,15 +470,11 @@ export default function Page() {
     if (account.type === 'Revenue') {
       return rangeTransactions
         .filter(tx => tx.credit_account_id === account.id)
-        .reduce((sum, tx) => sum + Number(tx.amount), 0)
-    } else if (account.type === 'Expense') {
+        .reduce((sum, tx) => sum + Number(tx.received), 0)
+    } else if (account.type === 'Expense' || account.type === 'COGS') {
       return rangeTransactions
         .filter(tx => tx.debit_account_id === account.id)
-        .reduce((sum, tx) => sum + -Number(tx.amount), 0)
-    } else if (account.type === 'COGS') {
-      return rangeTransactions
-        .filter(tx => tx.debit_account_id === account.id)
-        .reduce((sum, tx) => sum + -Number(tx.amount), 0)
+        .reduce((sum, tx) => sum + Number(tx.spent), 0)
     }
     return 0
   }
@@ -1075,13 +1065,13 @@ export default function Page() {
                             <input
                               type="text"
                               inputMode="decimal"
-                              value={editingTransaction.amount === 0 ? '' : editingTransaction.amount.toString()}
+                              value={editingTransaction.spent === 0 ? '' : editingTransaction.spent.toString()}
                               onChange={(e) => {
                                 const value = e.target.value;
                                 if (value === '' || value === '-' || /^-?\d*\.?\d{0,2}$/.test(value)) {
                                   setEditingTransaction(prev => prev ? {
                                     ...prev,
-                                    amount: value === '' || value === '-' ? 0 : parseFloat(value)
+                                    spent: value === '' || value === '-' ? 0 : parseFloat(value)
                                   } : null)
                                 }
                               }}
@@ -1108,7 +1098,7 @@ export default function Page() {
                           <td className="p-2">{tx.date}</td>
                           <td className="p-2">{tx.description}</td>
                           <td className="p-2">{viewerModal.category ? getCategoryName(tx, viewerModal.category) : ''}</td>
-                          <td className="p-2 text-right">{Number(tx.amount).toFixed(2)}</td>
+                          <td className="p-2 text-right">{Number(tx.spent).toFixed(2)}</td>
                           <td className="p-2 text-center">
                             <button
                               onClick={() => setEditingTransaction(tx)}
@@ -1126,7 +1116,7 @@ export default function Page() {
                       <td colSpan={3} className="p-2 text-right">Total</td>
                       <td className="p-2 text-right">
                         {selectedCategoryTransactions
-                          .reduce((sum, tx) => sum + Number(tx.amount), 0)
+                          .reduce((sum, tx) => sum + Number(tx.spent), 0)
                           .toFixed(2)}
                       </td>
                       <td></td>
@@ -1221,7 +1211,7 @@ export default function Page() {
                 <input
                   type="text"
                   inputMode="decimal"
-                  value={editModal.transaction.amount === 0 ? '' : editModal.transaction.amount.toString()}
+                  value={editModal.transaction.spent === 0 ? '' : editModal.transaction.spent.toString()}
                   onChange={(e) => {
                     const value = e.target.value;
                     // Allow empty string, minus sign, and numbers with up to 2 decimal places
@@ -1230,7 +1220,7 @@ export default function Page() {
                         ...prev,
                         transaction: prev.transaction ? {
                           ...prev.transaction,
-                          amount: value === '' || value === '-' ? 0 : parseFloat(value)
+                          spent: value === '' || value === '-' ? 0 : parseFloat(value)
                         } : null
                       }))
                     }

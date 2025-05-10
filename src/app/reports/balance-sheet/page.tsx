@@ -16,7 +16,8 @@ type Transaction = {
   id: string
   date: string
   description: string
-  amount: number
+  spent: number
+  received: number
   debit_account_id: string
   credit_account_id: string
 }
@@ -45,6 +46,11 @@ export default function BalanceSheetPage() {
       }
       const { data: transactionsData } = await txQuery
       setTransactions(transactionsData || [])
+
+      // Debug logs
+      const assetRows = (accountsData || []).filter(a => a.type === 'Asset' && !a.parent_id)
+      console.log('DEBUG: assetRows', assetRows)
+      console.log('DEBUG: transactions', transactionsData)
     }
     if (asOfDate) fetchData()
   }, [asOfDate])
@@ -56,19 +62,21 @@ export default function BalanceSheetPage() {
   const calculateAccountTotal = (account: Account): number => {
     let total = 0
     if (account.type === 'Asset') {
-      total = transactions
+      const totalDebits = transactions
         .filter(tx => tx.debit_account_id === account.id)
-        .reduce((sum, tx) => sum + Number(tx.amount), 0)
-      total -= transactions
+        .reduce((sum, tx) => sum + Number(tx.received), 0);
+      const totalCredits = transactions
         .filter(tx => tx.credit_account_id === account.id)
-        .reduce((sum, tx) => sum + Number(tx.amount), 0)
+        .reduce((sum, tx) => sum + Number(tx.spent), 0);
+      total = totalDebits - totalCredits;
     } else if (account.type === 'Liability' || account.type === 'Equity') {
-      total = transactions
+      const totalCredits = transactions
         .filter(tx => tx.credit_account_id === account.id)
-        .reduce((sum, tx) => sum + Number(tx.amount), 0)
-      total -= transactions
+        .reduce((sum, tx) => sum + Number(tx.spent), 0);
+      const totalDebits = transactions
         .filter(tx => tx.debit_account_id === account.id)
-        .reduce((sum, tx) => sum + Number(tx.amount), 0)
+        .reduce((sum, tx) => sum + Number(tx.received), 0);
+      total = totalCredits - totalDebits;
     }
     // Add subaccounts' totals
     const subaccounts = getSubaccounts(account.id)
@@ -80,25 +88,25 @@ export default function BalanceSheetPage() {
 
   const calculateAccountDirectTotal = (account: Account): number => {
     if (account.type === 'Asset') {
-      return (
-        transactions
-          .filter(tx => tx.debit_account_id === account.id)
-          .reduce((sum, tx) => sum + Number(tx.amount), 0) +
-        transactions
-          .filter(tx => tx.credit_account_id === account.id)
-          .reduce((sum, tx) => sum + Number(tx.amount), 0)
-      )
+      return transactions.reduce((sum, tx) => {
+        if (tx.debit_account_id === account.id) {
+          return sum + (tx.received ?? 0) - (tx.spent ?? 0);
+        }
+        if (tx.credit_account_id === account.id) {
+          return sum + (tx.spent ?? 0) - (tx.received ?? 0);
+        }
+        return sum;
+      }, 0);
     } else if (account.type === 'Liability' || account.type === 'Equity') {
-      return (
-        transactions
-          .filter(tx => tx.credit_account_id === account.id)
-          .reduce((sum, tx) => sum + Number(tx.amount), 0) -
-        transactions
-          .filter(tx => tx.debit_account_id === account.id)
-          .reduce((sum, tx) => sum + Number(tx.amount), 0)
-      )
+      const totalCredits = transactions
+        .filter(tx => tx.credit_account_id === account.id)
+        .reduce((sum, tx) => sum + Number(tx.spent), 0);
+      const totalDebits = transactions
+        .filter(tx => tx.debit_account_id === account.id)
+        .reduce((sum, tx) => sum + Number(tx.received), 0);
+      return totalCredits - totalDebits;
     }
-    return 0
+    return 0;
   }
 
   const getAllAccountIds = (account: Account): string[] => {
@@ -116,7 +124,7 @@ export default function BalanceSheetPage() {
     const rollupTotal = calculateAccountTotal(account)
     const isParent = subaccounts.length > 0
 
-    if (rollupTotal === 0) return null
+    // if (rollupTotal === 0) return null
 
     return (
       <>
@@ -129,7 +137,7 @@ export default function BalanceSheetPage() {
             {account.name}
           </td>
           <td className="border p-1 text-right">
-            {directTotal !== 0 ? directTotal.toFixed(2) : ''}
+            {directTotal.toFixed(2)}
           </td>
         </tr>
         {subaccounts.map(sub =>
@@ -170,12 +178,12 @@ export default function BalanceSheetPage() {
         // Revenue: sum credits
         return sum + transactions
           .filter(tx => tx.credit_account_id === acc.id)
-          .reduce((s, tx) => s + Number(tx.amount), 0)
+          .reduce((s, tx) => s + Number(tx.received), 0)
       } else if (type === 'COGS' || type === 'Expense') {
         // COGS/Expense: sum debits
         return sum + transactions
           .filter(tx => tx.debit_account_id === acc.id)
-          .reduce((s, tx) => s + Number(tx.amount), 0)
+          .reduce((s, tx) => s + Number(tx.spent), 0)
       }
       return sum
     }, 0)
@@ -183,7 +191,7 @@ export default function BalanceSheetPage() {
   const totalRevenue = calculatePLTotal(revenueAccounts, 'Revenue')
   const totalCOGS = calculatePLTotal(cogsAccounts, 'COGS')
   const totalExpenses = calculatePLTotal(expenseAccounts, 'Expense')
-  const netIncome = totalRevenue + totalCOGS + totalExpenses
+  const netIncome = totalRevenue - totalCOGS - totalExpenses
 
   // Totals
   const totalAssets = assetRows.reduce((sum, a) => sum + calculateAccountTotal(a), 0)
@@ -330,7 +338,9 @@ export default function BalanceSheetPage() {
                       <tr key={tx.id}>
                         <td>{tx.date}</td>
                         <td>{tx.description}</td>
-                        <td className="text-right">{Number(tx.amount).toFixed(2)}</td>
+                        <td className="text-right">
+                          {tx.spent ? `-$${Number(tx.spent).toFixed(2)}` : tx.received ? `$${Number(tx.received).toFixed(2)}` : ''}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

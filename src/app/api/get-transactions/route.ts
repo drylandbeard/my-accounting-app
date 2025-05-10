@@ -78,23 +78,29 @@ export async function POST(req: Request) {
         acc => acc.account_id === account_id
       )?.name || null;
 
-      // Check for duplicates
+      // Use amount sign to determine spent/received
+      const spent = amount > 0 ? amount : 0;
+      const received = amount < 0 ? Math.abs(amount) : 0;
+
+      // Check for duplicates (using spent/received)
       const { data: existing } = await supabase
         .from('imported_transactions')
         .select('id')
         .eq('plaid_account_id', account_id)
         .eq('description', name)
         .eq('date', date)
-        .eq('amount', amount);
+        .eq('spent', spent)
+        .eq('received', received);
 
       if (!existing || existing.length === 0) {
         const { error: insertError } = await supabase.from('imported_transactions').insert([{
           date,
           description: name,
-          amount: -amount, // (expenses as negative, income as positive)
+          spent,
+          received,
           plaid_account_id: account_id,
           item_id, // Link to plaid_items
-          plaid_account_name: accountName // <-- now set correctly!
+          plaid_account_name: accountName
         }]);
         if (insertError) console.error('Error inserting transaction:', insertError);
       }
