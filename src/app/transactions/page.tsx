@@ -410,6 +410,8 @@ export default function Page() {
     // Remove from imported_transactions
     await supabase.from('imported_transactions').delete().eq('id', tx.id);
 
+    await fetch('/api/sync-journal', { method: 'POST' });
+
     refreshAll();
   };
 
@@ -425,6 +427,7 @@ export default function Page() {
 
     // Remove from transactions
     await supabase.from('transactions').delete().eq('id', tx.id);
+    await fetch('/api/sync-journal', { method: 'POST' });
     refreshAll();
   };
 
@@ -499,6 +502,8 @@ export default function Page() {
       plaid_account_id: selectedAccountId,
       plaid_account_name: accounts.find(acc => acc.plaid_account_id === selectedAccountId)?.plaid_account_name || ''
     }]);
+
+    await fetch('/api/sync-journal', { method: 'POST' });
 
     setManualDate('');
     setManualDescription('');
@@ -846,6 +851,8 @@ export default function Page() {
       })
       .eq('id', editModal.transaction.id);
 
+    await fetch('/api/sync-journal', { method: 'POST' });
+
     setEditModal({ isOpen: false, transaction: null });
     refreshAll();
   };
@@ -1130,6 +1137,8 @@ export default function Page() {
         plaid_account_name: 'Manual Journal Entry'
       }]);
     }
+
+    await fetch('/api/sync-journal', { method: 'POST' });
 
     setEditJournalEntryModal({ isOpen: false, entry: null });
     fetchPastJournalEntries();
