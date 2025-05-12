@@ -1,68 +1,87 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { NextResponse } from 'next/server';
+import { supabase } from '../../../lib/supabaseClient';
+import { v4 as uuidv4 } from 'uuid';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+export async function POST() {
+  // 1. Fetch all transactions
+  const { data: transactions, error: txError } = await supabase
+    .from('transactions')
+    .select('*');
 
-export async function POST(req: NextRequest) {
-  try {
-    // 1. Fetch all transactions
-    const { data: transactions, error: txError } = await supabase
-      .from('transactions')
-      .select('*');
-
-    if (txError) {
-      return NextResponse.json({ error: txError.message }, { status: 500 });
-    }
-
-    let totalJournalRows = 0;
-
-    for (const tx of transactions) {
-      // Remove any existing journal entries for this transaction
-      await supabase
-        .from('journal')
-        .delete()
-        .eq('transaction_id', tx.id);
-
-      // Determine the amount (either spent or received)
-      const amount = Number(tx.spent) > 0 ? Number(tx.spent) : Number(tx.received);
-
-      // Prepare journal rows
-      const journalRows = [
-        {
-          transaction_id: tx.id,
-          date: tx.date,
-          description: tx.description,
-          account_id: tx.debit_account_id,
-          debit: amount,
-          credit: 0
-        },
-        {
-          transaction_id: tx.id,
-          date: tx.date,
-          description: tx.description,
-          account_id: tx.credit_account_id,
-          debit: 0,
-          credit: amount
-        }
-      ];
-
-      // Insert new journal rows
-      const { error: journalError } = await supabase
-        .from('journal')
-        .insert(journalRows);
-
-      if (journalError) {
-        return NextResponse.json({ error: journalError.message }, { status: 500 });
-      }
-
-      totalJournalRows += 2;
-    }
-
-    return NextResponse.json({ success: true, totalJournalRows });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message || 'Unknown error' }, { status: 500 });
+  if (txError) {
+    console.error('Error fetching transactions:', txError.message);
+    return NextResponse.json({ error: 'Error fetching transactions: ' + txError.message }, { status: 500 });
   }
-} 
+  if (!transactions || transactions.length === 0) {
+    console.warn('No transactions found.');
+    return NextResponse.json({ error: 'No transactions found.' }, { status: 400 });
+  }
+
+  // 2. Clear the journal table
+  const { error: clearError } = await supabase.from('journal').delete().not('id', 'is', null);
+  if (clearError) {
+    console.error('Error clearing journal table:', clearError.message);
+    return NextResponse.json({ error: 'Error clearing journal table: ' + clearError.message }, { status: 500 });
+  }
+
+  // 3. Prepare new journal entries with clear logic
+  const journalEntries = [];
+  for (const tx of transactions) {
+    // If spent > 0: debit selected, credit corresponding
+    if (tx.spent && tx.spent > 0) {
+      journalEntries.push({
+        id: uuidv4(),
+        transaction_id: tx.id,
+        date: tx.date,
+        description: tx.description,
+        chart_account_id: tx.selected_category_id,
+        debit: tx.spent,
+        credit: 0,
+      });
+      journalEntries.push({
+        id: uuidv4(),
+        transaction_id: tx.id,
+        date: tx.date,
+        description: tx.description,
+        chart_account_id: tx.corresponding_category_id,
+        debit: 0,
+        credit: tx.spent,
+      });
+    }
+    // If received > 0: credit selected, debit corresponding
+    if (tx.received && tx.received > 0) {
+      journalEntries.push({
+        id: uuidv4(),
+        transaction_id: tx.id,
+        date: tx.date,
+        description: tx.description,
+        chart_account_id: tx.selected_category_id,
+        debit: 0,
+        credit: tx.received,
+      });
+      journalEntries.push({
+        id: uuidv4(),
+        transaction_id: tx.id,
+        date: tx.date,
+        description: tx.description,
+        chart_account_id: tx.corresponding_category_id,
+        debit: tx.received,
+        credit: 0,
+      });
+    }
+  }
+
+  if (journalEntries.length === 0) {
+    console.warn('No journal entries to insert.');
+    return NextResponse.json({ error: 'No journal entries to insert.' }, { status: 400 });
+  }
+
+  // 4. Insert new journal entries
+  const { error: insertError } = await supabase.from('journal').insert(journalEntries);
+  if (insertError) {
+    console.error('Error inserting journal entries:', insertError.message);
+    return NextResponse.json({ error: 'Error inserting journal entries: ' + insertError.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ status: 'success', transactions: transactions.length, journalEntries: journalEntries.length });
+}

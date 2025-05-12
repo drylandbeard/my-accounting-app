@@ -14,8 +14,8 @@ type Transaction = {
   amount: number
   plaid_account_id: string | null
   plaid_account_name: string | null
-  debit_account_id?: string
-  credit_account_id?: string
+  selected_category_id?: string
+  corresponding_category_id?: string
   spent?: number
   received?: number
 }
@@ -72,28 +72,29 @@ const Select = dynamic(() => import('react-select'), { ssr: false })
 
 export default function Page() {
   const [linkToken, setLinkToken] = useState<string | null>(null)
-  const [importedTransactions, setImportedTransactions] = useState<Transaction[]>([])
-  const [confirmedTransactions, setConfirmedTransactions] = useState<Transaction[]>([])
-  const [categories, setCategories] = useState<Category[]>([])
-  const [accounts, setAccounts] = useState<Account[]>([])
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null)
-
-  // Manual transaction state (single set, not per row!)
+  const [accounts, setAccounts] = useState<Account[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
+  const [importedTransactions, setImportedTransactions] = useState<Transaction[]>([])
+  const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [searchQuery, setSearchQuery] = useState('')
   const [manualDate, setManualDate] = useState('')
   const [manualDescription, setManualDescription] = useState('')
   const [manualAmount, setManualAmount] = useState('')
   const [manualCategoryId, setManualCategoryId] = useState('')
 
+  // Add selected categories state
   const [selectedCategories, setSelectedCategories] = useState<{ [txId: string]: string }>({});
 
-  // Search state
-  const [searchToAdd, setSearchToAdd] = useState('');
-  const [searchAdded, setSearchAdded] = useState('');
+  // Add missing state for multi-select checkboxes
+  const [selectedToAdd, setSelectedToAdd] = useState<Set<string>>(new Set());
+  const [selectedAdded, setSelectedAdded] = useState<Set<string>>(new Set());
 
-  // Sync state
-  const [syncing, setSyncing] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<'success' | 'error' | null>(null);
+  // Add sorting state
+  const [toAddSortConfig, setToAddSortConfig] = useState<SortConfig>({ key: null, direction: 'asc' });
+  const [addedSortConfig, setAddedSortConfig] = useState<SortConfig>({ key: null, direction: 'asc' });
 
+  // Add import modal state
   const [importModal, setImportModal] = useState<ImportModalState>({
     isOpen: false,
     step: 'upload',
@@ -102,13 +103,7 @@ export default function Page() {
     isLoading: false,
     error: null,
     selectedTransactions: new Set()
-  })
-
-  const [selectedToAdd, setSelectedToAdd] = useState<Set<string>>(new Set())
-  const [selectedAdded, setSelectedAdded] = useState<Set<string>>(new Set())
-
-  const [toAddSortConfig, setToAddSortConfig] = useState<SortConfig>({ key: null, direction: 'asc' });
-  const [addedSortConfig, setAddedSortConfig] = useState<SortConfig>({ key: null, direction: 'asc' });
+  });
 
   const [editModal, setEditModal] = useState<{
     isOpen: boolean;
@@ -292,7 +287,7 @@ export default function Page() {
       .from('transactions')
       .select('*')
       .neq('plaid_account_name', null)
-    setConfirmedTransactions(data || [])
+    setTransactions(data || [])
   }
 
   const fetchCategories = async () => {
@@ -327,7 +322,7 @@ export default function Page() {
       return;
     }
 
-    // Find the selected account in chart_of_accounts by plaid_account_id (can be Asset or Liability)
+    // Find the selected account in chart_of_accounts by plaid_account_id
     const selectedAccount = categories.find(
       c => c.plaid_account_id === selectedAccountId
     );
@@ -346,63 +341,14 @@ export default function Page() {
     }
 
     const selectedAccountIdInCOA = selectedAccount.id;
-    const selectedAccountType = selectedAccount.type;
-
-    let debit_account_id, credit_account_id;
-    if (selectedAccountType === 'Asset') {
-      // Bank account logic (Asset)
-      if (category.type === 'Expense') {
-        debit_account_id = selectedCategoryId;
-        credit_account_id = selectedAccountIdInCOA;
-      } else if (category.type === 'Revenue') {
-        debit_account_id = selectedAccountIdInCOA;
-        credit_account_id = selectedCategoryId;
-      } else if (category.type === 'Equity') {
-        debit_account_id = selectedAccountIdInCOA;
-        credit_account_id = selectedCategoryId;
-      } else {
-        debit_account_id = selectedCategoryId;
-        credit_account_id = selectedAccountIdInCOA;
-      }
-    } else if (selectedAccountType === 'Liability') {
-      // Credit card logic (Liability)
-      if (category.type === 'Expense') {
-        debit_account_id = selectedCategoryId;
-        credit_account_id = selectedAccountIdInCOA;
-      } else if (category.type === 'Revenue') {
-        debit_account_id = selectedAccountIdInCOA;
-        credit_account_id = selectedCategoryId;
-      } else if (category.type === 'Equity') {
-        debit_account_id = selectedAccountIdInCOA;
-        credit_account_id = selectedCategoryId;
-      } else {
-        debit_account_id = selectedCategoryId;
-        credit_account_id = selectedAccountIdInCOA;
-      }
-    } else {
-      // Fallback: treat as asset
-      if (category.type === 'Expense') {
-        debit_account_id = selectedCategoryId;
-        credit_account_id = selectedAccountIdInCOA;
-      } else if (category.type === 'Revenue') {
-        debit_account_id = selectedAccountIdInCOA;
-        credit_account_id = selectedCategoryId;
-      } else if (category.type === 'Equity') {
-        debit_account_id = selectedAccountIdInCOA;
-        credit_account_id = selectedCategoryId;
-      } else {
-        debit_account_id = selectedCategoryId;
-        credit_account_id = selectedAccountIdInCOA;
-      }
-    }
 
     await supabase.from('transactions').insert([{
       date: tx.date,
       description: tx.description,
       spent: tx.spent ?? 0,
       received: tx.received ?? 0,
-      debit_account_id,
-      credit_account_id,
+      selected_category_id: selectedCategoryId,
+      corresponding_category_id: selectedAccountIdInCOA,
       plaid_account_id: tx.plaid_account_id,
       plaid_account_name: tx.plaid_account_name,
     }]);
@@ -411,24 +357,57 @@ export default function Page() {
     await supabase.from('imported_transactions').delete().eq('id', tx.id);
 
     await fetch('/api/sync-journal', { method: 'POST' });
-
     refreshAll();
   };
 
   const undoTransaction = async (tx: any) => {
-    // Insert back into imported_transactions with the correct fields
-    await supabase.from('imported_transactions').insert([{
-      date: tx.date,
-      description: tx.description,
-      amount: tx.amount,
-      plaid_account_id: tx.plaid_account_id,
-      plaid_account_name: tx.plaid_account_name,
-    }]);
+    try {
+      if (!tx || !tx.id) {
+        throw new Error('Invalid transaction: missing ID');
+      }
 
-    // Remove from transactions
-    await supabase.from('transactions').delete().eq('id', tx.id);
-    await fetch('/api/sync-journal', { method: 'POST' });
-    refreshAll();
+      // 1. Delete journal entries for this transaction
+      const { error: journalDeleteError } = await supabase
+        .from('journal')
+        .delete()
+        .eq('transaction_id', tx.id);
+
+      if (journalDeleteError) {
+        console.error('Error deleting journal entries:', journalDeleteError);
+        throw new Error(`Failed to delete journal entries: ${journalDeleteError.message}`);
+      }
+
+      // 2. Delete the transaction
+      const { error: deleteError } = await supabase.from('transactions').delete().eq('id', tx.id);
+      
+      if (deleteError) {
+        console.error('Error deleting from transactions:', deleteError);
+        throw new Error(`Failed to delete from transactions: ${deleteError.message}`);
+      }
+      
+      // 3. Insert back into imported_transactions
+      const { error: insertError } = await supabase.from('imported_transactions').insert([{
+        date: tx.date,
+        description: tx.description,
+        spent: tx.spent,
+        received: tx.received,
+        plaid_account_id: tx.plaid_account_id,
+        plaid_account_name: tx.plaid_account_name,
+      }]);
+
+      if (insertError) {
+        console.error('Error inserting into imported_transactions:', insertError);
+        throw new Error(`Failed to insert into imported_transactions: ${insertError.message}`);
+      }
+
+      await fetch('/api/sync-journal', { method: 'POST' });
+      console.log('Successfully deleted transaction and related journal entries:', tx.id);
+
+      refreshAll();
+    } catch (error) {
+      console.error('Error in undoTransaction:', error);
+      alert(error instanceof Error ? error.message : 'Failed to undo transaction. Please try again.');
+    }
   };
 
   const addManualTransaction = async () => {
@@ -437,73 +416,25 @@ export default function Page() {
     const category = categories.find(c => c.id === manualCategoryId);
     if (!category) return;
 
-    // Find the selected account in chart_of_accounts by plaid_account_id (can be Asset or Liability)
+    // Find the selected account in chart_of_accounts by plaid_account_id
     const selectedAccount = categories.find(
       c => c.plaid_account_id === selectedAccountId
     );
     const selectedAccountIdInCOA = selectedAccount?.id;
-    const selectedAccountType = selectedAccount?.type;
     if (!selectedAccountIdInCOA) {
       alert('Account not found in chart of accounts.');
       return;
-    }
-
-    let debit_account_id, credit_account_id;
-    if (selectedAccountType === 'Asset') {
-      if (category.type === 'Expense') {
-        debit_account_id = manualCategoryId;
-        credit_account_id = selectedAccountIdInCOA;
-      } else if (category.type === 'Revenue') {
-        debit_account_id = selectedAccountIdInCOA;
-        credit_account_id = manualCategoryId;
-      } else if (category.type === 'Equity') {
-        debit_account_id = selectedAccountIdInCOA;
-        credit_account_id = manualCategoryId;
-      } else {
-        debit_account_id = manualCategoryId;
-        credit_account_id = selectedAccountIdInCOA;
-      }
-    } else if (selectedAccountType === 'Liability') {
-      if (category.type === 'Expense') {
-        debit_account_id = manualCategoryId;
-        credit_account_id = selectedAccountIdInCOA;
-      } else if (category.type === 'Revenue') {
-        debit_account_id = selectedAccountIdInCOA;
-        credit_account_id = manualCategoryId;
-      } else if (category.type === 'Equity') {
-        debit_account_id = selectedAccountIdInCOA;
-        credit_account_id = manualCategoryId;
-      } else {
-        debit_account_id = manualCategoryId;
-        credit_account_id = selectedAccountIdInCOA;
-      }
-    } else {
-      if (category.type === 'Expense') {
-        debit_account_id = manualCategoryId;
-        credit_account_id = selectedAccountIdInCOA;
-      } else if (category.type === 'Revenue') {
-        debit_account_id = selectedAccountIdInCOA;
-        credit_account_id = manualCategoryId;
-      } else if (category.type === 'Equity') {
-        debit_account_id = selectedAccountIdInCOA;
-        credit_account_id = manualCategoryId;
-      } else {
-        debit_account_id = manualCategoryId;
-        credit_account_id = selectedAccountIdInCOA;
-      }
     }
 
     await supabase.from('transactions').insert([{
       date: manualDate,
       description: manualDescription,
       amount: parseFloat(manualAmount),
-      debit_account_id,
-      credit_account_id,
+      selected_category_id: manualCategoryId,
+      corresponding_category_id: selectedAccountIdInCOA,
       plaid_account_id: selectedAccountId,
       plaid_account_name: accounts.find(acc => acc.plaid_account_id === selectedAccountId)?.plaid_account_name || ''
     }]);
-
-    await fetch('/api/sync-journal', { method: 'POST' });
 
     setManualDate('');
     setManualDescription('');
@@ -564,7 +495,7 @@ export default function Page() {
     }
   };
 
-  // Find the selected account in chart_of_accounts by plaid_account_id (can be Asset or Liability)
+  // Find the selected account in chart_of_accounts by plaid_account_id
   const selectedAccount = categories.find(
     c => c.plaid_account_id === selectedAccountId
   );
@@ -575,40 +506,40 @@ export default function Page() {
     importedTransactions
       .filter(tx => tx.plaid_account_id === selectedAccountId)
       .filter(tx =>
-        searchToAdd === '' ||
-        tx.description.toLowerCase().includes(searchToAdd.toLowerCase()) ||
-        tx.date.includes(searchToAdd) ||
-        String(tx.amount).includes(searchToAdd)
+        searchQuery === '' ||
+        tx.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        tx.date.includes(searchQuery) ||
+        String(tx.amount).includes(searchQuery)
       ),
     toAddSortConfig
   );
 
   // Update the confirmed transactions to use sorting
   const confirmed = sortTransactions(
-    confirmedTransactions
+    transactions
       .filter(tx => {
         // Include transactions from the selected account OR manual entries that involve the selected account
         if (tx.plaid_account_id === selectedAccountId) return true;
         if (tx.plaid_account_id === 'MANUAL_ENTRY') {
           // For manual entries, check if the selected account is involved in either debit or credit
-          return tx.debit_account_id === selectedAccountIdInCOA || tx.credit_account_id === selectedAccountIdInCOA;
+          return tx.selected_category_id === selectedAccountIdInCOA || tx.corresponding_category_id === selectedAccountIdInCOA;
         }
         return false;
       })
       .filter(tx => {
-        if (searchAdded === '') return true;
+        if (searchQuery === '') return true;
         
         // Get the category name for this transaction
-        const isAccountDebit = tx.debit_account_id === selectedAccountIdInCOA;
-        const categoryId = isAccountDebit ? tx.credit_account_id : tx.debit_account_id;
+        const isAccountDebit = tx.selected_category_id === selectedAccountIdInCOA;
+        const categoryId = isAccountDebit ? tx.corresponding_category_id : tx.selected_category_id;
         const category = categories.find(c => c.id === categoryId);
         const categoryName = category ? category.name : '';
 
         return (
-          tx.description.toLowerCase().includes(searchAdded.toLowerCase()) ||
-          tx.date.includes(searchAdded) ||
-          String(tx.amount).includes(searchAdded) ||
-          categoryName.toLowerCase().includes(searchAdded.toLowerCase())
+          tx.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          tx.date.includes(searchQuery) ||
+          String(tx.amount).includes(searchQuery) ||
+          categoryName.toLowerCase().includes(searchQuery.toLowerCase())
         );
       }),
     addedSortConfig
@@ -619,15 +550,15 @@ export default function Page() {
 
   // Calculate the Switch (Accounting) Balance for the selected account
   // Simply total received minus total spent
-  const switchBalance = confirmedTransactions.reduce((sum, tx) => {
+  const switchBalance = transactions.reduce((sum, tx) => {
     return sum + (tx.received ?? 0) - (tx.spent ?? 0);
   }, 0);
 
   // Helper to get the display amount for a transaction relative to the selected account
   function getDisplayAmountForSelectedAccount(tx: Transaction, selectedAccountIdInCOA: string | undefined) {
     if (!selectedAccountIdInCOA) return Number(tx.amount);
-    if (tx.debit_account_id === selectedAccountIdInCOA) return Number(tx.amount);
-    if (tx.credit_account_id === selectedAccountIdInCOA) return -Number(tx.amount);
+    if (tx.selected_category_id === selectedAccountIdInCOA) return Number(tx.amount);
+    if (tx.corresponding_category_id === selectedAccountIdInCOA) return -Number(tx.amount);
     return Number(tx.amount);
   }
 
@@ -785,7 +716,7 @@ export default function Page() {
     if (!editModal.transaction) return;
 
     // Find the category based on the selected category ID
-    const category = categories.find(c => c.id === updatedTransaction.debit_account_id || c.id === updatedTransaction.credit_account_id);
+    const category = categories.find(c => c.id === updatedTransaction.selected_category_id);
     if (!category) return;
 
     // Find the selected account in chart_of_accounts
@@ -793,52 +724,6 @@ export default function Page() {
     if (!selectedAccount) return;
 
     const selectedAccountIdInCOA = selectedAccount.id;
-    const selectedAccountType = selectedAccount.type;
-
-    let debit_account_id, credit_account_id;
-    if (selectedAccountType === 'Asset') {
-      if (category.type === 'Expense') {
-        debit_account_id = category.id;
-        credit_account_id = selectedAccountIdInCOA;
-      } else if (category.type === 'Revenue') {
-        debit_account_id = selectedAccountIdInCOA;
-        credit_account_id = category.id;
-      } else if (category.type === 'Equity') {
-        debit_account_id = selectedAccountIdInCOA;
-        credit_account_id = category.id;
-      } else {
-        debit_account_id = category.id;
-        credit_account_id = selectedAccountIdInCOA;
-      }
-    } else if (selectedAccountType === 'Liability') {
-      if (category.type === 'Expense') {
-        debit_account_id = category.id;
-        credit_account_id = selectedAccountIdInCOA;
-      } else if (category.type === 'Revenue') {
-        debit_account_id = selectedAccountIdInCOA;
-        credit_account_id = category.id;
-      } else if (category.type === 'Equity') {
-        debit_account_id = selectedAccountIdInCOA;
-        credit_account_id = category.id;
-      } else {
-        debit_account_id = category.id;
-        credit_account_id = selectedAccountIdInCOA;
-      }
-    } else {
-      if (category.type === 'Expense') {
-        debit_account_id = category.id;
-        credit_account_id = selectedAccountIdInCOA;
-      } else if (category.type === 'Revenue') {
-        debit_account_id = selectedAccountIdInCOA;
-        credit_account_id = category.id;
-      } else if (category.type === 'Equity') {
-        debit_account_id = selectedAccountIdInCOA;
-        credit_account_id = category.id;
-      } else {
-        debit_account_id = category.id;
-        credit_account_id = selectedAccountIdInCOA;
-      }
-    }
 
     await supabase
       .from('transactions')
@@ -846,13 +731,12 @@ export default function Page() {
         date: updatedTransaction.date,
         description: updatedTransaction.description,
         amount: updatedTransaction.amount,
-        debit_account_id,
-        credit_account_id
+        selected_category_id: updatedTransaction.selected_category_id,
+        corresponding_category_id: selectedAccountIdInCOA
       })
       .eq('id', editModal.transaction.id);
 
     await fetch('/api/sync-journal', { method: 'POST' });
-
     setEditModal({ isOpen: false, transaction: null });
     refreshAll();
   };
@@ -1081,13 +965,13 @@ export default function Page() {
         }
         
         // Find the account name
-        const account = categories.find(c => c.id === (tx.debit_account_id || tx.credit_account_id));
+        const account = categories.find(c => c.id === (tx.selected_category_id || tx.corresponding_category_id));
         
         acc[key].transactions.push({
-          account_id: tx.debit_account_id || tx.credit_account_id,
+          account_id: tx.selected_category_id || tx.corresponding_category_id,
           account_name: account?.name || 'Unknown Account',
           amount: tx.amount,
-          type: tx.debit_account_id ? 'debit' : 'credit'
+          type: tx.selected_category_id ? 'debit' : 'credit'
         });
         
         return acc;
@@ -1137,8 +1021,6 @@ export default function Page() {
         plaid_account_name: 'Manual Journal Entry'
       }]);
     }
-
-    await fetch('/api/sync-journal', { method: 'POST' });
 
     setEditJournalEntryModal({ isOpen: false, entry: null });
     fetchPastJournalEntries();
@@ -1561,18 +1443,18 @@ export default function Page() {
                 <Select
                   options={categoryOptions}
                   value={categoryOptions.find(opt => {
-                    const isAccountDebit = editModal.transaction?.debit_account_id === selectedAccountIdInCOA;
-                    const categoryId = isAccountDebit ? editModal.transaction?.credit_account_id : editModal.transaction?.debit_account_id;
+                    const isAccountDebit = editModal.transaction?.selected_category_id === selectedAccountIdInCOA;
+                    const categoryId = isAccountDebit ? editModal.transaction?.corresponding_category_id : editModal.transaction?.selected_category_id;
                     return opt.value === categoryId;
                   })}
                   onChange={(selectedOption) => {
                     if (selectedOption && editModal.transaction) {
                       const updatedTransaction = { ...editModal.transaction };
-                      const isAccountDebit = updatedTransaction.debit_account_id === selectedAccountIdInCOA;
+                      const isAccountDebit = updatedTransaction.selected_category_id === selectedAccountIdInCOA;
                       if (isAccountDebit) {
-                        updatedTransaction.credit_account_id = selectedOption.value;
+                        updatedTransaction.corresponding_category_id = selectedOption.value;
                       } else {
-                        updatedTransaction.debit_account_id = selectedOption.value;
+                        updatedTransaction.selected_category_id = selectedOption.value;
                       }
                       setEditModal(prev => ({
                         ...prev,
@@ -2389,8 +2271,8 @@ export default function Page() {
           <input
             type="text"
             placeholder="Search To Add..."
-            value={searchToAdd}
-            onChange={e => setSearchToAdd(e.target.value)}
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
             className="border px-2 py-1 mb-2 w-full"
           />
           <table className="w-full border-collapse border border-gray-300">
@@ -2557,8 +2439,8 @@ export default function Page() {
           <input
             type="text"
             placeholder="Search Added..."
-            value={searchAdded}
-            onChange={e => setSearchAdded(e.target.value)}
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
             className="border px-2 py-1 mb-2 w-full"
           />
           <table className="w-full border-collapse border border-gray-300">
@@ -2598,9 +2480,7 @@ export default function Page() {
             </thead>
             <tbody>
               {confirmed.map(tx => {
-                const isAccountDebit = tx.debit_account_id === selectedAccountIdInCOA;
-                const categoryId = isAccountDebit ? tx.credit_account_id : tx.debit_account_id;
-                const category = categories.find(c => c.id === categoryId);
+                const category = categories.find(c => c.id === tx.selected_category_id);
                 return (
                   <tr 
                     key={tx.id}
