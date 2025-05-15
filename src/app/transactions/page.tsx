@@ -730,7 +730,8 @@ export default function Page() {
       .update({
         date: updatedTransaction.date,
         description: updatedTransaction.description,
-        amount: updatedTransaction.amount,
+        spent: updatedTransaction.spent ?? 0,
+        received: updatedTransaction.received ?? 0,
         selected_category_id: updatedTransaction.selected_category_id,
         corresponding_category_id: selectedAccountIdInCOA
       })
@@ -831,9 +832,15 @@ export default function Page() {
   const handleUpdateAccountNames = async () => {
     for (const account of accountNamesModal.accounts) {
       if (account.id) {  // Only update if id exists
+        // Update accounts table
         await supabase
           .from('accounts')
           .update({ plaid_account_name: account.name })
+          .eq('plaid_account_id', account.id);
+        // Update chart_of_accounts table
+        await supabase
+          .from('chart_of_accounts')
+          .update({ name: account.name })
           .eq('plaid_account_id', account.id);
       }
     }
@@ -920,18 +927,30 @@ export default function Page() {
       return;
     }
 
-    // Create a transaction for each entry
+    // Validate that both lines have account_id and nonzero amount
+    for (const entry of journalEntryModal.entries) {
+      if (!entry.account_id || !entry.amount || entry.amount <= 0) {
+        alert('Each line must have an account and a nonzero amount.');
+        return;
+      }
+    }
+
+    // Insert both lines
     for (const entry of journalEntryModal.entries) {
       await supabase.from('transactions').insert([{
         date: journalEntryModal.date,
         description: journalEntryModal.description,
-        amount: entry.amount,
-        debit_account_id: entry.type === 'debit' ? entry.account_id : null,
-        credit_account_id: entry.type === 'credit' ? entry.account_id : null,
-        plaid_account_id: 'MANUAL_ENTRY',  // Special identifier for manual entries
-        plaid_account_name: 'Manual Journal Entry'  // Special identifier for manual entries
+        spent: entry.type === 'debit' ? entry.amount : 0,
+        received: entry.type === 'credit' ? entry.amount : 0,
+        selected_category_id: entry.account_id,
+        corresponding_category_id: null,
+        plaid_account_id: 'MANUAL_ENTRY',
+        plaid_account_name: 'Manual Journal Entry'
       }]);
     }
+
+    // Automatically sync the journal after saving
+    await fetch('/api/sync-journal', { method: 'POST' });
 
     // Reset modal and refresh data
     setJournalEntryModal({
@@ -970,7 +989,7 @@ export default function Page() {
         acc[key].transactions.push({
           account_id: tx.selected_category_id || tx.corresponding_category_id,
           account_name: account?.name || 'Unknown Account',
-          amount: tx.amount,
+          amount: typeof tx.amount === 'number' ? tx.amount : (tx.spent ?? tx.received ?? 0),
           type: tx.selected_category_id ? 'debit' : 'credit'
         });
         
@@ -1092,12 +1111,6 @@ export default function Page() {
             className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-600"
           >
             Edit Accounts
-          </button>
-          <button
-            onClick={() => setJournalEntryModal(prev => ({ ...prev, isOpen: true }))}
-            className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-600 ml-2"
-          >
-            Add JE
           </button>
         </div>
       </div>
@@ -1420,16 +1433,34 @@ export default function Page() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Amount
+                  Spent
                 </label>
                 <input
                   type="number"
-                  value={editModal.transaction.amount}
+                  value={editModal.transaction.spent ?? 0}
                   onChange={(e) => setEditModal(prev => ({
                     ...prev,
                     transaction: prev.transaction ? {
                       ...prev.transaction,
-                      amount: parseFloat(e.target.value)
+                      spent: parseFloat(e.target.value) || 0
+                    } : null
+                  }))}
+                  className="w-full border px-2 py-1 rounded"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Received
+                </label>
+                <input
+                  type="number"
+                  value={editModal.transaction.received ?? 0}
+                  onChange={(e) => setEditModal(prev => ({
+                    ...prev,
+                    transaction: prev.transaction ? {
+                      ...prev.transaction,
+                      received: parseFloat(e.target.value) || 0
                     } : null
                   }))}
                   className="w-full border px-2 py-1 rounded"
@@ -2028,7 +2059,7 @@ export default function Page() {
                         <tr key={txIndex} className="border-b">
                           <td className="py-2">{tx.account_name}</td>
                           <td className="text-center py-2 capitalize">{tx.type}</td>
-                          <td className="text-right py-2">${tx.amount.toFixed(2)}</td>
+                          <td className="text-right py-2">${typeof tx.amount === 'number' ? tx.amount.toFixed(2) : '0.00'}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -2333,8 +2364,8 @@ export default function Page() {
                     </td>
                     <td className="border p-1 w-8 text-center">{formatDate(tx.date)}</td>
                     <td className="border p-1 w-8 text-center" style={{ minWidth: 250 }}>{tx.description}</td>
-                    <td className="border p-1 w-8 text-center">{tx.spent ? `$${tx.spent.toFixed(2)}` : ''}</td>
-                    <td className="border p-1 w-8 text-center">{tx.received ? `$${tx.received.toFixed(2)}` : ''}</td>
+                    <td className="border p-1 w-8 text-center">{tx.spent ? `$${tx.spent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td>
+                    <td className="border p-1 w-8 text-center">{tx.received ? `$${tx.received.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td>
                     <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
                       <Select
                         options={categoryOptions}
@@ -2509,8 +2540,8 @@ export default function Page() {
                     </td>
                     <td className="border p-1 w-8 text-center">{formatDate(tx.date)}</td>
                     <td className="border p-1 w-8 text-center" style={{ minWidth: 250 }}>{tx.description}</td>
-                    <td className="border p-1 w-8 text-center">{tx.spent ? `$${tx.spent.toFixed(2)}` : ''}</td>
-                    <td className="border p-1 w-8 text-center">{tx.received ? `$${tx.received.toFixed(2)}` : ''}</td>
+                    <td className="border p-1 w-8 text-center">{tx.spent ? `$${tx.spent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td>
+                    <td className="border p-1 w-8 text-center">{tx.received ? `$${tx.received.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td>
                     <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>{category ? category.name : 'Uncategorized'}</td>
                     <td className="border p-1 w-8 text-center">
                       <button
@@ -2543,43 +2574,6 @@ export default function Page() {
               </div>
             );
           })()}
-
-          {/* Manual transaction form */}
-          <div className="border rounded p-2 space-x-2 mt-2 bg-gray-50 flex flex-wrap items-center gap-2">
-            <div className="relative">
-              <input 
-                type="date" 
-                value={manualDate} 
-                onChange={(e) => setManualDate(e.target.value)} 
-                className="border px-2 py-1 w-[32px] h-[32px] appearance-none cursor-pointer"
-                style={{
-                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='18' rx='2' ry='2'%3E%3C/rect%3E%3Cline x1='16' y1='2' x2='16' y2='6'%3E%3C/line%3E%3Cline x1='8' y1='2' x2='8' y2='6'%3E%3C/line%3E%3Cline x1='3' y1='10' x2='21' y2='10'%3E%3C/line%3E%3C/svg%3E")`,
-                  backgroundRepeat: 'no-repeat',
-                  backgroundPosition: 'center',
-                  backgroundSize: '16px',
-                  color: 'transparent'
-                }}
-              />
-            </div>
-            <input type="text" placeholder="Description" value={manualDescription} onChange={(e) => setManualDescription(e.target.value)} className="border px-2 py-1" />
-            <input type="number" placeholder="Amount" value={manualAmount} onChange={(e) => setManualAmount(e.target.value)} className="border px-2 py-1" />
-            <Select
-              options={categoryOptions}
-              value={categoryOptions.find(opt => opt.value === manualCategoryId) || categoryOptions[0]}
-              onChange={selectedOption => setManualCategoryId(selectedOption?.value || '')}
-              isSearchable
-              styles={{ control: (base) => ({ ...base, minHeight: '30px', fontSize: '0.875rem' }) }}
-              className="inline-block"
-            />
-            <button
-              onClick={addManualTransaction}
-              className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200"
-              disabled={!manualDate || !manualDescription || !manualAmount || !manualCategoryId}
-            >
-              Add Manual
-            </button>
-          </div>
-
         </div>
       </div>
     </div>

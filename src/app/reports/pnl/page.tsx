@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../../../lib/supabaseClient'
 import React from 'react'
+import { v4 as uuidv4 } from 'uuid'
 
 type Account = {
   id: string
@@ -16,15 +17,15 @@ type Transaction = {
   id: string
   date: string
   description: string
-  spent: number
-  received: number
-  debit_account_id: string
-  credit_account_id: string
+  chart_account_id: string
+  debit: number
+  credit: number
+  transaction_id: string
 }
 
 export default function Page() {
   const [accounts, setAccounts] = useState<Account[]>([])
-  const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [journalEntries, setJournalEntries] = useState<Transaction[]>([])
   const [startDate, setStartDate] = useState<string>('')
   const [endDate, setEndDate] = useState<string>('')
   const [selectedCategory, setSelectedCategory] = useState<Account | null>(null)
@@ -48,7 +49,10 @@ export default function Page() {
 
   // Helper: format date as YYYY-MM-DD
   const formatDate = (date: Date): string => {
-    return date.toISOString().split('T')[0]
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
   }
 
   // Helper: get first and last day of month
@@ -74,7 +78,10 @@ export default function Page() {
   }
 
   const handleDateRangeSelect = (range: 'currentMonth' | 'currentQuarter' | 'previousMonth' | 'previousQuarter' | 'previousYear' | 'currentYear' | 'yearToLastMonth' | 'ytd') => {
+    // Create a date object for the current date in local timezone
     const today = new Date()
+    today.setHours(0, 0, 0, 0) // Reset time to start of day
+
     let start: Date
     let end: Date
 
@@ -131,6 +138,10 @@ export default function Page() {
       }
     }
 
+    // Ensure dates are set to start and end of day in local timezone
+    start.setHours(0, 0, 0, 0)
+    end.setHours(23, 59, 59, 999)
+
     setStartDate(formatDate(start))
     setEndDate(formatDate(end))
   }
@@ -148,12 +159,12 @@ export default function Page() {
         .in('type', ['Revenue', 'COGS', 'Expense'])
       setAccounts(accountsData || [])
 
-      let txQuery = supabase.from('transactions').select('*')
+      let journalQuery = supabase.from('journal').select('*')
       if (startDate && endDate) {
-        txQuery = txQuery.gte('date', startDate).lte('date', endDate)
+        journalQuery = journalQuery.gte('date', startDate).lte('date', endDate)
       }
-      const { data: transactionsData } = await txQuery
-      setTransactions(transactionsData || [])
+      const { data: journalData } = await journalQuery
+      setJournalEntries(journalData || [])
     }
     if (startDate && endDate) fetchData()
   }, [startDate, endDate])
@@ -165,13 +176,13 @@ export default function Page() {
   // Helper: calculate direct total for an account (only its own transactions)
   const calculateAccountDirectTotal = (account: Account): number => {
     if (account.type === 'Revenue') {
-      return transactions
-        .filter(tx => tx.credit_account_id === account.id)
-        .reduce((sum, tx) => sum + Number(tx.received), 0)
+      return journalEntries
+        .filter(tx => tx.chart_account_id === account.id)
+        .reduce((sum, tx) => sum + Number(tx.credit), 0)
     } else if (account.type === 'Expense' || account.type === 'COGS') {
-      return transactions
-        .filter(tx => tx.debit_account_id === account.id)
-        .reduce((sum, tx) => sum + Number(tx.spent), 0)
+      return journalEntries
+        .filter(tx => tx.chart_account_id === account.id)
+        .reduce((sum, tx) => sum + Number(tx.debit), 0)
     }
     return 0
   }
@@ -196,9 +207,225 @@ export default function Page() {
   const getAllGroupAccountIds = (accounts: Account[]) =>
     accounts.flatMap(acc => getAllAccountIds(acc))
 
+  // Helper: check if an account or its subaccounts have any transactions
+  const hasTransactions = (account: Account): boolean => {
+    const directTransactions = journalEntries.some(tx => tx.chart_account_id === account.id)
+    if (directTransactions) return true
+
+    const subaccounts = getSubaccounts(account.id)
+    return subaccounts.some(sub => hasTransactions(sub))
+  }
+
+  // Top-level accounts (no parent) with transactions
+  const topLevel = (type: string) =>
+    accounts
+      .filter(a => a.type === type && !a.parent_id)
+      .filter(hasTransactions)
+
+  // For COGS, Expense, Revenue
+  const revenueRows = topLevel('Revenue')
+  const cogsRows = topLevel('COGS')
+  const expenseRows = topLevel('Expense')
+
+  // Totals
+  const totalRevenue = revenueRows.reduce((sum, a) => sum + calculateAccountTotal(a), 0)
+  const totalCOGS = cogsRows.reduce((sum, a) => sum + calculateAccountTotal(a), 0)
+  const totalExpenses = expenseRows.reduce((sum, a) => sum + calculateAccountTotal(a), 0)
+  const grossProfit = totalRevenue - totalCOGS
+  const netIncome = grossProfit - totalExpenses
+
+  // Helper: get category name for a transaction
+  const getCategoryName = (tx: Transaction, selectedCategory: Account) => {
+    if (selectedCategory.type === 'Revenue') {
+      return accounts.find(a => a.id === tx.chart_account_id)?.name || ''
+    } else {
+      return accounts.find(a => a.id === tx.chart_account_id)?.name || ''
+    }
+  }
+
+  // Quick view: transactions for selected category or total line (all subaccounts included)
+  const selectedCategoryTransactions = selectedCategory
+    ? selectedCategory.id === 'REVENUE_GROUP'
+      ? journalEntries.filter(
+          tx =>
+            getAllGroupAccountIds(revenueRows).includes(tx.chart_account_id)
+        )
+      : selectedCategory.id === 'COGS_GROUP'
+      ? journalEntries.filter(
+          tx =>
+            getAllGroupAccountIds(cogsRows).includes(tx.chart_account_id)
+        )
+      : selectedCategory.id === 'EXPENSE_GROUP'
+      ? journalEntries.filter(
+          tx =>
+            getAllGroupAccountIds(expenseRows).includes(tx.chart_account_id)
+        )
+      : journalEntries.filter(
+          tx =>
+            getAllAccountIds(selectedCategory).includes(tx.chart_account_id)
+        )
+    : []
+
+  const handleSaveTransaction = async (updatedTx: Transaction) => {
+    try {
+      // Delete existing journal entries for this transaction
+      await supabase
+        .from('journal')
+        .delete()
+        .eq('transaction_id', updatedTx.transaction_id)
+
+      // Create new journal entries
+      const { error } = await supabase.from('journal').insert([{
+        id: uuidv4(),
+        transaction_id: updatedTx.transaction_id,
+        date: updatedTx.date,
+        description: updatedTx.description,
+        chart_account_id: updatedTx.chart_account_id,
+        debit: updatedTx.debit,
+        credit: updatedTx.credit
+      }])
+
+      if (error) throw error
+
+      setEditModal({ isOpen: false, transaction: null })
+      
+      // Refresh data
+      const { data: accountsData } = await supabase
+        .from('chart_of_accounts')
+        .select('*')
+        .in('type', ['Revenue', 'COGS', 'Expense'])
+      setAccounts(accountsData || [])
+
+      let journalQuery = supabase.from('journal').select('*')
+      if (startDate && endDate) {
+        journalQuery = journalQuery.gte('date', startDate).lte('date', endDate)
+      }
+      const { data: journalData } = await journalQuery
+      setJournalEntries(journalData || [])
+    } catch (error) {
+      console.error('Error updating transaction:', error)
+      alert('Failed to update transaction. Please try again.')
+    }
+  }
+
+  // Helper: get months between start and end date
+  const getMonthsInRange = () => {
+    const months: string[] = []
+    const start = new Date(startDate + 'T00:00:00')
+    const end = new Date(endDate + 'T00:00:00')
+    
+    let current = new Date(start.getFullYear(), start.getMonth(), 1)
+    while (current <= end) {
+      months.push(current.toISOString().slice(0, 7)) // Format: YYYY-MM
+      current = new Date(current.getFullYear(), current.getMonth() + 1, 1)
+    }
+    return months
+  }
+
+  // Helper: format month for display
+  const formatMonth = (monthStr: string) => {
+    const [year, month] = monthStr.split('-')
+    return new Date(parseInt(year), parseInt(month) - 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+  }
+
+  // Helper: calculate account total for a specific month
+  const calculateAccountTotalForMonth = (account: Account, month: string): number => {
+    if (account.type === 'Revenue') {
+      return journalEntries
+        .filter(tx => 
+          tx.chart_account_id === account.id &&
+          tx.date.startsWith(month)
+        )
+        .reduce((sum, tx) => sum + Number(tx.credit), 0)
+    } else if (account.type === 'Expense' || account.type === 'COGS') {
+      return journalEntries
+        .filter(tx => 
+          tx.chart_account_id === account.id &&
+          tx.date.startsWith(month)
+        )
+        .reduce((sum, tx) => sum + Number(tx.debit), 0)
+    }
+    return 0
+  }
+
+  // Helper: calculate roll-up total for an account for a specific month
+  const calculateAccountTotalForMonthWithSubaccounts = (account: Account, month: string): number => {
+    let total = calculateAccountTotalForMonth(account, month)
+    const subaccounts = getSubaccounts(account.id)
+    for (const sub of subaccounts) {
+      total += calculateAccountTotalForMonthWithSubaccounts(sub, month)
+    }
+    return total
+  }
+
+  // Helper: get previous period date range
+  const getPreviousPeriodRange = (start: Date, end: Date): { start: Date; end: Date } => {
+    const duration = end.getTime() - start.getTime()
+    const previousStart = new Date(start.getTime() - duration)
+    const previousEnd = new Date(start.getTime() - 1) // One day before current period starts
+    
+    // Ensure dates are set to start and end of day in local timezone
+    previousStart.setHours(0, 0, 0, 0)
+    previousEnd.setHours(23, 59, 59, 999)
+    
+    return { start: previousStart, end: previousEnd }
+  }
+
+  // Helper: calculate account total for a date range
+  const calculateAccountTotalForRange = (account: Account, start: Date, end: Date): number => {
+    const startStr = formatDate(start)
+    const endStr = formatDate(end)
+
+    if (account.type === 'Revenue') {
+      return journalEntries
+        .filter(tx => 
+          tx.chart_account_id === account.id &&
+          tx.date >= startStr &&
+          tx.date <= endStr
+        )
+        .reduce((sum, tx) => sum + Number(tx.credit), 0)
+    } else if (account.type === 'Expense' || account.type === 'COGS') {
+      return journalEntries
+        .filter(tx => 
+          tx.chart_account_id === account.id &&
+          tx.date >= startStr &&
+          tx.date <= endStr
+        )
+        .reduce((sum, tx) => sum + Number(tx.debit), 0)
+    }
+    return 0
+  }
+
+  // Helper: calculate roll-up total for an account for a date range
+  const calculateAccountTotalForRangeWithSubaccounts = (account: Account, start: Date, end: Date): number => {
+    let total = calculateAccountTotalForRange(account, start, end)
+    const subaccounts = getSubaccounts(account.id).filter(hasTransactions)
+    for (const sub of subaccounts) {
+      total += calculateAccountTotalForRangeWithSubaccounts(sub, start, end)
+    }
+    return total
+  }
+
+  // Calculate previous period totals for a group of accounts
+  const calculatePreviousPeriodTotal = (accounts: Account[]): number => {
+    const previousRange = getPreviousPeriodRange(new Date(startDate), new Date(endDate))
+    return accounts.reduce((sum, a) => 
+      sum + calculateAccountTotalForRangeWithSubaccounts(a, previousRange.start, previousRange.end), 0)
+  }
+
+  // Calculate previous period variance
+  const calculatePreviousPeriodVariance = (currentTotal: number, accounts: Account[]): number => {
+    const previousTotal = calculatePreviousPeriodTotal(accounts)
+    return currentTotal - previousTotal
+  }
+
+  const formatNumber = (num: number): string => {
+    return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  }
+
   // Helper: render account row with monthly totals
   const renderAccountRowWithMonthlyTotals = (account: Account, level = 0) => {
-    const subaccounts = getSubaccounts(account.id)
+    const subaccounts = getSubaccounts(account.id).filter(hasTransactions)
     const isParent = subaccounts.length > 0
     const months = getMonthsInRange()
 
@@ -222,11 +449,11 @@ export default function Page() {
           </td>
           {months.map(month => (
             <td key={month} className="border p-1 text-right">
-              {calculateAccountTotalForMonth(account, month).toFixed(2)}
+              {formatNumber(calculateAccountTotalForMonth(account, month))}
             </td>
           ))}
           <td className="border p-1 text-right font-semibold">
-            {calculateAccountTotal(account).toFixed(2)}
+            {formatNumber(calculateAccountTotal(account))}
           </td>
         </tr>
         {subaccounts.map(sub =>
@@ -249,11 +476,11 @@ export default function Page() {
             </td>
             {months.map(month => (
               <td key={month} className="border p-1 text-right font-semibold bg-gray-50">
-                {calculateAccountTotalForMonthWithSubaccounts(account, month).toFixed(2)}
+                {formatNumber(calculateAccountTotalForMonthWithSubaccounts(account, month))}
               </td>
             ))}
             <td className="border p-1 text-right font-semibold bg-gray-50">
-              {calculateAccountTotal(account).toFixed(2)}
+              {formatNumber(calculateAccountTotal(account))}
             </td>
           </tr>
         )}
@@ -263,7 +490,7 @@ export default function Page() {
 
   // Helper: render account row with total
   const renderAccountRowWithTotal = (account: Account, level = 0) => {
-    const subaccounts = getSubaccounts(account.id)
+    const subaccounts = getSubaccounts(account.id).filter(hasTransactions)
     const directTotal = calculateAccountDirectTotal(account)
     const rollupTotal = calculateAccountTotal(account)
     const isParent = subaccounts.length > 0
@@ -284,7 +511,7 @@ export default function Page() {
             {account.name}
           </td>
           <td className="border p-1 text-right">
-            {directTotal !== 0 ? directTotal.toFixed(2) : ''}
+            {formatNumber(directTotal)}
           </td>
         </tr>
         {subaccounts.map(sub =>
@@ -306,187 +533,12 @@ export default function Page() {
               Total {account.name}
             </td>
             <td className="border p-1 text-right font-semibold bg-gray-50">
-              {rollupTotal.toFixed(2)}
+              {formatNumber(rollupTotal)}
             </td>
           </tr>
         )}
       </React.Fragment>
     )
-  }
-
-  // Top-level accounts (no parent)
-  const topLevel = (type: string) =>
-    accounts.filter(a => a.type === type && !a.parent_id)
-
-  // For COGS, Expense, Revenue
-  const revenueRows = topLevel('Revenue')
-  const cogsRows = topLevel('COGS')
-  const expenseRows = topLevel('Expense')
-
-  // Totals
-  const totalRevenue = revenueRows.reduce((sum, a) => sum + calculateAccountTotal(a), 0)
-  const totalCOGS = cogsRows.reduce((sum, a) => sum + calculateAccountTotal(a), 0)
-  const totalExpenses = expenseRows.reduce((sum, a) => sum + calculateAccountTotal(a), 0)
-  const grossProfit = totalRevenue - totalCOGS
-  const netIncome = grossProfit - totalExpenses
-
-  // Helper: get category name for a transaction
-  const getCategoryName = (tx: Transaction, selectedCategory: Account) => {
-    if (selectedCategory.type === 'Revenue') {
-      return accounts.find(a => a.id === tx.credit_account_id)?.name || ''
-    } else {
-      return accounts.find(a => a.id === tx.debit_account_id)?.name || ''
-    }
-  }
-
-  // Quick view: transactions for selected category or total line (all subaccounts included)
-  const selectedCategoryTransactions = selectedCategory
-    ? selectedCategory.id === 'REVENUE_GROUP'
-      ? transactions.filter(
-          tx =>
-            getAllGroupAccountIds(revenueRows).includes(tx.debit_account_id) ||
-            getAllGroupAccountIds(revenueRows).includes(tx.credit_account_id)
-        )
-      : selectedCategory.id === 'COGS_GROUP'
-      ? transactions.filter(
-          tx =>
-            getAllGroupAccountIds(cogsRows).includes(tx.debit_account_id) ||
-            getAllGroupAccountIds(cogsRows).includes(tx.credit_account_id)
-        )
-      : selectedCategory.id === 'EXPENSE_GROUP'
-      ? transactions.filter(
-          tx =>
-            getAllGroupAccountIds(expenseRows).includes(tx.debit_account_id) ||
-            getAllGroupAccountIds(expenseRows).includes(tx.credit_account_id)
-        )
-      : transactions.filter(
-          tx =>
-            getAllAccountIds(selectedCategory).includes(tx.debit_account_id) ||
-            getAllAccountIds(selectedCategory).includes(tx.credit_account_id)
-        )
-    : []
-
-  const handleSaveTransaction = async (updatedTx: Transaction) => {
-    try {
-      const { error } = await supabase
-        .from('transactions')
-        .update({
-          date: updatedTx.date,
-          description: updatedTx.description,
-          spent: updatedTx.spent,
-          received: updatedTx.received,
-          debit_account_id: updatedTx.debit_account_id,
-          credit_account_id: updatedTx.credit_account_id
-        })
-        .eq('id', updatedTx.id)
-
-      if (error) throw error
-
-      // Refresh transactions
-      const { data: transactionsData } = await supabase
-        .from('transactions')
-        .select('*')
-        .gte('date', startDate)
-        .lte('date', endDate)
-      setTransactions(transactionsData || [])
-      setEditingTransaction(null)
-    } catch (error) {
-      console.error('Error updating transaction:', error)
-      alert('Failed to update transaction')
-    }
-  }
-
-  // Helper: get months between start and end date
-  const getMonthsInRange = () => {
-    const months: string[] = []
-    // Create dates in local timezone
-    const start = new Date(startDate + 'T00:00:00')
-    const end = new Date(endDate + 'T00:00:00')
-    
-    let current = new Date(start.getFullYear(), start.getMonth(), 1)
-    while (current <= end) {
-      months.push(current.toISOString().slice(0, 7)) // Format: YYYY-MM
-      current = new Date(current.getFullYear(), current.getMonth() + 1, 1)
-    }
-    return months
-  }
-
-  // Helper: format month for display
-  const formatMonth = (monthStr: string) => {
-    const [year, month] = monthStr.split('-')
-    return new Date(parseInt(year), parseInt(month) - 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
-  }
-
-  // Helper: calculate account total for a specific month
-  const calculateAccountTotalForMonth = (account: Account, month: string): number => {
-    const [year, monthNum] = month.split('-')
-    // Create dates in local timezone
-    const startOfMonth = new Date(parseInt(year), parseInt(monthNum) - 1, 1)
-    const endOfMonth = new Date(parseInt(year), parseInt(monthNum), 0, 23, 59, 59)
-    
-    const monthTransactions = transactions.filter(tx => {
-      // Convert transaction date to local timezone
-      const txDate = new Date(tx.date + 'T00:00:00')
-      return txDate >= startOfMonth && txDate <= endOfMonth
-    })
-
-    if (account.type === 'Revenue') {
-      return monthTransactions
-        .filter(tx => tx.credit_account_id === account.id)
-        .reduce((sum, tx) => sum + Number(tx.received), 0)
-    } else if (account.type === 'Expense' || account.type === 'COGS') {
-      return monthTransactions
-        .filter(tx => tx.debit_account_id === account.id)
-        .reduce((sum, tx) => sum + Number(tx.spent), 0)
-    }
-    return 0
-  }
-
-  // Helper: calculate roll-up total for an account for a specific month
-  const calculateAccountTotalForMonthWithSubaccounts = (account: Account, month: string): number => {
-    let total = calculateAccountTotalForMonth(account, month)
-    const subaccounts = getSubaccounts(account.id)
-    for (const sub of subaccounts) {
-      total += calculateAccountTotalForMonthWithSubaccounts(sub, month)
-    }
-    return total
-  }
-
-  // Helper: get previous period date range
-  const getPreviousPeriodRange = (start: Date, end: Date): { start: Date; end: Date } => {
-    const duration = end.getTime() - start.getTime()
-    const previousStart = new Date(start.getTime() - duration)
-    const previousEnd = new Date(end.getTime() - duration)
-    return { start: previousStart, end: previousEnd }
-  }
-
-  // Helper: calculate account total for a date range
-  const calculateAccountTotalForRange = (account: Account, start: Date, end: Date): number => {
-    const rangeTransactions = transactions.filter(tx => {
-      const txDate = new Date(tx.date + 'T00:00:00')
-      return txDate >= start && txDate <= end
-    })
-
-    if (account.type === 'Revenue') {
-      return rangeTransactions
-        .filter(tx => tx.credit_account_id === account.id)
-        .reduce((sum, tx) => sum + Number(tx.received), 0)
-    } else if (account.type === 'Expense' || account.type === 'COGS') {
-      return rangeTransactions
-        .filter(tx => tx.debit_account_id === account.id)
-        .reduce((sum, tx) => sum + Number(tx.spent), 0)
-    }
-    return 0
-  }
-
-  // Helper: calculate roll-up total for an account for a date range
-  const calculateAccountTotalForRangeWithSubaccounts = (account: Account, start: Date, end: Date): number => {
-    let total = calculateAccountTotalForRange(account, start, end)
-    const subaccounts = getSubaccounts(account.id)
-    for (const sub of subaccounts) {
-      total += calculateAccountTotalForRangeWithSubaccounts(sub, start, end)
-    }
-    return total
   }
 
   return (
@@ -630,12 +682,12 @@ export default function Page() {
                         }}
                       >
                         <td className="border p-1" style={{ width: '30%' }}>{row.name}</td>
-                        <td className="border p-1 text-right" style={{ width: '20%' }}>{currentTotal.toFixed(2)}</td>
+                        <td className="border p-1 text-right" style={{ width: '20%' }}>{formatNumber(currentTotal)}</td>
                         {showPreviousPeriod && (
                           <>
-                            <td className="border p-1 text-right" style={{ width: '20%' }}>{previousTotal.toFixed(2)}</td>
-                            <td className={`border p-1 text-right ${variance !== 0 ? (variance > 0 ? 'text-green-600' : 'text-red-600') : ''}`} style={{ width: '20%' }}>
-                              {variance.toFixed(2)}
+                            <td className="border p-1 text-right" style={{ width: '20%' }}>{formatNumber(previousTotal)}</td>
+                            <td className="border p-1 text-right" style={{ width: '20%' }}>
+                              {formatNumber(variance)}
                             </td>
                           </>
                         )}
@@ -655,12 +707,12 @@ export default function Page() {
                             }}
                           >
                             <td className="border p-1" style={{ paddingLeft: '20px', width: '30%' }}>{sub.name}</td>
-                            <td className="border p-1 text-right" style={{ width: '20%' }}>{subCurrentTotal.toFixed(2)}</td>
+                            <td className="border p-1 text-right" style={{ width: '20%' }}>{formatNumber(subCurrentTotal)}</td>
                             {showPreviousPeriod && (
                               <>
-                                <td className="border p-1 text-right" style={{ width: '20%' }}>{subPreviousTotal.toFixed(2)}</td>
-                                <td className={`border p-1 text-right ${subVariance !== 0 ? (subVariance > 0 ? 'text-green-600' : 'text-red-600') : ''}`} style={{ width: '20%' }}>
-                                  {subVariance.toFixed(2)}
+                                <td className="border p-1 text-right" style={{ width: '20%' }}>{formatNumber(subPreviousTotal)}</td>
+                                <td className="border p-1 text-right" style={{ width: '20%' }}>
+                                  {formatNumber(subVariance)}
                                 </td>
                               </>
                             )}
@@ -684,27 +736,21 @@ export default function Page() {
                   <>
                     {getMonthsInRange().map(month => (
                       <td key={month} className="border p-1 text-right font-semibold">
-                        {revenueRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0).toFixed(2)}
+                        {formatNumber(revenueRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0))}
                       </td>
                     ))}
-                    <td className="border p-1 text-right font-semibold">{totalRevenue.toFixed(2)}</td>
+                    <td className="border p-1 text-right font-semibold">{formatNumber(totalRevenue)}</td>
                   </>
                 ) : (
                   <>
-                    <td className="border p-1 text-right font-semibold" style={{ width: '20%' }}>{totalRevenue.toFixed(2)}</td>
+                    <td className="border p-1 text-right font-semibold" style={{ width: '20%' }}>{formatNumber(totalRevenue)}</td>
                     {showPreviousPeriod && (
                       <>
                         <td className="border p-1 text-right font-semibold" style={{ width: '20%' }}>
-                          {revenueRows.reduce((sum, a) => {
-                            const previousRange = getPreviousPeriodRange(new Date(startDate), new Date(endDate))
-                            return sum + calculateAccountTotalForRangeWithSubaccounts(a, previousRange.start, previousRange.end)
-                          }, 0).toFixed(2)}
+                          {formatNumber(calculatePreviousPeriodTotal(revenueRows))}
                         </td>
                         <td className="border p-1 text-right font-semibold" style={{ width: '20%' }}>
-                          {(totalRevenue - revenueRows.reduce((sum, a) => {
-                            const previousRange = getPreviousPeriodRange(new Date(startDate), new Date(endDate))
-                            return sum + calculateAccountTotalForRangeWithSubaccounts(a, previousRange.start, previousRange.end)
-                          }, 0)).toFixed(2)}
+                          {formatNumber(calculatePreviousPeriodVariance(totalRevenue, revenueRows))}
                         </td>
                       </>
                     )}
@@ -733,12 +779,12 @@ export default function Page() {
                         }}
                       >
                         <td className="border p-1">{row.name}</td>
-                        <td className="border p-1 text-right w-[150px]">{currentTotal.toFixed(2)}</td>
+                        <td className="border p-1 text-right w-[150px]">{formatNumber(currentTotal)}</td>
                         {showPreviousPeriod && (
                           <>
-                            <td className="border p-1 text-right w-[150px]">{previousTotal.toFixed(2)}</td>
-                            <td className={`border p-1 text-right w-[150px] ${variance !== 0 ? (variance > 0 ? 'text-green-600' : 'text-red-600') : ''}`}>
-                              {variance.toFixed(2)}
+                            <td className="border p-1 text-right w-[150px]">{formatNumber(previousTotal)}</td>
+                            <td className="border p-1 text-right w-[150px]">
+                              {formatNumber(variance)}
                             </td>
                           </>
                         )}
@@ -758,12 +804,12 @@ export default function Page() {
                             }}
                           >
                             <td className="border p-1" style={{ paddingLeft: '20px' }}>{sub.name}</td>
-                            <td className="border p-1 text-right w-[150px]">{subCurrentTotal.toFixed(2)}</td>
+                            <td className="border p-1 text-right w-[150px]">{formatNumber(subCurrentTotal)}</td>
                             {showPreviousPeriod && (
                               <>
-                                <td className="border p-1 text-right w-[150px]">{subPreviousTotal.toFixed(2)}</td>
-                                <td className={`border p-1 text-right w-[150px] ${subVariance !== 0 ? (subVariance > 0 ? 'text-green-600' : 'text-red-600') : ''}`}>
-                                  {subVariance.toFixed(2)}
+                                <td className="border p-1 text-right w-[150px]">{formatNumber(subPreviousTotal)}</td>
+                                <td className="border p-1 text-right w-[150px]">
+                                  {formatNumber(subVariance)}
                                 </td>
                               </>
                             )}
@@ -787,27 +833,21 @@ export default function Page() {
                   <>
                     {getMonthsInRange().map(month => (
                       <td key={month} className="border p-1 text-right font-semibold">
-                        {cogsRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0).toFixed(2)}
+                        {formatNumber(cogsRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0))}
                       </td>
                     ))}
-                    <td className="border p-1 text-right font-semibold">{totalCOGS.toFixed(2)}</td>
+                    <td className="border p-1 text-right font-semibold">{formatNumber(totalCOGS)}</td>
                   </>
                 ) : (
                   <>
-                    <td className="border p-1 text-right font-semibold w-[150px]">{totalCOGS.toFixed(2)}</td>
+                    <td className="border p-1 text-right font-semibold w-[150px]">{formatNumber(totalCOGS)}</td>
                     {showPreviousPeriod && (
                       <>
                         <td className="border p-1 text-right font-semibold w-[150px]">
-                          {cogsRows.reduce((sum, a) => {
-                            const previousRange = getPreviousPeriodRange(new Date(startDate), new Date(endDate))
-                            return sum + calculateAccountTotalForRangeWithSubaccounts(a, previousRange.start, previousRange.end)
-                          }, 0).toFixed(2)}
+                          {formatNumber(calculatePreviousPeriodTotal(cogsRows))}
                         </td>
                         <td className="border p-1 text-right font-semibold w-[150px]">
-                          {(totalCOGS - cogsRows.reduce((sum, a) => {
-                            const previousRange = getPreviousPeriodRange(new Date(startDate), new Date(endDate))
-                            return sum + calculateAccountTotalForRangeWithSubaccounts(a, previousRange.start, previousRange.end)
-                          }, 0)).toFixed(2)}
+                          {formatNumber(calculatePreviousPeriodVariance(totalCOGS, cogsRows))}
                         </td>
                       </>
                     )}
@@ -820,13 +860,13 @@ export default function Page() {
                 <td className="border p-1" style={{ width: '25%' }}>Gross Profit</td>
                 {isMonthlyView && getMonthsInRange().map(month => (
                   <td key={month} className="border p-1 text-right" style={{ width: '15%' }}>
-                    {(
+                    {formatNumber((
                       revenueRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0) -
                       cogsRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0)
-                    ).toFixed(2)}
+                    ))}
                   </td>
                 ))}
-                <td className="border p-1 text-right" style={{ width: '15%' }}>{grossProfit.toFixed(2)}</td>
+                <td className="border p-1 text-right" style={{ width: '15%' }}>{formatNumber(grossProfit)}</td>
               </tr>
 
               {/* Expenses */}
@@ -850,12 +890,12 @@ export default function Page() {
                         }}
                       >
                         <td className="border p-1">{row.name}</td>
-                        <td className="border p-1 text-right w-[150px]">{currentTotal.toFixed(2)}</td>
+                        <td className="border p-1 text-right w-[150px]">{formatNumber(currentTotal)}</td>
                         {showPreviousPeriod && (
                           <>
-                            <td className="border p-1 text-right w-[150px]">{previousTotal.toFixed(2)}</td>
-                            <td className={`border p-1 text-right w-[150px] ${variance !== 0 ? (variance > 0 ? 'text-green-600' : 'text-red-600') : ''}`}>
-                              {variance.toFixed(2)}
+                            <td className="border p-1 text-right w-[150px]">{formatNumber(previousTotal)}</td>
+                            <td className="border p-1 text-right w-[150px]">
+                              {formatNumber(variance)}
                             </td>
                           </>
                         )}
@@ -875,12 +915,12 @@ export default function Page() {
                             }}
                           >
                             <td className="border p-1" style={{ paddingLeft: '20px' }}>{sub.name}</td>
-                            <td className="border p-1 text-right w-[150px]">{subCurrentTotal.toFixed(2)}</td>
+                            <td className="border p-1 text-right w-[150px]">{formatNumber(subCurrentTotal)}</td>
                             {showPreviousPeriod && (
                               <>
-                                <td className="border p-1 text-right w-[150px]">{subPreviousTotal.toFixed(2)}</td>
-                                <td className={`border p-1 text-right w-[150px] ${subVariance !== 0 ? (subVariance > 0 ? 'text-green-600' : 'text-red-600') : ''}`}>
-                                  {subVariance.toFixed(2)}
+                                <td className="border p-1 text-right w-[150px]">{formatNumber(subPreviousTotal)}</td>
+                                <td className="border p-1 text-right w-[150px]">
+                                  {formatNumber(subVariance)}
                                 </td>
                               </>
                             )}
@@ -904,27 +944,21 @@ export default function Page() {
                   <>
                     {getMonthsInRange().map(month => (
                       <td key={month} className="border p-1 text-right font-semibold">
-                        {expenseRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0).toFixed(2)}
+                        {formatNumber(expenseRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0))}
                       </td>
                     ))}
-                    <td className="border p-1 text-right font-semibold">{totalExpenses.toFixed(2)}</td>
+                    <td className="border p-1 text-right font-semibold">{formatNumber(totalExpenses)}</td>
                   </>
                 ) : (
                   <>
-                    <td className="border p-1 text-right font-semibold w-[150px]">{totalExpenses.toFixed(2)}</td>
+                    <td className="border p-1 text-right font-semibold w-[150px]">{formatNumber(totalExpenses)}</td>
                     {showPreviousPeriod && (
                       <>
                         <td className="border p-1 text-right font-semibold w-[150px]">
-                          {expenseRows.reduce((sum, a) => {
-                            const previousRange = getPreviousPeriodRange(new Date(startDate), new Date(endDate))
-                            return sum + calculateAccountTotalForRangeWithSubaccounts(a, previousRange.start, previousRange.end)
-                          }, 0).toFixed(2)}
+                          {formatNumber(calculatePreviousPeriodTotal(expenseRows))}
                         </td>
                         <td className="border p-1 text-right font-semibold w-[150px]">
-                          {(totalExpenses - expenseRows.reduce((sum, a) => {
-                            const previousRange = getPreviousPeriodRange(new Date(startDate), new Date(endDate))
-                            return sum + calculateAccountTotalForRangeWithSubaccounts(a, previousRange.start, previousRange.end)
-                          }, 0)).toFixed(2)}
+                          {formatNumber(calculatePreviousPeriodVariance(totalExpenses, expenseRows))}
                         </td>
                       </>
                     )}
@@ -939,44 +973,38 @@ export default function Page() {
                   <>
                     {getMonthsInRange().map(month => (
                       <td key={month} className="border p-1 text-right" style={{ width: '15%' }}>
-                        {(
+                        {formatNumber((
                           revenueRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0) -
                           cogsRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0) -
                           expenseRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0)
-                        ).toFixed(2)}
+                        ))}
                       </td>
                     ))}
-                    <td className="border p-1 text-right" style={{ width: '15%' }}>{netIncome.toFixed(2)}</td>
+                    <td className="border p-1 text-right" style={{ width: '15%' }}>{formatNumber(netIncome)}</td>
                   </>
                 ) : (
                   <>
-                    <td className="border p-1 text-right w-[150px]">{netIncome.toFixed(2)}</td>
+                    <td className="border p-1 text-right w-[150px]">{formatNumber(netIncome)}</td>
                     {showPreviousPeriod && (
                       <>
                         <td className="border p-1 text-right w-[150px]">
-                          {(() => {
+                          {formatNumber((() => {
                             const previousRange = getPreviousPeriodRange(new Date(startDate), new Date(endDate))
-                            const previousRevenue = revenueRows.reduce((sum, a) => 
-                              sum + calculateAccountTotalForRangeWithSubaccounts(a, previousRange.start, previousRange.end), 0)
-                            const previousCOGS = cogsRows.reduce((sum, a) => 
-                              sum + calculateAccountTotalForRangeWithSubaccounts(a, previousRange.start, previousRange.end), 0)
-                            const previousExpenses = expenseRows.reduce((sum, a) => 
-                              sum + calculateAccountTotalForRangeWithSubaccounts(a, previousRange.start, previousRange.end), 0)
-                            return (previousRevenue - previousCOGS - previousExpenses).toFixed(2)
-                          })()}
+                            const previousRevenue = calculatePreviousPeriodTotal(revenueRows)
+                            const previousCOGS = calculatePreviousPeriodTotal(cogsRows)
+                            const previousExpenses = calculatePreviousPeriodTotal(expenseRows)
+                            return previousRevenue - previousCOGS - previousExpenses
+                          })())}
                         </td>
-                        <td className={`border p-1 text-right w-[150px] ${netIncome !== 0 ? (netIncome > 0 ? 'text-green-600' : 'text-red-600') : ''}`}>
-                          {(() => {
+                        <td className="border p-1 text-right w-[150px]">
+                          {formatNumber((() => {
                             const previousRange = getPreviousPeriodRange(new Date(startDate), new Date(endDate))
-                            const previousRevenue = revenueRows.reduce((sum, a) => 
-                              sum + calculateAccountTotalForRangeWithSubaccounts(a, previousRange.start, previousRange.end), 0)
-                            const previousCOGS = cogsRows.reduce((sum, a) => 
-                              sum + calculateAccountTotalForRangeWithSubaccounts(a, previousRange.start, previousRange.end), 0)
-                            const previousExpenses = expenseRows.reduce((sum, a) => 
-                              sum + calculateAccountTotalForRangeWithSubaccounts(a, previousRange.start, previousRange.end), 0)
+                            const previousRevenue = calculatePreviousPeriodTotal(revenueRows)
+                            const previousCOGS = calculatePreviousPeriodTotal(cogsRows)
+                            const previousExpenses = calculatePreviousPeriodTotal(expenseRows)
                             const previousNetIncome = previousRevenue - previousCOGS - previousExpenses
-                            return (netIncome - previousNetIncome).toFixed(2)
-                          })()}
+                            return netIncome - previousNetIncome
+                          })())}
                         </td>
                       </>
                     )}
@@ -1038,15 +1066,15 @@ export default function Page() {
                           <td className="p-2">
                             <select
                               value={viewerModal.category?.type === 'Revenue' 
-                                ? editingTransaction.credit_account_id 
-                                : editingTransaction.debit_account_id}
+                                ? editingTransaction.chart_account_id 
+                                : editingTransaction.chart_account_id}
                               onChange={(e) => {
                                 const accountId = e.target.value
                                 setEditingTransaction(prev => prev ? {
                                   ...prev,
                                   ...(viewerModal.category?.type === 'Revenue'
-                                    ? { credit_account_id: accountId }
-                                    : { debit_account_id: accountId })
+                                    ? { chart_account_id: accountId }
+                                    : { chart_account_id: accountId })
                                 } : null)
                               }}
                               className="w-full border px-2 py-1 rounded"
@@ -1065,13 +1093,13 @@ export default function Page() {
                             <input
                               type="text"
                               inputMode="decimal"
-                              value={editingTransaction.spent === 0 ? '' : editingTransaction.spent.toString()}
+                              value={editingTransaction.debit === 0 ? '' : editingTransaction.debit.toString()}
                               onChange={(e) => {
                                 const value = e.target.value;
                                 if (value === '' || value === '-' || /^-?\d*\.?\d{0,2}$/.test(value)) {
                                   setEditingTransaction(prev => prev ? {
                                     ...prev,
-                                    spent: value === '' || value === '-' ? 0 : parseFloat(value)
+                                    debit: value === '' || value === '-' ? 0 : parseFloat(value)
                                   } : null)
                                 }
                               }}
@@ -1098,7 +1126,7 @@ export default function Page() {
                           <td className="p-2">{tx.date}</td>
                           <td className="p-2">{tx.description}</td>
                           <td className="p-2">{viewerModal.category ? getCategoryName(tx, viewerModal.category) : ''}</td>
-                          <td className="p-2 text-right">{Number(tx.spent).toFixed(2)}</td>
+                          <td className="p-2 text-right">{formatNumber(Number(tx.debit))}</td>
                           <td className="p-2 text-center">
                             <button
                               onClick={() => setEditingTransaction(tx)}
@@ -1115,9 +1143,8 @@ export default function Page() {
                     <tr className="bg-gray-50 font-semibold">
                       <td colSpan={3} className="p-2 text-right">Total</td>
                       <td className="p-2 text-right">
-                        {selectedCategoryTransactions
-                          .reduce((sum, tx) => sum + Number(tx.spent), 0)
-                          .toFixed(2)}
+                        {formatNumber(selectedCategoryTransactions
+                          .reduce((sum, tx) => sum + Number(tx.debit), 0))}
                       </td>
                       <td></td>
                     </tr>
@@ -1180,8 +1207,8 @@ export default function Page() {
                 <label className="block text-sm font-medium mb-1">Category</label>
                 <select
                   value={selectedCategory?.type === 'Revenue' 
-                    ? editModal.transaction.credit_account_id 
-                    : editModal.transaction.debit_account_id}
+                    ? editModal.transaction.chart_account_id 
+                    : editModal.transaction.chart_account_id}
                   onChange={(e) => {
                     const accountId = e.target.value
                     setEditModal(prev => ({
@@ -1189,8 +1216,8 @@ export default function Page() {
                       transaction: prev.transaction ? {
                         ...prev.transaction,
                         ...(selectedCategory?.type === 'Revenue'
-                          ? { credit_account_id: accountId }
-                          : { debit_account_id: accountId })
+                          ? { chart_account_id: accountId }
+                          : { chart_account_id: accountId })
                       } : null
                     }))
                   }}
@@ -1211,7 +1238,7 @@ export default function Page() {
                 <input
                   type="text"
                   inputMode="decimal"
-                  value={editModal.transaction.spent === 0 ? '' : editModal.transaction.spent.toString()}
+                  value={editModal.transaction.debit === 0 ? '' : editModal.transaction.debit.toString()}
                   onChange={(e) => {
                     const value = e.target.value;
                     // Allow empty string, minus sign, and numbers with up to 2 decimal places
@@ -1220,7 +1247,7 @@ export default function Page() {
                         ...prev,
                         transaction: prev.transaction ? {
                           ...prev.transaction,
-                          spent: value === '' || value === '-' ? 0 : parseFloat(value)
+                          debit: value === '' || value === '-' ? 0 : parseFloat(value)
                         } : null
                       }))
                     }

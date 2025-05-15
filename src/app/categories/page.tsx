@@ -215,28 +215,47 @@ export default function ChartOfAccountsPage() {
     // Get all parent accounts
     const parentAccounts = accounts.filter(acc => acc.parent_id === null);
     
-    return parentAccounts.map(parent => {
+    return parentAccounts.flatMap(parent => {
       // Get subaccounts for this parent
       const subAccounts = accounts.filter(acc => acc.parent_id === parent.id);
       
       // If there are no subaccounts and parent doesn't match search, don't show parent
       if (subAccounts.length === 0 && !accounts.includes(parent)) {
-        return null;
+        return [];
       }
       
-      return (
-        <>
-          <tr key={parent.id}>
-            <td style={{ paddingLeft: `${level * 16 + 4}px` }} className="border p-1 text-sm">
-              {parent.name}
+      // Return an array of <tr> elements: parent row + subaccount rows
+      return [
+        <tr key={parent.id}>
+          <td style={{ paddingLeft: `${level * 16 + 4}px` }} className="border p-1 text-sm">
+            {parent.name}
+          </td>
+          <td className="border p-1 text-sm">{parent.type}</td>
+          <td className="border p-1 text-sm">{parent.subtype || ''}</td>
+          <td className="border p-1 text-sm"></td>
+          <td className="border p-1 text-sm">
+            <div className="flex gap-2 justify-center">
+              <button
+                onClick={() => handleEdit(parent)}
+                className="text-xs hover:underline"
+              >
+                Edit
+              </button>
+            </div>
+          </td>
+        </tr>,
+        ...subAccounts.map(subAcc => (
+          <tr key={subAcc.id}>
+            <td style={{ paddingLeft: `${(level + 1) * 16 + 4}px` }} className="border p-1 text-sm">
+              {subAcc.name}
             </td>
-            <td className="border p-1 text-sm">{parent.type}</td>
-            <td className="border p-1 text-sm">{parent.subtype || ''}</td>
-            <td className="border p-1 text-sm"></td>
+            <td className="border p-1 text-sm">{subAcc.type}</td>
+            <td className="border p-1 text-sm">{subAcc.subtype || ''}</td>
+            <td className="border p-1 text-sm">{parent.name}</td>
             <td className="border p-1 text-sm">
               <div className="flex gap-2 justify-center">
                 <button
-                  onClick={() => handleEdit(parent)}
+                  onClick={() => handleEdit(subAcc)}
                   className="text-xs hover:underline"
                 >
                   Edit
@@ -244,30 +263,9 @@ export default function ChartOfAccountsPage() {
               </div>
             </td>
           </tr>
-          {/* Render subaccounts */}
-          {subAccounts.map(subAcc => (
-            <tr key={subAcc.id}>
-              <td style={{ paddingLeft: `${(level + 1) * 16 + 4}px` }} className="border p-1 text-sm">
-                {subAcc.name}
-              </td>
-              <td className="border p-1 text-sm">{subAcc.type}</td>
-              <td className="border p-1 text-sm">{subAcc.subtype || ''}</td>
-              <td className="border p-1 text-sm">{parent.name}</td>
-              <td className="border p-1 text-sm">
-                <div className="flex gap-2 justify-center">
-                  <button
-                    onClick={() => handleEdit(subAcc)}
-                    className="text-xs hover:underline"
-                  >
-                    Edit
-                  </button>
-                </div>
-              </td>
-            </tr>
-          ))}
-        </>
-      );
-    }).filter(Boolean); // Remove null entries
+        ))
+      ];
+    }).filter(Boolean).flat(); // Remove null entries and flatten
   }
 
   return (

@@ -16,15 +16,15 @@ type Transaction = {
   id: string
   date: string
   description: string
-  spent: number
-  received: number
-  debit_account_id: string
-  credit_account_id: string
+  chart_account_id: string
+  debit: number
+  credit: number
+  transaction_id: string
 }
 
 export default function BalanceSheetPage() {
   const [accounts, setAccounts] = useState<Account[]>([])
-  const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [journalEntries, setJournalEntries] = useState<Transaction[]>([])
   const [asOfDate, setAsOfDate] = useState<string>('')
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null)
 
@@ -40,17 +40,17 @@ export default function BalanceSheetPage() {
         .in('type', ['Asset', 'Liability', 'Equity', 'Revenue', 'COGS', 'Expense'])
       setAccounts(accountsData || [])
 
-      let txQuery = supabase.from('transactions').select('*')
+      let journalQuery = supabase.from('journal').select('*')
       if (asOfDate) {
-        txQuery = txQuery.lte('date', asOfDate)
+        journalQuery = journalQuery.lte('date', asOfDate)
       }
-      const { data: transactionsData } = await txQuery
-      setTransactions(transactionsData || [])
+      const { data: journalData } = await journalQuery
+      setJournalEntries(journalData || [])
 
       // Debug logs
       const assetRows = (accountsData || []).filter(a => a.type === 'Asset' && !a.parent_id)
       console.log('DEBUG: assetRows', assetRows)
-      console.log('DEBUG: transactions', transactionsData)
+      console.log('DEBUG: journal entries', journalData)
     }
     if (asOfDate) fetchData()
   }, [asOfDate])
@@ -62,20 +62,20 @@ export default function BalanceSheetPage() {
   const calculateAccountTotal = (account: Account): number => {
     let total = 0
     if (account.type === 'Asset') {
-      const totalDebits = transactions
-        .filter(tx => tx.debit_account_id === account.id)
-        .reduce((sum, tx) => sum + Number(tx.received), 0);
-      const totalCredits = transactions
-        .filter(tx => tx.credit_account_id === account.id)
-        .reduce((sum, tx) => sum + Number(tx.spent), 0);
+      const totalDebits = journalEntries
+        .filter(tx => tx.chart_account_id === account.id)
+        .reduce((sum, tx) => sum + Number(tx.debit), 0);
+      const totalCredits = journalEntries
+        .filter(tx => tx.chart_account_id === account.id)
+        .reduce((sum, tx) => sum + Number(tx.credit), 0);
       total = totalDebits - totalCredits;
     } else if (account.type === 'Liability' || account.type === 'Equity') {
-      const totalCredits = transactions
-        .filter(tx => tx.credit_account_id === account.id)
-        .reduce((sum, tx) => sum + Number(tx.spent), 0);
-      const totalDebits = transactions
-        .filter(tx => tx.debit_account_id === account.id)
-        .reduce((sum, tx) => sum + Number(tx.received), 0);
+      const totalCredits = journalEntries
+        .filter(tx => tx.chart_account_id === account.id)
+        .reduce((sum, tx) => sum + Number(tx.credit), 0);
+      const totalDebits = journalEntries
+        .filter(tx => tx.chart_account_id === account.id)
+        .reduce((sum, tx) => sum + Number(tx.debit), 0);
       total = totalCredits - totalDebits;
     }
     // Add subaccounts' totals
@@ -88,22 +88,20 @@ export default function BalanceSheetPage() {
 
   const calculateAccountDirectTotal = (account: Account): number => {
     if (account.type === 'Asset') {
-      return transactions.reduce((sum, tx) => {
-        if (tx.debit_account_id === account.id) {
-          return sum + (tx.received ?? 0) - (tx.spent ?? 0);
-        }
-        if (tx.credit_account_id === account.id) {
-          return sum + (tx.spent ?? 0) - (tx.received ?? 0);
-        }
-        return sum;
-      }, 0);
+      const totalDebits = journalEntries
+        .filter(tx => tx.chart_account_id === account.id)
+        .reduce((sum, tx) => sum + Number(tx.debit), 0);
+      const totalCredits = journalEntries
+        .filter(tx => tx.chart_account_id === account.id)
+        .reduce((sum, tx) => sum + Number(tx.credit), 0);
+      return totalDebits - totalCredits;
     } else if (account.type === 'Liability' || account.type === 'Equity') {
-      const totalCredits = transactions
-        .filter(tx => tx.credit_account_id === account.id)
-        .reduce((sum, tx) => sum + Number(tx.spent), 0);
-      const totalDebits = transactions
-        .filter(tx => tx.debit_account_id === account.id)
-        .reduce((sum, tx) => sum + Number(tx.received), 0);
+      const totalCredits = journalEntries
+        .filter(tx => tx.chart_account_id === account.id)
+        .reduce((sum, tx) => sum + Number(tx.credit), 0);
+      const totalDebits = journalEntries
+        .filter(tx => tx.chart_account_id === account.id)
+        .reduce((sum, tx) => sum + Number(tx.debit), 0);
       return totalCredits - totalDebits;
     }
     return 0;
@@ -118,7 +116,7 @@ export default function BalanceSheetPage() {
     accounts.flatMap(acc => getAllAccountIds(acc))
 
   // Render account row and its subaccounts, with a total line for each parent
-  const renderAccountRowWithTotal = (account: Account, level = 0) => {
+  const renderAccountRowWithTotal = (account: Account, level = 0): React.ReactElement => {
     const subaccounts = getSubaccounts(account.id)
     const directTotal = calculateAccountDirectTotal(account)
     const rollupTotal = calculateAccountTotal(account)
@@ -137,7 +135,7 @@ export default function BalanceSheetPage() {
             {account.name}
           </td>
           <td className="border p-1 text-right">
-            {directTotal.toFixed(2)}
+            {formatNumber(directTotal)}
           </td>
         </tr>
         {subaccounts.map(sub =>
@@ -155,7 +153,7 @@ export default function BalanceSheetPage() {
               Total {account.name}
             </td>
             <td className="border p-1 text-right font-semibold bg-gray-50">
-              {rollupTotal.toFixed(2)}
+              {formatNumber(rollupTotal)}
             </td>
           </tr>
         )}
@@ -176,14 +174,14 @@ export default function BalanceSheetPage() {
     accs.reduce((sum, acc) => {
       if (type === 'Revenue') {
         // Revenue: sum credits
-        return sum + transactions
-          .filter(tx => tx.credit_account_id === acc.id)
-          .reduce((s, tx) => s + Number(tx.received), 0)
+        return sum + journalEntries
+          .filter(tx => tx.chart_account_id === acc.id)
+          .reduce((s, tx) => s + Number(tx.credit), 0)
       } else if (type === 'COGS' || type === 'Expense') {
         // COGS/Expense: sum debits
-        return sum + transactions
-          .filter(tx => tx.debit_account_id === acc.id)
-          .reduce((s, tx) => s + Number(tx.spent), 0)
+        return sum + journalEntries
+          .filter(tx => tx.chart_account_id === acc.id)
+          .reduce((s, tx) => s + Number(tx.debit), 0)
       }
       return sum
     }, 0)
@@ -203,45 +201,41 @@ export default function BalanceSheetPage() {
   // Quick view: transactions for selected account or group
   const selectedAccountTransactions = selectedAccount
     ? selectedAccount._viewerType === 'rollup'
-      ? transactions.filter(
+      ? journalEntries.filter(
           tx =>
-            getAllAccountIds(selectedAccount).includes(tx.debit_account_id) ||
-            getAllAccountIds(selectedAccount).includes(tx.credit_account_id)
+            getAllAccountIds(selectedAccount).includes(tx.chart_account_id)
         )
       : selectedAccount.id === 'ASSET_GROUP'
-      ? transactions.filter(
+      ? journalEntries.filter(
           tx =>
-            getAllGroupAccountIds(assetRows).includes(tx.debit_account_id) ||
-            getAllGroupAccountIds(assetRows).includes(tx.credit_account_id)
+            getAllGroupAccountIds(assetRows).includes(tx.chart_account_id)
         )
       : selectedAccount.id === 'LIABILITY_GROUP'
-      ? transactions.filter(
+      ? journalEntries.filter(
           tx =>
-            getAllGroupAccountIds(liabilityRows).includes(tx.debit_account_id) ||
-            getAllGroupAccountIds(liabilityRows).includes(tx.credit_account_id)
+            getAllGroupAccountIds(liabilityRows).includes(tx.chart_account_id)
         )
       : selectedAccount.id === 'EQUITY_GROUP'
-      ? transactions.filter(
+      ? journalEntries.filter(
           tx =>
-            getAllGroupAccountIds(equityRows).includes(tx.debit_account_id) ||
-            getAllGroupAccountIds(equityRows).includes(tx.credit_account_id)
+            getAllGroupAccountIds(equityRows).includes(tx.chart_account_id)
         )
       : selectedAccount.id === 'NET_INCOME'
-      ? transactions.filter(
+      ? journalEntries.filter(
           tx =>
             ['Revenue', 'COGS', 'Expense'].includes(
-              accounts.find(a => a.id === tx.debit_account_id)?.type || ''
-            ) ||
-            ['Revenue', 'COGS', 'Expense'].includes(
-              accounts.find(a => a.id === tx.credit_account_id)?.type || ''
+              accounts.find(a => a.id === tx.chart_account_id)?.type || ''
             )
         )
-      : transactions.filter(
+      : journalEntries.filter(
           tx =>
-            tx.debit_account_id === selectedAccount.id ||
-            tx.credit_account_id === selectedAccount.id
+            tx.chart_account_id === selectedAccount.id
         )
     : []
+
+  const formatNumber = (num: number): string => {
+    return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  }
 
   return (
     <div className="p-4 bg-white text-gray-900 font-sans text-sm space-y-4 max-w-7xl mx-auto">
@@ -274,7 +268,7 @@ export default function BalanceSheetPage() {
                 onClick={() => setSelectedAccount({ id: 'ASSET_GROUP', name: 'Total Assets', type: 'Asset', parent_id: null })}
               >
                 <td className="border p-1 font-semibold">Total Assets</td>
-                <td className="border p-1 text-right font-semibold">{totalAssets.toFixed(2)}</td>
+                <td className="border p-1 text-right font-semibold">{formatNumber(totalAssets)}</td>
               </tr>
               {/* Liabilities */}
               <tr><td colSpan={2} className="border p-1 font-semibold">Liabilities</td></tr>
@@ -284,7 +278,7 @@ export default function BalanceSheetPage() {
                 onClick={() => setSelectedAccount({ id: 'LIABILITY_GROUP', name: 'Total Liabilities', type: 'Liability', parent_id: null })}
               >
                 <td className="border p-1 font-semibold">Total Liabilities</td>
-                <td className="border p-1 text-right font-semibold">{totalLiabilities.toFixed(2)}</td>
+                <td className="border p-1 text-right font-semibold">{formatNumber(totalLiabilities)}</td>
               </tr>
               {/* Equity */}
               <tr><td colSpan={2} className="border p-1 font-semibold">Equity</td></tr>
@@ -294,19 +288,19 @@ export default function BalanceSheetPage() {
                 onClick={() => setSelectedAccount({ id: 'NET_INCOME', name: 'Net Income', type: 'Equity', parent_id: null })}
               >
                 <td className="border p-1 font-semibold bg-gray-50">Net Income</td>
-                <td className="border p-1 text-right font-semibold bg-gray-50">{netIncome.toFixed(2)}</td>
+                <td className="border p-1 text-right font-semibold bg-gray-50">{formatNumber(netIncome)}</td>
               </tr>
               <tr
                 className="cursor-pointer hover:bg-blue-50"
                 onClick={() => setSelectedAccount({ id: 'EQUITY_GROUP', name: 'Total Equity', type: 'Equity', parent_id: null })}
               >
                 <td className="border p-1 font-semibold">Total Equity</td>
-                <td className="border p-1 text-right font-semibold">{totalEquityWithNetIncome.toFixed(2)}</td>
+                <td className="border p-1 text-right font-semibold">{formatNumber(totalEquityWithNetIncome)}</td>
               </tr>
               {/* Liabilities + Equity */}
               <tr className="bg-gray-50 font-bold">
                 <td className="border p-1">Liabilities + Equity</td>
-                <td className="border p-1 text-right">{liabilitiesAndEquity.toFixed(2)}</td>
+                <td className="border p-1 text-right">{formatNumber(liabilitiesAndEquity)}</td>
               </tr>
             </tbody>
           </table>
@@ -339,7 +333,7 @@ export default function BalanceSheetPage() {
                         <td>{tx.date}</td>
                         <td>{tx.description}</td>
                         <td className="text-right">
-                          {tx.spent ? `-$${Number(tx.spent).toFixed(2)}` : tx.received ? `$${Number(tx.received).toFixed(2)}` : ''}
+                          {tx.debit ? `-$${formatNumber(Number(tx.debit))}` : tx.credit ? `$${formatNumber(Number(tx.credit))}` : ''}
                         </td>
                       </tr>
                     ))}
