@@ -25,6 +25,7 @@ export default function NavBar() {
 
       <div className="space-x-6 flex">
         <NavLink href="/transactions" label="Transactions" />
+        <NavLink href="/automations" label="Automations" />
         <NavLink href="/categories" label="Categories" />
         <NavLink href="/journal-table" label="Journal Table" />
         <NavLink href="/reports/pnl" label="Profit & Loss" />
