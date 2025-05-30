@@ -21,7 +21,7 @@ function NavLink({ href, label }: { href: string, label: string }) {
 
 export default function NavBar() {
   return (
-    <nav className="flex justify-between items-center px-6 py-2 bg-gray-100 border-b border-gray-300 text-sm font-medium">
+    <nav className="flex justify-between items-center px-6 py-2 bg-gray-100 border-b border-gray-300 text-xs font-normal">
 
       <div className="space-x-6 flex">
         <NavLink href="/transactions" label="Transactions" />

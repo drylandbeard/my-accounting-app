@@ -9,7 +9,7 @@ export default function AutomationsPage() {
 
   return (
     <div className="p-8 max-w-3xl mx-auto">
-      <h1 className="text-2xl font-bold mb-6">Automations & Categorization Rules</h1>
+      <h1 className="text-2xl font-bold mb-6">AUTOMATIONS</h1>
       <div className="mb-4 flex justify-between items-center">
         <h2 className="text-lg font-semibold">Rules</h2>
         <button className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">+ Add Rule</button>
