@@ -78,6 +78,8 @@ export default function Page() {
   const [importedTransactions, setImportedTransactions] = useState<Transaction[]>([])
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [searchQuery, setSearchQuery] = useState('')
+  const [toAddSearchQuery, setToAddSearchQuery] = useState('')
+  const [addedSearchQuery, setAddedSearchQuery] = useState('')
   const [manualDate, setManualDate] = useState('')
   const [manualDescription, setManualDescription] = useState('')
   const [manualAmount, setManualAmount] = useState('')
@@ -505,12 +507,22 @@ export default function Page() {
   const imported = sortTransactions(
     importedTransactions
       .filter(tx => tx.plaid_account_id === selectedAccountId)
-      .filter(tx =>
-        searchQuery === '' ||
-        tx.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        tx.date.includes(searchQuery) ||
-        String(tx.amount).includes(searchQuery)
-      ),
+      .filter(tx => {
+        if (!toAddSearchQuery) return true;
+        const q = toAddSearchQuery.toLowerCase();
+        const desc = tx.description?.toLowerCase() || '';
+        const date = formatDate(tx.date).toLowerCase();
+        const spent = tx.spent !== undefined ? tx.spent.toString() : '';
+        const received = tx.received !== undefined ? tx.received.toString() : '';
+        const amount = tx.amount !== undefined ? tx.amount.toString() : '';
+        return (
+          desc.includes(q) ||
+          date.includes(q) ||
+          spent.includes(q) ||
+          received.includes(q) ||
+          amount.includes(q)
+        );
+      }),
     toAddSortConfig
   );
 
@@ -518,28 +530,32 @@ export default function Page() {
   const confirmed = sortTransactions(
     transactions
       .filter(tx => {
-        // Include transactions from the selected account OR manual entries that involve the selected account
         if (tx.plaid_account_id === selectedAccountId) return true;
         if (tx.plaid_account_id === 'MANUAL_ENTRY') {
-          // For manual entries, check if the selected account is involved in either debit or credit
           return tx.selected_category_id === selectedAccountIdInCOA || tx.corresponding_category_id === selectedAccountIdInCOA;
         }
         return false;
       })
       .filter(tx => {
-        if (searchQuery === '') return true;
-        
+        if (!addedSearchQuery) return true;
+        const q = addedSearchQuery.toLowerCase();
+        const desc = tx.description?.toLowerCase() || '';
+        const date = formatDate(tx.date).toLowerCase();
+        const spent = tx.spent !== undefined ? tx.spent.toString() : '';
+        const received = tx.received !== undefined ? tx.received.toString() : '';
+        const amount = tx.amount !== undefined ? tx.amount.toString() : '';
         // Get the category name for this transaction
         const isAccountDebit = tx.selected_category_id === selectedAccountIdInCOA;
         const categoryId = isAccountDebit ? tx.corresponding_category_id : tx.selected_category_id;
         const category = categories.find(c => c.id === categoryId);
-        const categoryName = category ? category.name : '';
-
+        const categoryName = category ? category.name.toLowerCase() : '';
         return (
-          tx.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          tx.date.includes(searchQuery) ||
-          String(tx.amount).includes(searchQuery) ||
-          categoryName.toLowerCase().includes(searchQuery.toLowerCase())
+          desc.includes(q) ||
+          date.includes(q) ||
+          spent.includes(q) ||
+          received.includes(q) ||
+          amount.includes(q) ||
+          categoryName.includes(q)
         );
       }),
     addedSortConfig
@@ -1073,26 +1089,26 @@ export default function Page() {
   // --- RENDER ---
 
   return (
-    <div className="p-4 bg-white text-gray-900 font-sans text-sm space-y-6">
+    <div className="p-4 bg-white text-gray-900 font-sans text-xs space-y-6">
       <div className="flex justify-between items-center mb-4">
-        <h1 className="text-xl font-semibold">Transactions</h1>
+        <h1 className="text-lg font-semibold">Transactions</h1>
         <div className="space-x-2">
           <button
             onClick={() => open()}
             disabled={!ready || !linkToken}
-            className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200"
+            className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-xs"
           >
             Connect Account
           </button>
           <button
             onClick={() => setImportModal(prev => ({ ...prev, isOpen: true }))}
-            className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200"
+            className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-xs"
           >
             Import CSV
           </button>
           <button
             onClick={() => setManualAccountModal({ isOpen: true, name: '', type: 'Asset' })}
-            className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-600"
+            className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs"
           >
             Add Manual Account
           </button>
@@ -1100,7 +1116,7 @@ export default function Page() {
             onClick={() => setAccountNamesModal({
               isOpen: true,
               accounts: accounts
-                .filter(acc => acc.plaid_account_id)  // Only include accounts with valid IDs
+                .filter(acc => acc.plaid_account_id)
                 .map(acc => ({
                   id: acc.plaid_account_id,
                   name: acc.plaid_account_name
@@ -1108,7 +1124,7 @@ export default function Page() {
               accountToDelete: null,
               deleteConfirmation: ''
             })}
-            className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-600"
+            className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs"
           >
             Edit Accounts
           </button>
@@ -1121,7 +1137,7 @@ export default function Page() {
           <button
             key={acc.plaid_account_id}
             onClick={() => setSelectedAccountId(acc.plaid_account_id)}
-            className={`border px-3 py-1 rounded ${acc.plaid_account_id === selectedAccountId ? 'bg-gray-200 font-semibold' : 'bg-gray-100 hover:bg-gray-200'}`}
+            className={`border px-3 py-1 rounded text-xs ${acc.plaid_account_id === selectedAccountId ? 'bg-gray-200 font-semibold' : 'bg-gray-100 hover:bg-gray-200'}`}
           >
             {acc.plaid_account_name}
           </button>
@@ -2287,13 +2303,13 @@ export default function Page() {
       <div className="flex gap-8">
         {/* To Add */}
         <div className="w-1/2 space-y-2">
-          <h2 className="font-semibold text-lg mb-1 flex items-center">
+          <h2 className="font-semibold text-base mb-1 flex items-center">
             To Add
             {(() => {
               const selected = accounts.find(a => a.plaid_account_id === selectedAccountId);
               if (!selected || selected.is_manual) return null;
               return (
-                <span className="ml-4 text-gray-500 text-base font-normal">
+                <span className="ml-4 text-gray-500 text-sm font-normal">
                   (Current Balance: ${currentBalance.toFixed(2)})
                 </span>
               );
@@ -2301,10 +2317,10 @@ export default function Page() {
           </h2>
           <input
             type="text"
-            placeholder="Search To Add..."
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            className="border px-2 py-1 mb-2 w-full"
+            placeholder="Search transactions..."
+            value={toAddSearchQuery}
+            onChange={e => setToAddSearchQuery(e.target.value)}
+            className="border px-2 py-1 w-full text-xs mb-2"
           />
           <table className="w-full border-collapse border border-gray-300">
             <thead className="bg-gray-100">
@@ -2362,8 +2378,8 @@ export default function Page() {
                         className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
                       />
                     </td>
-                    <td className="border p-1 w-8 text-center">{formatDate(tx.date)}</td>
-                    <td className="border p-1 w-8 text-center" style={{ minWidth: 250 }}>{tx.description}</td>
+                    <td className="border p-1 w-8 text-center text-xs">{formatDate(tx.date)}</td>
+                    <td className="border p-1 w-8 text-center text-xs" style={{ minWidth: 250 }}>{tx.description}</td>
                     <td className="border p-1 w-8 text-center">{tx.spent ? `$${tx.spent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td>
                     <td className="border p-1 w-8 text-center">{tx.received ? `$${tx.received.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td>
                     <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
@@ -2464,15 +2480,15 @@ export default function Page() {
 
         {/* Added */}
         <div className="w-1/2 space-y-2">
-          <h2 className="font-semibold text-lg mb-1 flex items-center">
+          <h2 className="font-semibold text-base mb-1 flex items-center">
             Added
           </h2>
           <input
             type="text"
-            placeholder="Search Added..."
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            className="border px-2 py-1 mb-2 w-full"
+            placeholder="Search transactions..."
+            value={addedSearchQuery}
+            onChange={e => setAddedSearchQuery(e.target.value)}
+            className="border px-2 py-1 w-full text-xs mb-2"
           />
           <table className="w-full border-collapse border border-gray-300">
             <thead className="bg-gray-100">
@@ -2538,8 +2554,8 @@ export default function Page() {
                         className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
                       />
                     </td>
-                    <td className="border p-1 w-8 text-center">{formatDate(tx.date)}</td>
-                    <td className="border p-1 w-8 text-center" style={{ minWidth: 250 }}>{tx.description}</td>
+                    <td className="border p-1 w-8 text-center text-xs">{formatDate(tx.date)}</td>
+                    <td className="border p-1 w-8 text-center text-xs" style={{ minWidth: 250 }}>{tx.description}</td>
                     <td className="border p-1 w-8 text-center">{tx.spent ? `$${tx.spent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td>
                     <td className="border p-1 w-8 text-center">{tx.received ? `$${tx.received.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td>
                     <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>{category ? category.name : 'Uncategorized'}</td>
