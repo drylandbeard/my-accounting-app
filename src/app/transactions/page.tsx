@@ -240,6 +240,67 @@ export default function Page() {
     );
   });
 
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const formatSyncTime = (date: Date) =>
+    date.toLocaleString(undefined, {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+
+  // Add sync function
+  const syncTransactions = async () => {
+    setIsSyncing(true);
+    setSyncError(null);
+    setNotification(null);
+    try {
+      // Get all connected Plaid accounts
+      const { data: plaidItems } = await supabase
+        .from('plaid_items')
+        .select('access_token, item_id');
+
+      if (!plaidItems || plaidItems.length === 0) {
+        throw new Error('No connected Plaid accounts found');
+      }
+
+      // Sync each account
+      for (const item of plaidItems) {
+        const response = await fetch('/api/get-transactions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            access_token: item.access_token,
+            item_id: item.item_id,
+          }),
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Failed to sync transactions');
+        }
+      }
+
+      // Refresh the transactions list
+      await refreshAll();
+      const now = new Date();
+      setNotification({ type: 'success', message: `Sync complete! Last synced: ${formatSyncTime(now)}` });
+      setTimeout(() => setNotification(null), 4000);
+    } catch (err: any) {
+      setSyncError(err.message || 'Failed to sync transactions');
+      setNotification({ type: 'error', message: err.message || 'Failed to sync transactions' });
+      setTimeout(() => setNotification(null), 4000);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   // 1️⃣ Plaid Link Token
   useEffect(() => {
     const createLinkToken = async () => {
@@ -1092,10 +1153,36 @@ export default function Page() {
     <div className="p-4 bg-white text-gray-900 font-sans text-xs space-y-6">
       <div className="flex justify-between items-center mb-4">
         <h1 className="text-lg font-semibold">Transactions</h1>
-        <div className="space-x-2">
+        {notification && (
+          <div className={`fixed top-6 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3 rounded shadow-lg text-sm font-medium flex items-center space-x-2 ${
+            notification.type === 'success' ? 'bg-green-100 text-green-800 border border-green-300' : 'bg-red-100 text-red-800 border border-red-300'
+          }`}>
+            <span>{notification.message}</span>
+            <button onClick={() => setNotification(null)} className="ml-2 text-xs text-gray-500 hover:text-gray-800">✕</button>
+          </div>
+        )}
+        <div className="flex flex-row items-center space-x-2">
+          <button
+            onClick={syncTransactions}
+            disabled={isSyncing}
+            className={`border px-3 py-1 rounded text-xs flex items-center space-x-1 ${
+              isSyncing 
+                ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
+                : 'bg-gray-100 hover:bg-gray-200'
+            }`}
+          >
+            {isSyncing ? (
+              <div className="flex items-center space-x-1">
+                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-gray-400" />
+                <span>Syncing...</span>
+              </div>
+            ) : (
+              <span>Sync Transactions</span>
+            )}
+          </button>
           <button
             onClick={() => open()}
-            disabled={!ready || !linkToken}
+            disabled={!ready}
             className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-xs"
           >
             Connect Account
