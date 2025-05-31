@@ -15,9 +15,19 @@ export async function POST(req: Request) {
     try {
       accountsResponse = await plaidClient.accountsGet({ access_token });
       console.log('Plaid accounts:', accountsResponse.data.accounts);
-    } catch (err) {
+    } catch (err: any) {
+      // Enhanced error logging
+      const safeAccessToken = access_token ? access_token.slice(0, 4) + '...' : 'none';
       console.error('Plaid accountsGet error:', err);
-      return NextResponse.json({ error: 'Failed to fetch accounts from Plaid' }, { status: 500 });
+      if (err?.response) {
+        console.error('Plaid error response:', err.response.data);
+      }
+      console.error('Request context:', { item_id, access_token: safeAccessToken });
+      // Return Plaid's error message in development
+      const errorMsg = process.env.NODE_ENV === 'development' && err?.response?.data?.error_message
+        ? err.response.data.error_message
+        : 'Failed to fetch accounts from Plaid';
+      return NextResponse.json({ error: errorMsg }, { status: 500 });
     }
 
     // 3. Upsert accounts and chart_of_accounts
@@ -63,9 +73,19 @@ export async function POST(req: Request) {
         end_date: new Date().toISOString().split('T')[0],
       });
       console.log('Plaid transactions:', transactionsResponse.data.transactions);
-    } catch (err) {
+    } catch (err: any) {
+      // Enhanced error logging
+      const safeAccessToken = access_token ? access_token.slice(0, 4) + '...' : 'none';
       console.error('Plaid transactionsGet error:', err);
-      return NextResponse.json({ error: 'Failed to fetch transactions from Plaid' }, { status: 500 });
+      if (err?.response) {
+        console.error('Plaid error response:', err.response.data);
+      }
+      console.error('Request context:', { item_id, access_token: safeAccessToken });
+      // Return Plaid's error message in development
+      const errorMsg = process.env.NODE_ENV === 'development' && err?.response?.data?.error_message
+        ? err.response.data.error_message
+        : 'Failed to fetch transactions from Plaid';
+      return NextResponse.json({ error: errorMsg }, { status: 500 });
     }
 
     // 5. Insert new transactions into imported_transactions
