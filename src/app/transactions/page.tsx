@@ -68,6 +68,11 @@ type JournalEntry = {
   }[]
 }
 
+type SelectOption = {
+  value: string;
+  label: string;
+};
+
 const Select = dynamic(() => import('react-select'), { ssr: false })
 
 export default function Page() {
@@ -146,10 +151,12 @@ export default function Page() {
     isOpen: boolean;
     name: string;
     type: string;
+    startingBalance: string;
   }>({
     isOpen: false,
     name: '',
-    type: 'Asset'
+    type: 'Asset',
+    startingBalance: '0'
   });
 
   // Add new state for account names modal
@@ -311,30 +318,271 @@ export default function Page() {
     createLinkToken()
   }, [])
 
+  // Update the account selection modal state to include dates
+  const [accountSelectionModal, setAccountSelectionModal] = useState<{
+    isOpen: boolean;
+    accounts: {
+      id: string;
+      name: string;
+      selected: boolean;
+      access_token: string;
+      item_id: string;
+      startDate: string;
+    }[];
+  }>({
+    isOpen: false,
+    accounts: []
+  });
+
+  // Update the Plaid success handler
   const { open, ready } = usePlaidLink({
     token: linkToken || '',
-    onSuccess: async (public_token) => {
-      const res = await fetch('/api/exchange-public-token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ public_token }),
-      });
+    onSuccess: async (public_token, metadata) => {
+      try {
+        // First, get the access token
+        const res = await fetch('/api/exchange-public-token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ public_token }),
+        });
 
-      const data = await res.json();
+        const data = await res.json();
 
-      // Send BOTH access_token and item_id to the sync endpoint
-      await fetch('/api/get-transactions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          access_token: data.access_token,
-          item_id: data.item_id,
-        }),
-      });
-
-      refreshAll();
+        // Show account selection modal with all available accounts
+        setAccountSelectionModal({
+          isOpen: true,
+          accounts: metadata.accounts.map((account: any) => ({
+            id: account.id,
+            name: account.name || 'new account',
+            selected: true, // Default to selected
+            access_token: data.access_token,
+            item_id: data.item_id,
+            startDate: new Date().toISOString().split('T')[0] // Default to today
+          }))
+        });
+      } catch (error) {
+        console.error('Error in Plaid success handler:', error);
+        setNotification({ 
+          type: 'error', 
+          message: 'Failed to connect accounts. Please try again.' 
+        });
+      }
     },
-  })
+  });
+
+  // Combine account and date selection into one function
+  const handleAccountAndDateSelection = async () => {
+    try {
+      // Get selected accounts
+      const selectedAccounts = accountSelectionModal.accounts
+        .filter(acc => acc.selected);
+
+      if (selectedAccounts.length === 0) {
+        setNotification({ 
+          type: 'error', 
+          message: 'Please select at least one account' 
+        });
+        return;
+      }
+
+      // Validate dates
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      for (const account of selectedAccounts) {
+        const selectedDate = new Date(account.startDate);
+        if (selectedDate > today) {
+          setNotification({ 
+            type: 'error', 
+            message: 'Start date cannot be in the future' 
+          });
+          return;
+        }
+      }
+
+      // Set initial progress state
+      setImportProgress({
+        isImporting: true,
+        currentStep: 'Starting import...',
+        progress: 0,
+        totalSteps: selectedAccounts.length
+      });
+
+      // Import each selected account with its selected start date
+      for (let i = 0; i < selectedAccounts.length; i++) {
+        const account = selectedAccounts[i];
+        
+        // Update progress
+        setImportProgress(prev => ({
+          ...prev,
+          currentStep: `Importing transactions for ${account.name}...`,
+          progress: i + 1
+        }));
+
+        const response = await fetch('/api/get-transactions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            access_token: account.access_token,
+            item_id: account.item_id,
+            account_id: account.id,
+            start_date: account.startDate,
+            selected_account_ids: selectedAccounts.map(acc => acc.id) // Pass selected account IDs
+          }),
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Failed to sync transactions');
+        }
+      }
+
+      // Update progress for final step
+      setImportProgress(prev => ({
+        ...prev,
+        currentStep: 'Finalizing import...',
+        progress: prev.totalSteps
+      }));
+
+      // Close modal and refresh
+      setAccountSelectionModal({ isOpen: false, accounts: [] });
+      await refreshAll();
+      setNotification({ 
+        type: 'success', 
+        message: 'Accounts linked and transactions imported successfully' 
+      });
+
+    } catch (error) {
+      console.error('Error in handleAccountAndDateSelection:', error);
+      setNotification({ 
+        type: 'error', 
+        message: error instanceof Error ? error.message : 'Failed to link accounts' 
+      });
+    } finally {
+      // Reset progress state
+      setImportProgress({
+        isImporting: false,
+        currentStep: '',
+        progress: 0,
+        totalSteps: 0
+      });
+    }
+  };
+
+  // Add new state for import progress
+  const [importProgress, setImportProgress] = useState<{
+    isImporting: boolean;
+    currentStep: string;
+    progress: number;
+    totalSteps: number;
+  }>({
+    isImporting: false,
+    currentStep: '',
+    progress: 0,
+    totalSteps: 0
+  });
+
+  // Add function to handle date selection and start import
+  const handleDateSelection = async () => {
+    try {
+      // Get selected accounts
+      const selectedAccounts = accountSelectionModal.accounts
+        .filter(acc => acc.selected);
+
+      if (selectedAccounts.length === 0) {
+        setNotification({ 
+          type: 'error', 
+          message: 'Please select at least one account' 
+        });
+        return;
+      }
+
+      // Validate dates
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      for (const account of selectedAccounts) {
+        const selectedDate = new Date(account.startDate);
+        if (selectedDate > today) {
+          setNotification({ 
+            type: 'error', 
+            message: 'Start date cannot be in the future' 
+          });
+          return;
+        }
+      }
+
+      // Set initial progress state
+      setImportProgress({
+        isImporting: true,
+        currentStep: 'Starting import...',
+        progress: 0,
+        totalSteps: selectedAccounts.length
+      });
+
+      // Import each selected account with its selected start date
+      for (let i = 0; i < selectedAccounts.length; i++) {
+        const account = selectedAccounts[i];
+        
+        // Update progress
+        setImportProgress(prev => ({
+          ...prev,
+          currentStep: `Importing transactions for ${account.name}...`,
+          progress: i + 1
+        }));
+
+        const response = await fetch('/api/get-transactions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            access_token: account.access_token,
+            item_id: account.item_id,
+            account_id: account.id,
+            start_date: account.startDate
+          }),
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Failed to sync transactions');
+        }
+      }
+
+      // Update progress for final step
+      setImportProgress(prev => ({
+        ...prev,
+        currentStep: 'Finalizing import...',
+        progress: prev.totalSteps
+      }));
+
+      // Close modal and refresh
+      setAccountSelectionModal({ isOpen: false, accounts: [] });
+      await refreshAll();
+      setNotification({ 
+        type: 'success', 
+        message: 'Accounts linked and transactions imported successfully' 
+      });
+
+    } catch (error) {
+      console.error('Error in handleDateSelection:', error);
+      setNotification({ 
+        type: 'error', 
+        message: error instanceof Error ? error.message : 'Failed to link accounts' 
+      });
+    } finally {
+      // Reset progress state
+      setImportProgress({
+        isImporting: false,
+        currentStep: '',
+        progress: 0,
+        totalSteps: 0
+      });
+    }
+  };
 
   // 2️⃣ Supabase Fetching
   const fetchImportedTransactions = async () => {
@@ -507,7 +755,7 @@ export default function Page() {
   }
 
   // 4️⃣ Category dropdown
-  const categoryOptions = [
+  const categoryOptions: SelectOption[] = [
     { value: '', label: 'Select' },
     ...categories.map(c => ({ value: c.id, label: c.name })),
     { value: 'add_new', label: '+ Add new category' }
@@ -722,8 +970,8 @@ export default function Page() {
 
     Papa.parse(file, {
       header: true,
-      skipEmptyLines: true, // Add this to skip empty lines
-      complete: (results) => {
+      skipEmptyLines: true,
+      complete: (results: Papa.ParseResult<CSVRow>) => {
         const error = validateCSV(results)
         if (error) {
           setImportModal(prev => ({
@@ -783,11 +1031,17 @@ export default function Page() {
     e.stopPropagation()
   }
 
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    handleFileUpload(e)
-  }
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const file = e.dataTransfer?.files[0];
+    if (file) {
+      const event = {
+        target: { files: [file] }
+      } as unknown as React.ChangeEvent<HTMLInputElement>;
+      handleFileUpload(event);
+    }
+  };
 
   const handleEditTransaction = async (updatedTransaction: Transaction) => {
     if (!editModal.transaction) return;
@@ -865,14 +1119,15 @@ export default function Page() {
   const createManualAccount = async () => {
     if (!manualAccountModal.name.trim()) return;
 
-    const manualAccountId = uuidv4(); // Generate a unique ID for the manual account
+    const manualAccountId = uuidv4();
+    const startingBalance = parseFloat(manualAccountModal.startingBalance) || 0;
 
     // Insert into accounts table
     const { error: accountError } = await supabase.from('accounts').insert({
       plaid_account_id: manualAccountId,
       plaid_account_name: manualAccountModal.name.trim(),
-      starting_balance: parseFloat(manualAccountModal.startingBalance) || 0,
-      current_balance: parseFloat(manualAccountModal.startingBalance) || 0,
+      starting_balance: startingBalance,
+      current_balance: startingBalance,
       last_synced: new Date().toISOString(),
       is_manual: true
     });
@@ -897,7 +1152,8 @@ export default function Page() {
     setManualAccountModal({
       isOpen: false,
       name: '',
-      type: 'Asset'
+      type: 'Asset',
+      startingBalance: '0'
     });
 
     // Set the newly created account as selected
@@ -1177,7 +1433,7 @@ export default function Page() {
                 <span>Syncing...</span>
               </div>
             ) : (
-              <span>Sync Transactions</span>
+              <span>Update Accounts</span>
             )}
           </button>
           <button
@@ -1185,7 +1441,7 @@ export default function Page() {
             disabled={!ready}
             className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-xs"
           >
-            Connect Account
+            Link Accounts
           </button>
           <button
             onClick={() => setImportModal(prev => ({ ...prev, isOpen: true }))}
@@ -1194,7 +1450,7 @@ export default function Page() {
             Import CSV
           </button>
           <button
-            onClick={() => setManualAccountModal({ isOpen: true, name: '', type: 'Asset' })}
+            onClick={() => setManualAccountModal({ isOpen: true, name: '', type: 'Asset', startingBalance: '0' })}
             className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs"
           >
             Add Manual Account
@@ -1205,7 +1461,7 @@ export default function Page() {
               accounts: accounts
                 .filter(acc => acc.plaid_account_id)
                 .map(acc => ({
-                  id: acc.plaid_account_id,
+                  id: acc.plaid_account_id || '',
                   name: acc.plaid_account_name
                 })),
               accountToDelete: null,
@@ -1266,11 +1522,11 @@ export default function Page() {
                         </label>
                         <Select
                           options={accounts.map(acc => ({
-                            value: acc.plaid_account_id,
+                            value: acc.plaid_account_id || '',
                             label: acc.plaid_account_name
                           }))}
                           value={importModal.selectedAccount ? {
-                            value: importModal.selectedAccount.plaid_account_id,
+                            value: importModal.selectedAccount.plaid_account_id || '',
                             label: importModal.selectedAccount.plaid_account_name
                           } : null}
                           onChange={(option) => {
@@ -1761,7 +2017,7 @@ export default function Page() {
       {manualAccountModal.isOpen && (
         <div 
           className="fixed inset-0 backdrop-blur-sm bg-white/30 flex items-center justify-center z-50"
-          onClick={() => setManualAccountModal({ isOpen: false, name: '', type: 'Asset' })}
+          onClick={() => setManualAccountModal({ isOpen: false, name: '', type: 'Asset', startingBalance: '0' })}
         >
           <div 
             className="bg-white rounded-lg p-6 w-[400px] max-h-[80vh] overflow-y-auto shadow-xl"
@@ -1770,7 +2026,7 @@ export default function Page() {
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold">Add New Manual Account</h2>
               <button
-                onClick={() => setManualAccountModal({ isOpen: false, name: '', type: 'Asset' })}
+                onClick={() => setManualAccountModal({ isOpen: false, name: '', type: 'Asset', startingBalance: '0' })}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
                 ×
@@ -2474,30 +2730,7 @@ export default function Page() {
                         options={categoryOptions}
                         value={categoryOptions.find(opt => opt.value === selectedCategories[tx.id]) || categoryOptions[0]}
                         onChange={(selectedOption) => {
-                          if (selectedOption?.value === 'add_new') {
-                            setNewCategoryModal({ 
-                              isOpen: true, 
-                              name: '', 
-                              type: 'Expense', 
-                              parent_id: null,
-                              transactionId: tx.id 
-                            });
-                            return;
-                          }
-                          if (selectedToAdd.has(tx.id) && selectedToAdd.size > 1) {
-                            setSelectedCategories(prev => {
-                              const updated = { ...prev };
-                              selectedToAdd.forEach(id => {
-                                updated[id] = selectedOption?.value || '';
-                              });
-                              return updated;
-                            });
-                          } else {
-                            setSelectedCategories(prev => ({
-                              ...prev,
-                              [tx.id]: selectedOption?.value || ''
-                            }));
-                          }
+                          handleCategorySelection(selectedOption, tx.id);
                         }}
                         isSearchable
                         styles={{ 
@@ -2679,6 +2912,116 @@ export default function Page() {
           })()}
         </div>
       </div>
+
+      {/* Account Selection Modal */}
+      {accountSelectionModal.isOpen && (
+        <div className="fixed inset-0 backdrop-blur-sm bg-white/30 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-[600px] max-h-[80vh] overflow-y-auto shadow-xl">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold">Link Accounts</h2>
+              <button
+                onClick={() => setAccountSelectionModal({ isOpen: false, accounts: [] })}
+                className="text-gray-500 hover:text-gray-700 text-xl"
+                disabled={importProgress.isImporting}
+              >
+                ×
+              </button>
+            </div>
+
+            <p className="text-sm text-gray-600 mb-4">
+              Select the accounts you want to link and choose a start date for importing transactions.
+            </p>
+
+            {!importProgress.isImporting ? (
+              <>
+                <div className="space-y-4">
+                  {accountSelectionModal.accounts.map((account, index) => (
+                    <div key={account.id} className="space-y-2 p-3 border rounded-lg">
+                      <div className="flex items-center space-x-3">
+                        <input
+                          type="checkbox"
+                          id={`account-${account.id}`}
+                          checked={account.selected}
+                          onChange={(e) => {
+                            const newAccounts = [...accountSelectionModal.accounts];
+                            newAccounts[index].selected = e.target.checked;
+                            setAccountSelectionModal(prev => ({
+                              ...prev,
+                              accounts: newAccounts
+                            }));
+                          }}
+                          className="h-4 w-4 text-gray-900 focus:ring-gray-900 border-gray-300 rounded"
+                        />
+                        <label
+                          htmlFor={`account-${account.id}`}
+                          className="flex-1 text-sm font-medium text-gray-900 cursor-pointer"
+                        >
+                          {account.name}
+                        </label>
+                      </div>
+                      <div className="ml-7">
+                        <label className="block text-sm text-gray-600 mb-1">
+                          Start Date
+                        </label>
+                        <input
+                          type="date"
+                          value={account.startDate}
+                          max={new Date().toISOString().split('T')[0]}
+                          onChange={(e) => {
+                            const newAccounts = [...accountSelectionModal.accounts];
+                            newAccounts[index].startDate = e.target.value;
+                            setAccountSelectionModal(prev => ({
+                              ...prev,
+                              accounts: newAccounts
+                            }));
+                          }}
+                          className="w-full border px-2 py-1 rounded text-sm"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex justify-end space-x-3 mt-6">
+                  <button
+                    onClick={() => setAccountSelectionModal({ isOpen: false, accounts: [] })}
+                    className="px-4 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleAccountAndDateSelection}
+                    disabled={!accountSelectionModal.accounts.some(acc => acc.selected)}
+                    className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Link Now
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm text-gray-600">
+                    <span>{importProgress.currentStep}</span>
+                    <span>{importProgress.progress} of {importProgress.totalSteps}</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2.5">
+                    <div 
+                      className="bg-gray-900 h-2.5 rounded-full transition-all duration-300"
+                      style={{ 
+                        width: `${(importProgress.progress / importProgress.totalSteps) * 100}%` 
+                      }}
+                    />
+                  </div>
+                </div>
+                <p className="text-sm text-gray-500 italic">
+                  Please wait while we link your accounts and import transactions...
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
