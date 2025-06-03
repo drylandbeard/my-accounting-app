@@ -4,8 +4,8 @@ import { supabase } from '@/lib/supabaseAdmin'
 
 export async function POST(req: Request) {
   try {
-    // 1. Get access_token and item_id from request body
-    const { access_token, item_id } = await req.json();
+    // 1. Get access_token, item_id, start_date, and selected_account_ids from request body
+    const { access_token, item_id, start_date, selected_account_ids } = await req.json();
     if (!access_token || !item_id) {
       return NextResponse.json({ error: 'Missing access_token or item_id' }, { status: 400 });
     }
@@ -30,8 +30,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: errorMsg }, { status: 500 });
     }
 
-    // 3. Upsert accounts and chart_of_accounts
+    // 3. Upsert only selected accounts and chart_of_accounts
     for (const account of accountsResponse.data.accounts) {
+      // Skip if account is not in selected_account_ids
+      if (selected_account_ids && !selected_account_ids.includes(account.account_id)) {
+        continue;
+      }
+
       const { account_id, name, balances, type, subtype } = account;
 
       // Upsert into accounts table
@@ -67,9 +72,13 @@ export async function POST(req: Request) {
     // 4. Fetch transactions from Plaid
     let transactionsResponse;
     try {
+      if (!start_date) {
+        return NextResponse.json({ error: 'Start date is required' }, { status: 400 });
+      }
+
       transactionsResponse = await plaidClient.transactionsGet({
         access_token,
-        start_date: '2023-01-01',
+        start_date,
         end_date: new Date().toISOString().split('T')[0],
       });
       console.log('Plaid transactions:', transactionsResponse.data.transactions);
@@ -88,9 +97,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: errorMsg }, { status: 500 });
     }
 
-    // 5. Insert new transactions into imported_transactions
+    // 5. Insert new transactions into imported_transactions (only for selected accounts)
     const plaidTransactions = transactionsResponse.data.transactions;
     for (const tx of plaidTransactions) {
+      // Skip if transaction's account is not in selected_account_ids
+      if (selected_account_ids && !selected_account_ids.includes(tx.account_id)) {
+        continue;
+      }
+
       const { account_id, name, amount, date } = tx;
 
       // Find the account name from the accounts response
