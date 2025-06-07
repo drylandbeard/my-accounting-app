@@ -9,7 +9,7 @@ import { CountryCode } from 'plaid';
  */
 export async function POST(req: Request) {
   try {
-    const { accessToken, itemId } = await req.json();
+    const { accessToken, itemId, selectedAccountIds } = await req.json();
     
     if (!accessToken || !itemId) {
       return NextResponse.json({ 
@@ -22,8 +22,16 @@ export async function POST(req: Request) {
       access_token: accessToken
     });
     
-    const plaidAccounts = plaidAccountsResponse.data.accounts;
+    let plaidAccounts = plaidAccountsResponse.data.accounts;
     console.log(`📦 Fetched ${plaidAccounts.length} accounts from Plaid`);
+
+    // Filter to only selected accounts if specified
+    if (selectedAccountIds && selectedAccountIds.length > 0) {
+      plaidAccounts = plaidAccounts.filter(account => 
+        selectedAccountIds.includes(account.account_id)
+      );
+      console.log(`📋 Filtered to ${plaidAccounts.length} selected accounts`);
+    }
 
     // Get institution name for better account labeling
     let institutionName = 'Unknown Institution';

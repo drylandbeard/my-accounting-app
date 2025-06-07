@@ -7,7 +7,7 @@ import { supabase } from '@/lib/supabaseAdmin'
  */
 export async function POST(req: Request) {
   try {
-    const { accessToken, itemId } = await req.json();
+    const { accessToken, itemId, selectedAccountIds } = await req.json();
     
     if (!accessToken || !itemId) {
       return NextResponse.json({ 
@@ -16,10 +16,17 @@ export async function POST(req: Request) {
     }
 
     // Retrieve accounts stored in Step 3
-    const { data: accountRecords, error: fetchError } = await supabase
+    let query = supabase
       .from('accounts')
       .select('*')
       .eq('plaid_item_id', itemId);
+
+    // Further filter by selected accounts if specified
+    if (selectedAccountIds && selectedAccountIds.length > 0) {
+      query = query.in('plaid_account_id', selectedAccountIds);
+    }
+
+    const { data: accountRecords, error: fetchError } = await query;
 
     if (fetchError) {
       return NextResponse.json({ 

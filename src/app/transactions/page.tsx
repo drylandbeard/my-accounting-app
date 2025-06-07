@@ -435,10 +435,15 @@ export default function Page() {
         progress: 1
       }));
 
+      const selectedAccountIds = selectedAccounts.map(acc => acc.id);
       const accountsResult = await callAPI(
         'Step 3',
         '/api/3-store-plaid-accounts-as-accounts',
-        { accessToken: access_token, itemId: item_id }
+        { 
+          accessToken: access_token, 
+          itemId: item_id,
+          selectedAccountIds: selectedAccountIds
+        }
       );
 
       // Step 4: Create chart of accounts entries
@@ -451,7 +456,11 @@ export default function Page() {
       await callAPI(
         'Step 4',
         '/api/4-store-plaid-accounts-as-categories',
-        { accessToken: access_token, itemId: item_id }
+        { 
+          accessToken: access_token, 
+          itemId: item_id,
+          selectedAccountIds: selectedAccountIds
+        }
       );
 
       // Step 5: Import transactions
@@ -473,7 +482,7 @@ export default function Page() {
           accessToken: access_token,
           itemId: item_id,
           startDate: earliestStartDate.toISOString().split('T')[0],
-          selectedAccountIds: selectedAccounts.map(acc => acc.id)
+          selectedAccountIds: selectedAccountIds
         }
       );
 
@@ -1571,11 +1580,11 @@ export default function Page() {
                         <Select
                           options={accounts.map(acc => ({
                             value: acc.plaid_account_id || '',
-                            label: acc.plaid_account_name
+                            label: acc.name
                           }))}
                           value={importModal.selectedAccount ? {
                             value: importModal.selectedAccount.plaid_account_id || '',
-                            label: importModal.selectedAccount.plaid_account_name
+                            label: importModal.selectedAccount.name
                           } : null}
                           onChange={(option) => {
                             if (option) {
