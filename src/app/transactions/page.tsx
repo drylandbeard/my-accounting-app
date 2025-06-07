@@ -370,9 +370,6 @@ export default function Page() {
     },
   });
 
-  // Combine account and date selection into one function
-// Fixed handleAccountAndDateSelection function
-// Improved error handling for your frontend function
 const handleAccountAndDateSelection = async () => {
   try {
     console.log('=== Starting account and date selection process ===');
@@ -513,10 +510,7 @@ const handleAccountAndDateSelection = async () => {
     }));
 
     // Find the earliest start date from selected accounts
-    const earliestStartDate = selectedAccounts.reduce((earliest, account) => {
-      const accountDate = new Date(account.startDate);
-      return accountDate < earliest ? accountDate : earliest;
-    }, new Date(selectedAccounts[0].startDate));
+    const selectedStartDate = selectedAccounts[0].startDate;
 
     const step5Data = await makeAPICall(
       'Step 5',
@@ -524,7 +518,7 @@ const handleAccountAndDateSelection = async () => {
       {
         accessToken: access_token,
         itemId: item_id,
-        startDate: earliestStartDate.toISOString().split('T')[0],
+        startDate: selectedStartDate, // Direct pass - "2025-05-01"
         selectedAccountIds: selectedAccounts.map(acc => acc.plaid_account_id || acc.id)
       }
     );
