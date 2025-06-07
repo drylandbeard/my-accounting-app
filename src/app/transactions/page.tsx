@@ -30,7 +30,7 @@ type Category = {
 
 type Account = {
   plaid_account_id: string | null
-  plaid_account_name: string
+  name: string // Database column is 'name'
   starting_balance: number | null
   current_balance: number | null
   last_synced: string | null
@@ -82,7 +82,7 @@ export default function Page() {
   const [categories, setCategories] = useState<Category[]>([])
   const [importedTransactions, setImportedTransactions] = useState<Transaction[]>([])
   const [transactions, setTransactions] = useState<Transaction[]>([])
-  const [searchQuery, setSearchQuery] = useState('')
+  // Removed unused searchQuery state
   const [toAddSearchQuery, setToAddSearchQuery] = useState('')
   const [addedSearchQuery, setAddedSearchQuery] = useState('')
   const [manualDate, setManualDate] = useState('')
@@ -370,12 +370,9 @@ export default function Page() {
     },
   });
 
-  // Combine account and date selection into one function
   const handleAccountAndDateSelection = async () => {
     try {
-      // Get selected accounts
-      const selectedAccounts = accountSelectionModal.accounts
-        .filter(acc => acc.selected);
+      const selectedAccounts = accountSelectionModal.accounts.filter(acc => acc.selected);
 
       if (selectedAccounts.length === 0) {
         setNotification({ 
@@ -385,7 +382,7 @@ export default function Page() {
         return;
       }
 
-      // Validate dates
+      // Validate dates aren't in the future
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       
@@ -400,68 +397,117 @@ export default function Page() {
         }
       }
 
-      // Set initial progress state
       setImportProgress({
         isImporting: true,
         currentStep: 'Starting import...',
         progress: 0,
-        totalSteps: selectedAccounts.length
+        totalSteps: 3
       });
 
-      // Import each selected account with its selected start date
-      for (let i = 0; i < selectedAccounts.length; i++) {
-        const account = selectedAccounts[i];
-        
-        // Update progress
-        setImportProgress(prev => ({
-          ...prev,
-          currentStep: `Importing transactions for ${account.name}...`,
-          progress: i + 1
-        }));
-
-        const response = await fetch('/api/get-transactions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            access_token: account.access_token,
-            item_id: account.item_id,
-            account_id: account.id,
-            start_date: account.startDate,
-            selected_account_ids: selectedAccounts.map(acc => acc.id) // Pass selected account IDs
-          }),
-        });
-
-        if (!response.ok) {
-          const error = await response.json();
-          throw new Error(error.error || 'Failed to sync transactions');
-        }
+      const { access_token, item_id } = selectedAccounts[0];
+      
+      if (!access_token || !item_id) {
+        throw new Error('Missing access token or item ID. Please reconnect your account.');
       }
 
-      // Update progress for final step
+      // Helper function for API calls with error handling
+      const callAPI = async (step: string, url: string, payload: Record<string, unknown>) => {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+
+        const data = await response.json();
+        
+        if (!response.ok) {
+          const errorMessage = data?.error || data?.message || `HTTP ${response.status}`;
+          throw new Error(`${step} failed: ${errorMessage}`);
+        }
+
+        return data;
+      };
+
+      // Step 3: Store accounts in database
       setImportProgress(prev => ({
         ...prev,
-        currentStep: 'Finalizing import...',
-        progress: prev.totalSteps
+        currentStep: 'Storing account details...',
+        progress: 1
       }));
 
-      // Close modal and refresh
+      const accountsResult = await callAPI(
+        'Step 3',
+        '/api/3-store-plaid-accounts-as-accounts',
+        { accessToken: access_token, itemId: item_id }
+      );
+
+      // Step 4: Create chart of accounts entries
+      setImportProgress(prev => ({
+        ...prev,
+        currentStep: 'Setting up account categories...',
+        progress: 2
+      }));
+
+      await callAPI(
+        'Step 4',
+        '/api/4-store-plaid-accounts-as-categories',
+        { accessToken: access_token, itemId: item_id }
+      );
+
+      // Step 5: Import transactions
+      setImportProgress(prev => ({
+        ...prev,
+        currentStep: 'Importing transactions...',
+        progress: 3
+      }));
+
+      const earliestStartDate = selectedAccounts.reduce((earliest, account) => {
+        const accountDate = new Date(account.startDate);
+        return accountDate < earliest ? accountDate : earliest;
+      }, new Date(selectedAccounts[0].startDate));
+
+      const transactionsResult = await callAPI(
+        'Step 5',
+        '/api/5-import-transactions-to-categorize',
+        {
+          accessToken: access_token,
+          itemId: item_id,
+          startDate: earliestStartDate.toISOString().split('T')[0],
+          selectedAccountIds: selectedAccounts.map(acc => acc.id)
+        }
+      );
+
+      // Complete the process
       setAccountSelectionModal({ isOpen: false, accounts: [] });
       await refreshAll();
+      
+      const totalAccounts = accountsResult.count || 0;
+      const totalTransactions = transactionsResult.count || 0;
+      
       setNotification({ 
         type: 'success', 
-        message: 'Accounts linked and transactions imported successfully' 
+        message: `Successfully linked ${totalAccounts} accounts and imported ${totalTransactions} transactions!` 
       });
 
     } catch (error) {
-      console.error('Error in handleAccountAndDateSelection:', error);
-      setNotification({ 
-        type: 'error', 
-        message: error instanceof Error ? error.message : 'Failed to link accounts' 
-      });
+      let errorMessage = 'Failed to link accounts. ';
+      
+      if (error instanceof Error) {
+        if (error.message.includes('Step 3')) {
+          errorMessage += 'Could not save account information. ';
+        } else if (error.message.includes('Step 4')) {
+          errorMessage += 'Could not set up account categories. ';
+        } else if (error.message.includes('Step 5')) {
+          errorMessage += 'Could not import transactions. ';
+        }
+        errorMessage += error.message || 'Please try again.';
+      } else {
+        errorMessage += 'Please try again.';
+      }
+      
+      setNotification({ type: 'error', message: errorMessage });
+      
     } finally {
-      // Reset progress state
       setImportProgress({
         isImporting: false,
         currentStep: '',
@@ -1079,7 +1125,7 @@ export default function Page() {
 
     await supabase
       .from('accounts')
-      .update({ plaid_account_name: accountEditModal.newName.trim() })
+      .update({ name: accountEditModal.newName.trim() })
       .eq('plaid_account_id', accountEditModal.account.plaid_account_id);
 
     setAccountEditModal({ isOpen: false, account: null, newName: '' });
@@ -1106,10 +1152,12 @@ export default function Page() {
     }
 
     // After creating the category, set it as selected for the current transaction
-    setSelectedCategories(prev => ({
-      ...prev,
-      [newCategoryModal.transactionId]: data.id
-    }));
+    if (newCategoryModal.transactionId) {
+      setSelectedCategories(prev => ({
+        ...prev,
+        [newCategoryModal.transactionId!]: data.id
+      }));
+    }
 
     setNewCategoryModal({ isOpen: false, name: '', type: 'Expense', parent_id: null, transactionId: null });
     refreshAll();
@@ -1123,9 +1171,9 @@ export default function Page() {
     const startingBalance = parseFloat(manualAccountModal.startingBalance) || 0;
 
     // Insert into accounts table
-    const { error: accountError } = await supabase.from('accounts').insert({
+    const { error: accountError } =     await supabase.from('accounts').insert({
       plaid_account_id: manualAccountId,
-      plaid_account_name: manualAccountModal.name.trim(),
+      name: manualAccountModal.name.trim(),
       starting_balance: startingBalance,
       current_balance: startingBalance,
       last_synced: new Date().toISOString(),
@@ -1482,7 +1530,7 @@ export default function Page() {
             onClick={() => setSelectedAccountId(acc.plaid_account_id)}
             className={`border px-3 py-1 rounded text-xs ${acc.plaid_account_id === selectedAccountId ? 'bg-gray-200 font-semibold' : 'bg-gray-100 hover:bg-gray-200'}`}
           >
-            {acc.plaid_account_name}
+            {acc.name}
           </button>
         ))}
       </div>
@@ -2729,8 +2777,21 @@ export default function Page() {
                       <Select
                         options={categoryOptions}
                         value={categoryOptions.find(opt => opt.value === selectedCategories[tx.id]) || categoryOptions[0]}
-                        onChange={(selectedOption) => {
-                          handleCategorySelection(selectedOption, tx.id);
+                                                onChange={(selectedOption: { value: string; label: string } | null) => {
+                          if (selectedOption?.value === 'add_new') {
+                            setNewCategoryModal({ 
+                              isOpen: true, 
+                              name: '', 
+                              type: 'Expense', 
+                              parent_id: null, 
+                              transactionId: tx.id 
+                            });
+                          } else if (selectedOption?.value) {
+                            setSelectedCategories(prev => ({
+                              ...prev,
+                              [tx.id]: selectedOption.value
+                            }));
+                          }
                         }}
                         isSearchable
                         styles={{ 

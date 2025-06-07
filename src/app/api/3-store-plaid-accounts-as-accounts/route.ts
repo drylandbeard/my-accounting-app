@@ -1,55 +1,94 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { Configuration, PlaidApi, PlaidEnvironments } from 'plaid';
+import { supabase } from '@/lib/supabaseAdmin';
+import { plaidClient } from '@/lib/plaid';
+import { CountryCode } from 'plaid';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
-const plaid = new PlaidApi(new Configuration({
-  basePath: PlaidEnvironments[process.env.PLAID_ENV as keyof typeof PlaidEnvironments],
-  baseOptions: {
-    headers: {
-      'PLAID-CLIENT-ID': process.env.PLAID_CLIENT_ID!,
-      'PLAID-SECRET': process.env.PLAID_SECRET!,
-    },
-  },
-}));
-
+/**
+ * Step 3: Store Plaid accounts in our accounts table
+ * This creates account records that will be used in Steps 4 and 5
+ */
 export async function POST(req: Request) {
   try {
     const { accessToken, itemId } = await req.json();
-    if (!accessToken || !itemId) return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+    
+    if (!accessToken || !itemId) {
+      return NextResponse.json({ 
+        error: 'Missing required fields: accessToken and itemId' 
+      }, { status: 400 });
+    }
 
-    const item = await plaid.itemGet({ access_token: accessToken });
-    const institutionName = item.data.item.institution_id;
-
-    const now = new Date();
-    const tx = await plaid.transactionsGet({
-      access_token: accessToken,
-      start_date: new Date(now.getTime() - 30 * 864e5).toISOString().slice(0, 10),
-      end_date: now.toISOString().slice(0, 10),
+    // Fetch accounts from Plaid
+    const plaidAccountsResponse = await plaidClient.accountsGet({
+      access_token: accessToken
     });
+    
+    const plaidAccounts = plaidAccountsResponse.data.accounts;
+    console.log(`📦 Fetched ${plaidAccounts.length} accounts from Plaid`);
 
-    const accountsToInsert = tx.data.accounts.map((a) => ({
-      plaid_account_id: a.account_id,
-      starting_balance: a.balances.current || 0,
-      current_balance: a.balances.current || 0,
-      is_manual: false,
-      name: a.name,
-      institution_name: institutionName,
-      account_number: a.mask ? `****${a.mask}` : null,
-      type: a.type,
-      subtype: a.subtype,
+    // Get institution name for better account labeling
+    let institutionName = 'Unknown Institution';
+    try {
+      const itemResponse = await plaidClient.itemGet({ access_token: accessToken });
+      if (itemResponse.data.item.institution_id) {
+        const institutionResponse = await plaidClient.institutionsGetById({
+          institution_id: itemResponse.data.item.institution_id,
+          country_codes: ['US' as CountryCode]
+        });
+        institutionName = institutionResponse.data.institution.name;
+      }
+    } catch {
+      console.warn('Could not fetch institution name, using default');
+    }
+
+    // Transform Plaid accounts to our database format
+    const accountRecords = plaidAccounts.map((plaidAccount) => ({
+      id: crypto.randomUUID(),
+      plaid_account_id: plaidAccount.account_id,
+      name: plaidAccount.name, // Database column is 'name', not 'plaid_account_name'
+      type: plaidAccount.type,
+      subtype: plaidAccount.subtype || null,
+      starting_balance: plaidAccount.balances.current || 0,
+      current_balance: plaidAccount.balances.current || 0,
       plaid_item_id: itemId,
-      created_at: now.toISOString(),
+      institution_name: institutionName,
+      account_number: plaidAccount.mask ? `****${plaidAccount.mask}` : null,
+      is_manual: false,
+      created_at: new Date().toISOString(),
     }));
 
-    const { data, error } = await supabase.from('accounts').insert(accountsToInsert).select();
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ success: true, data });
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    // Store accounts in database (upsert to handle duplicates)
+    const { data: storedAccounts, error: storageError } = await supabase
+      .from('accounts')
+      .upsert(accountRecords, { 
+        onConflict: 'plaid_account_id',
+        ignoreDuplicates: false 
+      })
+      .select();
+
+    if (storageError) {
+      console.error('Failed to store accounts:', storageError);
+      return NextResponse.json({ 
+        error: 'Failed to store accounts in database',
+        details: storageError.message 
+      }, { status: 500 });
+    }
+
+    console.log(`✅ Stored ${storedAccounts?.length || 0} accounts successfully`);
+
+    return NextResponse.json({ 
+      success: true, 
+      data: storedAccounts,
+      count: storedAccounts?.length || 0,
+      message: `Successfully stored ${storedAccounts?.length || 0} accounts`
+    });
+
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+    console.error('❌ Account storage failed:', errorMessage);
+    
+    return NextResponse.json({ 
+      error: errorMessage,
+      step: 'store_accounts'
+    }, { status: 500 });
   }
 }
