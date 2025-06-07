@@ -340,7 +340,7 @@ export default function Page() {
     onSuccess: async (public_token, metadata) => {
       try {
         // First, get the access token
-        const res = await fetch('/api/exchange-public-token', {
+        const res = await fetch('/api/2-exchange-public-token', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ public_token }),
@@ -371,106 +371,224 @@ export default function Page() {
   });
 
   // Combine account and date selection into one function
-  const handleAccountAndDateSelection = async () => {
-    try {
-      // Get selected accounts
-      const selectedAccounts = accountSelectionModal.accounts
-        .filter(acc => acc.selected);
+// Fixed handleAccountAndDateSelection function
+// Improved error handling for your frontend function
+const handleAccountAndDateSelection = async () => {
+  try {
+    console.log('=== Starting account and date selection process ===');
+    
+    // Get selected accounts
+    const selectedAccounts = accountSelectionModal.accounts
+      .filter(acc => acc.selected);
 
-      if (selectedAccounts.length === 0) {
+    console.log('Selected accounts:', selectedAccounts.length);
+    console.log('Account details:', selectedAccounts.map(acc => ({
+      id: acc.id,
+      name: acc.name,
+      hasAccessToken: !!acc.access_token,
+      hasItemId: !!acc.item_id
+    })));
+
+    if (selectedAccounts.length === 0) {
+      setNotification({ 
+        type: 'error', 
+        message: 'Please select at least one account' 
+      });
+      return;
+    }
+
+    // Validate dates
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    for (const account of selectedAccounts) {
+      const selectedDate = new Date(account.startDate);
+      if (selectedDate > today) {
         setNotification({ 
           type: 'error', 
-          message: 'Please select at least one account' 
+          message: 'Start date cannot be in the future' 
         });
         return;
       }
-
-      // Validate dates
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      
-      for (const account of selectedAccounts) {
-        const selectedDate = new Date(account.startDate);
-        if (selectedDate > today) {
-          setNotification({ 
-            type: 'error', 
-            message: 'Start date cannot be in the future' 
-          });
-          return;
-        }
-      }
-
-      // Set initial progress state
-      setImportProgress({
-        isImporting: true,
-        currentStep: 'Starting import...',
-        progress: 0,
-        totalSteps: selectedAccounts.length
-      });
-
-      // Import each selected account with its selected start date
-      for (let i = 0; i < selectedAccounts.length; i++) {
-        const account = selectedAccounts[i];
-        
-        // Update progress
-        setImportProgress(prev => ({
-          ...prev,
-          currentStep: `Importing transactions for ${account.name}...`,
-          progress: i + 1
-        }));
-
-        const response = await fetch('/api/get-transactions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            access_token: account.access_token,
-            item_id: account.item_id,
-            account_id: account.id,
-            start_date: account.startDate,
-            selected_account_ids: selectedAccounts.map(acc => acc.id) // Pass selected account IDs
-          }),
-        });
-
-        if (!response.ok) {
-          const error = await response.json();
-          throw new Error(error.error || 'Failed to sync transactions');
-        }
-      }
-
-      // Update progress for final step
-      setImportProgress(prev => ({
-        ...prev,
-        currentStep: 'Finalizing import...',
-        progress: prev.totalSteps
-      }));
-
-      // Close modal and refresh
-      setAccountSelectionModal({ isOpen: false, accounts: [] });
-      await refreshAll();
-      setNotification({ 
-        type: 'success', 
-        message: 'Accounts linked and transactions imported successfully' 
-      });
-
-    } catch (error) {
-      console.error('Error in handleAccountAndDateSelection:', error);
-      setNotification({ 
-        type: 'error', 
-        message: error instanceof Error ? error.message : 'Failed to link accounts' 
-      });
-    } finally {
-      // Reset progress state
-      setImportProgress({
-        isImporting: false,
-        currentStep: '',
-        progress: 0,
-        totalSteps: 0
-      });
     }
-  };
 
+    // Set initial progress state
+    setImportProgress({
+      isImporting: true,
+      currentStep: 'Starting import...',
+      progress: 0,
+      totalSteps: 3
+    });
+
+    // Get the access token and item_id from the first account
+    const { access_token, item_id } = selectedAccounts[0];
+    
+    console.log('Using access_token:', access_token ? 'Present' : 'Missing');
+    console.log('Using item_id:', item_id);
+
+    if (!access_token || !item_id) {
+      throw new Error('Missing access token or item ID. Please reconnect your account.');
+    }
+
+    // Helper function for better error handling
+    const makeAPICall = async (step, url, payload) => {
+      console.log(`=== ${step}: Starting ===`);
+      console.log(`${step}: Payload:`, payload);
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      console.log(`${step}: Response status:`, response.status);
+      console.log(`${step}: Response ok:`, response.ok);
+
+      let responseData;
+      try {
+        responseData = await response.json();
+        console.log(`${step}: Response data:`, responseData);
+      } catch (parseError) {
+        console.error(`${step}: Failed to parse response JSON:`, parseError);
+        throw new Error(`${step}: Server returned invalid response`);
+      }
+
+      if (!response.ok) {
+        console.error(`${step}: API call failed:`, {
+          status: response.status,
+          statusText: response.statusText,
+          data: responseData
+        });
+        
+        const errorMessage = responseData?.error || responseData?.message || `HTTP ${response.status}`;
+        throw new Error(`${step} failed: ${errorMessage}`);
+      }
+
+      return responseData;
+    };
+
+    // STEP 3: Store Plaid accounts in accounts table
+    setImportProgress(prev => ({
+      ...prev,
+      currentStep: 'Storing account details...',
+      progress: 1
+    }));
+
+    const step3Data = await makeAPICall(
+      'Step 3',
+      '/api/3-store-plaid-accounts-as-accounts',
+      {
+        accessToken: access_token,
+        itemId: item_id
+      }
+    );
+
+    console.log('Step 3 completed successfully:', step3Data);
+
+    // STEP 4: Store Plaid accounts as categories in chart_of_accounts
+    setImportProgress(prev => ({
+      ...prev,
+      currentStep: 'Setting up account categories...',
+      progress: 2
+    }));
+
+    const step4Data = await makeAPICall(
+      'Step 4',
+      '/api/4-store-plaid-accounts-as-categories',
+      {
+        accessToken: access_token,
+        itemId: item_id
+      }
+    );
+
+    console.log('Step 4 completed successfully:', step4Data);
+
+    // STEP 5: Import transactions
+    setImportProgress(prev => ({
+      ...prev,
+      currentStep: 'Importing transactions...',
+      progress: 3
+    }));
+
+    // Find the earliest start date from selected accounts
+    const earliestStartDate = selectedAccounts.reduce((earliest, account) => {
+      const accountDate = new Date(account.startDate);
+      return accountDate < earliest ? accountDate : earliest;
+    }, new Date(selectedAccounts[0].startDate));
+
+    const step5Data = await makeAPICall(
+      'Step 5',
+      '/api/5-import-transactions-to-categorize',
+      {
+        accessToken: access_token,
+        itemId: item_id,
+        startDate: earliestStartDate.toISOString().split('T')[0],
+        selectedAccountIds: selectedAccounts.map(acc => acc.plaid_account_id || acc.id)
+      }
+    );
+
+    console.log('Step 5 completed successfully:', step5Data);
+
+    // Update progress for completion
+    setImportProgress(prev => ({
+      ...prev,
+      currentStep: 'Finalizing import...',
+      progress: 3
+    }));
+
+    // Close modal and refresh data
+    setAccountSelectionModal({ isOpen: false, accounts: [] });
+    
+    // Refresh all data to show the new accounts and transactions
+    await refreshAll();
+    
+    // Show success message with summary
+    const totalAccounts = step3Data.count || 0;
+    const totalTransactions = step5Data.count || 0;
+    
+    setNotification({ 
+      type: 'success', 
+      message: `Successfully linked ${totalAccounts} accounts and imported ${totalTransactions} transactions!` 
+    });
+
+    console.log('=== Account linking process completed successfully ===');
+
+  } catch (error) {
+    console.error('=== Error in handleAccountAndDateSelection ===');
+    console.error('Error details:', error);
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
+    
+    // Show user-friendly error message
+    let errorMessage = 'Failed to link accounts. ';
+    
+    if (error.message.includes('Step 3')) {
+      errorMessage += 'Could not save account information. ';
+    } else if (error.message.includes('Step 4')) {
+      errorMessage += 'Could not set up account categories. ';
+    } else if (error.message.includes('Step 5')) {
+      errorMessage += 'Could not import transactions. ';
+    }
+    
+    errorMessage += error.message || 'Please try again.';
+    
+    setNotification({ 
+      type: 'error', 
+      message: errorMessage
+    });
+    
+  } finally {
+    // Always reset progress state
+    setImportProgress({
+      isImporting: false,
+      currentStep: '',
+      progress: 0,
+      totalSteps: 0
+    });
+  }
+};
   // Add new state for import progress
   const [importProgress, setImportProgress] = useState<{
     isImporting: boolean;
