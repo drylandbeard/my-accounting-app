@@ -311,7 +311,7 @@ export default function Page() {
   // 1️⃣ Plaid Link Token
   useEffect(() => {
     const createLinkToken = async () => {
-      const res = await fetch('/api/create-link-token')
+      const res = await fetch('/api/1-create-link-token')
       const data = await res.json()
       setLinkToken(data.link_token)
     }
@@ -340,7 +340,7 @@ export default function Page() {
     onSuccess: async (public_token, metadata) => {
       try {
         // First, get the access token
-        const res = await fetch('/api/exchange-public-token', {
+        const res = await fetch('/api/2-exchange-public-token', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ public_token }),
