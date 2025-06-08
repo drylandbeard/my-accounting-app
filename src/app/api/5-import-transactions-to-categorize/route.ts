@@ -30,14 +30,27 @@ export async function POST(req: Request) {
     let allTransactions = transactionsResponse.data.transactions;
 
     // Retry with broader date range if no transactions found (common in sandbox)
+    // But still respect the user's selected start date
     if (allTransactions.length === 0) {
+      // Only go back to an earlier date if the user's start date is very recent
+      const userStartDate = new Date(transactionStartDate);
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      
+      const fallbackStartDate = userStartDate < thirtyDaysAgo ? transactionStartDate : thirtyDaysAgo.toISOString().split('T')[0];
+      
       const fallbackResponse = await plaidClient.transactionsGet({
         access_token: accessToken,
-        start_date: '2023-01-01',
+        start_date: fallbackStartDate,
         end_date: endDate
       });
       
       allTransactions = fallbackResponse.data.transactions;
+      
+      // Filter transactions to only include those from the user's selected start date onwards
+      allTransactions = allTransactions.filter(transaction => 
+        transaction.date >= transactionStartDate
+      );
     }
 
     // Retrieve account mapping from database

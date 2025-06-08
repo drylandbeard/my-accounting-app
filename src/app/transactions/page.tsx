@@ -384,10 +384,12 @@ export default function Page() {
 
       // Validate dates aren't in the future
       const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      today.setHours(23, 59, 59, 999); // Set to end of today to allow today's date
       
       for (const account of selectedAccounts) {
-        const selectedDate = new Date(account.startDate);
+        // Parse date in local timezone to avoid timezone issues
+        const [year, month, day] = account.startDate.split('-').map(Number);
+        const selectedDate = new Date(year, month - 1, day);
         if (selectedDate > today) {
           setNotification({ 
             type: 'error', 
@@ -471,9 +473,14 @@ export default function Page() {
       }));
 
       const earliestStartDate = selectedAccounts.reduce((earliest, account) => {
-        const accountDate = new Date(account.startDate);
+        // Parse date in local timezone to avoid timezone issues
+        const [year, month, day] = account.startDate.split('-').map(Number);
+        const accountDate = new Date(year, month - 1, day);
         return accountDate < earliest ? accountDate : earliest;
-      }, new Date(selectedAccounts[0].startDate));
+      }, (() => {
+        const [year, month, day] = selectedAccounts[0].startDate.split('-').map(Number);
+        return new Date(year, month - 1, day);
+      })());
 
       const transactionsResult = await callAPI(
         'Step 5',
@@ -559,7 +566,9 @@ export default function Page() {
       today.setHours(0, 0, 0, 0);
       
       for (const account of selectedAccounts) {
-        const selectedDate = new Date(account.startDate);
+        // Parse date in local timezone to avoid timezone issues
+        const [year, month, day] = account.startDate.split('-').map(Number);
+        const selectedDate = new Date(year, month - 1, day);
         if (selectedDate > today) {
           setNotification({ 
             type: 'error', 
