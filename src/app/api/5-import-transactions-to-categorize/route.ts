@@ -4,28 +4,32 @@ import { supabase } from '@/lib/supabaseAdmin'
 
 /**
  * Import transactions from Plaid and store in imported_transactions table
- * Uses exact date range specified by user without fallback logic
+ * Uses account-specific date ranges as specified by user
  */
 export async function POST(req: Request) {
   try {
-    const { accessToken, itemId, startDate, selectedAccountIds } = await req.json();
+    const { accessToken, itemId, accountDateMap, selectedAccountIds } = await req.json();
     
     if (!accessToken || !itemId) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    // Use exact date from frontend (already in YYYY-MM-DD format)
-    console.log('Received startDate from frontend:', startDate);
+    console.log('Received accountDateMap from frontend:', accountDateMap);
     
     const endDate = new Date().toISOString().split('T')[0];
-    const finalStartDate = startDate;
+    
+    // Calculate the earliest start date for the Plaid API call
+    const startDates = Object.values(accountDateMap) as string[];
+    const earliestStartDate = startDates.reduce((earliest, current) => 
+      current < earliest ? current : earliest
+    );
 
-    console.log('Using date range:', finalStartDate, 'to', endDate);
+    console.log('Using date range for Plaid fetch:', earliestStartDate, 'to', endDate);
 
-    // Fetch transactions from Plaid
+    // Fetch transactions from Plaid using the earliest date to get all needed transactions
     const transactionsResponse = await plaidClient.transactionsGet({
       access_token: accessToken,
-      start_date: finalStartDate,
+      start_date: earliestStartDate,
       end_date: endDate,
     });
 
@@ -46,7 +50,7 @@ export async function POST(req: Request) {
       accounts?.map(acc => [acc.account_id, acc.name]) || []
     );
 
-    // Filter transactions by selected accounts (if specified) AND by date
+    // Filter transactions by selected accounts (if specified) AND by account-specific dates
     let filteredTransactions = transactionsResponse.data.transactions;
     
     if (selectedAccountIds && selectedAccountIds.length > 0) {
@@ -55,12 +59,17 @@ export async function POST(req: Request) {
       );
     }
 
-    // Ensure we only get transactions from selected date forward
-    filteredTransactions = filteredTransactions.filter(txn => 
-      txn.date >= finalStartDate
-    );
+    // Filter transactions by account-specific start dates
+    filteredTransactions = filteredTransactions.filter(txn => {
+      const accountStartDate = accountDateMap[txn.account_id];
+      if (!accountStartDate) {
+        console.warn(`No start date found for account ${txn.account_id}, skipping transaction`);
+        return false;
+      }
+      return txn.date >= accountStartDate;
+    });
 
-    console.log('Filtered transactions after date check:', filteredTransactions.length);
+    console.log('Filtered transactions after account-specific date check:', filteredTransactions.length);
 
     // Transform transactions for storage
     const transactionsToStore = filteredTransactions.map(transaction => {
@@ -92,12 +101,13 @@ export async function POST(req: Request) {
     }
 
     console.log('✅ Successfully imported transactions:', data?.length);
-    console.log('Date range used:', finalStartDate, 'to', endDate);
+    console.log('Account-specific date ranges used:', accountDateMap);
     
     return NextResponse.json({ 
       success: true, 
       count: data?.length,
-      dateRange: { start: finalStartDate, end: endDate }
+      accountDateMap: accountDateMap,
+      dateRange: { start: earliestStartDate, end: endDate }
     });
 
   } catch (err: unknown) {

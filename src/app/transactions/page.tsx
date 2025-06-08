@@ -472,15 +472,11 @@ export default function Page() {
         progress: 3
       }));
 
-      const earliestStartDate = selectedAccounts.reduce((earliest, account) => {
-        // Parse date in local timezone to avoid timezone issues
-        const [year, month, day] = account.startDate.split('-').map(Number);
-        const accountDate = new Date(year, month - 1, day);
-        return accountDate < earliest ? accountDate : earliest;
-      }, (() => {
-        const [year, month, day] = selectedAccounts[0].startDate.split('-').map(Number);
-        return new Date(year, month - 1, day);
-      })());
+      // Create account-to-date mapping for API
+      const accountDateMap = selectedAccounts.reduce((map, account) => {
+        map[account.id] = account.startDate;
+        return map;
+      }, {} as Record<string, string>);
 
       const transactionsResult = await callAPI(
         'Step 5',
@@ -488,7 +484,7 @@ export default function Page() {
         {
           accessToken: access_token,
           itemId: item_id,
-          startDate: earliestStartDate.toISOString().split('T')[0],
+          accountDateMap: accountDateMap,
           selectedAccountIds: selectedAccountIds
         }
       );
@@ -502,7 +498,7 @@ export default function Page() {
       
       setNotification({ 
         type: 'success', 
-        message: `Successfully linked ${totalAccounts} accounts and imported ${totalTransactions} transactions!` 
+        message: `Successfully linked ${totalAccounts} accounts and imported ${totalTransactions} transactions with account-specific start dates!` 
       });
 
     } catch (error) {
