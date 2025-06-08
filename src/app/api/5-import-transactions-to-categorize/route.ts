@@ -11,113 +11,92 @@ export async function POST(req: Request) {
     const { accessToken, itemId, startDate, selectedAccountIds } = await req.json();
     
     if (!accessToken || !itemId) {
-      return NextResponse.json({ 
-        error: 'Missing required fields: accessToken and itemId' 
-      }, { status: 400 });
+      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
+    // Use exact date from frontend (already in YYYY-MM-DD format)
     console.log('Received startDate from frontend:', startDate);
     
     const endDate = new Date().toISOString().split('T')[0];
     const finalStartDate = startDate;
 
-    console.log('Date range:', finalStartDate, 'to', endDate);
+    console.log('Using date range:', finalStartDate, 'to', endDate);
 
-    // Fetch transactions from Plaid API
+    // Fetch transactions from Plaid
     const transactionsResponse = await plaidClient.transactionsGet({
       access_token: accessToken,
       start_date: finalStartDate,
-      end_date: endDate
+      end_date: endDate,
     });
 
-        console.log('Fetched transactions:', transactionsResponse.data.transactions.length);
+    console.log('Fetched transactions:', transactionsResponse.data.transactions.length);
 
-    // Return early if no transactions found
     if (transactionsResponse.data.transactions.length === 0) {
       console.log('No transactions found in date range');
-      return NextResponse.json({ 
-        success: true, 
-        count: 0, 
-        message: 'No transactions found',
-        dateRange: { start: finalStartDate, end: endDate }
-      });
+      return NextResponse.json({ success: true, count: 0, message: 'No transactions found' });
     }
-
-    const allTransactions = transactionsResponse.data.transactions;
 
     // Get account names for mapping
-    const { data: accounts, error: accountsError } = await supabase
+    const { data: accounts } = await supabase
       .from('accounts')
-      .select('plaid_account_id, name')
+      .select('account_id, name')
       .eq('plaid_item_id', itemId);
 
-    if (accountsError) {
-      return NextResponse.json({ 
-        error: 'Failed to fetch account information',
-        details: accountsError.message
-      }, { status: 500 });
-    }
-
-    // Create account lookup map
     const accountMap = new Map(
-      accounts?.map(acc => [acc.plaid_account_id, acc.name]) || []
+      accounts?.map(acc => [acc.account_id, acc.name]) || []
     );
 
-    // Filter transactions by selected accounts if specified
-    let filteredTransactions = allTransactions;
+    // Filter transactions by selected accounts (if specified) AND by date
+    let filteredTransactions = transactionsResponse.data.transactions;
+    
     if (selectedAccountIds && selectedAccountIds.length > 0) {
-      filteredTransactions = allTransactions.filter(transaction => 
-        selectedAccountIds.includes(transaction.account_id)
+      filteredTransactions = filteredTransactions.filter(txn => 
+        selectedAccountIds.includes(txn.account_id)
       );
     }
 
-    // Extra filter to ensure we only get transactions from selected date forward
-    filteredTransactions = filteredTransactions.filter(transaction => 
-      transaction.date >= finalStartDate
+    // Ensure we only get transactions from selected date forward
+    filteredTransactions = filteredTransactions.filter(txn => 
+      txn.date >= finalStartDate
     );
 
     console.log('Filtered transactions after date check:', filteredTransactions.length);
 
-    // Transform transactions for storage - matches working version approach
+    // Transform transactions for storage
     const transactionsToStore = filteredTransactions.map(transaction => {
       const spent = transaction.amount > 0 ? transaction.amount : 0;
       const received = transaction.amount < 0 ? Math.abs(transaction.amount) : 0;
 
       return {
-        id: crypto.randomUUID(),
         date: transaction.date,
         description: transaction.name,
         plaid_account_id: transaction.account_id,
         plaid_account_name: accountMap.get(transaction.account_id) || 'Unknown Account',
         item_id: itemId,
         spent,
-        received
+        received,
       };
     });
 
     console.log('Inserting transactions...');
 
-    // Insert transactions into database
-    const { data: storedTransactions, error: transactionsError } = await supabase
+    // Insert transactions
+    const { data, error } = await supabase
       .from('imported_transactions')
       .insert(transactionsToStore)
       .select();
 
-    if (transactionsError) {
-      console.error('❌ Insert error:', transactionsError);
-      return NextResponse.json({ 
-        error: 'Failed to store transactions',
-        details: transactionsError.message
-      }, { status: 500 });
+    if (error) {
+      console.error('Insert error:', error);
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    console.log('✅ Successfully imported transactions:', storedTransactions?.length);
-    console.log('Date range:', finalStartDate, 'to', endDate);
+    console.log('✅ Successfully imported transactions:', data?.length);
+    console.log('Date range used:', finalStartDate, 'to', endDate);
     
-    // Return response
     return NextResponse.json({ 
       success: true, 
-      count: storedTransactions?.length,
+      count: data?.length,
       dateRange: { start: finalStartDate, end: endDate }
     });
 
