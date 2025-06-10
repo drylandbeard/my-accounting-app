@@ -1,8 +1,6 @@
 import './globals.css'
-import NavBar from '@/app/components/NavBar'
-import AISidePanel from '@/app/components/AISidePanel'
-import { SelectedToAddProvider } from '@/app/components/SelectedToAddContext'
-import AIContextProvider from '@/app/components/AIContextProvider'
+import { AuthProvider } from "@/app/components/AuthContext";
+import AuthenticatedApp from "@/app/components/AuthenticatedApp";
 
 export const metadata = {
   title: 'switch',
@@ -17,15 +15,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <SelectedToAddProvider>
-          <AIContextProvider>
-            <NavBar />
-            <main className="relative">
-              {children}
-            </main>
-            <AISidePanel />
-          </AIContextProvider>
-        </SelectedToAddProvider>
+        <AuthProvider>
+          <AuthenticatedApp>{children}</AuthenticatedApp>
+        </AuthProvider>
       </body>
     </html>
   )
