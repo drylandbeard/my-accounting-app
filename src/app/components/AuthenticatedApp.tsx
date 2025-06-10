@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { useAuth } from "./AuthContext";
 import AuthForm from "./AuthForm";
 import NavBar from "./NavBar";
@@ -10,6 +10,7 @@ import AIContextProvider from "./AIContextProvider";
 
 export default function AuthenticatedApp({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
+  const [isAIPanelOpen, setIsAIPanelOpen] = useState(false);
 
   // Show loading state
   if (isLoading) {
@@ -30,10 +31,18 @@ export default function AuthenticatedApp({ children }: { children: React.ReactNo
     <SelectedToAddProvider>
       <AIContextProvider>
         <NavBar />
-        <main className="relative">
-          {children}
-        </main>
-        <AISidePanel />
+        <div className="flex" style={{ height: 'calc(100vh - 4rem)' }}>
+          <main className="flex-1 overflow-auto">
+            {children}
+          </main>
+          {isAIPanelOpen && (
+            <AISidePanel isOpen={isAIPanelOpen} setIsOpen={setIsAIPanelOpen} />
+          )}
+        </div>
+        {/* Always render the panel for floating button when closed */}
+        {!isAIPanelOpen && (
+          <AISidePanel isOpen={isAIPanelOpen} setIsOpen={setIsAIPanelOpen} />
+        )}
       </AIContextProvider>
     </SelectedToAddProvider>
   );
