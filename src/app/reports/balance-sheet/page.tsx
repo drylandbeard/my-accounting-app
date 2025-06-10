@@ -239,6 +239,7 @@ export default function BalanceSheetPage() {
 
   return (
     <div className="p-4 bg-white text-gray-900 font-sans text-sm space-y-4 max-w-7xl mx-auto">
+      <h1 className="text-xl font-semibold mb-4 text-center">Balance Sheet</h1>
       <div className="space-y-2 mb-2 text-center">
         <label className="mr-2">As of Date:</label>
         <input

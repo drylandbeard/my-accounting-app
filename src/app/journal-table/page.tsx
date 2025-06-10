@@ -68,14 +68,6 @@ export default function JournalTablePage() {
 
   return (
     <div className="p-4">
-      <button
-        onClick={handleSync}
-        disabled={syncing}
-        className="mb-4 mr-2 px-4 py-1.5 bg-gray-800 text-white text-sm rounded hover:bg-black disabled:opacity-50"
-      >
-        {syncing ? 'Syncing...' : 'Sync Journal'}
-      </button>
-      {syncError && <div className="text-red-600 mb-2">{syncError}</div>}
       {loading ? (
         <div>Loading...</div>
       ) : error ? (

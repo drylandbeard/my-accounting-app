@@ -543,6 +543,7 @@ export default function Page() {
 
   return (
     <div className="p-4 bg-white text-gray-900 font-sans text-sm space-y-4 max-w-7xl mx-auto">
+      <h1 className="text-xl font-semibold mb-4 text-center">Profit & Loss</h1>
       {/* Date Range Filter */}
       <div className="space-y-2 mb-2 text-center">
         <div className="flex items-center justify-center gap-4 mb-2">
