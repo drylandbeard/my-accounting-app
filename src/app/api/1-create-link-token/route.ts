@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { plaidClient } from '@/lib/plaid'
+import { Products, CountryCode } from 'plaid'
 
 export async function GET() {
   try {
@@ -7,9 +8,9 @@ export async function GET() {
       user: {
         client_user_id: 'unique-user-id', // static for now
       },
-      client_name: 'Your Accounting App',
-      products: [(process.env.PLAID_PRODUCTS as any) || 'transactions'],
-      country_codes: [(process.env.PLAID_COUNTRY_CODE as any) || 'US'],
+      client_name: 'Switch',
+      products: [(process.env.PLAID_PRODUCTS as Products) || Products.Transactions],
+      country_codes: [(process.env.PLAID_COUNTRY_CODE as CountryCode) || CountryCode.Us],
       language: 'en',
       redirect_uri: process.env.PLAID_REDIRECT_URI, // use env variable!
     })
