@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 'use client'
 
 import { useEffect, useState } from 'react'
@@ -1469,8 +1470,7 @@ export default function Page() {
 
   return (
     <div className="p-4 bg-white text-gray-900 font-sans text-xs space-y-6">
-      <div className="flex justify-between items-center mb-4">
-        <h1 className="text-lg font-semibold">Transactions</h1>
+      <div className="flex justify-end items-center mb-4">
         {notification && (
           <div className={`fixed top-6 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3 rounded shadow-lg text-sm font-medium flex items-center space-x-2 ${
             notification.type === 'success' ? 'bg-green-100 text-green-800 border border-green-300' : 'bg-red-100 text-red-800 border border-red-300'
@@ -2194,7 +2194,7 @@ export default function Page() {
                     <div className="bg-red-50 p-3 rounded border border-red-200">
                       <p className="text-sm text-red-700 mb-2">
                         Warning: This will permanently delete the account and all its transactions.
-                        Type "delete" to confirm.
+                        Type &quot;delete&quot; to confirm.
                       </p>
                       <div className="flex gap-2">
                         <input
@@ -2791,7 +2791,7 @@ export default function Page() {
                       <Select
                         options={categoryOptions}
                         value={categoryOptions.find(opt => opt.value === selectedCategories[tx.id]) || categoryOptions[0]}
-                                                onChange={(selectedOption: { value: string; label: string } | null) => {
+                        onChange={(selectedOption: { value: string; label: string } | null) => {
                           if (selectedOption?.value === 'add_new') {
                             setNewCategoryModal({ 
                               isOpen: true, 

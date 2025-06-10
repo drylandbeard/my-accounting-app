@@ -68,11 +68,10 @@ export default function JournalTablePage() {
 
   return (
     <div className="p-4">
-      <h1 className="text-2xl font-bold mb-4">Journal Table (Raw)</h1>
       <button
         onClick={handleSync}
         disabled={syncing}
-        className="mb-4 mr-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+        className="mb-4 mr-2 px-4 py-1.5 bg-gray-800 text-white text-sm rounded hover:bg-black disabled:opacity-50"
       >
         {syncing ? 'Syncing...' : 'Sync Journal'}
       </button>

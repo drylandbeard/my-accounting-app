@@ -6,7 +6,7 @@ import { useState } from "react";
 import { useAuth } from "./AuthContext";
 import { createCompany } from "@/lib/auth";
 import SettingsModal from "./SettingsModal";
-import { ChevronDownIcon, PencilIcon, XMarkIcon } from "@heroicons/react/24/outline";
+import { ChevronDownIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { supabase } from "@/lib/supabaseClient";
 
 interface CompanyModalProps {
@@ -226,7 +226,7 @@ export default function NavBar() {
                       className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700"
                       title="Edit company"
                     >
-                      <PencilIcon className="w-4 h-4" />
+                      Edit
                     </button>
                   </div>
                 ))}

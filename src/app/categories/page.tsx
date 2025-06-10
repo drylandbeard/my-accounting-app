@@ -269,8 +269,7 @@ export default function ChartOfAccountsPage() {
   }
 
   return (
-    <div className="p-2 max-w-3xl mx-auto font-sans text-gray-900">
-      <h1 className="text-xl font-bold mb-3 text-center">Categories</h1>
+    <div className="p-2 max-w-3xl mx-auto mt-4 font-sans text-gray-900">
       <div className="flex justify-center mb-3">
         <input
           type="text"
