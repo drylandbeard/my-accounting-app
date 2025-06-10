@@ -7,6 +7,8 @@ import { supabase } from '../../lib/supabaseClient'
 import dynamic from 'next/dynamic'
 import Papa from 'papaparse'
 import { v4 as uuidv4 } from 'uuid'
+import { XMarkIcon } from '@heroicons/react/24/outline'
+import { useApiWithCompany } from '@/hooks/useApiWithCompany'
 
 type Transaction = {
   id: string
@@ -77,6 +79,7 @@ type SelectOption = {
 const Select = dynamic(() => import('react-select'), { ssr: false })
 
 export default function Page() {
+  const { getWithCompany, postWithCompany, hasCompanyContext, currentCompany } = useApiWithCompany()
   const [linkToken, setLinkToken] = useState<string | null>(null)
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null)
   const [accounts, setAccounts] = useState<Account[]>([])
@@ -267,10 +270,15 @@ export default function Page() {
     setSyncError(null);
     setNotification(null);
     try {
-      // Get all connected Plaid accounts
+      if (!hasCompanyContext) {
+        throw new Error('No company selected. Please select a company first.');
+      }
+      
+      // Get all connected Plaid accounts for current company
       const { data: plaidItems } = await supabase
         .from('plaid_items')
-        .select('access_token, item_id');
+        .select('access_token, item_id')
+        .eq('company_id', currentCompany!.id);
 
       if (!plaidItems || plaidItems.length === 0) {
         throw new Error('No connected Plaid accounts found');
@@ -312,12 +320,25 @@ export default function Page() {
   // 1️⃣ Plaid Link Token
   useEffect(() => {
     const createLinkToken = async () => {
-      const res = await fetch('/api/1-create-link-token')
-      const data = await res.json()
-      setLinkToken(data.link_token)
+      if (!hasCompanyContext) {
+        console.log('No company context available for Plaid integration')
+        return
+      }
+      
+      try {
+        const res = await getWithCompany('/api/1-create-link-token')
+        const data = await res.json()
+        if (res.ok) {
+          setLinkToken(data.link_token)
+        } else {
+          console.error('Failed to create link token:', data.error)
+        }
+      } catch (error) {
+        console.error('Error creating link token:', error)
+      }
     }
     createLinkToken()
-  }, [])
+  }, []) // Removed hasCompanyContext and getWithCompany from dependencies to prevent infinite re-renders
 
   // Update the account selection modal state to include dates
   const [accountSelectionModal, setAccountSelectionModal] = useState<{
@@ -341,11 +362,7 @@ export default function Page() {
     onSuccess: async (public_token, metadata) => {
       try {
         // First, get the access token
-        const res = await fetch('/api/2-exchange-public-token', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ public_token }),
-        });
+        const res = await postWithCompany('/api/2-exchange-public-token', { public_token });
 
         const data = await res.json();
 
@@ -415,11 +432,7 @@ export default function Page() {
 
       // Helper function for API calls with error handling
       const callAPI = async (step: string, url: string, payload: Record<string, unknown>) => {
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
+        const response = await postWithCompany(url, payload);
 
         const data = await response.json();
         
@@ -647,28 +660,44 @@ export default function Page() {
 
   // 2️⃣ Supabase Fetching
   const fetchImportedTransactions = async () => {
+    if (!hasCompanyContext) return;
+    
     const { data } = await supabase
       .from('imported_transactions')
       .select('*')
+      .eq('company_id', currentCompany?.id)
       .neq('plaid_account_name', null)
     setImportedTransactions(data || [])
   }
 
   const fetchConfirmedTransactions = async () => {
+    if (!hasCompanyContext) return;
+    
     const { data } = await supabase
       .from('transactions')
       .select('*')
+      .eq('company_id', currentCompany?.id)
       .neq('plaid_account_name', null)
     setTransactions(data || [])
   }
 
   const fetchCategories = async () => {
-    const { data } = await supabase.from('chart_of_accounts').select('*')
+    if (!hasCompanyContext) return;
+    
+    const { data } = await supabase
+      .from('chart_of_accounts')
+      .select('*')
+      .eq('company_id', currentCompany?.id)
     setCategories(data || [])
   }
 
   const fetchAccounts = async () => {
-    const { data } = await supabase.from('accounts').select('*')
+    if (!hasCompanyContext) return;
+    
+    const { data } = await supabase
+      .from('accounts')
+      .select('*')
+      .eq('company_id', currentCompany?.id)
     setAccounts(data || [])
     if (data && data.length > 0 && !selectedAccountId) {
       setSelectedAccountId(data[0].plaid_account_id)
@@ -684,7 +713,7 @@ export default function Page() {
 
   useEffect(() => {
     refreshAll()
-  }, [])
+  }, [currentCompany?.id]) // Refresh when company changes
 
   // 3️⃣ Actions
   const addTransaction = async (tx: Transaction, selectedCategoryId: string) => {
@@ -708,28 +737,32 @@ export default function Page() {
           plaid_account_id: c.plaid_account_id
         }))
       });
-      alert(`Account not found in chart of accounts. Please ensure the account "${accounts.find(a => a.plaid_account_id === selectedAccountId)?.plaid_account_name}" is properly set up in your chart of accounts.`);
+      alert(`Account not found in chart of accounts. Please ensure the account "${accounts.find(a => a.plaid_account_id === selectedAccountId)?.name}" is properly set up in your chart of accounts.`);
       return;
     }
 
     const selectedAccountIdInCOA = selectedAccount.id;
 
-    await supabase.from('transactions').insert([{
-      date: tx.date,
-      description: tx.description,
-      spent: tx.spent ?? 0,
-      received: tx.received ?? 0,
-      selected_category_id: selectedCategoryId,
-      corresponding_category_id: selectedAccountIdInCOA,
-      plaid_account_id: tx.plaid_account_id,
-      plaid_account_name: tx.plaid_account_name,
-    }]);
+    try {
+      // Use the 6-move-to-transactions API endpoint with company context
+      const response = await postWithCompany('/api/6-move-to-transactions', {
+        imported_transaction_id: tx.id,
+        selected_category_id: selectedCategoryId,
+        corresponding_category_id: selectedAccountIdInCOA
+      });
 
-    // Remove from imported_transactions
-    await supabase.from('imported_transactions').delete().eq('id', tx.id);
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to move transaction');
+      }
 
-    await fetch('/api/sync-journal', { method: 'POST' });
-    refreshAll();
+      await fetch('/api/sync-journal', { method: 'POST' });
+      refreshAll();
+    } catch (error) {
+      console.error('Error moving transaction:', error);
+      alert(error instanceof Error ? error.message : 'Failed to move transaction. Please try again.');
+    }
   };
 
   const undoTransaction = async (tx: any) => {
@@ -1467,6 +1500,20 @@ export default function Page() {
   };
 
   // --- RENDER ---
+
+  // Check if user has company context for Plaid operations
+  if (!hasCompanyContext) {
+    return (
+      <div className="p-4 bg-white text-gray-900 font-sans text-xs space-y-6">
+        <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+          <h3 className="text-sm font-semibold text-yellow-800 mb-2">Company Selection Required</h3>
+          <p className="text-sm text-yellow-700">
+            Please select a company from the dropdown in the navigation bar to use Plaid integration and manage transactions.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 bg-white text-gray-900 font-sans text-xs space-y-6">
@@ -2990,7 +3037,7 @@ export default function Page() {
 
       {/* Account Selection Modal */}
       {accountSelectionModal.isOpen && (
-        <div className="fixed inset-0 backdrop-blur-sm bg-white/30 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-gray-500/70 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-[600px] max-h-[80vh] overflow-y-auto shadow-xl">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold">Link Accounts</h2>
@@ -2999,7 +3046,7 @@ export default function Page() {
                 className="text-gray-500 hover:text-gray-700 text-xl"
                 disabled={importProgress.isImporting}
               >
-                ×
+                <XMarkIcon className="w-4 h-4" />
               </button>
             </div>
 

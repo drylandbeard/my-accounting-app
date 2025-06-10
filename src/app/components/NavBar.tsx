@@ -43,7 +43,7 @@ function CompanyModal({ isOpen, onClose, onCreateCompany }: CompanyModalProps) {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-gray-500/40 flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-gray-500/70 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg shadow-xl w-80 mx-4">
         <div className="flex justify-between items-center px-4 py-3 border-b border-gray-200">
           <h2 className="text-sm font-semibold text-gray-900">Add New Company</h2>
@@ -102,7 +102,7 @@ function CompanyModal({ isOpen, onClose, onCreateCompany }: CompanyModalProps) {
             <button
               type="submit"
               disabled={isCreating || !name.trim()}
-              className="px-3 py-1 text-sm font-medium text-white bg-gray-600 rounded-md hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="px-3 py-1 text-sm font-medium text-white bg-black rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {isCreating ? "Creating..." : "Create Company"}
             </button>
@@ -382,7 +382,7 @@ function EditCompanyModal({ isOpen, onClose, company, onUpdateCompany }: EditCom
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-gray-500/40 flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-gray-500/70 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg shadow-xl w-80 mx-4">
         <div className="flex justify-between items-center px-4 py-3 border-b border-gray-200">
           <h2 className="text-sm font-semibold text-gray-900">Edit Company</h2>
@@ -441,7 +441,7 @@ function EditCompanyModal({ isOpen, onClose, company, onUpdateCompany }: EditCom
             <button
               type="submit"
               disabled={isUpdating || !name.trim()}
-              className="px-3 py-1 text-sm font-medium text-white bg-gray-600 rounded-md hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="px-3 py-1 text-sm font-medium text-white bg-black rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {isUpdating ? "Updating..." : "Update Company"}
             </button>

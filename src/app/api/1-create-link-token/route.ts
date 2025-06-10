@@ -1,12 +1,21 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { plaidClient } from '@/lib/plaid'
 import { Products, CountryCode } from 'plaid'
+import { validateCompanyContext } from '@/lib/auth-utils'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    // Validate company context
+    const context = validateCompanyContext(req)
+    if ('error' in context) {
+      return NextResponse.json({ error: context.error }, { status: 401 })
+    }
+
+    const { userId } = context
+
     const response = await plaidClient.linkTokenCreate({
       user: {
-        client_user_id: 'unique-user-id', // static for now
+        client_user_id: userId, // Use actual user ID
       },
       client_name: 'Switch',
       products: [(process.env.PLAID_PRODUCTS as Products) || Products.Transactions],
