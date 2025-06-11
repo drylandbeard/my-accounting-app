@@ -4,16 +4,47 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { useApiWithCompany } from '@/hooks/useApiWithCompany';
 
+type Payee = {
+  id: string;
+  name: string;
+  company_id: string;
+};
+
+type Account = {
+  id: string;
+  name: string;
+  type: string;
+  subtype?: string;
+  company_id: string;
+};
+
+type JournalEntry = {
+  id: string;
+  date: string;
+  description: string;
+  debit: number;
+  credit: number;
+  transaction_id: string;
+  chart_account_id: string;
+  company_id: string;
+  transactions?: {
+    payee_id?: string;
+  };
+  [key: string]: unknown; // Allow dynamic property access for additional columns
+};
+
 export default function JournalTablePage() {
-  const { postWithCompany, hasCompanyContext, currentCompany } = useApiWithCompany();
-  const [entries, setEntries] = useState<any[]>([]);
-  const [accounts, setAccounts] = useState<any[]>([]);
+  const { hasCompanyContext, currentCompany } = useApiWithCompany();
+  const [entries, setEntries] = useState<JournalEntry[]>([]);
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [payees, setPayees] = useState<Payee[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchJournalEntries();
     fetchAccounts();
+    fetchPayees();
   }, [currentCompany?.id]);
 
   const fetchJournalEntries = async () => {
@@ -24,7 +55,10 @@ export default function JournalTablePage() {
       setError(null);
       const { data, error } = await supabase
         .from('journal')
-        .select('*')
+        .select(`
+          *,
+          transactions!inner(payee_id)
+        `)
         .eq('company_id', currentCompany?.id)
         .order('date', { ascending: false });
       if (error) throw error;
@@ -46,18 +80,54 @@ export default function JournalTablePage() {
     if (!error) setAccounts(data || []);
   };
 
+  const fetchPayees = async () => {
+    if (!hasCompanyContext) return;
+    
+    const { data, error } = await supabase
+      .from('payees')
+      .select('*')
+      .eq('company_id', currentCompany?.id)
+      .order('name');
+    if (!error) setPayees(data || []);
+  };
+
   function getAccountName(id: string) {
     const account = accounts.find(a => a.id === id);
     return account ? account.name : id;
   }
 
-  // Get all unique keys from the entries for table headers, but exclude chart_account_id
-  const columns = Array.from(
+  function getPayeeName(id: string) {
+    if (!id) return '';
+    const payee = payees.find(p => p.id === id);
+    return payee ? payee.name : '';
+  }
+
+  // Define specific column order for the journal table
+  const orderedColumns = [
+    { key: 'id', label: 'ID' },
+    { key: 'date', label: 'Date' },
+    { key: 'description', label: 'Description' },
+    { key: 'payee', label: 'Payee', isCustom: true },
+    { key: 'debit', label: 'Debit' },
+    { key: 'credit', label: 'Credit' }
+  ];
+
+  // Get all available columns from entries to include any additional fields
+  const availableColumns = Array.from(
     entries.reduce((cols, entry) => {
       Object.keys(entry).forEach((k) => cols.add(k));
       return cols;
     }, new Set<string>())
-  ).filter((col): col is string => col !== 'chart_account_id');
+  ).filter((col): col is string => col !== 'chart_account_id' && col !== 'payee_id' && col !== 'transactions');
+
+  // Combine ordered columns with any additional columns not in our predefined list, then add category at the end
+  const finalColumns = [
+    ...orderedColumns,
+    ...availableColumns
+      .filter(col => !orderedColumns.some(ordCol => ordCol.key === col))
+      .map(col => ({ key: col, label: col.toUpperCase() })),
+    { key: 'category', label: 'Category Name', isCustom: true }
+  ];
 
   return (
     <div className="p-4">
@@ -72,19 +142,27 @@ export default function JournalTablePage() {
           <table className="min-w-full text-xs border">
             <thead>
               <tr>
-                {columns.map((col: string) => (
-                  <th key={col} className="border px-2 py-1 text-left uppercase tracking-wider">{col}</th>
+                {finalColumns.map((col) => (
+                  <th key={col.key} className="border px-2 py-1 text-left uppercase tracking-wider">
+                    {col.label}
+                  </th>
                 ))}
-                <th className="border px-2 py-1 text-left uppercase tracking-wider">Category Name</th>
               </tr>
             </thead>
             <tbody>
               {entries.map((entry) => (
                 <tr key={String(entry.id)}>
-                  {columns.map((col: string) => (
-                    <td key={col} className="border px-2 py-1">{String(entry[col] ?? '')}</td>
+                  {finalColumns.map((col) => (
+                    <td key={col.key} className="border px-2 py-1">
+                      {col.key === 'payee' ? (
+                        getPayeeName(entry.transactions?.payee_id || '')
+                      ) : col.key === 'category' ? (
+                        getAccountName(entry.chart_account_id)
+                      ) : (
+                        String(entry[col.key] ?? '')
+                      )}
+                    </td>
                   ))}
-                  <td className="border px-2 py-1">{getAccountName(entry.chart_account_id)}</td>
                 </tr>
               ))}
             </tbody>
