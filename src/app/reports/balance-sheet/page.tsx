@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '../../../lib/supabaseClient'
+import { useApiWithCompany } from '@/hooks/useApiWithCompany'
 
 type Account = {
   id: string
@@ -23,6 +24,7 @@ type Transaction = {
 }
 
 export default function BalanceSheetPage() {
+  const { hasCompanyContext, currentCompany } = useApiWithCompany()
   const [accounts, setAccounts] = useState<Account[]>([])
   const [journalEntries, setJournalEntries] = useState<Transaction[]>([])
   const [asOfDate, setAsOfDate] = useState<string>('')
@@ -34,13 +36,16 @@ export default function BalanceSheetPage() {
 
   useEffect(() => {
     const fetchData = async () => {
+      if (!hasCompanyContext) return;
+      
       const { data: accountsData } = await supabase
         .from('chart_of_accounts')
         .select('*')
+        .eq('company_id', currentCompany!.id)
         .in('type', ['Asset', 'Liability', 'Equity', 'Revenue', 'COGS', 'Expense'])
       setAccounts(accountsData || [])
 
-      let journalQuery = supabase.from('journal').select('*')
+      let journalQuery = supabase.from('journal').select('*').eq('company_id', currentCompany!.id)
       if (asOfDate) {
         journalQuery = journalQuery.lte('date', asOfDate)
       }
@@ -53,7 +58,7 @@ export default function BalanceSheetPage() {
       console.log('DEBUG: journal entries', journalData)
     }
     if (asOfDate) fetchData()
-  }, [asOfDate])
+  }, [asOfDate, currentCompany?.id, hasCompanyContext])
 
   // Helpers for subaccounts and totals
   const getSubaccounts = (parentId: string) =>

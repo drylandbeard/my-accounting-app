@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabaseClient'
+import { useApiWithCompany } from '@/hooks/useApiWithCompany'
 
 const ACCOUNT_TYPES = [
   'Asset',
@@ -21,6 +22,7 @@ type Category = {
 }
 
 export default function ChartOfAccountsPage() {
+  const { hasCompanyContext, currentCompany } = useApiWithCompany()
   const [accounts, setAccounts] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -42,14 +44,16 @@ export default function ChartOfAccountsPage() {
   useEffect(() => {
     fetchAccounts()
     fetchParentOptions()
-    // eslint-disable-next-line
-  }, [])
+  }, [currentCompany?.id, hasCompanyContext])
 
   const fetchAccounts = async () => {
+    if (!hasCompanyContext) return;
+    
     setLoading(true)
     const { data, error } = await supabase
       .from('chart_of_accounts')
       .select('*')
+      .eq('company_id', currentCompany!.id)
       .order('parent_id', { ascending: true, nullsFirst: true })
       .order('type', { ascending: true })
       .order('name', { ascending: true })
@@ -58,9 +62,12 @@ export default function ChartOfAccountsPage() {
   }
 
   const fetchParentOptions = async () => {
+    if (!hasCompanyContext) return;
+    
     const { data } = await supabase
       .from('chart_of_accounts')
       .select('id, name, type')
+      .eq('company_id', currentCompany!.id)
       .is('parent_id', null)
     if (data) setParentOptions(data)
   }
@@ -111,9 +118,15 @@ export default function ChartOfAccountsPage() {
 
   const handleAddAccount = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!newName || !newType) return
+    if (!newName || !newType || !hasCompanyContext) return
     const { error } = await supabase.from('chart_of_accounts').insert([
-      { name: newName, type: newType, subtype: newSubtype, parent_id: parentId || null }
+      { 
+        name: newName, 
+        type: newType, 
+        subtype: newSubtype, 
+        parent_id: parentId || null,
+        company_id: currentCompany!.id
+      }
     ])
     if (!error) {
       setNewName('')
@@ -211,7 +224,7 @@ export default function ChartOfAccountsPage() {
   }
 
   // Helper to display subaccounts indented
-  const renderAccounts = (accounts: Category[], parentId: string | null = null, level = 0) => {
+  const renderAccounts = (accounts: Category[], level = 0) => {
     // Get all parent accounts
     const parentAccounts = accounts.filter(acc => acc.parent_id === null);
     
@@ -266,6 +279,19 @@ export default function ChartOfAccountsPage() {
         ))
       ];
     }).filter(Boolean).flat(); // Remove null entries and flatten
+  }
+
+  if (!hasCompanyContext) {
+    return (
+      <div className="p-4 bg-white text-gray-900 font-sans text-xs space-y-6">
+        <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+          <h3 className="text-sm font-semibold text-yellow-800 mb-2">Company Selection Required</h3>
+          <p className="text-sm text-yellow-700">
+            Please select a company from the dropdown in the navigation bar to manage chart of accounts.
+          </p>
+        </div>
+      </div>
+    );
   }
 
   return (

@@ -1342,48 +1342,68 @@ export default function Page() {
 
   // Add function to create manual account
   const createManualAccount = async () => {
-    if (!manualAccountModal.name.trim()) return;
-
-    const manualAccountId = uuidv4();
-    const startingBalance = parseFloat(manualAccountModal.startingBalance) || 0;
-
-    // Insert into accounts table
-    const { error: accountError } =     await supabase.from('accounts').insert({
-      plaid_account_id: manualAccountId,
-      name: manualAccountModal.name.trim(),
-      starting_balance: startingBalance,
-      current_balance: startingBalance,
-      last_synced: new Date().toISOString(),
-      is_manual: true
-    });
-
-    if (accountError) {
-      console.error('Error creating manual account:', accountError);
+    if (!manualAccountModal.name.trim()) {
+      setNotification({ type: 'error', message: 'Account name is required' });
       return;
     }
 
-    // Insert into chart_of_accounts table
-    const { error: coaError } = await supabase.from('chart_of_accounts').insert({
-      name: manualAccountModal.name.trim(),
-      type: manualAccountModal.type,
-      plaid_account_id: manualAccountId
-    });
-
-    if (coaError) {
-      console.error('Error creating chart of accounts entry:', coaError);
+    if (!hasCompanyContext) {
+      setNotification({ type: 'error', message: 'No company selected. Please select a company first.' });
       return;
     }
 
-    setManualAccountModal({
-      isOpen: false,
-      name: '',
-      type: 'Asset',
-      startingBalance: '0'
-    });
+    try {
+      const manualAccountId = uuidv4();
+      const startingBalance = parseFloat(manualAccountModal.startingBalance) || 0;
 
-    // Set the newly created account as selected
-    setSelectedAccountId(manualAccountId);
-    refreshAll();
+      // Insert into accounts table
+      const { error: accountError } = await supabase.from('accounts').insert({
+        plaid_account_id: manualAccountId,
+        name: manualAccountModal.name.trim(),
+        type: manualAccountModal.type,
+        starting_balance: startingBalance,
+        current_balance: startingBalance,
+        last_synced: new Date().toISOString(),
+        plaid_item_id: 'MANUAL_ENTRY',
+        is_manual: true,
+        company_id: currentCompany!.id
+      });
+
+      if (accountError) {
+        console.error('Error creating manual account:', accountError);
+        setNotification({ type: 'error', message: 'Failed to create account. Please try again.' });
+        return;
+      }
+
+      // Insert into chart_of_accounts table
+      const { error: coaError } = await supabase.from('chart_of_accounts').insert({
+        name: manualAccountModal.name.trim(),
+        type: manualAccountModal.type,
+        plaid_account_id: manualAccountId,
+        company_id: currentCompany!.id
+      });
+
+      if (coaError) {
+        console.error('Error creating chart of accounts entry:', coaError);
+        setNotification({ type: 'error', message: 'Failed to create chart of accounts entry. Please try again.' });
+        return;
+      }
+
+      setManualAccountModal({
+        isOpen: false,
+        name: '',
+        type: 'Asset',
+        startingBalance: '0'
+      });
+
+      // Set the newly created account as selected
+      setSelectedAccountId(manualAccountId);
+      setNotification({ type: 'success', message: 'Manual account created successfully!' });
+      refreshAll();
+    } catch (error) {
+      console.error('Error creating manual account:', error);
+      setNotification({ type: 'error', message: 'An unexpected error occurred. Please try again.' });
+    }
   };
 
   // Add function to handle account name updates
@@ -1699,7 +1719,7 @@ export default function Page() {
           </button>
           <button
             onClick={() => setManualAccountModal({ isOpen: true, name: '', type: 'Asset', startingBalance: '0' })}
-            className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs"
+            className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-xs"
           >
             Add Manual Account
           </button>
@@ -1715,7 +1735,7 @@ export default function Page() {
               accountToDelete: null,
               deleteConfirmation: ''
             })}
-            className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs"
+            className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-xs"
           >
             Edit Accounts
           </button>
@@ -1740,15 +1760,15 @@ export default function Page() {
 
       {/* Import Modal */}
       {importModal.isOpen && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-[560px] max-h-[80vh] overflow-y-auto shadow-xl">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50">
+          <div className="bg-white rounded-lg p-6 w-[400px] overflow-y-auto shadow-xl">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold">Import Transactions</h2>
               <button
                 onClick={() => setImportModal(prev => ({ ...prev, isOpen: false }))}
                 className="text-gray-500 hover:text-gray-700"
               >
-                ✕
+                <XMarkIcon className="w-4 h-4" />
               </button>
             </div>
             
@@ -1988,11 +2008,11 @@ export default function Page() {
       {/* Edit Transaction Modal */}
       {editModal.isOpen && editModal.transaction && (
         <div 
-          className="fixed inset-0 bg-black/70 flex items-center justify-center z-50"
+          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
           onClick={() => setEditModal({ isOpen: false, transaction: null })}
         >
           <div 
-            className="bg-white rounded-lg p-6 w-[400px] max-h-[80vh] overflow-y-auto shadow-xl"
+            className="bg-white rounded-lg p-6 w-[400px] overflow-y-auto shadow-xl"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex justify-between items-center mb-4">
@@ -2001,7 +2021,7 @@ export default function Page() {
                 onClick={() => setEditModal({ isOpen: false, transaction: null })}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
-                ×
+                <XMarkIcon className="w-4 h-4" />
               </button>
             </div>
 
@@ -2126,11 +2146,11 @@ export default function Page() {
       {/* Account Edit Modal */}
       {accountEditModal.isOpen && accountEditModal.account && (
         <div 
-          className="fixed inset-0 bg-black/70 flex items-center justify-center z-50"
+          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
           onClick={() => setAccountEditModal({ isOpen: false, account: null, newName: '' })}
         >
           <div 
-            className="bg-white rounded-lg p-6 w-[500px] max-h-[80vh] overflow-y-auto shadow-xl"
+            className="bg-white rounded-lg p-6 w-[400px] overflow-y-auto shadow-xl"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex justify-between items-center mb-4">
@@ -2139,7 +2159,7 @@ export default function Page() {
                 onClick={() => setAccountEditModal({ isOpen: false, account: null, newName: '' })}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
-                ×
+                <XMarkIcon className="w-4 h-4" />
               </button>
             </div>
 
@@ -2175,11 +2195,11 @@ export default function Page() {
       {/* New Category Modal */}
       {newCategoryModal.isOpen && (
         <div 
-          className="fixed inset-0 bg-black/70 flex items-center justify-center z-50"
+          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
           onClick={() => setNewCategoryModal({ isOpen: false, name: '', type: 'Expense', parent_id: null, transactionId: null })}
         >
           <div 
-            className="bg-white rounded-lg p-6 w-[400px] max-h-[80vh] overflow-y-auto shadow-xl"
+            className="bg-white rounded-lg p-6 w-[400px] overflow-y-auto shadow-xl"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex justify-between items-center mb-4">
@@ -2188,7 +2208,7 @@ export default function Page() {
                 onClick={() => setNewCategoryModal({ isOpen: false, name: '', type: 'Expense', parent_id: null, transactionId: null })}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
-                ×
+                <XMarkIcon className="w-4 h-4" />
               </button>
             </div>
 
@@ -2272,11 +2292,11 @@ export default function Page() {
       {/* New Payee Modal */}
       {newPayeeModal.isOpen && (
         <div 
-          className="fixed inset-0 bg-black/70 flex items-center justify-center z-50"
+          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
           onClick={() => setNewPayeeModal({ isOpen: false, name: '', transactionId: null })}
         >
           <div 
-            className="bg-white rounded-lg p-6 w-[400px] max-h-[80vh] overflow-y-auto shadow-xl"
+            className="bg-white rounded-lg p-6 w-[400px] overflow-y-auto shadow-xl"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex justify-between items-center mb-4">
@@ -2285,7 +2305,7 @@ export default function Page() {
                 onClick={() => setNewPayeeModal({ isOpen: false, name: '', transactionId: null })}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
-                ×
+                <XMarkIcon className="w-4 h-4" />
               </button>
             </div>
 
@@ -2322,20 +2342,20 @@ export default function Page() {
       {/* Manual Account Modal */}
       {manualAccountModal.isOpen && (
         <div 
-          className="fixed inset-0 bg-black/70 flex items-center justify-center z-50"
+          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
           onClick={() => setManualAccountModal({ isOpen: false, name: '', type: 'Asset', startingBalance: '0' })}
         >
           <div 
-            className="bg-white rounded-lg p-6 w-[400px] max-h-[80vh] overflow-y-auto shadow-xl"
+            className="bg-white rounded-lg p-6 w-[400px] shadow-xl"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Add New Manual Account</h2>
+              <h2 className="text-lg font-semibold">Add Manual Account</h2>
               <button
                 onClick={() => setManualAccountModal({ isOpen: false, name: '', type: 'Asset', startingBalance: '0' })}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
-                ×
+                <XMarkIcon className="w-4 h-4" />
               </button>
             </div>
 
@@ -2370,7 +2390,25 @@ export default function Page() {
                 >
                   <option value="Asset">Asset</option>
                   <option value="Liability">Liability</option>
+                  <option value="Equity">Equity</option>
                 </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Starting Balance
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={manualAccountModal.startingBalance}
+                  onChange={(e) => setManualAccountModal(prev => ({
+                    ...prev,
+                    startingBalance: e.target.value
+                  }))}
+                  className="w-full border px-2 py-1 rounded"
+                  placeholder="0.00"
+                />
               </div>
             </div>
 
@@ -2390,11 +2428,11 @@ export default function Page() {
       {/* Account Names Modal */}
       {accountNamesModal.isOpen && (
         <div 
-          className="fixed inset-0 bg-black/70 flex items-center justify-center z-50"
+          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
           onClick={() => setAccountNamesModal({ isOpen: false, accounts: [], accountToDelete: null, deleteConfirmation: '' })}
         >
           <div 
-            className="bg-white rounded-lg p-6 w-[500px] max-h-[80vh] overflow-y-auto shadow-xl"
+            className="bg-white rounded-lg p-6 w-[400px] overflow-y-auto shadow-xl"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex justify-between items-center mb-4">
@@ -2403,7 +2441,7 @@ export default function Page() {
                 onClick={() => setAccountNamesModal({ isOpen: false, accounts: [], accountToDelete: null, deleteConfirmation: '' })}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
-                ×
+                <XMarkIcon className="w-4 h-4" />
               </button>
             </div>
 
@@ -2489,15 +2527,15 @@ export default function Page() {
 
       {/* Journal Entry Modal */}
       {journalEntryModal.isOpen && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg w-[800px] max-h-[80vh] overflow-y-auto shadow-xl">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50">
+          <div className="bg-white p-6 rounded-lg w-[800px] overflow-y-auto shadow-xl">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold">Add Journal Entry</h2>
               <button
                 onClick={() => setJournalEntryModal(prev => ({ ...prev, isOpen: false }))}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
-                ×
+                <XMarkIcon className="w-4 h-4" />
               </button>
             </div>
             
@@ -2673,15 +2711,15 @@ export default function Page() {
 
       {/* Past Journal Entries Modal */}
       {pastJournalEntriesModal.isOpen && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg w-[800px] max-h-[80vh] overflow-y-auto shadow-xl">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50">
+          <div className="bg-white p-6 rounded-lg w-[800px] overflow-y-auto shadow-xl">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold">Past Journal Entries</h2>
               <button
                 onClick={() => setPastJournalEntriesModal(prev => ({ ...prev, isOpen: false }))}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
-                ×
+                <XMarkIcon className="w-4 h-4" />
               </button>
             </div>
 
@@ -2743,15 +2781,15 @@ export default function Page() {
 
       {/* Edit Journal Entry Modal */}
       {editJournalEntryModal.isOpen && editJournalEntryModal.entry && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg w-[800px] max-h-[80vh] overflow-y-auto shadow-xl">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50">
+          <div className="bg-white p-6 rounded-lg w-[800px] overflow-y-auto shadow-xl">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold">Edit Journal Entry</h2>
               <button
                 onClick={() => setEditJournalEntryModal({ isOpen: false, entry: null })}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
-                ×
+                <XMarkIcon className="w-4 h-4" />
               </button>
             </div>
             
@@ -3322,8 +3360,8 @@ export default function Page() {
 
       {/* Account Selection Modal */}
       {accountSelectionModal.isOpen && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-[600px] max-h-[80vh] overflow-y-auto shadow-xl">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50">
+          <div className="bg-white rounded-lg p-6 w-[600px] overflow-y-auto shadow-xl">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold">Link Accounts</h2>
               <button
