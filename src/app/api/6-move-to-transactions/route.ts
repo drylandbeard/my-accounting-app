@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
     const { companyId } = context;
 
     // 1. Get parameters from request body
-    const { imported_transaction_id, selected_category_id, corresponding_category_id } = await req.json();
+    const { imported_transaction_id, selected_category_id, corresponding_category_id, payee_id } = await req.json();
     
     if (!imported_transaction_id || !selected_category_id || !corresponding_category_id) {
       return NextResponse.json({ 
@@ -46,6 +46,7 @@ export async function POST(req: NextRequest) {
         received: importedTransaction.received,
         selected_category_id,
         corresponding_category_id,
+        payee_id: payee_id || null,
         plaid_account_id: importedTransaction.plaid_account_id,
         plaid_account_name: importedTransaction.plaid_account_name,
         company_id: companyId

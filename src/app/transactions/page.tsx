@@ -21,6 +21,7 @@ type Transaction = {
   corresponding_category_id?: string
   spent?: number
   received?: number
+  payee_id?: string
 }
 
 type Category = {
@@ -29,6 +30,12 @@ type Category = {
   type: string
   subtype?: string
   plaid_account_id?: string | null
+}
+
+type Payee = {
+  id: string
+  name: string
+  company_id: string
 }
 
 type Account = {
@@ -84,6 +91,7 @@ export default function Page() {
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null)
   const [accounts, setAccounts] = useState<Account[]>([])
   const [categories, setCategories] = useState<Category[]>([])
+  const [payees, setPayees] = useState<Payee[]>([])
   const [importedTransactions, setImportedTransactions] = useState<Transaction[]>([])
   const [transactions, setTransactions] = useState<Transaction[]>([])
   // Removed unused searchQuery state
@@ -96,6 +104,9 @@ export default function Page() {
 
   // Add selected categories state
   const [selectedCategories, setSelectedCategories] = useState<{ [txId: string]: string }>({});
+  
+  // Add selected payees state  
+  const [selectedPayees, setSelectedPayees] = useState<{ [txId: string]: string }>({});
 
   // Add missing state for multi-select checkboxes
   const [selectedToAdd, setSelectedToAdd] = useState<Set<string>>(new Set());
@@ -147,6 +158,17 @@ export default function Page() {
     name: '',
     type: 'Expense',
     parent_id: null,
+    transactionId: null
+  });
+
+  // Add new state for payee creation modal
+  const [newPayeeModal, setNewPayeeModal] = useState<{
+    isOpen: boolean;
+    name: string;
+    transactionId: string | null;
+  }>({
+    isOpen: false,
+    name: '',
     transactionId: null
   });
 
@@ -691,6 +713,17 @@ export default function Page() {
     setCategories(data || [])
   }
 
+  const fetchPayees = async () => {
+    if (!hasCompanyContext) return;
+    
+    const { data } = await supabase
+      .from('payees')
+      .select('*')
+      .eq('company_id', currentCompany?.id)
+      .order('name')
+    setPayees(data || [])
+  }
+
   const fetchAccounts = async () => {
     if (!hasCompanyContext) return;
     
@@ -708,6 +741,7 @@ export default function Page() {
     fetchImportedTransactions()
     fetchConfirmedTransactions()
     fetchCategories()
+    fetchPayees()
     fetchAccounts()
   }
 
@@ -716,11 +750,20 @@ export default function Page() {
   }, [currentCompany?.id]) // Refresh when company changes
 
   // 3️⃣ Actions
-  const addTransaction = async (tx: Transaction, selectedCategoryId: string) => {
+  const addTransaction = async (tx: Transaction, selectedCategoryId: string, selectedPayeeId?: string) => {
     const category = categories.find(c => c.id === selectedCategoryId);
     if (!category) {
       alert('Selected category not found. Please try again.');
       return;
+    }
+
+    // Payee is optional - only validate if provided
+    if (selectedPayeeId) {
+      const payee = payees.find(p => p.id === selectedPayeeId);
+      if (!payee) {
+        alert('Selected payee not found. Please try again.');
+        return;
+      }
     }
 
     // Find the selected account in chart_of_accounts by plaid_account_id
@@ -748,7 +791,8 @@ export default function Page() {
       const response = await postWithCompany('/api/6-move-to-transactions', {
         imported_transaction_id: tx.id,
         selected_category_id: selectedCategoryId,
-        corresponding_category_id: selectedAccountIdInCOA
+        corresponding_category_id: selectedAccountIdInCOA,
+        payee_id: selectedPayeeId
       });
 
       const data = await response.json();
@@ -853,6 +897,13 @@ export default function Page() {
     { value: '', label: 'Select' },
     { value: 'add_new', label: '+ Add new category' },
     ...categories.map(c => ({ value: c.id, label: c.name })),
+  ]
+
+  // 5️⃣ Payee dropdown
+  const payeeOptions: SelectOption[] = [
+    { value: '', label: 'Select' },
+    { value: 'add_new', label: '+ Add new payee' },
+    ...payees.map(p => ({ value: p.id, label: p.name })),
   ]
 
   const formatDate = (dateString: string) => {
@@ -1189,7 +1240,8 @@ export default function Page() {
       .insert([{
         name: newCategoryModal.name.trim(),
         type: newCategoryModal.type,
-        parent_id: newCategoryModal.parent_id
+        parent_id: newCategoryModal.parent_id,
+        company_id: currentCompany?.id
       }])
       .select()
       .single();
@@ -1208,6 +1260,36 @@ export default function Page() {
     }
 
     setNewCategoryModal({ isOpen: false, name: '', type: 'Expense', parent_id: null, transactionId: null });
+    refreshAll();
+  };
+
+  // Add handler for creating new payee
+  const handleCreatePayee = async () => {
+    if (!newPayeeModal.name.trim()) return;
+
+    const { data, error } = await supabase
+      .from('payees')
+      .insert([{
+        name: newPayeeModal.name.trim(),
+        company_id: currentCompany?.id
+      }])
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error creating payee:', error);
+      return;
+    }
+
+    // After creating the payee, set it as selected for the current transaction
+    if (newPayeeModal.transactionId) {
+      setSelectedPayees(prev => ({
+        ...prev,
+        [newPayeeModal.transactionId!]: data.id
+      }));
+    }
+
+    setNewPayeeModal({ isOpen: false, name: '', transactionId: null });
     refreshAll();
   };
 
@@ -2122,6 +2204,56 @@ export default function Page() {
         </div>
       )}
 
+      {/* New Payee Modal */}
+      {newPayeeModal.isOpen && (
+        <div 
+          className="fixed inset-0 bg-black/70 flex items-center justify-center z-50"
+          onClick={() => setNewPayeeModal({ isOpen: false, name: '', transactionId: null })}
+        >
+          <div 
+            className="bg-white rounded-lg p-6 w-[400px] max-h-[80vh] overflow-y-auto shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold">Add New Payee</h2>
+              <button
+                onClick={() => setNewPayeeModal({ isOpen: false, name: '', transactionId: null })}
+                className="text-gray-500 hover:text-gray-700 text-xl"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Payee Name
+                </label>
+                <input
+                  type="text"
+                  value={newPayeeModal.name}
+                  onChange={(e) => setNewPayeeModal(prev => ({
+                    ...prev,
+                    name: e.target.value
+                  }))}
+                  className="w-full border px-2 py-1 rounded"
+                  placeholder="Enter payee name"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end mt-6">
+              <button
+                onClick={handleCreatePayee}
+                className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
+              >
+                Create
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Manual Account Modal */}
       {manualAccountModal.isOpen && (
         <div 
@@ -2805,6 +2937,7 @@ export default function Page() {
                 </th>
                 <th className="border p-1 w-8 text-center">Spent</th>
                 <th className="border p-1 w-8 text-center">Received</th>
+                <th className="border p-1 w-8 text-center">Payee</th>
                 <th className="border p-1 w-8 text-center">Category</th>
                 <th className="border p-1 w-8 text-center">Action</th>
               </tr>
@@ -2836,9 +2969,37 @@ export default function Page() {
                     <td className="border p-1 w-8 text-center">{tx.received ? `$${tx.received.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td>
                     <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
                       <Select
+                        options={payeeOptions}
+                        value={payeeOptions.find(opt => opt.value === selectedPayees[tx.id]) || payeeOptions[0]}
+                        onChange={(selectedOption: any) => {
+                          if (selectedOption?.value === 'add_new') {
+                            setNewPayeeModal({ 
+                              isOpen: true, 
+                              name: '', 
+                              transactionId: tx.id 
+                            });
+                          } else if (selectedOption?.value) {
+                            setSelectedPayees(prev => ({
+                              ...prev,
+                              [tx.id]: selectedOption.value
+                            }));
+                          }
+                        }}
+                        isSearchable
+                        styles={{ 
+                          control: (base) => ({ 
+                            ...base, 
+                            minHeight: '30px', 
+                            fontSize: '0.875rem'
+                          }) 
+                        }}
+                      />
+                    </td>
+                    <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
+                      <Select
                         options={categoryOptions}
                         value={categoryOptions.find(opt => opt.value === selectedCategories[tx.id]) || categoryOptions[0]}
-                        onChange={(selectedOption: { value: string; label: string } | null) => {
+                        onChange={(selectedOption: any) => {
                           if (selectedOption?.value === 'add_new') {
                             setNewCategoryModal({ 
                               isOpen: true, 
@@ -2868,8 +3029,13 @@ export default function Page() {
                       <button
                         onClick={async () => {
                           if (selectedCategories[tx.id]) {
-                            await addTransaction(tx, selectedCategories[tx.id]);
+                            await addTransaction(tx, selectedCategories[tx.id], selectedPayees[tx.id]);
                             setSelectedCategories(prev => {
+                              const copy = { ...prev };
+                              delete copy[tx.id];
+                              return copy;
+                            });
+                            setSelectedPayees(prev => {
                               const copy = { ...prev };
                               delete copy[tx.id];
                               return copy;
@@ -2900,10 +3066,15 @@ export default function Page() {
                   onClick={async () => {
                     for (const tx of selectedTransactions) {
                       if (selectedCategories[tx.id]) {
-                        await addTransaction(tx, selectedCategories[tx.id]);
+                        await addTransaction(tx, selectedCategories[tx.id], selectedPayees[tx.id]);
                       }
                     }
                     setSelectedCategories(prev => {
+                      const copy = { ...prev };
+                      selectedTransactions.forEach(tx => delete copy[tx.id]);
+                      return copy;
+                    });
+                    setSelectedPayees(prev => {
                       const copy = { ...prev };
                       selectedTransactions.forEach(tx => delete copy[tx.id]);
                       return copy;
@@ -2963,6 +3134,7 @@ export default function Page() {
                 </th>
                 <th className="border p-1 w-8 text-center">Spent</th>
                 <th className="border p-1 w-8 text-center">Received</th>
+                <th className="border p-1 w-8 text-center">Payee</th>
                 <th className="border p-1 w-8 text-center">Category</th>
                 <th className="border p-1 w-8 text-center">Undo</th>
               </tr>
@@ -3000,6 +3172,12 @@ export default function Page() {
                     <td className="border p-1 w-8 text-center text-xs" style={{ minWidth: 250 }}>{tx.description}</td>
                     <td className="border p-1 w-8 text-center">{tx.spent ? `$${tx.spent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td>
                     <td className="border p-1 w-8 text-center">{tx.received ? `$${tx.received.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td>
+                    <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
+                      {(() => {
+                        const payee = payees.find(p => p.id === tx.payee_id);
+                        return payee ? payee.name : '';
+                      })()}
+                    </td>
                     <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>{category ? category.name : 'Uncategorized'}</td>
                     <td className="border p-1 w-8 text-center">
                       <button
