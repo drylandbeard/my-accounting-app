@@ -621,6 +621,9 @@ export default function Page() {
     totalSteps: 0
   });
 
+  // Add tab state for switching between To Add and Added sections
+  const [activeTab, setActiveTab] = useState<'toAdd' | 'added'>('toAdd');
+
   // Add function to handle date selection and start import
   const handleDateSelection = async () => {
     try {
@@ -1777,7 +1780,8 @@ export default function Page() {
                             value: importModal.selectedAccount.plaid_account_id || '',
                             label: importModal.selectedAccount.name
                           } : null}
-                          onChange={(option) => {
+                          onChange={(selectedOption) => {
+                            const option = selectedOption as SelectOption | null;
                             if (option) {
                               const selectedAccount = accounts.find(
                                 acc => acc.plaid_account_id === option.value
@@ -2086,13 +2090,14 @@ export default function Page() {
                     return opt.value === categoryId;
                   })}
                   onChange={(selectedOption) => {
-                    if (selectedOption && editModal.transaction) {
+                    const option = selectedOption as SelectOption | null;
+                    if (option && editModal.transaction) {
                       const updatedTransaction = { ...editModal.transaction };
                       const isAccountDebit = updatedTransaction.selected_category_id === selectedAccountIdInCOA;
                       if (isAccountDebit) {
-                        updatedTransaction.corresponding_category_id = selectedOption.value;
+                        updatedTransaction.corresponding_category_id = option.value;
                       } else {
-                        updatedTransaction.selected_category_id = selectedOption.value;
+                        updatedTransaction.selected_category_id = option.value;
                       }
                       setEditModal(prev => ({
                         ...prev,
@@ -2239,10 +2244,13 @@ export default function Page() {
                     { value: newCategoryModal.parent_id, label: categories.find(c => c.id === newCategoryModal.parent_id)?.name || '' } :
                     { value: '', label: 'None' }
                   }
-                  onChange={(selectedOption) => setNewCategoryModal(prev => ({
-                    ...prev,
-                    parent_id: selectedOption?.value || null
-                  }))}
+                  onChange={(selectedOption) => {
+                    const option = selectedOption as SelectOption | null;
+                    setNewCategoryModal(prev => ({
+                      ...prev,
+                      parent_id: option?.value || null
+                    }));
+                  }}
                   isSearchable
                   styles={{ control: (base) => ({ ...base, minHeight: '30px', fontSize: '0.875rem' }) }}
                 />
@@ -2921,6 +2929,7 @@ export default function Page() {
               </button>
               <button
                 onClick={async () => {
+                  if (!editJournalEntryModal.entry) return;
                   if (!window.confirm('Are you sure you want to delete this journal entry? This cannot be undone.')) return;
                   await supabase
                     .from('transactions')
@@ -2941,333 +2950,374 @@ export default function Page() {
         </div>
       )}
 
-      <div className="flex gap-8">
-        {/* To Add */}
-        <div className="w-1/2 space-y-2">
-          <h2 className="font-semibold text-base mb-1 flex items-center">
+      {/* Tab Navigation */}
+      <div className="border-b border-gray-200">
+        <nav className="-mb-px flex space-x-8">
+          <button
+            onClick={() => setActiveTab('toAdd')}
+            className={`whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'toAdd'
+                ? 'border-gray-900 text-gray-900'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
             To Add
-            {(() => {
-              const selected = accounts.find(a => a.plaid_account_id === selectedAccountId);
-              if (!selected || selected.is_manual) return null;
+            {imported.length > 0 && (
+              <span className="ml-2 bg-gray-100 text-gray-900 py-0.5 px-2 rounded-full text-xs">
+                {imported.length}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab('added')}
+            className={`whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'added'
+                ? 'border-gray-900 text-gray-900'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Added
+            {confirmed.length > 0 && (
+              <span className="ml-2 bg-gray-100 text-gray-900 py-0.5 px-2 rounded-full text-xs">
+                {confirmed.length}
+              </span>
+            )}
+          </button>
+        </nav>
+      </div>
+
+      {/* Tab Content */}
+      <div className="mt-6">
+        {activeTab === 'toAdd' && (
+          <div className="space-y-2">
+            <h2 className="font-semibold text-base mb-1 flex items-center">
+              To Add
+              {(() => {
+                const selected = accounts.find(a => a.plaid_account_id === selectedAccountId);
+                if (!selected || selected.is_manual) return null;
+                return (
+                  <span className="ml-4 text-gray-500 text-sm font-normal">
+                    (Current Balance: ${currentBalance.toFixed(2)})
+                  </span>
+                );
+              })()}
+            </h2>
+            <input
+              type="text"
+              placeholder="Search transactions..."
+              value={toAddSearchQuery}
+              onChange={e => setToAddSearchQuery(e.target.value)}
+              className="border px-2 py-1 w-full text-xs mb-2"
+            />
+            <table className="w-full border-collapse border border-gray-300">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="border p-1 w-8 text-center">
+                    <input
+                      type="checkbox"
+                      checked={imported.length > 0 && selectedToAdd.size === imported.length}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedToAdd(new Set(imported.map(tx => tx.id)))
+                        } else {
+                          setSelectedToAdd(new Set())
+                        }
+                      }}
+                      className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                    />
+                  </th>
+                  <th 
+                    className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
+                    onClick={() => handleSort('date', 'toAdd')}
+                  >
+                    Date {toAddSortConfig.key === 'date' && (toAddSortConfig.direction === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th 
+                    className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
+                    onClick={() => handleSort('description', 'toAdd')}
+                  >
+                    Description {toAddSortConfig.key === 'description' && (toAddSortConfig.direction === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th className="border p-1 w-8 text-center">Spent</th>
+                  <th className="border p-1 w-8 text-center">Received</th>
+                  <th className="border p-1 w-8 text-center">Payee</th>
+                  <th className="border p-1 w-8 text-center">Category</th>
+                  <th className="border p-1 w-8 text-center">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {imported.map(tx => {
+                  const category = categories.find(c => c.id === selectedCategories[tx.id]);
+                  return (
+                    <tr key={tx.id}>
+                      <td className="border p-1 w-8 text-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedToAdd.has(tx.id)}
+                          onChange={(e) => {
+                            const newSelected = new Set(selectedToAdd)
+                            if (e.target.checked) {
+                              newSelected.add(tx.id)
+                            } else {
+                              newSelected.delete(tx.id)
+                            }
+                            setSelectedToAdd(newSelected)
+                          }}
+                          className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                        />
+                      </td>
+                      <td className="border p-1 w-8 text-center text-xs">{formatDate(tx.date)}</td>
+                      <td className="border p-1 w-8 text-center text-xs" style={{ minWidth: 250 }}>{tx.description}</td>
+                      <td className="border p-1 w-8 text-center">{tx.spent ? `$${tx.spent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td>
+                      <td className="border p-1 w-8 text-center">{tx.received ? `$${tx.received.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td>
+                      <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
+                        <Select
+                          options={payeeOptions}
+                          value={payeeOptions.find(opt => opt.value === selectedPayees[tx.id]) || payeeOptions[0]}
+                          onChange={(selectedOption) => {
+                            const option = selectedOption as SelectOption | null;
+                            if (option?.value === 'add_new') {
+                              setNewPayeeModal({ 
+                                isOpen: true, 
+                                name: '', 
+                                transactionId: tx.id 
+                              });
+                            } else if (option?.value) {
+                              setSelectedPayees(prev => ({
+                                ...prev,
+                                [tx.id]: option.value
+                              }));
+                            }
+                          }}
+                          isSearchable
+                          styles={{ 
+                            control: (base) => ({ 
+                              ...base, 
+                              minHeight: '30px', 
+                              fontSize: '0.875rem'
+                            }) 
+                          }}
+                        />
+                      </td>
+                      <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
+                        <Select
+                          options={categoryOptions}
+                          value={categoryOptions.find(opt => opt.value === selectedCategories[tx.id]) || categoryOptions[0]}
+                          onChange={(selectedOption) => {
+                            const option = selectedOption as SelectOption | null;
+                            if (option?.value === 'add_new') {
+                              setNewCategoryModal({ 
+                                isOpen: true, 
+                                name: '', 
+                                type: 'Expense', 
+                                parent_id: null, 
+                                transactionId: tx.id 
+                              });
+                            } else if (option?.value) {
+                              setSelectedCategories(prev => ({
+                                ...prev,
+                                [tx.id]: option.value
+                              }));
+                            }
+                          }}
+                          isSearchable
+                          styles={{ 
+                            control: (base) => ({ 
+                              ...base, 
+                              minHeight: '30px', 
+                              fontSize: '0.875rem'
+                            }) 
+                          }}
+                        />
+                      </td>
+                      <td className="border p-1 w-8 text-center">
+                        <button
+                          onClick={async () => {
+                            if (selectedCategories[tx.id]) {
+                              await addTransaction(tx, selectedCategories[tx.id], selectedPayees[tx.id]);
+                              setSelectedCategories(prev => {
+                                const copy = { ...prev };
+                                delete copy[tx.id];
+                                return copy;
+                              });
+                              setSelectedPayees(prev => {
+                                const copy = { ...prev };
+                                delete copy[tx.id];
+                                return copy;
+                              });
+                              setSelectedToAdd(prev => {
+                                const next = new Set(prev)
+                                next.delete(tx.id)
+                                return next
+                              })
+                            }
+                          }}
+                          className="border px-2 py-1 rounded bg-gray-100 hover:bg-gray-200"
+                          disabled={!selectedCategories[tx.id]}
+                        >
+                          Add
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {selectedToAdd.size > 0 && (() => {
+              const selectedTransactions = imported.filter(tx => selectedToAdd.has(tx.id));
               return (
-                <span className="ml-4 text-gray-500 text-sm font-normal">
-                  (Current Balance: ${currentBalance.toFixed(2)})
-                </span>
+                <div className="mt-2 flex justify-end">
+                  <button
+                    onClick={async () => {
+                      for (const tx of selectedTransactions) {
+                        if (selectedCategories[tx.id]) {
+                          await addTransaction(tx, selectedCategories[tx.id], selectedPayees[tx.id]);
+                        }
+                      }
+                      setSelectedCategories(prev => {
+                        const copy = { ...prev };
+                        selectedTransactions.forEach(tx => delete copy[tx.id]);
+                        return copy;
+                      });
+                      setSelectedPayees(prev => {
+                        const copy = { ...prev };
+                        selectedTransactions.forEach(tx => delete copy[tx.id]);
+                        return copy;
+                      });
+                      setSelectedToAdd(new Set());
+                    }}
+                    className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200"
+                    disabled={!selectedTransactions.every(tx => selectedCategories[tx.id])}
+                  >
+                    Add Selected ({selectedToAdd.size})
+                  </button>
+                </div>
               );
             })()}
-          </h2>
-          <input
-            type="text"
-            placeholder="Search transactions..."
-            value={toAddSearchQuery}
-            onChange={e => setToAddSearchQuery(e.target.value)}
-            className="border px-2 py-1 w-full text-xs mb-2"
-          />
-          <table className="w-full border-collapse border border-gray-300">
-            <thead className="bg-gray-100">
-              <tr>
-                <th className="border p-1 w-8 text-center">
-                  <input
-                    type="checkbox"
-                    checked={imported.length > 0 && selectedToAdd.size === imported.length}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setSelectedToAdd(new Set(imported.map(tx => tx.id)))
-                      } else {
-                        setSelectedToAdd(new Set())
-                      }
-                    }}
-                    className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
-                  />
-                </th>
-                <th 
-                  className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
-                  onClick={() => handleSort('date', 'toAdd')}
-                >
-                  Date {toAddSortConfig.key === 'date' && (toAddSortConfig.direction === 'asc' ? '↑' : '↓')}
-                </th>
-                <th 
-                  className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
-                  onClick={() => handleSort('description', 'toAdd')}
-                >
-                  Description {toAddSortConfig.key === 'description' && (toAddSortConfig.direction === 'asc' ? '↑' : '↓')}
-                </th>
-                <th className="border p-1 w-8 text-center">Spent</th>
-                <th className="border p-1 w-8 text-center">Received</th>
-                <th className="border p-1 w-8 text-center">Payee</th>
-                <th className="border p-1 w-8 text-center">Category</th>
-                <th className="border p-1 w-8 text-center">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {imported.map(tx => {
-                const category = categories.find(c => c.id === selectedCategories[tx.id]);
-                return (
-                  <tr key={tx.id}>
-                    <td className="border p-1 w-8 text-center">
-                      <input
-                        type="checkbox"
-                        checked={selectedToAdd.has(tx.id)}
-                        onChange={(e) => {
-                          const newSelected = new Set(selectedToAdd)
-                          if (e.target.checked) {
-                            newSelected.add(tx.id)
-                          } else {
-                            newSelected.delete(tx.id)
-                          }
-                          setSelectedToAdd(newSelected)
-                        }}
-                        className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
-                      />
-                    </td>
-                    <td className="border p-1 w-8 text-center text-xs">{formatDate(tx.date)}</td>
-                    <td className="border p-1 w-8 text-center text-xs" style={{ minWidth: 250 }}>{tx.description}</td>
-                    <td className="border p-1 w-8 text-center">{tx.spent ? `$${tx.spent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td>
-                    <td className="border p-1 w-8 text-center">{tx.received ? `$${tx.received.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td>
-                    <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
-                      <Select
-                        options={payeeOptions}
-                        value={payeeOptions.find(opt => opt.value === selectedPayees[tx.id]) || payeeOptions[0]}
-                        onChange={(selectedOption: SelectOption | null) => {
-                          if (selectedOption?.value === 'add_new') {
-                            setNewPayeeModal({ 
-                              isOpen: true, 
-                              name: '', 
-                              transactionId: tx.id 
-                            });
-                          } else if (selectedOption?.value) {
-                            setSelectedPayees(prev => ({
-                              ...prev,
-                              [tx.id]: selectedOption.value
-                            }));
-                          }
-                        }}
-                        isSearchable
-                        styles={{ 
-                          control: (base) => ({ 
-                            ...base, 
-                            minHeight: '30px', 
-                            fontSize: '0.875rem'
-                          }) 
-                        }}
-                      />
-                    </td>
-                    <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
-                      <Select
-                        options={categoryOptions}
-                        value={categoryOptions.find(opt => opt.value === selectedCategories[tx.id]) || categoryOptions[0]}
-                        onChange={(selectedOption: SelectOption | null) => {
-                          if (selectedOption?.value === 'add_new') {
-                            setNewCategoryModal({ 
-                              isOpen: true, 
-                              name: '', 
-                              type: 'Expense', 
-                              parent_id: null, 
-                              transactionId: tx.id 
-                            });
-                          } else if (selectedOption?.value) {
-                            setSelectedCategories(prev => ({
-                              ...prev,
-                              [tx.id]: selectedOption.value
-                            }));
-                          }
-                        }}
-                        isSearchable
-                        styles={{ 
-                          control: (base) => ({ 
-                            ...base, 
-                            minHeight: '30px', 
-                            fontSize: '0.875rem'
-                          }) 
-                        }}
-                      />
-                    </td>
-                    <td className="border p-1 w-8 text-center">
-                      <button
-                        onClick={async () => {
-                          if (selectedCategories[tx.id]) {
-                            await addTransaction(tx, selectedCategories[tx.id], selectedPayees[tx.id]);
-                            setSelectedCategories(prev => {
-                              const copy = { ...prev };
-                              delete copy[tx.id];
-                              return copy;
-                            });
-                            setSelectedPayees(prev => {
-                              const copy = { ...prev };
-                              delete copy[tx.id];
-                              return copy;
-                            });
-                            setSelectedToAdd(prev => {
-                              const next = new Set(prev)
-                              next.delete(tx.id)
-                              return next
-                            })
-                          }
-                        }}
-                        className="border px-2 py-1 rounded bg-gray-100 hover:bg-gray-200"
-                        disabled={!selectedCategories[tx.id]}
-                      >
-                        Add
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          {selectedToAdd.size > 0 && (() => {
-            const selectedTransactions = imported.filter(tx => selectedToAdd.has(tx.id));
-            return (
-              <div className="mt-2 flex justify-end">
-                <button
-                  onClick={async () => {
-                    for (const tx of selectedTransactions) {
-                      if (selectedCategories[tx.id]) {
-                        await addTransaction(tx, selectedCategories[tx.id], selectedPayees[tx.id]);
-                      }
-                    }
-                    setSelectedCategories(prev => {
-                      const copy = { ...prev };
-                      selectedTransactions.forEach(tx => delete copy[tx.id]);
-                      return copy;
-                    });
-                    setSelectedPayees(prev => {
-                      const copy = { ...prev };
-                      selectedTransactions.forEach(tx => delete copy[tx.id]);
-                      return copy;
-                    });
-                    setSelectedToAdd(new Set());
-                  }}
-                  className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200"
-                  disabled={!selectedTransactions.every(tx => selectedCategories[tx.id])}
-                >
-                  Add Selected ({selectedToAdd.size})
-                </button>
-              </div>
-            );
-          })()}
-        </div>
+          </div>
+        )}
 
-        {/* Added */}
-        <div className="w-1/2 space-y-2">
-          <h2 className="font-semibold text-base mb-1 flex items-center">
-            Added
-          </h2>
-          <input
-            type="text"
-            placeholder="Search transactions..."
-            value={addedSearchQuery}
-            onChange={e => setAddedSearchQuery(e.target.value)}
-            className="border px-2 py-1 w-full text-xs mb-2"
-          />
-          <table className="w-full border-collapse border border-gray-300">
-            <thead className="bg-gray-100">
-              <tr>
-                <th className="border p-1 w-8 text-center">
-                  <input
-                    type="checkbox"
-                    checked={confirmed.length > 0 && selectedAdded.size === confirmed.length}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setSelectedAdded(new Set(confirmed.map(tx => tx.id)))
-                      } else {
-                        setSelectedAdded(new Set())
-                      }
-                    }}
-                    className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
-                  />
-                </th>
-                <th 
-                  className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
-                  onClick={() => handleSort('date', 'added')}
-                >
-                  Date {addedSortConfig.key === 'date' && (addedSortConfig.direction === 'asc' ? '↑' : '↓')}
-                </th>
-                <th 
-                  className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
-                  onClick={() => handleSort('description', 'added')}
-                >
-                  Description {addedSortConfig.key === 'description' && (addedSortConfig.direction === 'asc' ? '↑' : '↓')}
-                </th>
-                <th className="border p-1 w-8 text-center">Spent</th>
-                <th className="border p-1 w-8 text-center">Received</th>
-                <th className="border p-1 w-8 text-center">Payee</th>
-                <th className="border p-1 w-8 text-center">Category</th>
-                <th className="border p-1 w-8 text-center">Undo</th>
-              </tr>
-            </thead>
-            <tbody>
-              {confirmed.map(tx => {
-                const category = categories.find(c => c.id === tx.selected_category_id);
-                return (
-                  <tr 
-                    key={tx.id}
-                    onClick={(e) => {
-                      // Only open modal if click is not in the first column
-                      if ((e.target as HTMLElement).closest('td:first-child')) return;
-                      setEditModal({ isOpen: true, transaction: tx });
-                    }}
-                    className="cursor-pointer hover:bg-gray-50"
+        {activeTab === 'added' && (
+          <div className="space-y-2">
+            <h2 className="font-semibold text-base mb-1 flex items-center">
+              Added
+            </h2>
+            <input
+              type="text"
+              placeholder="Search transactions..."
+              value={addedSearchQuery}
+              onChange={e => setAddedSearchQuery(e.target.value)}
+              className="border px-2 py-1 w-full text-xs mb-2"
+            />
+            <table className="w-full border-collapse border border-gray-300">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="border p-1 w-8 text-center">
+                    <input
+                      type="checkbox"
+                      checked={confirmed.length > 0 && selectedAdded.size === confirmed.length}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedAdded(new Set(confirmed.map(tx => tx.id)))
+                        } else {
+                          setSelectedAdded(new Set())
+                        }
+                      }}
+                      className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                    />
+                  </th>
+                  <th 
+                    className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
+                    onClick={() => handleSort('date', 'added')}
                   >
-                    <td className="border p-1 w-8 text-center">
-                      <input
-                        type="checkbox"
-                        checked={selectedAdded.has(tx.id)}
-                        onChange={(e) => {
-                          const newSelected = new Set(selectedAdded)
-                          if (e.target.checked) {
-                            newSelected.add(tx.id)
-                          } else {
-                            newSelected.delete(tx.id)
-                          }
-                          setSelectedAdded(newSelected)
-                        }}
-                        className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
-                      />
-                    </td>
-                    <td className="border p-1 w-8 text-center text-xs">{formatDate(tx.date)}</td>
-                    <td className="border p-1 w-8 text-center text-xs" style={{ minWidth: 250 }}>{tx.description}</td>
-                    <td className="border p-1 w-8 text-center">{tx.spent ? `$${tx.spent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td>
-                    <td className="border p-1 w-8 text-center">{tx.received ? `$${tx.received.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td>
-                    <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
-                      {(() => {
-                        const payee = payees.find(p => p.id === tx.payee_id);
-                        return payee ? payee.name : '';
-                      })()}
-                    </td>
-                    <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>{category ? category.name : 'Uncategorized'}</td>
-                    <td className="border p-1 w-8 text-center">
-                      <button
-                        onClick={e => { e.stopPropagation(); undoTransaction(tx); }}
-                        className="border px-2 py-1 rounded bg-gray-100 hover:bg-gray-200"
-                      >
-                        Undo
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          {selectedAdded.size > 0 && (() => {
-            const selectedConfirmed = confirmed.filter(tx => selectedAdded.has(tx.id));
-            return (
-              <div className="mt-2 flex justify-end">
-                <button
-                  onClick={async () => {
-                    for (const tx of selectedConfirmed) {
-                      await undoTransaction(tx);
-                    }
-                    setSelectedAdded(new Set());
-                  }}
-                  className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200"
-                >
-                  Undo Selected ({selectedAdded.size})
-                </button>
-              </div>
-            );
-          })()}
-        </div>
+                    Date {addedSortConfig.key === 'date' && (addedSortConfig.direction === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th 
+                    className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
+                    onClick={() => handleSort('description', 'added')}
+                  >
+                    Description {addedSortConfig.key === 'description' && (addedSortConfig.direction === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th className="border p-1 w-8 text-center">Spent</th>
+                  <th className="border p-1 w-8 text-center">Received</th>
+                  <th className="border p-1 w-8 text-center">Payee</th>
+                  <th className="border p-1 w-8 text-center">Category</th>
+                  <th className="border p-1 w-8 text-center">Undo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {confirmed.map(tx => {
+                  const category = categories.find(c => c.id === tx.selected_category_id);
+                  return (
+                    <tr 
+                      key={tx.id}
+                      onClick={(e) => {
+                        // Only open modal if click is not in the first column
+                        if ((e.target as HTMLElement).closest('td:first-child')) return;
+                        setEditModal({ isOpen: true, transaction: tx });
+                      }}
+                      className="cursor-pointer hover:bg-gray-50"
+                    >
+                      <td className="border p-1 w-8 text-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedAdded.has(tx.id)}
+                          onChange={(e) => {
+                            const newSelected = new Set(selectedAdded)
+                            if (e.target.checked) {
+                              newSelected.add(tx.id)
+                            } else {
+                              newSelected.delete(tx.id)
+                            }
+                            setSelectedAdded(newSelected)
+                          }}
+                          className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                        />
+                      </td>
+                      <td className="border p-1 w-8 text-center text-xs">{formatDate(tx.date)}</td>
+                      <td className="border p-1 w-8 text-center text-xs" style={{ minWidth: 250 }}>{tx.description}</td>
+                      <td className="border p-1 w-8 text-center">{tx.spent ? `$${tx.spent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td>
+                      <td className="border p-1 w-8 text-center">{tx.received ? `$${tx.received.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td>
+                      <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
+                        {(() => {
+                          const payee = payees.find(p => p.id === tx.payee_id);
+                          return payee ? payee.name : '';
+                        })()}
+                      </td>
+                      <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>{category ? category.name : 'Uncategorized'}</td>
+                      <td className="border p-1 w-8 text-center">
+                        <button
+                          onClick={e => { e.stopPropagation(); undoTransaction(tx); }}
+                          className="border px-2 py-1 rounded bg-gray-100 hover:bg-gray-200"
+                        >
+                          Undo
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {selectedAdded.size > 0 && (() => {
+              const selectedConfirmed = confirmed.filter(tx => selectedAdded.has(tx.id));
+              return (
+                <div className="mt-2 flex justify-end">
+                  <button
+                    onClick={async () => {
+                      for (const tx of selectedConfirmed) {
+                        await undoTransaction(tx);
+                      }
+                      setSelectedAdded(new Set());
+                    }}
+                    className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200"
+                  >
+                    Undo Selected ({selectedAdded.size})
+                  </button>
+                </div>
+              );
+            })()}
+          </div>
+        )}
       </div>
 
       {/* Account Selection Modal */}
