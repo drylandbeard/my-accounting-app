@@ -45,6 +45,7 @@ type Account = {
   current_balance: number | null
   last_synced: string | null
   is_manual?: boolean
+  plaid_account_name?: string // Add missing property
 }
 
 type ImportModalState = {
@@ -286,6 +287,17 @@ export default function Page() {
       second: '2-digit',
     });
 
+  const formatLastSyncTime = (lastSynced: string | null) => {
+    if (!lastSynced) return 'Never';
+    const date = new Date(lastSynced);
+    return date.toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
   // Add sync function
   const syncTransactions = async () => {
     setIsSyncing(true);
@@ -306,17 +318,47 @@ export default function Page() {
         throw new Error('No connected Plaid accounts found');
       }
 
-      // Sync each account
+      // Sync each item
       for (const item of plaidItems) {
-        const response = await fetch('/api/get-transactions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            access_token: item.access_token,
-            item_id: item.item_id,
-          }),
+        // Get all accounts for this item
+        const { data: itemAccounts } = await supabase
+          .from('accounts')
+          .select('plaid_account_id')
+          .eq('plaid_item_id', item.item_id)
+          .eq('company_id', currentCompany!.id);
+
+        if (!itemAccounts || itemAccounts.length === 0) {
+          console.log(`No accounts found for item ${item.item_id}`);
+          continue;
+        }
+
+        const accountIds = itemAccounts.map(acc => acc.plaid_account_id);
+
+        // Find the latest transaction date for this item's accounts
+        const { data: latestTransaction } = await supabase
+          .from('imported_transactions')
+          .select('date')
+          .eq('company_id', currentCompany!.id)
+          .in('plaid_account_id', accountIds)
+          .order('date', { ascending: false })
+          .limit(1)
+          .single();
+
+        // Use the latest transaction date, or default to 30 days ago if no transactions exist
+        let startDate: string;
+        if (latestTransaction) {
+          startDate = latestTransaction.date;
+        } else {
+          const thirtyDaysAgo = new Date();
+          thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+          startDate = thirtyDaysAgo.toISOString().split('T')[0];
+        }
+
+        const response = await postWithCompany('/api/get-transactions', {
+          access_token: item.access_token,
+          item_id: item.item_id,
+          start_date: startDate,
+          selected_account_ids: accountIds
         });
 
         if (!response.ok) {
@@ -330,9 +372,10 @@ export default function Page() {
       const now = new Date();
       setNotification({ type: 'success', message: `Sync complete! Last synced: ${formatSyncTime(now)}` });
       setTimeout(() => setNotification(null), 4000);
-    } catch (err: any) {
-      setSyncError(err.message || 'Failed to sync transactions');
-      setNotification({ type: 'error', message: err.message || 'Failed to sync transactions' });
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to sync transactions';
+      setSyncError(errorMessage);
+      setNotification({ type: 'error', message: errorMessage });
       setTimeout(() => setNotification(null), 4000);
     } finally {
       setIsSyncing(false);
@@ -391,7 +434,7 @@ export default function Page() {
         // Show account selection modal with all available accounts
         setAccountSelectionModal({
           isOpen: true,
-          accounts: metadata.accounts.map((account: any) => ({
+          accounts: metadata.accounts.map((account: { id: string; name?: string }) => ({
             id: account.id,
             name: account.name || 'new account',
             selected: true, // Default to selected
@@ -809,7 +852,7 @@ export default function Page() {
     }
   };
 
-  const undoTransaction = async (tx: any) => {
+  const undoTransaction = async (tx: Transaction) => {
     try {
       if (!tx || !tx.id) {
         throw new Error('Invalid transaction: missing ID');
@@ -1484,7 +1527,17 @@ export default function Page() {
 
     if (transactions) {
       // Group transactions by description and date to form journal entries
-      const groupedEntries = transactions.reduce((acc: any, tx) => {
+      const groupedEntries = transactions.reduce((acc: Record<string, {
+        id: string;
+        date: string;
+        description: string;
+        transactions: {
+          account_id: string;
+          account_name: string;
+          amount: number;
+          type: 'debit' | 'credit';
+        }[];
+      }>, tx) => {
         const key = `${tx.date}_${tx.description}`;
         if (!acc[key]) {
           acc[key] = {
@@ -1654,7 +1707,7 @@ export default function Page() {
                 .filter(acc => acc.plaid_account_id)
                 .map(acc => ({
                   id: acc.plaid_account_id || '',
-                  name: acc.plaid_account_name
+                  name: acc.plaid_account_name || acc.name || 'Unknown Account'
                 })),
               accountToDelete: null,
               deleteConfirmation: ''
@@ -1667,14 +1720,17 @@ export default function Page() {
       </div>
 
       {/* Mini-nav for accounts */}
-      <div className="space-x-2 mb-4">
+      <div className="space-x-2 mb-4 flex flex-row">
         {accounts.map(acc => (
           <button
             key={acc.plaid_account_id}
             onClick={() => setSelectedAccountId(acc.plaid_account_id)}
-            className={`border px-3 py-1 rounded text-xs ${acc.plaid_account_id === selectedAccountId ? 'bg-gray-200 font-semibold' : 'bg-gray-100 hover:bg-gray-200'}`}
+            className={`border px-3 py-1 rounded text-xs flex flex-col items-center ${acc.plaid_account_id === selectedAccountId ? 'bg-gray-200 font-semibold' : 'bg-gray-100 hover:bg-gray-200'}`}
           >
-            {acc.name}
+            <span>{acc.name}</span>
+            <span className="text-xs text-gray-500 font-normal">
+              Last Updated: {formatLastSyncTime(acc.last_synced)}
+            </span>
           </button>
         ))}
       </div>
@@ -2972,7 +3028,7 @@ export default function Page() {
                       <Select
                         options={payeeOptions}
                         value={payeeOptions.find(opt => opt.value === selectedPayees[tx.id]) || payeeOptions[0]}
-                        onChange={(selectedOption: any) => {
+                        onChange={(selectedOption: SelectOption | null) => {
                           if (selectedOption?.value === 'add_new') {
                             setNewPayeeModal({ 
                               isOpen: true, 
@@ -3000,7 +3056,7 @@ export default function Page() {
                       <Select
                         options={categoryOptions}
                         value={categoryOptions.find(opt => opt.value === selectedCategories[tx.id]) || categoryOptions[0]}
-                        onChange={(selectedOption: any) => {
+                        onChange={(selectedOption: SelectOption | null) => {
                           if (selectedOption?.value === 'add_new') {
                             setNewCategoryModal({ 
                               isOpen: true, 

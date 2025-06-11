@@ -1,9 +1,18 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { plaidClient } from '@/lib/plaid'
 import { supabase } from '@/lib/supabaseAdmin'
+import { validateCompanyContext } from '@/lib/auth-utils'
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
+    // Validate company context
+    const context = validateCompanyContext(req);
+    if ('error' in context) {
+      return NextResponse.json({ error: context.error }, { status: 401 });
+    }
+
+    const { companyId } = context;
+
     // 1. Get access_token, item_id, start_date, and selected_account_ids from request body
     const { access_token, item_id, start_date, selected_account_ids } = await req.json();
     if (!access_token || !item_id) {
@@ -15,17 +24,21 @@ export async function POST(req: Request) {
     try {
       accountsResponse = await plaidClient.accountsGet({ access_token });
       console.log('Plaid accounts:', accountsResponse.data.accounts);
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Enhanced error logging
       const safeAccessToken = access_token ? access_token.slice(0, 4) + '...' : 'none';
       console.error('Plaid accountsGet error:', err);
-      if (err?.response) {
-        console.error('Plaid error response:', err.response.data);
+      if (err && typeof err === 'object' && 'response' in err) {
+        const errorWithResponse = err as { response?: { data?: { error_message?: string } } };
+        if (errorWithResponse.response) {
+          console.error('Plaid error response:', errorWithResponse.response.data);
+        }
       }
       console.error('Request context:', { item_id, access_token: safeAccessToken });
       // Return Plaid's error message in development
-      const errorMsg = process.env.NODE_ENV === 'development' && err?.response?.data?.error_message
-        ? err.response.data.error_message
+      const errorMsg = process.env.NODE_ENV === 'development' && 
+        err && typeof err === 'object' && 'response' in err
+        ? (err as { response?: { data?: { error_message?: string } } }).response?.data?.error_message || 'Failed to fetch accounts from Plaid'
         : 'Failed to fetch accounts from Plaid';
       return NextResponse.json({ error: errorMsg }, { status: 500 });
     }
@@ -42,14 +55,15 @@ export async function POST(req: Request) {
       // Upsert into accounts table
       const { error: upsertError } = await supabase.from('accounts').upsert({
         plaid_account_id: account_id,
-        plaid_account_name: name,
+        name: name,
         current_balance: balances.current ?? 0,
         starting_balance: balances.current ?? 0,
         last_synced: new Date().toISOString(),
-        item_id,
-        account_type: type,
-        account_subtype: subtype
-      }, { onConflict: 'plaid_account_id' });
+        plaid_item_id: item_id,
+        type: type,
+        subtype: subtype,
+        company_id: companyId
+      }, { onConflict: 'plaid_account_id,company_id' });
 
       if (upsertError) console.error('Error upserting account:', upsertError);
 
@@ -63,8 +77,9 @@ export async function POST(req: Request) {
         name: name,
         type: accountType,
         subtype: subtype,
-        plaid_account_id: account_id
-      }], { onConflict: ['name', 'type', 'subtype'] });
+        plaid_account_id: account_id,
+        company_id: companyId
+      }], { onConflict: 'name,type,subtype,company_id' });
 
       if (coaError) console.error('Error upserting chart_of_accounts:', coaError);
     }
@@ -82,17 +97,21 @@ export async function POST(req: Request) {
         end_date: new Date().toISOString().split('T')[0],
       });
       console.log('Plaid transactions:', transactionsResponse.data.transactions);
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Enhanced error logging
       const safeAccessToken = access_token ? access_token.slice(0, 4) + '...' : 'none';
       console.error('Plaid transactionsGet error:', err);
-      if (err?.response) {
-        console.error('Plaid error response:', err.response.data);
+      if (err && typeof err === 'object' && 'response' in err) {
+        const errorWithResponse = err as { response?: { data?: { error_message?: string } } };
+        if (errorWithResponse.response) {
+          console.error('Plaid error response:', errorWithResponse.response.data);
+        }
       }
       console.error('Request context:', { item_id, access_token: safeAccessToken });
       // Return Plaid's error message in development
-      const errorMsg = process.env.NODE_ENV === 'development' && err?.response?.data?.error_message
-        ? err.response.data.error_message
+      const errorMsg = process.env.NODE_ENV === 'development' && 
+        err && typeof err === 'object' && 'response' in err
+        ? (err as { response?: { data?: { error_message?: string } } }).response?.data?.error_message || 'Failed to fetch transactions from Plaid'
         : 'Failed to fetch transactions from Plaid';
       return NextResponse.json({ error: errorMsg }, { status: 500 });
     }
@@ -116,7 +135,7 @@ export async function POST(req: Request) {
       const spent = amount > 0 ? amount : 0;
       const received = amount < 0 ? Math.abs(amount) : 0;
 
-      // Check for duplicates (using spent/received)
+      // Check for duplicates (using spent/received and company_id)
       const { data: existing } = await supabase
         .from('imported_transactions')
         .select('id')
@@ -124,7 +143,8 @@ export async function POST(req: Request) {
         .eq('description', name)
         .eq('date', date)
         .eq('spent', spent)
-        .eq('received', received);
+        .eq('received', received)
+        .eq('company_id', companyId);
 
       if (!existing || existing.length === 0) {
         const { error: insertError } = await supabase.from('imported_transactions').insert([{
@@ -134,15 +154,17 @@ export async function POST(req: Request) {
           received,
           plaid_account_id: account_id,
           item_id, // Link to plaid_items
-          plaid_account_name: accountName
+          plaid_account_name: accountName,
+          company_id: companyId
         }]);
         if (insertError) console.error('Error inserting transaction:', insertError);
       }
     }
 
     return NextResponse.json({ status: 'success' });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Sync failed:', err);
-    return NextResponse.json({ error: err.message || String(err) }, { status: 500 });
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }
