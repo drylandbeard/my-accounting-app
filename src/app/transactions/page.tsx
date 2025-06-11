@@ -842,6 +842,7 @@ export default function Page() {
         received: tx.received,
         plaid_account_id: tx.plaid_account_id,
         plaid_account_name: tx.plaid_account_name,
+        company_id: currentCompany?.id
       }]);
 
       if (insertError) {
