@@ -14,7 +14,7 @@ type Transaction = {
   id: string
   date: string
   description: string
-  amount: number
+  amount?: number
   plaid_account_id: string | null
   plaid_account_name: string | null
   selected_category_id?: string
@@ -22,6 +22,7 @@ type Transaction = {
   spent?: number
   received?: number
   payee_id?: string
+  company_id?: string
 }
 
 type Category = {
@@ -60,8 +61,8 @@ type ImportModalState = {
 
 type CSVRow = {
   Date: string
-  Amount: string
   Description: string
+  Amount: string
 }
 
 type SortConfig = {
@@ -976,9 +977,11 @@ export default function Page() {
           : b.description.localeCompare(a.description);
       }
       if (sortConfig.key === 'amount') {
+        const aAmount = a.amount ?? ((a.received ?? 0) - (a.spent ?? 0));
+        const bAmount = b.amount ?? ((b.received ?? 0) - (b.spent ?? 0));
         return sortConfig.direction === 'asc'
-          ? a.amount - b.amount
-          : b.amount - a.amount;
+          ? aAmount - bAmount
+          : bAmount - aAmount;
       }
       return 0;
     });
@@ -1080,20 +1083,25 @@ export default function Page() {
   }
 
   const downloadTemplate = () => {
-    const headers = ['Date', 'Amount', 'Description']
+    const headers = ['Date', 'Description', 'Amount']
     const exampleData = [
-      ['5/1/25', '1000.00', 'Client Payment - Revenue'],
-      ['5/1/25', '-500.00', 'Office Supplies - Expense']
+      ['2025-01-15', 'Client Payment - Invoice #1001', '1000.00'],
+      ['2025-01-16', 'Office Supplies - Staples', '-150.75'],
+      ['2025-01-17', 'Bank Interest Received', '25.50'],
+      ['2025-01-18', 'Monthly Software Subscription', '-99.99'],
+      ['2025-01-19', 'Customer Refund', '-200.00']
     ]
+    
     const csvContent = [
       headers.join(','),
       ...exampleData.map(row => row.join(','))
     ].join('\n')
+    
     const blob = new Blob([csvContent], { type: 'text/csv' })
     const url = window.URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = 'transaction_template.csv'
+    a.download = 'transaction_import_template.csv'
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
@@ -1105,12 +1113,12 @@ export default function Page() {
       return 'CSV file is empty'
     }
 
-    const requiredColumns = ['Date', 'Amount', 'Description']
+    const requiredColumns = ['Date', 'Description', 'Amount']
     const headers = Object.keys(data.data[0])
     
     const missingColumns = requiredColumns.filter(col => !headers.includes(col))
     if (missingColumns.length > 0) {
-      return `Missing required columns: ${missingColumns.join(', ')}`
+      return `Missing required columns: ${missingColumns.join(', ')}. Expected: Date, Description, Amount`
     }
 
     // Filter out empty rows before validation
@@ -1118,33 +1126,56 @@ export default function Page() {
       row.Date && row.Amount && row.Description
     )
 
+    if (nonEmptyRows.length === 0) {
+      return 'No valid transaction data found. Please ensure you have at least one row with Date, Description, and Amount.'
+    }
+
     // Validate each non-empty row
     for (let i = 0; i < nonEmptyRows.length; i++) {
       const row = nonEmptyRows[i]
       
-      // Validate date format (M/D/YY, MM/DD/YY, M/D/YYYY, MM/DD/YYYY, or with dashes)
-      const dateParts = row.Date.split(/[\/\-]/)
-      if (dateParts.length !== 3) {
-        return `Invalid date format in row ${i + 1}. Please use M/D/YY, MM/DD/YY, M/D/YYYY, or MM/DD/YYYY format (with / or - as separator).`
+      // Validate date format (prefer YYYY-MM-DD, but also support M/D/YY, MM/DD/YY, M/D/YYYY, MM/DD/YYYY)
+      let isValidDate = false
+      let parsedDate: Date | null = null
+
+      // Try YYYY-MM-DD format first (recommended)
+      if (row.Date.match(/^\d{4}-\d{1,2}-\d{1,2}$/)) {
+        const [yearStr, monthStr, dayStr] = row.Date.split('-')
+        const year = parseInt(yearStr)
+        const month = parseInt(monthStr)
+        const day = parseInt(dayStr)
+        parsedDate = new Date(Date.UTC(year, month - 1, day))
+        isValidDate = !isNaN(parsedDate.getTime()) && month >= 1 && month <= 12 && day >= 1 && day <= 31
+      }
+      
+      // Try M/D/YY or MM/DD/YYYY format as fallback
+      if (!isValidDate && row.Date.match(/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/)) {
+        const dateParts = row.Date.split(/[\/\-]/)
+        const monthNum = parseInt(dateParts[0])
+        const dayNum = parseInt(dateParts[1])
+        const yearStr = dateParts[2]
+        const yearNum = parseInt(yearStr)
+        
+        // Handle two-digit years
+        const fullYear = yearNum < 100 ? 2000 + yearNum : yearNum
+        
+        parsedDate = new Date(Date.UTC(fullYear, monthNum - 1, dayNum))
+        isValidDate = !isNaN(parsedDate.getTime()) && monthNum >= 1 && monthNum <= 12 && dayNum >= 1 && dayNum <= 31
       }
 
-      const monthNum = parseInt(dateParts[0])
-      const dayNum = parseInt(dateParts[1])
-      const yearStr = dateParts[2]
-      const yearNum = parseInt(yearStr)
-      
-      // Handle two-digit years
-      const fullYear = yearNum < 100 ? 2000 + yearNum : yearNum
-      
-      const date = new Date(Date.UTC(fullYear, monthNum - 1, dayNum))
-      if (isNaN(date.getTime()) || monthNum < 1 || monthNum > 12 || dayNum < 1 || dayNum > 31) {
-        return `Invalid date in row ${i + 1}. Please check month (1-12) and day (1-31) values.`
+      if (!isValidDate) {
+        return `Invalid date format in row ${i + 1}: "${row.Date}". Please use YYYY-MM-DD format (recommended) or M/D/YYYY format.`
       }
 
       // Validate amount
       const amount = parseFloat(row.Amount)
       if (isNaN(amount)) {
-        return `Invalid amount in row ${i + 1}`
+        return `Invalid amount in row ${i + 1}: "${row.Amount}". Please use numeric values (e.g., 100.50 or -75.25)`
+      }
+
+      // Validate description is not empty
+      if (!row.Description.trim()) {
+        return `Empty description in row ${i + 1}. Please provide a description for each transaction.`
       }
     }
 
@@ -1176,28 +1207,47 @@ export default function Page() {
 
         // Convert CSV data to transactions, filtering out any empty rows
         const transactions = results.data
-          .filter((row: CSVRow) => row.Date && row.Amount && row.Description)
+          .filter((row: CSVRow) => 
+            row.Date && row.Amount && row.Description
+          )
           .map((row: CSVRow) => {
-            // Parse date in any supported format (with / or - as separator)
-            const dateParts = row.Date.split(/[\/\-]/)
-            const monthNum = parseInt(dateParts[0])
-            const dayNum = parseInt(dateParts[1])
-            const yearStr = dateParts[2]
-            const yearNum = parseInt(yearStr)
+            // Parse date - try YYYY-MM-DD format first
+            let parsedDate: Date
             
-            // Handle two-digit years
-            const fullYear = yearNum < 100 ? 2000 + yearNum : yearNum
+            if (row.Date.match(/^\d{4}-\d{1,2}-\d{1,2}$/)) {
+              // YYYY-MM-DD format
+              const [yearStr, monthStr, dayStr] = row.Date.split('-')
+              const year = parseInt(yearStr)
+              const month = parseInt(monthStr)
+              const day = parseInt(dayStr)
+              parsedDate = new Date(Date.UTC(year, month - 1, day))
+            } else {
+              // Fallback to M/D/YY or MM/DD/YYYY format
+              const dateParts = row.Date.split(/[\/\-]/)
+              const monthNum = parseInt(dateParts[0])
+              const dayNum = parseInt(dateParts[1])
+              const yearStr = dateParts[2]
+              const yearNum = parseInt(yearStr)
+              
+              // Handle two-digit years
+              const fullYear = yearNum < 100 ? 2000 + yearNum : yearNum
+              
+              // Create date in UTC to prevent timezone shifts
+              parsedDate = new Date(Date.UTC(fullYear, monthNum - 1, dayNum))
+            }
             
-            // Create date in UTC to prevent timezone shifts
-            const date = new Date(Date.UTC(fullYear, monthNum - 1, dayNum))
+            const amount = parseFloat(row.Amount)
             
             return {
               id: uuidv4(),
-              date: date.toISOString().split('T')[0], // Store as YYYY-MM-DD
-              description: row.Description,
-              amount: parseFloat(row.Amount),
+              date: parsedDate.toISOString().split('T')[0], // Store as YYYY-MM-DD
+              description: row.Description.trim(),
+              amount: amount, // Keep original amount for display
+              spent: amount < 0 ? Math.abs(amount) : 0, // Negative amounts become spent
+              received: amount > 0 ? amount : 0, // Positive amounts become received
               plaid_account_id: importModal.selectedAccount?.plaid_account_id || null,
-              plaid_account_name: importModal.selectedAccount?.plaid_account_name || null
+              plaid_account_name: importModal.selectedAccount?.name || null,
+              company_id: currentCompany?.id
             }
           })
 
@@ -1761,7 +1811,7 @@ export default function Page() {
       {/* Import Modal */}
       {importModal.isOpen && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50">
-          <div className="bg-white rounded-lg p-6 w-[400px] overflow-y-auto shadow-xl">
+          <div className="bg-white rounded-lg p-6 w-[600px] overflow-y-auto shadow-xl">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold">Import Transactions</h2>
               <button
@@ -1783,7 +1833,7 @@ export default function Page() {
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
               </div>
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-1">
                 {importModal.step === 'upload' && (
                   <>
                     <div className="space-y-4">
@@ -1817,14 +1867,28 @@ export default function Page() {
                           className="w-full"
                         />
                       </div>
-                      <div className="flex justify-between items-center">
-                        <h3 className="text-sm font-medium text-gray-700">Upload CSV File</h3>
-                        <button
-                          onClick={downloadTemplate}
-                          className="text-sm text-gray-600 hover:text-gray-800"
-                        >
-                          Download Template
-                        </button>
+                      <div className="space-y-3">
+                        <div className="flex justify-between items-center">
+                          <h3 className="text-sm font-medium text-gray-700">Upload CSV File</h3>
+                          <button
+                            onClick={downloadTemplate}
+                            className="text-sm text-gray-600 hover:text-gray-800"
+                          >
+                            Download Template
+                          </button>
+                        </div>
+                        
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                          <h4 className="text-sm font-medium text-blue-800 mb-2">CSV Format Instructions:</h4>
+                          <ul className="text-sm text-blue-700 space-y-1">
+                            <li>• <strong>Date:</strong> Use YYYY-MM-DD format (e.g., 2024-01-15)</li>
+                            <li>• <strong>Description:</strong> Any text describing the transaction</li>
+                            <li>• <strong>Amount:</strong> Positive for money received, negative for money spent</li>
+                          </ul>
+                          <p className="text-xs text-blue-600 mt-2">
+                            Download the template above to see examples of proper formatting.
+                          </p>
+                        </div>
                       </div>
                       <div 
                         className={`border-2 border-dashed border-gray-300 rounded-lg p-6 text-center transition-colors duration-200 ${!importModal.selectedAccount ? 'opacity-50' : 'hover:border-gray-400'}`}
@@ -1872,7 +1936,7 @@ export default function Page() {
                         <table className="min-w-full divide-y divide-gray-200">
                           <thead className="bg-gray-50">
                             <tr>
-                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-8 text-center">
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-8">
                                 <input
                                   type="checkbox"
                                   checked={importModal.csvData.length > 0 && importModal.selectedTransactions.size === importModal.csvData.length}
@@ -1892,15 +1956,15 @@ export default function Page() {
                                   className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
                                 />
                               </th>
-                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-8 text-center">Date</th>
-                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-8 text-center">Description</th>
-                              <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-8 text-center">Amount</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-8">Date</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-8">Description</th>
+                              <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-8">Amount</th>
                             </tr>
                           </thead>
                           <tbody className="bg-white divide-y divide-gray-200">
                             {importModal.csvData.map((tx) => (
                               <tr key={tx.id}>
-                                <td className="px-4 py-2 whitespace-nowrap w-8 text-center">
+                                <td className="px-4 py-2 whitespace-nowrap w-8 text-left">
                                   <input
                                     type="checkbox"
                                     checked={importModal.selectedTransactions.has(tx.id)}
@@ -1919,83 +1983,118 @@ export default function Page() {
                                     className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
                                   />
                                 </td>
-                                <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900 w-8 text-center">
+                                <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900 w-8 text-left">
                                   {formatDate(tx.date)}
                                 </td>
-                                <td className="px-4 py-2 text-sm text-gray-900 w-8 text-center" style={{ minWidth: 250 }}>
+                                <td className="px-4 py-2 text-sm text-gray-900 w-8 text-left" style={{ minWidth: 250 }}>
                                   {tx.description}
                                 </td>
-                                <td className="px-4 py-2 text-sm text-gray-900 text-right w-8 text-center">
-                                  ${tx.amount.toFixed(2)}
+                                <td className="px-4 py-2 text-sm text-gray-900 text-right w-8">
+                                  ${(tx.amount ?? ((tx.received ?? 0) - (tx.spent ?? 0))).toFixed(2)}
                                 </td>
                               </tr>
                             ))}
                           </tbody>
                           <tfoot className="bg-gray-50">
                             <tr>
-                              <td colSpan={3} className="px-4 py-2 text-sm font-medium text-gray-900 w-8 text-center">
-                                {importModal.selectedTransactions.size > 0 && (
-                                  <span className="text-gray-600">
-                                    {importModal.selectedTransactions.size} selected
-                                  </span>
-                                )}
-                              </td>
-                              <td className="px-4 py-2 text-sm font-medium text-gray-900 text-right w-8 text-center">
-                                ${importModal.csvData.reduce((sum, tx) => sum + tx.amount, 0).toFixed(2)}
+                              <td colSpan={4} className="px-4 py-2 text-sm font-medium text-gray-900 text-right w-8">
+                                ${importModal.csvData.reduce((sum, tx) => sum + (tx.amount ?? ((tx.received ?? 0) - (tx.spent ?? 0))), 0).toFixed(2)}
                               </td>
                             </tr>
                           </tfoot>
                         </table>
                       </div>
                     </div>
-                    <div className="flex justify-end space-x-2 mt-4">
-                      <button
-                        onClick={() => setImportModal(prev => ({ ...prev, step: 'upload' }))}
-                        className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
-                      >
-                        Back
-                      </button>
-                      <button
-                        onClick={async () => {
-                          setImportModal(prev => ({ ...prev, isLoading: true, error: null }))
-                          try {
-                            // Insert all transactions into imported_transactions
-                            const { data, error } = await supabase
-                              .from('imported_transactions')
-                              .insert(importModal.csvData)
-                              .select()
+                    <div className="flex justify-between items-center">
+                      <div className="text-sm font-medium">
+                        {importModal.selectedTransactions.size > 0 && (
+                          <span className="text-gray-600">
+                            {importModal.selectedTransactions.size} selected
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex justify-end space-x-2 mt-4">
+                        <button
+                          onClick={() => setImportModal(prev => ({ ...prev, step: 'upload' }))}
+                          className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+                        >
+                          Back
+                        </button>
+                        <button
+                          onClick={async () => {
+                            setImportModal(prev => ({ ...prev, isLoading: true, error: null }))
+                            try {
+                              if (!currentCompany) {
+                                throw new Error('No company selected. Please select a company first.')
+                              }
 
-                            if (error) {
-                              console.error('Supabase error:', error)
-                              throw new Error(error.message)
+                              // Filter selected transactions
+                              const selectedTransactions = importModal.csvData.filter(tx => 
+                                importModal.selectedTransactions.has(tx.id)
+                              )
+
+                              if (selectedTransactions.length === 0) {
+                                throw new Error('No transactions selected for import.')
+                              }
+
+                              // Prepare data for insertion - ensure all required fields are present
+                              const transactionsToInsert = selectedTransactions.map(tx => ({
+                                date: tx.date,
+                                description: tx.description,
+                                spent: tx.spent || 0,
+                                received: tx.received || 0,
+                                plaid_account_id: tx.plaid_account_id,
+                                plaid_account_name: tx.plaid_account_name,
+                                company_id: currentCompany.id
+                              }))
+
+                              // Insert selected transactions into imported_transactions
+                              const { data, error } = await supabase
+                                .from('imported_transactions')
+                                .insert(transactionsToInsert)
+                                .select()
+
+                              if (error) {
+                                console.error('Supabase error:', error)
+                                throw new Error(error.message)
+                              }
+
+                              if (!data) {
+                                throw new Error('No data returned from insert')
+                              }
+
+                              setImportModal(prev => ({
+                                ...prev,
+                                isOpen: false,
+                                isLoading: false,
+                                error: null,
+                                step: 'upload',
+                                csvData: [],
+                                selectedTransactions: new Set()
+                              }))
+
+                              // Refresh the transactions list
+                              refreshAll()
+                              
+                              // Show success message
+                              setNotification({ 
+                                type: 'success', 
+                                message: `Successfully imported ${selectedTransactions.length} transactions!` 
+                              })
+                            } catch (error) {
+                              console.error('Import error:', error)
+                              setImportModal(prev => ({
+                                ...prev,
+                                isLoading: false,
+                                error: error instanceof Error ? error.message : 'Failed to import transactions. Please try again.'
+                              }))
                             }
-
-                            if (!data) {
-                              throw new Error('No data returned from insert')
-                            }
-
-                            setImportModal(prev => ({
-                              ...prev,
-                              isOpen: false,
-                              isLoading: false,
-                              error: null
-                            }))
-
-                            // Refresh the transactions list
-                            refreshAll()
-                          } catch (error) {
-                            console.error('Import error:', error)
-                            setImportModal(prev => ({
-                              ...prev,
-                              isLoading: false,
-                              error: error instanceof Error ? error.message : 'Failed to import transactions. Please try again.'
-                            }))
-                          }
-                        }}
-                        className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
-                      >
-                        Import Transactions
-                      </button>
+                          }}
+                          className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
+                        >
+                          Import Transactions
+                        </button>
+                      </div>
                     </div>
                   </>
                 )}
