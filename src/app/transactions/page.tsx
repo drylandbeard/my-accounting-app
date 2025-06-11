@@ -1390,10 +1390,10 @@ export default function Page() {
   const handleUpdateAccountNames = async () => {
     for (const account of accountNamesModal.accounts) {
       if (account.id) {  // Only update if id exists
-        // Update accounts table
+        // Update accounts table - update both name and plaid_account_name for consistency
         await supabase
           .from('accounts')
-          .update({ plaid_account_name: account.name })
+          .update({ name: account.name })
           .eq('plaid_account_id', account.id);
         // Update chart_of_accounts table
         await supabase
