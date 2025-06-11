@@ -1,57 +1,102 @@
-import { NextResponse } from 'next/server'
-import { supabase } from '@/lib/supabaseAdmin'
-import { AccountSubtype } from 'plaid'
+import { NextRequest, NextResponse } from "next/server";
+import { supabase } from "@/lib/supabaseAdmin";
+import { validateCompanyContext } from "@/lib/auth-utils";
 
-export async function POST(req: Request) {
+/**
+ * Create chart of accounts entries from stored Plaid accounts
+ * Handles duplicate entries gracefully using upsert logic
+ */
+export async function POST(req: NextRequest) {
   try {
-    // 1. Get accounts from request body
-    const { accounts } = await req.json();
+    // Validate company context
+    const context = validateCompanyContext(req);
+    if ("error" in context) {
+      return NextResponse.json({ error: context.error }, { status: 401 });
+    }
+
+    const { companyId } = context;
+
+    const { accessToken, itemId, selectedAccountIds } = await req.json();
     
-    if (!accounts || !Array.isArray(accounts)) {
+    if (!accessToken || !itemId) {
       return NextResponse.json({ 
-        error: 'Missing or invalid accounts array' 
+        error: "Missing required fields: accessToken and itemId" 
       }, { status: 400 });
     }
 
-    // 2. Transform accounts to chart entries
-    const chartAccounts = accounts.map(account => ({
-      name: account.name,
-      type: account.type === 'credit' || account.type === 'loan' ? 'Liability' : 'Asset',
-      subtype: account.subtype as AccountSubtype,
-      plaid_account_id: account.plaid_account_id,
-      metadata: {
-        institution_name: account.institution_name,
-        account_number: account.account_number
-      }
-    }));
+    // Retrieve accounts stored in Step 3 (filtered by company)
+    let query = supabase
+      .from("accounts")
+      .select("*")
+      .eq("plaid_item_id", itemId)
+      .eq("company_id", companyId);
 
-    // 3. Store in chart_of_accounts
-    const { data: storedChartAccounts, error: chartError } = await supabase
-      .from('chart_of_accounts')
-      .upsert(chartAccounts, { 
-        onConflict: 'plaid_account_id'
-      })
-      .select();
+    // Further filter by selected accounts if specified
+    if (selectedAccountIds && selectedAccountIds.length > 0) {
+      query = query.in("plaid_account_id", selectedAccountIds);
+    }
 
-    if (chartError) {
-      console.error('Error storing chart of accounts:', chartError);
+    const { data: accountRecords, error: fetchError } = await query;
+
+    if (fetchError) {
       return NextResponse.json({ 
-        error: 'Failed to store chart of accounts' 
+        error: "Failed to retrieve accounts from database",
+        details: fetchError.message
       }, { status: 500 });
     }
 
-    // 4. Return success response
-    return NextResponse.json({ 
-      status: 'success',
-      chart_accounts: storedChartAccounts
+    if (!accountRecords || accountRecords.length === 0) {
+      return NextResponse.json({ 
+        error: "No accounts found. Please complete Step 3 first.",
+        itemId: itemId
+      }, { status: 400 });
+    }
+
+    // Transform accounts to chart of accounts entries
+    const chartEntries = accountRecords.map(account => {
+      // Classify account type based on Plaid account type
+      const isLiabilityAccount = account.type === "credit" || account.type === "loan";
+      
+      return {
+        id: crypto.randomUUID(),
+        name: account.name,
+        type: isLiabilityAccount ? "Liability" : "Asset",
+        subtype: account.subtype,
+        plaid_account_id: account.plaid_account_id,
+        company_id: companyId,
+        parent_id: null
+      };
     });
 
-  } catch (err: any) {
-    console.error('Chart of accounts creation failed:', err);
+    // Use upsert to handle duplicate entries based on the unique constraint
+    const { data: storedEntries, error: storageError } = await supabase
+      .from("chart_of_accounts")
+      .upsert(chartEntries, { 
+        onConflict: "name,type,subtype,company_id",
+        ignoreDuplicates: false 
+      })
+      .select();
+
+    if (storageError) {
+      return NextResponse.json({ 
+        error: "Failed to create chart of accounts entries",
+        details: storageError.message
+      }, { status: 500 });
+    }
+
+    return NextResponse.json({
+      success: true,
+      chart_accounts: storedEntries,
+      count: storedEntries?.length || 0,
+      message: `Successfully processed ${storedEntries?.length || 0} chart entries`
+    });
+
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : "Failed to create chart of accounts";
+    
     return NextResponse.json({ 
-      error: process.env.NODE_ENV === 'development' 
-        ? err.message 
-        : 'Failed to create chart of accounts'
+      error: errorMessage,
+      step: "create_chart_entries"
     }, { status: 500 });
   }
 } 

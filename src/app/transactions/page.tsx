@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 'use client'
 
 import { useEffect, useState } from 'react'
@@ -6,18 +7,22 @@ import { supabase } from '../../lib/supabaseClient'
 import dynamic from 'next/dynamic'
 import Papa from 'papaparse'
 import { v4 as uuidv4 } from 'uuid'
+import { XMarkIcon } from '@heroicons/react/24/outline'
+import { useApiWithCompany } from '@/hooks/useApiWithCompany'
 
 type Transaction = {
   id: string
   date: string
   description: string
-  amount: number
+  amount?: number
   plaid_account_id: string | null
   plaid_account_name: string | null
   selected_category_id?: string
   corresponding_category_id?: string
   spent?: number
   received?: number
+  payee_id?: string
+  company_id?: string
 }
 
 type Category = {
@@ -28,13 +33,20 @@ type Category = {
   plaid_account_id?: string | null
 }
 
+type Payee = {
+  id: string
+  name: string
+  company_id: string
+}
+
 type Account = {
   plaid_account_id: string | null
-  plaid_account_name: string
+  name: string // Database column is 'name'
   starting_balance: number | null
   current_balance: number | null
   last_synced: string | null
   is_manual?: boolean
+  plaid_account_name?: string // Add missing property
 }
 
 type ImportModalState = {
@@ -49,8 +61,8 @@ type ImportModalState = {
 
 type CSVRow = {
   Date: string
-  Amount: string
   Description: string
+  Amount: string
 }
 
 type SortConfig = {
@@ -76,13 +88,15 @@ type SelectOption = {
 const Select = dynamic(() => import('react-select'), { ssr: false })
 
 export default function Page() {
+  const { getWithCompany, postWithCompany, hasCompanyContext, currentCompany } = useApiWithCompany()
   const [linkToken, setLinkToken] = useState<string | null>(null)
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null)
   const [accounts, setAccounts] = useState<Account[]>([])
   const [categories, setCategories] = useState<Category[]>([])
+  const [payees, setPayees] = useState<Payee[]>([])
   const [importedTransactions, setImportedTransactions] = useState<Transaction[]>([])
   const [transactions, setTransactions] = useState<Transaction[]>([])
-  const [searchQuery, setSearchQuery] = useState('')
+  // Removed unused searchQuery state
   const [toAddSearchQuery, setToAddSearchQuery] = useState('')
   const [addedSearchQuery, setAddedSearchQuery] = useState('')
   const [manualDate, setManualDate] = useState('')
@@ -92,6 +106,9 @@ export default function Page() {
 
   // Add selected categories state
   const [selectedCategories, setSelectedCategories] = useState<{ [txId: string]: string }>({});
+  
+  // Add selected payees state  
+  const [selectedPayees, setSelectedPayees] = useState<{ [txId: string]: string }>({});
 
   // Add missing state for multi-select checkboxes
   const [selectedToAdd, setSelectedToAdd] = useState<Set<string>>(new Set());
@@ -143,6 +160,17 @@ export default function Page() {
     name: '',
     type: 'Expense',
     parent_id: null,
+    transactionId: null
+  });
+
+  // Add new state for payee creation modal
+  const [newPayeeModal, setNewPayeeModal] = useState<{
+    isOpen: boolean;
+    name: string;
+    transactionId: string | null;
+  }>({
+    isOpen: false,
+    name: '',
     transactionId: null
   });
 
@@ -260,32 +288,78 @@ export default function Page() {
       second: '2-digit',
     });
 
+  const formatLastSyncTime = (lastSynced: string | null) => {
+    if (!lastSynced) return 'Never';
+    const date = new Date(lastSynced);
+    return date.toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
   // Add sync function
   const syncTransactions = async () => {
     setIsSyncing(true);
     setSyncError(null);
     setNotification(null);
     try {
-      // Get all connected Plaid accounts
+      if (!hasCompanyContext) {
+        throw new Error('No company selected. Please select a company first.');
+      }
+      
+      // Get all connected Plaid accounts for current company
       const { data: plaidItems } = await supabase
         .from('plaid_items')
-        .select('access_token, item_id');
+        .select('access_token, item_id')
+        .eq('company_id', currentCompany!.id);
 
       if (!plaidItems || plaidItems.length === 0) {
         throw new Error('No connected Plaid accounts found');
       }
 
-      // Sync each account
+      // Sync each item
       for (const item of plaidItems) {
-        const response = await fetch('/api/get-transactions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            access_token: item.access_token,
-            item_id: item.item_id,
-          }),
+        // Get all accounts for this item
+        const { data: itemAccounts } = await supabase
+          .from('accounts')
+          .select('plaid_account_id')
+          .eq('plaid_item_id', item.item_id)
+          .eq('company_id', currentCompany!.id);
+
+        if (!itemAccounts || itemAccounts.length === 0) {
+          console.log(`No accounts found for item ${item.item_id}`);
+          continue;
+        }
+
+        const accountIds = itemAccounts.map(acc => acc.plaid_account_id);
+
+        // Find the latest transaction date for this item's accounts
+        const { data: latestTransaction } = await supabase
+          .from('imported_transactions')
+          .select('date')
+          .eq('company_id', currentCompany!.id)
+          .in('plaid_account_id', accountIds)
+          .order('date', { ascending: false })
+          .limit(1)
+          .single();
+
+        // Use the latest transaction date, or default to 30 days ago if no transactions exist
+        let startDate: string;
+        if (latestTransaction) {
+          startDate = latestTransaction.date;
+        } else {
+          const thirtyDaysAgo = new Date();
+          thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+          startDate = thirtyDaysAgo.toISOString().split('T')[0];
+        }
+
+        const response = await postWithCompany('/api/get-transactions', {
+          access_token: item.access_token,
+          item_id: item.item_id,
+          start_date: startDate,
+          selected_account_ids: accountIds
         });
 
         if (!response.ok) {
@@ -299,9 +373,10 @@ export default function Page() {
       const now = new Date();
       setNotification({ type: 'success', message: `Sync complete! Last synced: ${formatSyncTime(now)}` });
       setTimeout(() => setNotification(null), 4000);
-    } catch (err: any) {
-      setSyncError(err.message || 'Failed to sync transactions');
-      setNotification({ type: 'error', message: err.message || 'Failed to sync transactions' });
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to sync transactions';
+      setSyncError(errorMessage);
+      setNotification({ type: 'error', message: errorMessage });
       setTimeout(() => setNotification(null), 4000);
     } finally {
       setIsSyncing(false);
@@ -311,12 +386,25 @@ export default function Page() {
   // 1️⃣ Plaid Link Token
   useEffect(() => {
     const createLinkToken = async () => {
-      const res = await fetch('/api/create-link-token')
-      const data = await res.json()
-      setLinkToken(data.link_token)
+      if (!hasCompanyContext) {
+        console.log('No company context available for Plaid integration')
+        return
+      }
+      
+      try {
+        const res = await getWithCompany('/api/1-create-link-token')
+        const data = await res.json()
+        if (res.ok) {
+          setLinkToken(data.link_token)
+        } else {
+          console.error('Failed to create link token:', data.error)
+        }
+      } catch (error) {
+        console.error('Error creating link token:', error)
+      }
     }
     createLinkToken()
-  }, [])
+  }, []) // Removed hasCompanyContext and getWithCompany from dependencies to prevent infinite re-renders
 
   // Update the account selection modal state to include dates
   const [accountSelectionModal, setAccountSelectionModal] = useState<{
@@ -340,18 +428,14 @@ export default function Page() {
     onSuccess: async (public_token, metadata) => {
       try {
         // First, get the access token
-        const res = await fetch('/api/exchange-public-token', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ public_token }),
-        });
+        const res = await postWithCompany('/api/2-exchange-public-token', { public_token });
 
         const data = await res.json();
 
         // Show account selection modal with all available accounts
         setAccountSelectionModal({
           isOpen: true,
-          accounts: metadata.accounts.map((account: any) => ({
+          accounts: metadata.accounts.map((account: { id: string; name?: string }) => ({
             id: account.id,
             name: account.name || 'new account',
             selected: true, // Default to selected
@@ -370,12 +454,9 @@ export default function Page() {
     },
   });
 
-  // Combine account and date selection into one function
   const handleAccountAndDateSelection = async () => {
     try {
-      // Get selected accounts
-      const selectedAccounts = accountSelectionModal.accounts
-        .filter(acc => acc.selected);
+      const selectedAccounts = accountSelectionModal.accounts.filter(acc => acc.selected);
 
       if (selectedAccounts.length === 0) {
         setNotification({ 
@@ -385,12 +466,14 @@ export default function Page() {
         return;
       }
 
-      // Validate dates
+      // Validate dates aren't in the future
       const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      today.setHours(23, 59, 59, 999); // Set to end of today to allow today's date
       
       for (const account of selectedAccounts) {
-        const selectedDate = new Date(account.startDate);
+        // Parse date in local timezone to avoid timezone issues
+        const [year, month, day] = account.startDate.split('-').map(Number);
+        const selectedDate = new Date(year, month - 1, day);
         if (selectedDate > today) {
           setNotification({ 
             type: 'error', 
@@ -400,68 +483,123 @@ export default function Page() {
         }
       }
 
-      // Set initial progress state
       setImportProgress({
         isImporting: true,
         currentStep: 'Starting import...',
         progress: 0,
-        totalSteps: selectedAccounts.length
+        totalSteps: 3
       });
 
-      // Import each selected account with its selected start date
-      for (let i = 0; i < selectedAccounts.length; i++) {
-        const account = selectedAccounts[i];
-        
-        // Update progress
-        setImportProgress(prev => ({
-          ...prev,
-          currentStep: `Importing transactions for ${account.name}...`,
-          progress: i + 1
-        }));
-
-        const response = await fetch('/api/get-transactions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            access_token: account.access_token,
-            item_id: account.item_id,
-            account_id: account.id,
-            start_date: account.startDate,
-            selected_account_ids: selectedAccounts.map(acc => acc.id) // Pass selected account IDs
-          }),
-        });
-
-        if (!response.ok) {
-          const error = await response.json();
-          throw new Error(error.error || 'Failed to sync transactions');
-        }
+      const { access_token, item_id } = selectedAccounts[0];
+      
+      if (!access_token || !item_id) {
+        throw new Error('Missing access token or item ID. Please reconnect your account.');
       }
 
-      // Update progress for final step
+      // Helper function for API calls with error handling
+      const callAPI = async (step: string, url: string, payload: Record<string, unknown>) => {
+        const response = await postWithCompany(url, payload);
+
+        const data = await response.json();
+        
+        if (!response.ok) {
+          const errorMessage = data?.error || data?.message || `HTTP ${response.status}`;
+          throw new Error(`${step} failed: ${errorMessage}`);
+        }
+
+        return data;
+      };
+
+      // Step 3: Store accounts in database
       setImportProgress(prev => ({
         ...prev,
-        currentStep: 'Finalizing import...',
-        progress: prev.totalSteps
+        currentStep: 'Storing account details...',
+        progress: 1
       }));
 
-      // Close modal and refresh
+      const selectedAccountIds = selectedAccounts.map(acc => acc.id);
+      const accountsResult = await callAPI(
+        'Step 3',
+        '/api/3-store-plaid-accounts-as-accounts',
+        { 
+          accessToken: access_token, 
+          itemId: item_id,
+          selectedAccountIds: selectedAccountIds
+        }
+      );
+
+      // Step 4: Create chart of accounts entries
+      setImportProgress(prev => ({
+        ...prev,
+        currentStep: 'Setting up account categories...',
+        progress: 2
+      }));
+
+      await callAPI(
+        'Step 4',
+        '/api/4-store-plaid-accounts-as-categories',
+        { 
+          accessToken: access_token, 
+          itemId: item_id,
+          selectedAccountIds: selectedAccountIds
+        }
+      );
+
+      // Step 5: Import transactions
+      setImportProgress(prev => ({
+        ...prev,
+        currentStep: 'Importing transactions...',
+        progress: 3
+      }));
+
+      // Create account-to-date mapping for API
+      const accountDateMap = selectedAccounts.reduce((map, account) => {
+        map[account.id] = account.startDate;
+        return map;
+      }, {} as Record<string, string>);
+
+      const transactionsResult = await callAPI(
+        'Step 5',
+        '/api/5-import-transactions-to-categorize',
+        {
+          accessToken: access_token,
+          itemId: item_id,
+          accountDateMap: accountDateMap,
+          selectedAccountIds: selectedAccountIds
+        }
+      );
+
+      // Complete the process
       setAccountSelectionModal({ isOpen: false, accounts: [] });
       await refreshAll();
+      
+      const totalAccounts = accountsResult.count || 0;
+      const totalTransactions = transactionsResult.count || 0;
+      
       setNotification({ 
         type: 'success', 
-        message: 'Accounts linked and transactions imported successfully' 
+        message: `Successfully linked ${totalAccounts} accounts and imported ${totalTransactions} transactions with account-specific start dates!` 
       });
 
     } catch (error) {
-      console.error('Error in handleAccountAndDateSelection:', error);
-      setNotification({ 
-        type: 'error', 
-        message: error instanceof Error ? error.message : 'Failed to link accounts' 
-      });
+      let errorMessage = 'Failed to link accounts. ';
+      
+      if (error instanceof Error) {
+        if (error.message.includes('Step 3')) {
+          errorMessage += 'Could not save account information. ';
+        } else if (error.message.includes('Step 4')) {
+          errorMessage += 'Could not set up account categories. ';
+        } else if (error.message.includes('Step 5')) {
+          errorMessage += 'Could not import transactions. ';
+        }
+        errorMessage += error.message || 'Please try again.';
+      } else {
+        errorMessage += 'Please try again.';
+      }
+      
+      setNotification({ type: 'error', message: errorMessage });
+      
     } finally {
-      // Reset progress state
       setImportProgress({
         isImporting: false,
         currentStep: '',
@@ -484,6 +622,9 @@ export default function Page() {
     totalSteps: 0
   });
 
+  // Add tab state for switching between To Add and Added sections
+  const [activeTab, setActiveTab] = useState<'toAdd' | 'added'>('toAdd');
+
   // Add function to handle date selection and start import
   const handleDateSelection = async () => {
     try {
@@ -504,7 +645,9 @@ export default function Page() {
       today.setHours(0, 0, 0, 0);
       
       for (const account of selectedAccounts) {
-        const selectedDate = new Date(account.startDate);
+        // Parse date in local timezone to avoid timezone issues
+        const [year, month, day] = account.startDate.split('-').map(Number);
+        const selectedDate = new Date(year, month - 1, day);
         if (selectedDate > today) {
           setNotification({ 
             type: 'error', 
@@ -586,28 +729,55 @@ export default function Page() {
 
   // 2️⃣ Supabase Fetching
   const fetchImportedTransactions = async () => {
+    if (!hasCompanyContext) return;
+    
     const { data } = await supabase
       .from('imported_transactions')
       .select('*')
+      .eq('company_id', currentCompany?.id)
       .neq('plaid_account_name', null)
     setImportedTransactions(data || [])
   }
 
   const fetchConfirmedTransactions = async () => {
+    if (!hasCompanyContext) return;
+    
     const { data } = await supabase
       .from('transactions')
       .select('*')
+      .eq('company_id', currentCompany?.id)
       .neq('plaid_account_name', null)
     setTransactions(data || [])
   }
 
   const fetchCategories = async () => {
-    const { data } = await supabase.from('chart_of_accounts').select('*')
+    if (!hasCompanyContext) return;
+    
+    const { data } = await supabase
+      .from('chart_of_accounts')
+      .select('*')
+      .eq('company_id', currentCompany?.id)
     setCategories(data || [])
   }
 
+  const fetchPayees = async () => {
+    if (!hasCompanyContext) return;
+    
+    const { data } = await supabase
+      .from('payees')
+      .select('*')
+      .eq('company_id', currentCompany?.id)
+      .order('name')
+    setPayees(data || [])
+  }
+
   const fetchAccounts = async () => {
-    const { data } = await supabase.from('accounts').select('*')
+    if (!hasCompanyContext) return;
+    
+    const { data } = await supabase
+      .from('accounts')
+      .select('*')
+      .eq('company_id', currentCompany?.id)
     setAccounts(data || [])
     if (data && data.length > 0 && !selectedAccountId) {
       setSelectedAccountId(data[0].plaid_account_id)
@@ -618,19 +788,29 @@ export default function Page() {
     fetchImportedTransactions()
     fetchConfirmedTransactions()
     fetchCategories()
+    fetchPayees()
     fetchAccounts()
   }
 
   useEffect(() => {
     refreshAll()
-  }, [])
+  }, [currentCompany?.id]) // Refresh when company changes
 
   // 3️⃣ Actions
-  const addTransaction = async (tx: Transaction, selectedCategoryId: string) => {
+  const addTransaction = async (tx: Transaction, selectedCategoryId: string, selectedPayeeId?: string) => {
     const category = categories.find(c => c.id === selectedCategoryId);
     if (!category) {
       alert('Selected category not found. Please try again.');
       return;
+    }
+
+    // Payee is optional - only validate if provided
+    if (selectedPayeeId) {
+      const payee = payees.find(p => p.id === selectedPayeeId);
+      if (!payee) {
+        alert('Selected payee not found. Please try again.');
+        return;
+      }
     }
 
     // Find the selected account in chart_of_accounts by plaid_account_id
@@ -647,31 +827,36 @@ export default function Page() {
           plaid_account_id: c.plaid_account_id
         }))
       });
-      alert(`Account not found in chart of accounts. Please ensure the account "${accounts.find(a => a.plaid_account_id === selectedAccountId)?.plaid_account_name}" is properly set up in your chart of accounts.`);
+      alert(`Account not found in chart of accounts. Please ensure the account "${accounts.find(a => a.plaid_account_id === selectedAccountId)?.name}" is properly set up in your chart of accounts.`);
       return;
     }
 
     const selectedAccountIdInCOA = selectedAccount.id;
 
-    await supabase.from('transactions').insert([{
-      date: tx.date,
-      description: tx.description,
-      spent: tx.spent ?? 0,
-      received: tx.received ?? 0,
-      selected_category_id: selectedCategoryId,
-      corresponding_category_id: selectedAccountIdInCOA,
-      plaid_account_id: tx.plaid_account_id,
-      plaid_account_name: tx.plaid_account_name,
-    }]);
+    try {
+      // Use the 6-move-to-transactions API endpoint with company context
+      const response = await postWithCompany('/api/6-move-to-transactions', {
+        imported_transaction_id: tx.id,
+        selected_category_id: selectedCategoryId,
+        corresponding_category_id: selectedAccountIdInCOA,
+        payee_id: selectedPayeeId
+      });
 
-    // Remove from imported_transactions
-    await supabase.from('imported_transactions').delete().eq('id', tx.id);
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to move transaction');
+      }
 
-    await fetch('/api/sync-journal', { method: 'POST' });
-    refreshAll();
+      await postWithCompany('/api/sync-journal', {});
+      refreshAll();
+    } catch (error) {
+      console.error('Error moving transaction:', error);
+      alert(error instanceof Error ? error.message : 'Failed to move transaction. Please try again.');
+    }
   };
 
-  const undoTransaction = async (tx: any) => {
+  const undoTransaction = async (tx: Transaction) => {
     try {
       if (!tx || !tx.id) {
         throw new Error('Invalid transaction: missing ID');
@@ -704,6 +889,7 @@ export default function Page() {
         received: tx.received,
         plaid_account_id: tx.plaid_account_id,
         plaid_account_name: tx.plaid_account_name,
+        company_id: currentCompany?.id
       }]);
 
       if (insertError) {
@@ -711,8 +897,8 @@ export default function Page() {
         throw new Error(`Failed to insert into imported_transactions: ${insertError.message}`);
       }
 
-      await fetch('/api/sync-journal', { method: 'POST' });
-      console.log('Successfully deleted transaction and related journal entries:', tx.id);
+              await postWithCompany('/api/sync-journal', {});
+        console.log('Successfully deleted transaction and related journal entries:', tx.id);
 
       refreshAll();
     } catch (error) {
@@ -757,8 +943,15 @@ export default function Page() {
   // 4️⃣ Category dropdown
   const categoryOptions: SelectOption[] = [
     { value: '', label: 'Select' },
+    { value: 'add_new', label: '+ Add new category' },
     ...categories.map(c => ({ value: c.id, label: c.name })),
-    { value: 'add_new', label: '+ Add new category' }
+  ]
+
+  // 5️⃣ Payee dropdown
+  const payeeOptions: SelectOption[] = [
+    { value: '', label: 'Select' },
+    { value: 'add_new', label: '+ Add new payee' },
+    ...payees.map(p => ({ value: p.id, label: p.name })),
   ]
 
   const formatDate = (dateString: string) => {
@@ -784,9 +977,11 @@ export default function Page() {
           : b.description.localeCompare(a.description);
       }
       if (sortConfig.key === 'amount') {
+        const aAmount = a.amount ?? ((a.received ?? 0) - (a.spent ?? 0));
+        const bAmount = b.amount ?? ((b.received ?? 0) - (b.spent ?? 0));
         return sortConfig.direction === 'asc'
-          ? a.amount - b.amount
-          : b.amount - a.amount;
+          ? aAmount - bAmount
+          : bAmount - aAmount;
       }
       return 0;
     });
@@ -888,20 +1083,25 @@ export default function Page() {
   }
 
   const downloadTemplate = () => {
-    const headers = ['Date', 'Amount', 'Description']
+    const headers = ['Date', 'Description', 'Amount']
     const exampleData = [
-      ['5/1/25', '1000.00', 'Client Payment - Revenue'],
-      ['5/1/25', '-500.00', 'Office Supplies - Expense']
+      ['2025-01-15', 'Client Payment - Invoice #1001', '1000.00'],
+      ['2025-01-16', 'Office Supplies - Staples', '-150.75'],
+      ['2025-01-17', 'Bank Interest Received', '25.50'],
+      ['2025-01-18', 'Monthly Software Subscription', '-99.99'],
+      ['2025-01-19', 'Customer Refund', '-200.00']
     ]
+    
     const csvContent = [
       headers.join(','),
       ...exampleData.map(row => row.join(','))
     ].join('\n')
+    
     const blob = new Blob([csvContent], { type: 'text/csv' })
     const url = window.URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = 'transaction_template.csv'
+    a.download = 'transaction_import_template.csv'
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
@@ -913,12 +1113,12 @@ export default function Page() {
       return 'CSV file is empty'
     }
 
-    const requiredColumns = ['Date', 'Amount', 'Description']
+    const requiredColumns = ['Date', 'Description', 'Amount']
     const headers = Object.keys(data.data[0])
     
     const missingColumns = requiredColumns.filter(col => !headers.includes(col))
     if (missingColumns.length > 0) {
-      return `Missing required columns: ${missingColumns.join(', ')}`
+      return `Missing required columns: ${missingColumns.join(', ')}. Expected: Date, Description, Amount`
     }
 
     // Filter out empty rows before validation
@@ -926,33 +1126,56 @@ export default function Page() {
       row.Date && row.Amount && row.Description
     )
 
+    if (nonEmptyRows.length === 0) {
+      return 'No valid transaction data found. Please ensure you have at least one row with Date, Description, and Amount.'
+    }
+
     // Validate each non-empty row
     for (let i = 0; i < nonEmptyRows.length; i++) {
       const row = nonEmptyRows[i]
       
-      // Validate date format (M/D/YY, MM/DD/YY, M/D/YYYY, MM/DD/YYYY, or with dashes)
-      const dateParts = row.Date.split(/[\/\-]/)
-      if (dateParts.length !== 3) {
-        return `Invalid date format in row ${i + 1}. Please use M/D/YY, MM/DD/YY, M/D/YYYY, or MM/DD/YYYY format (with / or - as separator).`
+      // Validate date format (prefer YYYY-MM-DD, but also support M/D/YY, MM/DD/YY, M/D/YYYY, MM/DD/YYYY)
+      let isValidDate = false
+      let parsedDate: Date | null = null
+
+      // Try YYYY-MM-DD format first (recommended)
+      if (row.Date.match(/^\d{4}-\d{1,2}-\d{1,2}$/)) {
+        const [yearStr, monthStr, dayStr] = row.Date.split('-')
+        const year = parseInt(yearStr)
+        const month = parseInt(monthStr)
+        const day = parseInt(dayStr)
+        parsedDate = new Date(Date.UTC(year, month - 1, day))
+        isValidDate = !isNaN(parsedDate.getTime()) && month >= 1 && month <= 12 && day >= 1 && day <= 31
+      }
+      
+      // Try M/D/YY or MM/DD/YYYY format as fallback
+      if (!isValidDate && row.Date.match(/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/)) {
+        const dateParts = row.Date.split(/[\/\-]/)
+        const monthNum = parseInt(dateParts[0])
+        const dayNum = parseInt(dateParts[1])
+        const yearStr = dateParts[2]
+        const yearNum = parseInt(yearStr)
+        
+        // Handle two-digit years
+        const fullYear = yearNum < 100 ? 2000 + yearNum : yearNum
+        
+        parsedDate = new Date(Date.UTC(fullYear, monthNum - 1, dayNum))
+        isValidDate = !isNaN(parsedDate.getTime()) && monthNum >= 1 && monthNum <= 12 && dayNum >= 1 && dayNum <= 31
       }
 
-      const monthNum = parseInt(dateParts[0])
-      const dayNum = parseInt(dateParts[1])
-      const yearStr = dateParts[2]
-      const yearNum = parseInt(yearStr)
-      
-      // Handle two-digit years
-      const fullYear = yearNum < 100 ? 2000 + yearNum : yearNum
-      
-      const date = new Date(Date.UTC(fullYear, monthNum - 1, dayNum))
-      if (isNaN(date.getTime()) || monthNum < 1 || monthNum > 12 || dayNum < 1 || dayNum > 31) {
-        return `Invalid date in row ${i + 1}. Please check month (1-12) and day (1-31) values.`
+      if (!isValidDate) {
+        return `Invalid date format in row ${i + 1}: "${row.Date}". Please use YYYY-MM-DD format (recommended) or M/D/YYYY format.`
       }
 
       // Validate amount
       const amount = parseFloat(row.Amount)
       if (isNaN(amount)) {
-        return `Invalid amount in row ${i + 1}`
+        return `Invalid amount in row ${i + 1}: "${row.Amount}". Please use numeric values (e.g., 100.50 or -75.25)`
+      }
+
+      // Validate description is not empty
+      if (!row.Description.trim()) {
+        return `Empty description in row ${i + 1}. Please provide a description for each transaction.`
       }
     }
 
@@ -984,28 +1207,47 @@ export default function Page() {
 
         // Convert CSV data to transactions, filtering out any empty rows
         const transactions = results.data
-          .filter((row: CSVRow) => row.Date && row.Amount && row.Description)
+          .filter((row: CSVRow) => 
+            row.Date && row.Amount && row.Description
+          )
           .map((row: CSVRow) => {
-            // Parse date in any supported format (with / or - as separator)
-            const dateParts = row.Date.split(/[\/\-]/)
-            const monthNum = parseInt(dateParts[0])
-            const dayNum = parseInt(dateParts[1])
-            const yearStr = dateParts[2]
-            const yearNum = parseInt(yearStr)
+            // Parse date - try YYYY-MM-DD format first
+            let parsedDate: Date
             
-            // Handle two-digit years
-            const fullYear = yearNum < 100 ? 2000 + yearNum : yearNum
+            if (row.Date.match(/^\d{4}-\d{1,2}-\d{1,2}$/)) {
+              // YYYY-MM-DD format
+              const [yearStr, monthStr, dayStr] = row.Date.split('-')
+              const year = parseInt(yearStr)
+              const month = parseInt(monthStr)
+              const day = parseInt(dayStr)
+              parsedDate = new Date(Date.UTC(year, month - 1, day))
+            } else {
+              // Fallback to M/D/YY or MM/DD/YYYY format
+              const dateParts = row.Date.split(/[\/\-]/)
+              const monthNum = parseInt(dateParts[0])
+              const dayNum = parseInt(dateParts[1])
+              const yearStr = dateParts[2]
+              const yearNum = parseInt(yearStr)
+              
+              // Handle two-digit years
+              const fullYear = yearNum < 100 ? 2000 + yearNum : yearNum
+              
+              // Create date in UTC to prevent timezone shifts
+              parsedDate = new Date(Date.UTC(fullYear, monthNum - 1, dayNum))
+            }
             
-            // Create date in UTC to prevent timezone shifts
-            const date = new Date(Date.UTC(fullYear, monthNum - 1, dayNum))
+            const amount = parseFloat(row.Amount)
             
             return {
               id: uuidv4(),
-              date: date.toISOString().split('T')[0], // Store as YYYY-MM-DD
-              description: row.Description,
-              amount: parseFloat(row.Amount),
+              date: parsedDate.toISOString().split('T')[0], // Store as YYYY-MM-DD
+              description: row.Description.trim(),
+              amount: amount, // Keep original amount for display
+              spent: amount < 0 ? Math.abs(amount) : 0, // Negative amounts become spent
+              received: amount > 0 ? amount : 0, // Positive amounts become received
               plaid_account_id: importModal.selectedAccount?.plaid_account_id || null,
-              plaid_account_name: importModal.selectedAccount?.plaid_account_name || null
+              plaid_account_name: importModal.selectedAccount?.name || null,
+              company_id: currentCompany?.id
             }
           })
 
@@ -1068,7 +1310,7 @@ export default function Page() {
       })
       .eq('id', editModal.transaction.id);
 
-    await fetch('/api/sync-journal', { method: 'POST' });
+    await postWithCompany('/api/sync-journal', {});
     setEditModal({ isOpen: false, transaction: null });
     refreshAll();
   };
@@ -1079,7 +1321,7 @@ export default function Page() {
 
     await supabase
       .from('accounts')
-      .update({ plaid_account_name: accountEditModal.newName.trim() })
+      .update({ name: accountEditModal.newName.trim() })
       .eq('plaid_account_id', accountEditModal.account.plaid_account_id);
 
     setAccountEditModal({ isOpen: false, account: null, newName: '' });
@@ -1095,7 +1337,8 @@ export default function Page() {
       .insert([{
         name: newCategoryModal.name.trim(),
         type: newCategoryModal.type,
-        parent_id: newCategoryModal.parent_id
+        parent_id: newCategoryModal.parent_id,
+        company_id: currentCompany?.id
       }])
       .select()
       .single();
@@ -1106,69 +1349,121 @@ export default function Page() {
     }
 
     // After creating the category, set it as selected for the current transaction
-    setSelectedCategories(prev => ({
-      ...prev,
-      [newCategoryModal.transactionId]: data.id
-    }));
+    if (newCategoryModal.transactionId) {
+      setSelectedCategories(prev => ({
+        ...prev,
+        [newCategoryModal.transactionId!]: data.id
+      }));
+    }
 
     setNewCategoryModal({ isOpen: false, name: '', type: 'Expense', parent_id: null, transactionId: null });
     refreshAll();
   };
 
+  // Add handler for creating new payee
+  const handleCreatePayee = async () => {
+    if (!newPayeeModal.name.trim()) return;
+
+    const { data, error } = await supabase
+      .from('payees')
+      .insert([{
+        name: newPayeeModal.name.trim(),
+        company_id: currentCompany?.id
+      }])
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error creating payee:', error);
+      return;
+    }
+
+    // After creating the payee, set it as selected for the current transaction
+    if (newPayeeModal.transactionId) {
+      setSelectedPayees(prev => ({
+        ...prev,
+        [newPayeeModal.transactionId!]: data.id
+      }));
+    }
+
+    setNewPayeeModal({ isOpen: false, name: '', transactionId: null });
+    refreshAll();
+  };
+
   // Add function to create manual account
   const createManualAccount = async () => {
-    if (!manualAccountModal.name.trim()) return;
-
-    const manualAccountId = uuidv4();
-    const startingBalance = parseFloat(manualAccountModal.startingBalance) || 0;
-
-    // Insert into accounts table
-    const { error: accountError } = await supabase.from('accounts').insert({
-      plaid_account_id: manualAccountId,
-      plaid_account_name: manualAccountModal.name.trim(),
-      starting_balance: startingBalance,
-      current_balance: startingBalance,
-      last_synced: new Date().toISOString(),
-      is_manual: true
-    });
-
-    if (accountError) {
-      console.error('Error creating manual account:', accountError);
+    if (!manualAccountModal.name.trim()) {
+      setNotification({ type: 'error', message: 'Account name is required' });
       return;
     }
 
-    // Insert into chart_of_accounts table
-    const { error: coaError } = await supabase.from('chart_of_accounts').insert({
-      name: manualAccountModal.name.trim(),
-      type: manualAccountModal.type,
-      plaid_account_id: manualAccountId
-    });
-
-    if (coaError) {
-      console.error('Error creating chart of accounts entry:', coaError);
+    if (!hasCompanyContext) {
+      setNotification({ type: 'error', message: 'No company selected. Please select a company first.' });
       return;
     }
 
-    setManualAccountModal({
-      isOpen: false,
-      name: '',
-      type: 'Asset',
-      startingBalance: '0'
-    });
+    try {
+      const manualAccountId = uuidv4();
+      const startingBalance = parseFloat(manualAccountModal.startingBalance) || 0;
 
-    // Set the newly created account as selected
-    setSelectedAccountId(manualAccountId);
-    refreshAll();
+      // Insert into accounts table
+      const { error: accountError } = await supabase.from('accounts').insert({
+        plaid_account_id: manualAccountId,
+        name: manualAccountModal.name.trim(),
+        type: manualAccountModal.type,
+        starting_balance: startingBalance,
+        current_balance: startingBalance,
+        last_synced: new Date().toISOString(),
+        plaid_item_id: 'MANUAL_ENTRY',
+        is_manual: true,
+        company_id: currentCompany!.id
+      });
+
+      if (accountError) {
+        console.error('Error creating manual account:', accountError);
+        setNotification({ type: 'error', message: 'Failed to create account. Please try again.' });
+        return;
+      }
+
+      // Insert into chart_of_accounts table
+      const { error: coaError } = await supabase.from('chart_of_accounts').insert({
+        name: manualAccountModal.name.trim(),
+        type: manualAccountModal.type,
+        plaid_account_id: manualAccountId,
+        company_id: currentCompany!.id
+      });
+
+      if (coaError) {
+        console.error('Error creating chart of accounts entry:', coaError);
+        setNotification({ type: 'error', message: 'Failed to create chart of accounts entry. Please try again.' });
+        return;
+      }
+
+      setManualAccountModal({
+        isOpen: false,
+        name: '',
+        type: 'Asset',
+        startingBalance: '0'
+      });
+
+      // Set the newly created account as selected
+      setSelectedAccountId(manualAccountId);
+      setNotification({ type: 'success', message: 'Manual account created successfully!' });
+      refreshAll();
+    } catch (error) {
+      console.error('Error creating manual account:', error);
+      setNotification({ type: 'error', message: 'An unexpected error occurred. Please try again.' });
+    }
   };
 
   // Add function to handle account name updates
   const handleUpdateAccountNames = async () => {
     for (const account of accountNamesModal.accounts) {
       if (account.id) {  // Only update if id exists
-        // Update accounts table
+        // Update accounts table - update both name and plaid_account_name for consistency
         await supabase
           .from('accounts')
-          .update({ plaid_account_name: account.name })
+          .update({ name: account.name })
           .eq('plaid_account_id', account.id);
         // Update chart_of_accounts table
         await supabase
@@ -1283,7 +1578,7 @@ export default function Page() {
     }
 
     // Automatically sync the journal after saving
-    await fetch('/api/sync-journal', { method: 'POST' });
+    await postWithCompany('/api/sync-journal', {});
 
     // Reset modal and refresh data
     setJournalEntryModal({
@@ -1305,7 +1600,17 @@ export default function Page() {
 
     if (transactions) {
       // Group transactions by description and date to form journal entries
-      const groupedEntries = transactions.reduce((acc: any, tx) => {
+      const groupedEntries = transactions.reduce((acc: Record<string, {
+        id: string;
+        date: string;
+        description: string;
+        transactions: {
+          account_id: string;
+          account_name: string;
+          amount: number;
+          type: 'debit' | 'credit';
+        }[];
+      }>, tx) => {
         const key = `${tx.date}_${tx.description}`;
         if (!acc[key]) {
           acc[key] = {
@@ -1405,10 +1710,23 @@ export default function Page() {
 
   // --- RENDER ---
 
+  // Check if user has company context for Plaid operations
+  if (!hasCompanyContext) {
+    return (
+      <div className="p-4 bg-white text-gray-900 font-sans text-xs space-y-6">
+        <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+          <h3 className="text-sm font-semibold text-yellow-800 mb-2">Company Selection Required</h3>
+          <p className="text-sm text-yellow-700">
+            Please select a company from the dropdown in the navigation bar to use Plaid integration and manage transactions.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-4 bg-white text-gray-900 font-sans text-xs space-y-6">
-      <div className="flex justify-between items-center mb-4">
-        <h1 className="text-lg font-semibold">Transactions</h1>
+      <div className="flex justify-end items-center mb-4">
         {notification && (
           <div className={`fixed top-6 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3 rounded shadow-lg text-sm font-medium flex items-center space-x-2 ${
             notification.type === 'success' ? 'bg-green-100 text-green-800 border border-green-300' : 'bg-red-100 text-red-800 border border-red-300'
@@ -1451,7 +1769,7 @@ export default function Page() {
           </button>
           <button
             onClick={() => setManualAccountModal({ isOpen: true, name: '', type: 'Asset', startingBalance: '0' })}
-            className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs"
+            className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-xs"
           >
             Add Manual Account
           </button>
@@ -1462,12 +1780,12 @@ export default function Page() {
                 .filter(acc => acc.plaid_account_id)
                 .map(acc => ({
                   id: acc.plaid_account_id || '',
-                  name: acc.plaid_account_name
+                  name: acc.plaid_account_name || acc.name || 'Unknown Account'
                 })),
               accountToDelete: null,
               deleteConfirmation: ''
             })}
-            className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs"
+            className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-xs"
           >
             Edit Accounts
           </button>
@@ -1475,29 +1793,32 @@ export default function Page() {
       </div>
 
       {/* Mini-nav for accounts */}
-      <div className="space-x-2 mb-4">
+      <div className="space-x-2 mb-4 flex flex-row">
         {accounts.map(acc => (
           <button
             key={acc.plaid_account_id}
             onClick={() => setSelectedAccountId(acc.plaid_account_id)}
-            className={`border px-3 py-1 rounded text-xs ${acc.plaid_account_id === selectedAccountId ? 'bg-gray-200 font-semibold' : 'bg-gray-100 hover:bg-gray-200'}`}
+            className={`border px-3 py-1 rounded text-xs flex flex-col items-center ${acc.plaid_account_id === selectedAccountId ? 'bg-gray-200 font-semibold' : 'bg-gray-100 hover:bg-gray-200'}`}
           >
-            {acc.plaid_account_name}
+            <span>{acc.name}</span>
+            <span className="text-xs text-gray-500 font-normal">
+              Last Updated: {formatLastSyncTime(acc.last_synced)}
+            </span>
           </button>
         ))}
       </div>
 
       {/* Import Modal */}
       {importModal.isOpen && (
-        <div className="fixed inset-0 backdrop-blur-sm bg-white/30 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-[560px] max-h-[80vh] overflow-y-auto shadow-xl">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50">
+          <div className="bg-white rounded-lg p-6 w-[600px] overflow-y-auto shadow-xl">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold">Import Transactions</h2>
               <button
                 onClick={() => setImportModal(prev => ({ ...prev, isOpen: false }))}
                 className="text-gray-500 hover:text-gray-700"
               >
-                ✕
+                <XMarkIcon className="w-4 h-4" />
               </button>
             </div>
             
@@ -1512,7 +1833,7 @@ export default function Page() {
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
               </div>
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-1">
                 {importModal.step === 'upload' && (
                   <>
                     <div className="space-y-4">
@@ -1523,13 +1844,14 @@ export default function Page() {
                         <Select
                           options={accounts.map(acc => ({
                             value: acc.plaid_account_id || '',
-                            label: acc.plaid_account_name
+                            label: acc.name
                           }))}
                           value={importModal.selectedAccount ? {
                             value: importModal.selectedAccount.plaid_account_id || '',
-                            label: importModal.selectedAccount.plaid_account_name
+                            label: importModal.selectedAccount.name
                           } : null}
-                          onChange={(option) => {
+                          onChange={(selectedOption) => {
+                            const option = selectedOption as SelectOption | null;
                             if (option) {
                               const selectedAccount = accounts.find(
                                 acc => acc.plaid_account_id === option.value
@@ -1545,14 +1867,28 @@ export default function Page() {
                           className="w-full"
                         />
                       </div>
-                      <div className="flex justify-between items-center">
-                        <h3 className="text-sm font-medium text-gray-700">Upload CSV File</h3>
-                        <button
-                          onClick={downloadTemplate}
-                          className="text-sm text-gray-600 hover:text-gray-800"
-                        >
-                          Download Template
-                        </button>
+                      <div className="space-y-3">
+                        <div className="flex justify-between items-center">
+                          <h3 className="text-sm font-medium text-gray-700">Upload CSV File</h3>
+                          <button
+                            onClick={downloadTemplate}
+                            className="text-sm text-gray-600 hover:text-gray-800"
+                          >
+                            Download Template
+                          </button>
+                        </div>
+                        
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                          <h4 className="text-sm font-medium text-blue-800 mb-2">CSV Format Instructions:</h4>
+                          <ul className="text-sm text-blue-700 space-y-1">
+                            <li>• <strong>Date:</strong> Use YYYY-MM-DD format (e.g., 2024-01-15)</li>
+                            <li>• <strong>Description:</strong> Any text describing the transaction</li>
+                            <li>• <strong>Amount:</strong> Positive for money received, negative for money spent</li>
+                          </ul>
+                          <p className="text-xs text-blue-600 mt-2">
+                            Download the template above to see examples of proper formatting.
+                          </p>
+                        </div>
                       </div>
                       <div 
                         className={`border-2 border-dashed border-gray-300 rounded-lg p-6 text-center transition-colors duration-200 ${!importModal.selectedAccount ? 'opacity-50' : 'hover:border-gray-400'}`}
@@ -1600,7 +1936,7 @@ export default function Page() {
                         <table className="min-w-full divide-y divide-gray-200">
                           <thead className="bg-gray-50">
                             <tr>
-                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-8 text-center">
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-8">
                                 <input
                                   type="checkbox"
                                   checked={importModal.csvData.length > 0 && importModal.selectedTransactions.size === importModal.csvData.length}
@@ -1620,15 +1956,15 @@ export default function Page() {
                                   className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
                                 />
                               </th>
-                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-8 text-center">Date</th>
-                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-8 text-center">Description</th>
-                              <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-8 text-center">Amount</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-8">Date</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-8">Description</th>
+                              <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-8">Amount</th>
                             </tr>
                           </thead>
                           <tbody className="bg-white divide-y divide-gray-200">
                             {importModal.csvData.map((tx) => (
                               <tr key={tx.id}>
-                                <td className="px-4 py-2 whitespace-nowrap w-8 text-center">
+                                <td className="px-4 py-2 whitespace-nowrap w-8 text-left">
                                   <input
                                     type="checkbox"
                                     checked={importModal.selectedTransactions.has(tx.id)}
@@ -1647,83 +1983,118 @@ export default function Page() {
                                     className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
                                   />
                                 </td>
-                                <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900 w-8 text-center">
+                                <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900 w-8 text-left">
                                   {formatDate(tx.date)}
                                 </td>
-                                <td className="px-4 py-2 text-sm text-gray-900 w-8 text-center" style={{ minWidth: 250 }}>
+                                <td className="px-4 py-2 text-sm text-gray-900 w-8 text-left" style={{ minWidth: 250 }}>
                                   {tx.description}
                                 </td>
-                                <td className="px-4 py-2 text-sm text-gray-900 text-right w-8 text-center">
-                                  ${tx.amount.toFixed(2)}
+                                <td className="px-4 py-2 text-sm text-gray-900 text-right w-8">
+                                  ${(tx.amount ?? ((tx.received ?? 0) - (tx.spent ?? 0))).toFixed(2)}
                                 </td>
                               </tr>
                             ))}
                           </tbody>
                           <tfoot className="bg-gray-50">
                             <tr>
-                              <td colSpan={3} className="px-4 py-2 text-sm font-medium text-gray-900 w-8 text-center">
-                                {importModal.selectedTransactions.size > 0 && (
-                                  <span className="text-gray-600">
-                                    {importModal.selectedTransactions.size} selected
-                                  </span>
-                                )}
-                              </td>
-                              <td className="px-4 py-2 text-sm font-medium text-gray-900 text-right w-8 text-center">
-                                ${importModal.csvData.reduce((sum, tx) => sum + tx.amount, 0).toFixed(2)}
+                              <td colSpan={4} className="px-4 py-2 text-sm font-medium text-gray-900 text-right w-8">
+                                ${importModal.csvData.reduce((sum, tx) => sum + (tx.amount ?? ((tx.received ?? 0) - (tx.spent ?? 0))), 0).toFixed(2)}
                               </td>
                             </tr>
                           </tfoot>
                         </table>
                       </div>
                     </div>
-                    <div className="flex justify-end space-x-2 mt-4">
-                      <button
-                        onClick={() => setImportModal(prev => ({ ...prev, step: 'upload' }))}
-                        className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
-                      >
-                        Back
-                      </button>
-                      <button
-                        onClick={async () => {
-                          setImportModal(prev => ({ ...prev, isLoading: true, error: null }))
-                          try {
-                            // Insert all transactions into imported_transactions
-                            const { data, error } = await supabase
-                              .from('imported_transactions')
-                              .insert(importModal.csvData)
-                              .select()
+                    <div className="flex justify-between items-center">
+                      <div className="text-sm font-medium">
+                        {importModal.selectedTransactions.size > 0 && (
+                          <span className="text-gray-600">
+                            {importModal.selectedTransactions.size} selected
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex justify-end space-x-2 mt-4">
+                        <button
+                          onClick={() => setImportModal(prev => ({ ...prev, step: 'upload' }))}
+                          className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+                        >
+                          Back
+                        </button>
+                        <button
+                          onClick={async () => {
+                            setImportModal(prev => ({ ...prev, isLoading: true, error: null }))
+                            try {
+                              if (!currentCompany) {
+                                throw new Error('No company selected. Please select a company first.')
+                              }
 
-                            if (error) {
-                              console.error('Supabase error:', error)
-                              throw new Error(error.message)
+                              // Filter selected transactions
+                              const selectedTransactions = importModal.csvData.filter(tx => 
+                                importModal.selectedTransactions.has(tx.id)
+                              )
+
+                              if (selectedTransactions.length === 0) {
+                                throw new Error('No transactions selected for import.')
+                              }
+
+                              // Prepare data for insertion - ensure all required fields are present
+                              const transactionsToInsert = selectedTransactions.map(tx => ({
+                                date: tx.date,
+                                description: tx.description,
+                                spent: tx.spent || 0,
+                                received: tx.received || 0,
+                                plaid_account_id: tx.plaid_account_id,
+                                plaid_account_name: tx.plaid_account_name,
+                                company_id: currentCompany.id
+                              }))
+
+                              // Insert selected transactions into imported_transactions
+                              const { data, error } = await supabase
+                                .from('imported_transactions')
+                                .insert(transactionsToInsert)
+                                .select()
+
+                              if (error) {
+                                console.error('Supabase error:', error)
+                                throw new Error(error.message)
+                              }
+
+                              if (!data) {
+                                throw new Error('No data returned from insert')
+                              }
+
+                              setImportModal(prev => ({
+                                ...prev,
+                                isOpen: false,
+                                isLoading: false,
+                                error: null,
+                                step: 'upload',
+                                csvData: [],
+                                selectedTransactions: new Set()
+                              }))
+
+                              // Refresh the transactions list
+                              refreshAll()
+                              
+                              // Show success message
+                              setNotification({ 
+                                type: 'success', 
+                                message: `Successfully imported ${selectedTransactions.length} transactions!` 
+                              })
+                            } catch (error) {
+                              console.error('Import error:', error)
+                              setImportModal(prev => ({
+                                ...prev,
+                                isLoading: false,
+                                error: error instanceof Error ? error.message : 'Failed to import transactions. Please try again.'
+                              }))
                             }
-
-                            if (!data) {
-                              throw new Error('No data returned from insert')
-                            }
-
-                            setImportModal(prev => ({
-                              ...prev,
-                              isOpen: false,
-                              isLoading: false,
-                              error: null
-                            }))
-
-                            // Refresh the transactions list
-                            refreshAll()
-                          } catch (error) {
-                            console.error('Import error:', error)
-                            setImportModal(prev => ({
-                              ...prev,
-                              isLoading: false,
-                              error: error instanceof Error ? error.message : 'Failed to import transactions. Please try again.'
-                            }))
-                          }
-                        }}
-                        className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
-                      >
-                        Import Transactions
-                      </button>
+                          }}
+                          className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
+                        >
+                          Import Transactions
+                        </button>
+                      </div>
                     </div>
                   </>
                 )}
@@ -1736,11 +2107,11 @@ export default function Page() {
       {/* Edit Transaction Modal */}
       {editModal.isOpen && editModal.transaction && (
         <div 
-          className="fixed inset-0 backdrop-blur-sm bg-white/30 flex items-center justify-center z-50"
+          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
           onClick={() => setEditModal({ isOpen: false, transaction: null })}
         >
           <div 
-            className="bg-white rounded-lg p-6 w-[400px] max-h-[80vh] overflow-y-auto shadow-xl"
+            className="bg-white rounded-lg p-6 w-[400px] overflow-y-auto shadow-xl"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex justify-between items-center mb-4">
@@ -1749,7 +2120,7 @@ export default function Page() {
                 onClick={() => setEditModal({ isOpen: false, transaction: null })}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
-                ×
+                <XMarkIcon className="w-4 h-4" />
               </button>
             </div>
 
@@ -1838,13 +2209,14 @@ export default function Page() {
                     return opt.value === categoryId;
                   })}
                   onChange={(selectedOption) => {
-                    if (selectedOption && editModal.transaction) {
+                    const option = selectedOption as SelectOption | null;
+                    if (option && editModal.transaction) {
                       const updatedTransaction = { ...editModal.transaction };
                       const isAccountDebit = updatedTransaction.selected_category_id === selectedAccountIdInCOA;
                       if (isAccountDebit) {
-                        updatedTransaction.corresponding_category_id = selectedOption.value;
+                        updatedTransaction.corresponding_category_id = option.value;
                       } else {
-                        updatedTransaction.selected_category_id = selectedOption.value;
+                        updatedTransaction.selected_category_id = option.value;
                       }
                       setEditModal(prev => ({
                         ...prev,
@@ -1873,11 +2245,11 @@ export default function Page() {
       {/* Account Edit Modal */}
       {accountEditModal.isOpen && accountEditModal.account && (
         <div 
-          className="fixed inset-0 backdrop-blur-sm bg-white/30 flex items-center justify-center z-50"
+          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
           onClick={() => setAccountEditModal({ isOpen: false, account: null, newName: '' })}
         >
           <div 
-            className="bg-white rounded-lg p-6 w-[500px] max-h-[80vh] overflow-y-auto shadow-xl"
+            className="bg-white rounded-lg p-6 w-[400px] overflow-y-auto shadow-xl"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex justify-between items-center mb-4">
@@ -1886,7 +2258,7 @@ export default function Page() {
                 onClick={() => setAccountEditModal({ isOpen: false, account: null, newName: '' })}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
-                ×
+                <XMarkIcon className="w-4 h-4" />
               </button>
             </div>
 
@@ -1922,11 +2294,11 @@ export default function Page() {
       {/* New Category Modal */}
       {newCategoryModal.isOpen && (
         <div 
-          className="fixed inset-0 backdrop-blur-sm bg-white/30 flex items-center justify-center z-50"
+          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
           onClick={() => setNewCategoryModal({ isOpen: false, name: '', type: 'Expense', parent_id: null, transactionId: null })}
         >
           <div 
-            className="bg-white rounded-lg p-6 w-[400px] max-h-[80vh] overflow-y-auto shadow-xl"
+            className="bg-white rounded-lg p-6 w-[400px] overflow-y-auto shadow-xl"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex justify-between items-center mb-4">
@@ -1935,7 +2307,7 @@ export default function Page() {
                 onClick={() => setNewCategoryModal({ isOpen: false, name: '', type: 'Expense', parent_id: null, transactionId: null })}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
-                ×
+                <XMarkIcon className="w-4 h-4" />
               </button>
             </div>
 
@@ -1991,10 +2363,13 @@ export default function Page() {
                     { value: newCategoryModal.parent_id, label: categories.find(c => c.id === newCategoryModal.parent_id)?.name || '' } :
                     { value: '', label: 'None' }
                   }
-                  onChange={(selectedOption) => setNewCategoryModal(prev => ({
-                    ...prev,
-                    parent_id: selectedOption?.value || null
-                  }))}
+                  onChange={(selectedOption) => {
+                    const option = selectedOption as SelectOption | null;
+                    setNewCategoryModal(prev => ({
+                      ...prev,
+                      parent_id: option?.value || null
+                    }));
+                  }}
                   isSearchable
                   styles={{ control: (base) => ({ ...base, minHeight: '30px', fontSize: '0.875rem' }) }}
                 />
@@ -2013,23 +2388,73 @@ export default function Page() {
         </div>
       )}
 
-      {/* Manual Account Modal */}
-      {manualAccountModal.isOpen && (
+      {/* New Payee Modal */}
+      {newPayeeModal.isOpen && (
         <div 
-          className="fixed inset-0 backdrop-blur-sm bg-white/30 flex items-center justify-center z-50"
-          onClick={() => setManualAccountModal({ isOpen: false, name: '', type: 'Asset', startingBalance: '0' })}
+          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
+          onClick={() => setNewPayeeModal({ isOpen: false, name: '', transactionId: null })}
         >
           <div 
-            className="bg-white rounded-lg p-6 w-[400px] max-h-[80vh] overflow-y-auto shadow-xl"
+            className="bg-white rounded-lg p-6 w-[400px] overflow-y-auto shadow-xl"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Add New Manual Account</h2>
+              <h2 className="text-lg font-semibold">Add New Payee</h2>
+              <button
+                onClick={() => setNewPayeeModal({ isOpen: false, name: '', transactionId: null })}
+                className="text-gray-500 hover:text-gray-700 text-xl"
+              >
+                <XMarkIcon className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Payee Name
+                </label>
+                <input
+                  type="text"
+                  value={newPayeeModal.name}
+                  onChange={(e) => setNewPayeeModal(prev => ({
+                    ...prev,
+                    name: e.target.value
+                  }))}
+                  className="w-full border px-2 py-1 rounded"
+                  placeholder="Enter payee name"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end mt-6">
+              <button
+                onClick={handleCreatePayee}
+                className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
+              >
+                Create
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manual Account Modal */}
+      {manualAccountModal.isOpen && (
+        <div 
+          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
+          onClick={() => setManualAccountModal({ isOpen: false, name: '', type: 'Asset', startingBalance: '0' })}
+        >
+          <div 
+            className="bg-white rounded-lg p-6 w-[400px] shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold">Add Manual Account</h2>
               <button
                 onClick={() => setManualAccountModal({ isOpen: false, name: '', type: 'Asset', startingBalance: '0' })}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
-                ×
+                <XMarkIcon className="w-4 h-4" />
               </button>
             </div>
 
@@ -2064,7 +2489,25 @@ export default function Page() {
                 >
                   <option value="Asset">Asset</option>
                   <option value="Liability">Liability</option>
+                  <option value="Equity">Equity</option>
                 </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Starting Balance
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={manualAccountModal.startingBalance}
+                  onChange={(e) => setManualAccountModal(prev => ({
+                    ...prev,
+                    startingBalance: e.target.value
+                  }))}
+                  className="w-full border px-2 py-1 rounded"
+                  placeholder="0.00"
+                />
               </div>
             </div>
 
@@ -2084,11 +2527,11 @@ export default function Page() {
       {/* Account Names Modal */}
       {accountNamesModal.isOpen && (
         <div 
-          className="fixed inset-0 backdrop-blur-sm bg-white/30 flex items-center justify-center z-50"
+          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
           onClick={() => setAccountNamesModal({ isOpen: false, accounts: [], accountToDelete: null, deleteConfirmation: '' })}
         >
           <div 
-            className="bg-white rounded-lg p-6 w-[500px] max-h-[80vh] overflow-y-auto shadow-xl"
+            className="bg-white rounded-lg p-6 w-[400px] overflow-y-auto shadow-xl"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex justify-between items-center mb-4">
@@ -2097,7 +2540,7 @@ export default function Page() {
                 onClick={() => setAccountNamesModal({ isOpen: false, accounts: [], accountToDelete: null, deleteConfirmation: '' })}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
-                ×
+                <XMarkIcon className="w-4 h-4" />
               </button>
             </div>
 
@@ -2132,7 +2575,7 @@ export default function Page() {
                     <div className="bg-red-50 p-3 rounded border border-red-200">
                       <p className="text-sm text-red-700 mb-2">
                         Warning: This will permanently delete the account and all its transactions.
-                        Type "delete" to confirm.
+                        Type &quot;delete&quot; to confirm.
                       </p>
                       <div className="flex gap-2">
                         <input
@@ -2183,15 +2626,15 @@ export default function Page() {
 
       {/* Journal Entry Modal */}
       {journalEntryModal.isOpen && (
-        <div className="fixed inset-0 backdrop-blur-sm bg-white/30 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg w-[800px] max-h-[80vh] overflow-y-auto shadow-xl">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50">
+          <div className="bg-white p-6 rounded-lg w-[800px] overflow-y-auto shadow-xl">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold">Add Journal Entry</h2>
               <button
                 onClick={() => setJournalEntryModal(prev => ({ ...prev, isOpen: false }))}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
-                ×
+                <XMarkIcon className="w-4 h-4" />
               </button>
             </div>
             
@@ -2367,15 +2810,15 @@ export default function Page() {
 
       {/* Past Journal Entries Modal */}
       {pastJournalEntriesModal.isOpen && (
-        <div className="fixed inset-0 backdrop-blur-sm bg-white/30 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg w-[800px] max-h-[80vh] overflow-y-auto shadow-xl">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50">
+          <div className="bg-white p-6 rounded-lg w-[800px] overflow-y-auto shadow-xl">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold">Past Journal Entries</h2>
               <button
                 onClick={() => setPastJournalEntriesModal(prev => ({ ...prev, isOpen: false }))}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
-                ×
+                <XMarkIcon className="w-4 h-4" />
               </button>
             </div>
 
@@ -2437,15 +2880,15 @@ export default function Page() {
 
       {/* Edit Journal Entry Modal */}
       {editJournalEntryModal.isOpen && editJournalEntryModal.entry && (
-        <div className="fixed inset-0 backdrop-blur-sm bg-white/30 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg w-[800px] max-h-[80vh] overflow-y-auto shadow-xl">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50">
+          <div className="bg-white p-6 rounded-lg w-[800px] overflow-y-auto shadow-xl">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold">Edit Journal Entry</h2>
               <button
                 onClick={() => setEditJournalEntryModal({ isOpen: false, entry: null })}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
-                ×
+                <XMarkIcon className="w-4 h-4" />
               </button>
             </div>
             
@@ -2623,6 +3066,7 @@ export default function Page() {
               </button>
               <button
                 onClick={async () => {
+                  if (!editJournalEntryModal.entry) return;
                   if (!window.confirm('Are you sure you want to delete this journal entry? This cannot be undone.')) return;
                   await supabase
                     .from('transactions')
@@ -2643,280 +3087,380 @@ export default function Page() {
         </div>
       )}
 
-      <div className="flex gap-8">
-        {/* To Add */}
-        <div className="w-1/2 space-y-2">
-          <h2 className="font-semibold text-base mb-1 flex items-center">
+      {/* Tab Navigation */}
+      <div className="border-b border-gray-200">
+        <nav className="-mb-px flex space-x-8">
+          <button
+            onClick={() => setActiveTab('toAdd')}
+            className={`whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'toAdd'
+                ? 'border-gray-900 text-gray-900'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
             To Add
-            {(() => {
-              const selected = accounts.find(a => a.plaid_account_id === selectedAccountId);
-              if (!selected || selected.is_manual) return null;
+            {imported.length > 0 && (
+              <span className="ml-2 bg-gray-100 text-gray-900 py-0.5 px-2 rounded-full text-xs">
+                {imported.length}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab('added')}
+            className={`whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'added'
+                ? 'border-gray-900 text-gray-900'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Added
+            {confirmed.length > 0 && (
+              <span className="ml-2 bg-gray-100 text-gray-900 py-0.5 px-2 rounded-full text-xs">
+                {confirmed.length}
+              </span>
+            )}
+          </button>
+        </nav>
+      </div>
+
+      {/* Tab Content */}
+      <div className="mt-6">
+        {activeTab === 'toAdd' && (
+          <div className="space-y-2">
+            <h2 className="font-semibold text-base mb-1 flex items-center">
+              To Add
+              {(() => {
+                const selected = accounts.find(a => a.plaid_account_id === selectedAccountId);
+                if (!selected || selected.is_manual) return null;
+                return (
+                  <span className="ml-4 text-gray-500 text-sm font-normal">
+                    (Current Balance: ${currentBalance.toFixed(2)})
+                  </span>
+                );
+              })()}
+            </h2>
+            <input
+              type="text"
+              placeholder="Search transactions..."
+              value={toAddSearchQuery}
+              onChange={e => setToAddSearchQuery(e.target.value)}
+              className="border px-2 py-1 w-full text-xs mb-2"
+            />
+            <table className="w-full border-collapse border border-gray-300">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="border p-1 w-8 text-center">
+                    <input
+                      type="checkbox"
+                      checked={imported.length > 0 && selectedToAdd.size === imported.length}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedToAdd(new Set(imported.map(tx => tx.id)))
+                        } else {
+                          setSelectedToAdd(new Set())
+                        }
+                      }}
+                      className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                    />
+                  </th>
+                  <th 
+                    className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
+                    onClick={() => handleSort('date', 'toAdd')}
+                  >
+                    Date {toAddSortConfig.key === 'date' && (toAddSortConfig.direction === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th 
+                    className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
+                    onClick={() => handleSort('description', 'toAdd')}
+                  >
+                    Description {toAddSortConfig.key === 'description' && (toAddSortConfig.direction === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th className="border p-1 w-8 text-center">Spent</th>
+                  <th className="border p-1 w-8 text-center">Received</th>
+                  <th className="border p-1 w-8 text-center">Payee</th>
+                  <th className="border p-1 w-8 text-center">Category</th>
+                  <th className="border p-1 w-8 text-center">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {imported.map(tx => {
+                  const category = categories.find(c => c.id === selectedCategories[tx.id]);
+                  return (
+                    <tr key={tx.id}>
+                      <td className="border p-1 w-8 text-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedToAdd.has(tx.id)}
+                          onChange={(e) => {
+                            const newSelected = new Set(selectedToAdd)
+                            if (e.target.checked) {
+                              newSelected.add(tx.id)
+                            } else {
+                              newSelected.delete(tx.id)
+                            }
+                            setSelectedToAdd(newSelected)
+                          }}
+                          className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                        />
+                      </td>
+                      <td className="border p-1 w-8 text-center text-xs">{formatDate(tx.date)}</td>
+                      <td className="border p-1 w-8 text-center text-xs" style={{ minWidth: 250 }}>{tx.description}</td>
+                      <td className="border p-1 w-8 text-center">{tx.spent ? `$${tx.spent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td>
+                      <td className="border p-1 w-8 text-center">{tx.received ? `$${tx.received.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td>
+                      <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
+                        <Select
+                          options={payeeOptions}
+                          value={payeeOptions.find(opt => opt.value === selectedPayees[tx.id]) || payeeOptions[0]}
+                          onChange={(selectedOption) => {
+                            const option = selectedOption as SelectOption | null;
+                            if (option?.value === 'add_new') {
+                              setNewPayeeModal({ 
+                                isOpen: true, 
+                                name: '', 
+                                transactionId: tx.id 
+                              });
+                            } else if (option?.value) {
+                              setSelectedPayees(prev => ({
+                                ...prev,
+                                [tx.id]: option.value
+                              }));
+                            }
+                          }}
+                          isSearchable
+                          styles={{ 
+                            control: (base) => ({ 
+                              ...base, 
+                              minHeight: '30px', 
+                              fontSize: '0.875rem'
+                            }) 
+                          }}
+                        />
+                      </td>
+                      <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
+                        <Select
+                          options={categoryOptions}
+                          value={categoryOptions.find(opt => opt.value === selectedCategories[tx.id]) || categoryOptions[0]}
+                          onChange={(selectedOption) => {
+                            const option = selectedOption as SelectOption | null;
+                            if (option?.value === 'add_new') {
+                              setNewCategoryModal({ 
+                                isOpen: true, 
+                                name: '', 
+                                type: 'Expense', 
+                                parent_id: null, 
+                                transactionId: tx.id 
+                              });
+                            } else if (option?.value) {
+                              setSelectedCategories(prev => ({
+                                ...prev,
+                                [tx.id]: option.value
+                              }));
+                            }
+                          }}
+                          isSearchable
+                          styles={{ 
+                            control: (base) => ({ 
+                              ...base, 
+                              minHeight: '30px', 
+                              fontSize: '0.875rem'
+                            }) 
+                          }}
+                        />
+                      </td>
+                      <td className="border p-1 w-8 text-center">
+                        <button
+                          onClick={async () => {
+                            if (selectedCategories[tx.id]) {
+                              await addTransaction(tx, selectedCategories[tx.id], selectedPayees[tx.id]);
+                              setSelectedCategories(prev => {
+                                const copy = { ...prev };
+                                delete copy[tx.id];
+                                return copy;
+                              });
+                              setSelectedPayees(prev => {
+                                const copy = { ...prev };
+                                delete copy[tx.id];
+                                return copy;
+                              });
+                              setSelectedToAdd(prev => {
+                                const next = new Set(prev)
+                                next.delete(tx.id)
+                                return next
+                              })
+                            }
+                          }}
+                          className="border px-2 py-1 rounded bg-gray-100 hover:bg-gray-200"
+                          disabled={!selectedCategories[tx.id]}
+                        >
+                          Add
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {selectedToAdd.size > 0 && (() => {
+              const selectedTransactions = imported.filter(tx => selectedToAdd.has(tx.id));
               return (
-                <span className="ml-4 text-gray-500 text-sm font-normal">
-                  (Current Balance: ${currentBalance.toFixed(2)})
-                </span>
+                <div className="mt-2 flex justify-end">
+                  <button
+                    onClick={async () => {
+                      for (const tx of selectedTransactions) {
+                        if (selectedCategories[tx.id]) {
+                          await addTransaction(tx, selectedCategories[tx.id], selectedPayees[tx.id]);
+                        }
+                      }
+                      setSelectedCategories(prev => {
+                        const copy = { ...prev };
+                        selectedTransactions.forEach(tx => delete copy[tx.id]);
+                        return copy;
+                      });
+                      setSelectedPayees(prev => {
+                        const copy = { ...prev };
+                        selectedTransactions.forEach(tx => delete copy[tx.id]);
+                        return copy;
+                      });
+                      setSelectedToAdd(new Set());
+                    }}
+                    className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200"
+                    disabled={!selectedTransactions.every(tx => selectedCategories[tx.id])}
+                  >
+                    Add Selected ({selectedToAdd.size})
+                  </button>
+                </div>
               );
             })()}
-          </h2>
-          <input
-            type="text"
-            placeholder="Search transactions..."
-            value={toAddSearchQuery}
-            onChange={e => setToAddSearchQuery(e.target.value)}
-            className="border px-2 py-1 w-full text-xs mb-2"
-          />
-          <table className="w-full border-collapse border border-gray-300">
-            <thead className="bg-gray-100">
-              <tr>
-                <th className="border p-1 w-8 text-center">
-                  <input
-                    type="checkbox"
-                    checked={imported.length > 0 && selectedToAdd.size === imported.length}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setSelectedToAdd(new Set(imported.map(tx => tx.id)))
-                      } else {
-                        setSelectedToAdd(new Set())
-                      }
-                    }}
-                    className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
-                  />
-                </th>
-                <th 
-                  className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
-                  onClick={() => handleSort('date', 'toAdd')}
-                >
-                  Date {toAddSortConfig.key === 'date' && (toAddSortConfig.direction === 'asc' ? '↑' : '↓')}
-                </th>
-                <th 
-                  className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
-                  onClick={() => handleSort('description', 'toAdd')}
-                >
-                  Description {toAddSortConfig.key === 'description' && (toAddSortConfig.direction === 'asc' ? '↑' : '↓')}
-                </th>
-                <th className="border p-1 w-8 text-center">Spent</th>
-                <th className="border p-1 w-8 text-center">Received</th>
-                <th className="border p-1 w-8 text-center">Category</th>
-                <th className="border p-1 w-8 text-center">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {imported.map(tx => {
-                const category = categories.find(c => c.id === selectedCategories[tx.id]);
-                return (
-                  <tr key={tx.id}>
-                    <td className="border p-1 w-8 text-center">
-                      <input
-                        type="checkbox"
-                        checked={selectedToAdd.has(tx.id)}
-                        onChange={(e) => {
-                          const newSelected = new Set(selectedToAdd)
-                          if (e.target.checked) {
-                            newSelected.add(tx.id)
-                          } else {
-                            newSelected.delete(tx.id)
-                          }
-                          setSelectedToAdd(newSelected)
-                        }}
-                        className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
-                      />
-                    </td>
-                    <td className="border p-1 w-8 text-center text-xs">{formatDate(tx.date)}</td>
-                    <td className="border p-1 w-8 text-center text-xs" style={{ minWidth: 250 }}>{tx.description}</td>
-                    <td className="border p-1 w-8 text-center">{tx.spent ? `$${tx.spent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td>
-                    <td className="border p-1 w-8 text-center">{tx.received ? `$${tx.received.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td>
-                    <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
-                      <Select
-                        options={categoryOptions}
-                        value={categoryOptions.find(opt => opt.value === selectedCategories[tx.id]) || categoryOptions[0]}
-                        onChange={(selectedOption) => {
-                          handleCategorySelection(selectedOption, tx.id);
-                        }}
-                        isSearchable
-                        styles={{ 
-                          control: (base) => ({ 
-                            ...base, 
-                            minHeight: '30px', 
-                            fontSize: '0.875rem'
-                          }) 
-                        }}
-                      />
-                    </td>
-                    <td className="border p-1 w-8 text-center">
-                      <button
-                        onClick={async () => {
-                          if (selectedCategories[tx.id]) {
-                            await addTransaction(tx, selectedCategories[tx.id]);
-                            setSelectedCategories(prev => {
-                              const copy = { ...prev };
-                              delete copy[tx.id];
-                              return copy;
-                            });
-                            setSelectedToAdd(prev => {
-                              const next = new Set(prev)
-                              next.delete(tx.id)
-                              return next
-                            })
-                          }
-                        }}
-                        className="border px-2 py-1 rounded bg-gray-100 hover:bg-gray-200"
-                        disabled={!selectedCategories[tx.id]}
-                      >
-                        Add
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          {selectedToAdd.size > 0 && (() => {
-            const selectedTransactions = imported.filter(tx => selectedToAdd.has(tx.id));
-            return (
-              <div className="mt-2 flex justify-end">
-                <button
-                  onClick={async () => {
-                    for (const tx of selectedTransactions) {
-                      if (selectedCategories[tx.id]) {
-                        await addTransaction(tx, selectedCategories[tx.id]);
-                      }
-                    }
-                    setSelectedCategories(prev => {
-                      const copy = { ...prev };
-                      selectedTransactions.forEach(tx => delete copy[tx.id]);
-                      return copy;
-                    });
-                    setSelectedToAdd(new Set());
-                  }}
-                  className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200"
-                  disabled={!selectedTransactions.every(tx => selectedCategories[tx.id])}
-                >
-                  Add Selected ({selectedToAdd.size})
-                </button>
-              </div>
-            );
-          })()}
-        </div>
+          </div>
+        )}
 
-        {/* Added */}
-        <div className="w-1/2 space-y-2">
-          <h2 className="font-semibold text-base mb-1 flex items-center">
-            Added
-          </h2>
-          <input
-            type="text"
-            placeholder="Search transactions..."
-            value={addedSearchQuery}
-            onChange={e => setAddedSearchQuery(e.target.value)}
-            className="border px-2 py-1 w-full text-xs mb-2"
-          />
-          <table className="w-full border-collapse border border-gray-300">
-            <thead className="bg-gray-100">
-              <tr>
-                <th className="border p-1 w-8 text-center">
-                  <input
-                    type="checkbox"
-                    checked={confirmed.length > 0 && selectedAdded.size === confirmed.length}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setSelectedAdded(new Set(confirmed.map(tx => tx.id)))
-                      } else {
-                        setSelectedAdded(new Set())
-                      }
-                    }}
-                    className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
-                  />
-                </th>
-                <th 
-                  className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
-                  onClick={() => handleSort('date', 'added')}
-                >
-                  Date {addedSortConfig.key === 'date' && (addedSortConfig.direction === 'asc' ? '↑' : '↓')}
-                </th>
-                <th 
-                  className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
-                  onClick={() => handleSort('description', 'added')}
-                >
-                  Description {addedSortConfig.key === 'description' && (addedSortConfig.direction === 'asc' ? '↑' : '↓')}
-                </th>
-                <th className="border p-1 w-8 text-center">Spent</th>
-                <th className="border p-1 w-8 text-center">Received</th>
-                <th className="border p-1 w-8 text-center">Category</th>
-                <th className="border p-1 w-8 text-center">Undo</th>
-              </tr>
-            </thead>
-            <tbody>
-              {confirmed.map(tx => {
-                const category = categories.find(c => c.id === tx.selected_category_id);
-                return (
-                  <tr 
-                    key={tx.id}
-                    onClick={(e) => {
-                      // Only open modal if click is not in the first column
-                      if ((e.target as HTMLElement).closest('td:first-child')) return;
-                      setEditModal({ isOpen: true, transaction: tx });
-                    }}
-                    className="cursor-pointer hover:bg-gray-50"
+        {activeTab === 'added' && (
+          <div className="space-y-2">
+            <h2 className="font-semibold text-base mb-1 flex items-center">
+              Added
+            </h2>
+            <input
+              type="text"
+              placeholder="Search transactions..."
+              value={addedSearchQuery}
+              onChange={e => setAddedSearchQuery(e.target.value)}
+              className="border px-2 py-1 w-full text-xs mb-2"
+            />
+            <table className="w-full border-collapse border border-gray-300">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="border p-1 w-8 text-center">
+                    <input
+                      type="checkbox"
+                      checked={confirmed.length > 0 && selectedAdded.size === confirmed.length}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedAdded(new Set(confirmed.map(tx => tx.id)))
+                        } else {
+                          setSelectedAdded(new Set())
+                        }
+                      }}
+                      className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                    />
+                  </th>
+                  <th 
+                    className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
+                    onClick={() => handleSort('date', 'added')}
                   >
-                    <td className="border p-1 w-8 text-center">
-                      <input
-                        type="checkbox"
-                        checked={selectedAdded.has(tx.id)}
-                        onChange={(e) => {
-                          const newSelected = new Set(selectedAdded)
-                          if (e.target.checked) {
-                            newSelected.add(tx.id)
-                          } else {
-                            newSelected.delete(tx.id)
-                          }
-                          setSelectedAdded(newSelected)
-                        }}
-                        className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
-                      />
-                    </td>
-                    <td className="border p-1 w-8 text-center text-xs">{formatDate(tx.date)}</td>
-                    <td className="border p-1 w-8 text-center text-xs" style={{ minWidth: 250 }}>{tx.description}</td>
-                    <td className="border p-1 w-8 text-center">{tx.spent ? `$${tx.spent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td>
-                    <td className="border p-1 w-8 text-center">{tx.received ? `$${tx.received.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td>
-                    <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>{category ? category.name : 'Uncategorized'}</td>
-                    <td className="border p-1 w-8 text-center">
-                      <button
-                        onClick={e => { e.stopPropagation(); undoTransaction(tx); }}
-                        className="border px-2 py-1 rounded bg-gray-100 hover:bg-gray-200"
-                      >
-                        Undo
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          {selectedAdded.size > 0 && (() => {
-            const selectedConfirmed = confirmed.filter(tx => selectedAdded.has(tx.id));
-            return (
-              <div className="mt-2 flex justify-end">
-                <button
-                  onClick={async () => {
-                    for (const tx of selectedConfirmed) {
-                      await undoTransaction(tx);
-                    }
-                    setSelectedAdded(new Set());
-                  }}
-                  className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200"
-                >
-                  Undo Selected ({selectedAdded.size})
-                </button>
-              </div>
-            );
-          })()}
-        </div>
+                    Date {addedSortConfig.key === 'date' && (addedSortConfig.direction === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th 
+                    className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
+                    onClick={() => handleSort('description', 'added')}
+                  >
+                    Description {addedSortConfig.key === 'description' && (addedSortConfig.direction === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th className="border p-1 w-8 text-center">Spent</th>
+                  <th className="border p-1 w-8 text-center">Received</th>
+                  <th className="border p-1 w-8 text-center">Payee</th>
+                  <th className="border p-1 w-8 text-center">Category</th>
+                  <th className="border p-1 w-8 text-center">Undo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {confirmed.map(tx => {
+                  const category = categories.find(c => c.id === tx.selected_category_id);
+                  return (
+                    <tr 
+                      key={tx.id}
+                      onClick={(e) => {
+                        // Only open modal if click is not in the first column
+                        if ((e.target as HTMLElement).closest('td:first-child')) return;
+                        setEditModal({ isOpen: true, transaction: tx });
+                      }}
+                      className="cursor-pointer hover:bg-gray-50"
+                    >
+                      <td className="border p-1 w-8 text-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedAdded.has(tx.id)}
+                          onChange={(e) => {
+                            const newSelected = new Set(selectedAdded)
+                            if (e.target.checked) {
+                              newSelected.add(tx.id)
+                            } else {
+                              newSelected.delete(tx.id)
+                            }
+                            setSelectedAdded(newSelected)
+                          }}
+                          className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                        />
+                      </td>
+                      <td className="border p-1 w-8 text-center text-xs">{formatDate(tx.date)}</td>
+                      <td className="border p-1 w-8 text-center text-xs" style={{ minWidth: 250 }}>{tx.description}</td>
+                      <td className="border p-1 w-8 text-center">{tx.spent ? `$${tx.spent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td>
+                      <td className="border p-1 w-8 text-center">{tx.received ? `$${tx.received.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td>
+                      <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
+                        {(() => {
+                          const payee = payees.find(p => p.id === tx.payee_id);
+                          return payee ? payee.name : '';
+                        })()}
+                      </td>
+                      <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>{category ? category.name : 'Uncategorized'}</td>
+                      <td className="border p-1 w-8 text-center">
+                        <button
+                          onClick={e => { e.stopPropagation(); undoTransaction(tx); }}
+                          className="border px-2 py-1 rounded bg-gray-100 hover:bg-gray-200"
+                        >
+                          Undo
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {selectedAdded.size > 0 && (() => {
+              const selectedConfirmed = confirmed.filter(tx => selectedAdded.has(tx.id));
+              return (
+                <div className="mt-2 flex justify-end">
+                  <button
+                    onClick={async () => {
+                      for (const tx of selectedConfirmed) {
+                        await undoTransaction(tx);
+                      }
+                      setSelectedAdded(new Set());
+                    }}
+                    className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200"
+                  >
+                    Undo Selected ({selectedAdded.size})
+                  </button>
+                </div>
+              );
+            })()}
+          </div>
+        )}
       </div>
 
       {/* Account Selection Modal */}
       {accountSelectionModal.isOpen && (
-        <div className="fixed inset-0 backdrop-blur-sm bg-white/30 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-[600px] max-h-[80vh] overflow-y-auto shadow-xl">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50">
+          <div className="bg-white rounded-lg p-6 w-[600px] overflow-y-auto shadow-xl">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold">Link Accounts</h2>
               <button
@@ -2924,7 +3468,7 @@ export default function Page() {
                 className="text-gray-500 hover:text-gray-700 text-xl"
                 disabled={importProgress.isImporting}
               >
-                ×
+                <XMarkIcon className="w-4 h-4" />
               </button>
             </div>
 
