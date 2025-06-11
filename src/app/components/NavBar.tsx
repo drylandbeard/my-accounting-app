@@ -43,7 +43,7 @@ function CompanyModal({ isOpen, onClose, onCreateCompany }: CompanyModalProps) {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-gray-500/70 flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg shadow-xl w-80 mx-4">
         <div className="flex justify-between items-center px-4 py-3 border-b border-gray-200">
           <h2 className="text-sm font-semibold text-gray-900">Add New Company</h2>
@@ -382,7 +382,7 @@ function EditCompanyModal({ isOpen, onClose, company, onUpdateCompany }: EditCom
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-gray-500/70 flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg shadow-xl w-80 mx-4">
         <div className="flex justify-between items-center px-4 py-3 border-b border-gray-200">
           <h2 className="text-sm font-semibold text-gray-900">Edit Company</h2>

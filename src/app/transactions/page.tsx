@@ -757,7 +757,7 @@ export default function Page() {
         throw new Error(data.error || 'Failed to move transaction');
       }
 
-      await fetch('/api/sync-journal', { method: 'POST' });
+      await postWithCompany('/api/sync-journal', {});
       refreshAll();
     } catch (error) {
       console.error('Error moving transaction:', error);
@@ -805,8 +805,8 @@ export default function Page() {
         throw new Error(`Failed to insert into imported_transactions: ${insertError.message}`);
       }
 
-      await fetch('/api/sync-journal', { method: 'POST' });
-      console.log('Successfully deleted transaction and related journal entries:', tx.id);
+              await postWithCompany('/api/sync-journal', {});
+        console.log('Successfully deleted transaction and related journal entries:', tx.id);
 
       refreshAll();
     } catch (error) {
@@ -851,8 +851,8 @@ export default function Page() {
   // 4️⃣ Category dropdown
   const categoryOptions: SelectOption[] = [
     { value: '', label: 'Select' },
+    { value: 'add_new', label: '+ Add new category' },
     ...categories.map(c => ({ value: c.id, label: c.name })),
-    { value: 'add_new', label: '+ Add new category' }
   ]
 
   const formatDate = (dateString: string) => {
@@ -1162,7 +1162,7 @@ export default function Page() {
       })
       .eq('id', editModal.transaction.id);
 
-    await fetch('/api/sync-journal', { method: 'POST' });
+    await postWithCompany('/api/sync-journal', {});
     setEditModal({ isOpen: false, transaction: null });
     refreshAll();
   };
@@ -1379,7 +1379,7 @@ export default function Page() {
     }
 
     // Automatically sync the journal after saving
-    await fetch('/api/sync-journal', { method: 'POST' });
+    await postWithCompany('/api/sync-journal', {});
 
     // Reset modal and refresh data
     setJournalEntryModal({
@@ -1598,7 +1598,7 @@ export default function Page() {
 
       {/* Import Modal */}
       {importModal.isOpen && (
-        <div className="fixed inset-0 backdrop-blur-sm bg-white/30 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-[560px] max-h-[80vh] overflow-y-auto shadow-xl">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold">Import Transactions</h2>
@@ -1845,7 +1845,7 @@ export default function Page() {
       {/* Edit Transaction Modal */}
       {editModal.isOpen && editModal.transaction && (
         <div 
-          className="fixed inset-0 backdrop-blur-sm bg-white/30 flex items-center justify-center z-50"
+          className="fixed inset-0 bg-black/70 flex items-center justify-center z-50"
           onClick={() => setEditModal({ isOpen: false, transaction: null })}
         >
           <div 
@@ -1982,7 +1982,7 @@ export default function Page() {
       {/* Account Edit Modal */}
       {accountEditModal.isOpen && accountEditModal.account && (
         <div 
-          className="fixed inset-0 backdrop-blur-sm bg-white/30 flex items-center justify-center z-50"
+          className="fixed inset-0 bg-black/70 flex items-center justify-center z-50"
           onClick={() => setAccountEditModal({ isOpen: false, account: null, newName: '' })}
         >
           <div 
@@ -2031,7 +2031,7 @@ export default function Page() {
       {/* New Category Modal */}
       {newCategoryModal.isOpen && (
         <div 
-          className="fixed inset-0 backdrop-blur-sm bg-white/30 flex items-center justify-center z-50"
+          className="fixed inset-0 bg-black/70 flex items-center justify-center z-50"
           onClick={() => setNewCategoryModal({ isOpen: false, name: '', type: 'Expense', parent_id: null, transactionId: null })}
         >
           <div 
@@ -2125,7 +2125,7 @@ export default function Page() {
       {/* Manual Account Modal */}
       {manualAccountModal.isOpen && (
         <div 
-          className="fixed inset-0 backdrop-blur-sm bg-white/30 flex items-center justify-center z-50"
+          className="fixed inset-0 bg-black/70 flex items-center justify-center z-50"
           onClick={() => setManualAccountModal({ isOpen: false, name: '', type: 'Asset', startingBalance: '0' })}
         >
           <div 
@@ -2193,7 +2193,7 @@ export default function Page() {
       {/* Account Names Modal */}
       {accountNamesModal.isOpen && (
         <div 
-          className="fixed inset-0 backdrop-blur-sm bg-white/30 flex items-center justify-center z-50"
+          className="fixed inset-0 bg-black/70 flex items-center justify-center z-50"
           onClick={() => setAccountNamesModal({ isOpen: false, accounts: [], accountToDelete: null, deleteConfirmation: '' })}
         >
           <div 
@@ -2292,7 +2292,7 @@ export default function Page() {
 
       {/* Journal Entry Modal */}
       {journalEntryModal.isOpen && (
-        <div className="fixed inset-0 backdrop-blur-sm bg-white/30 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
           <div className="bg-white p-6 rounded-lg w-[800px] max-h-[80vh] overflow-y-auto shadow-xl">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold">Add Journal Entry</h2>
@@ -2476,7 +2476,7 @@ export default function Page() {
 
       {/* Past Journal Entries Modal */}
       {pastJournalEntriesModal.isOpen && (
-        <div className="fixed inset-0 backdrop-blur-sm bg-white/30 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
           <div className="bg-white p-6 rounded-lg w-[800px] max-h-[80vh] overflow-y-auto shadow-xl">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold">Past Journal Entries</h2>
@@ -2546,7 +2546,7 @@ export default function Page() {
 
       {/* Edit Journal Entry Modal */}
       {editJournalEntryModal.isOpen && editJournalEntryModal.entry && (
-        <div className="fixed inset-0 backdrop-blur-sm bg-white/30 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
           <div className="bg-white p-6 rounded-lg w-[800px] max-h-[80vh] overflow-y-auto shadow-xl">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold">Edit Journal Entry</h2>
@@ -3037,7 +3037,7 @@ export default function Page() {
 
       {/* Account Selection Modal */}
       {accountSelectionModal.isOpen && (
-        <div className="fixed inset-0 bg-gray-500/70 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-[600px] max-h-[80vh] overflow-y-auto shadow-xl">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold">Link Accounts</h2>

@@ -2,31 +2,34 @@
 
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabaseClient';
+import { useApiWithCompany } from '@/hooks/useApiWithCompany';
 
 export default function JournalTablePage() {
+  const { postWithCompany, hasCompanyContext, currentCompany } = useApiWithCompany();
   const [entries, setEntries] = useState<any[]>([]);
   const [accounts, setAccounts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [syncing, setSyncing] = useState(false);
-  const [syncError, setSyncError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchJournalEntries();
     fetchAccounts();
-  }, []);
+  }, [currentCompany?.id]);
 
   const fetchJournalEntries = async () => {
+    if (!hasCompanyContext) return;
+    
     try {
       setLoading(true);
       setError(null);
       const { data, error } = await supabase
         .from('journal')
         .select('*')
+        .eq('company_id', currentCompany?.id)
         .order('date', { ascending: false });
       if (error) throw error;
       setEntries(data || []);
-    } catch (err) {
+    } catch {
       setError('Failed to load journal entries');
     } finally {
       setLoading(false);
@@ -34,23 +37,13 @@ export default function JournalTablePage() {
   };
 
   const fetchAccounts = async () => {
-    const { data, error } = await supabase.from('chart_of_accounts').select('*');
+    if (!hasCompanyContext) return;
+    
+    const { data, error } = await supabase
+      .from('chart_of_accounts')
+      .select('*')
+      .eq('company_id', currentCompany?.id);
     if (!error) setAccounts(data || []);
-  };
-
-  const handleSync = async () => {
-    setSyncing(true);
-    setSyncError(null);
-    try {
-      const res = await fetch('/api/sync-journal', { method: 'POST' });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Sync failed');
-      await fetchJournalEntries();
-    } catch (err: any) {
-      setSyncError(err.message || 'Sync failed');
-    } finally {
-      setSyncing(false);
-    }
   };
 
   function getAccountName(id: string) {

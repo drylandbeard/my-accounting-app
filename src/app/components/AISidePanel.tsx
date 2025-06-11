@@ -5,6 +5,7 @@ import { XMarkIcon, ChatBubbleLeftRightIcon } from '@heroicons/react/24/outline'
 import { supabase } from '@/lib/supabaseClient';
 import { useSelectedToAdd } from './SelectedToAddContext';
 import { AIContext } from './AIContextProvider';
+import { useApiWithCompany } from '@/hooks/useApiWithCompany';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -27,6 +28,7 @@ When referring to transactions or categories, use their date, amount, descriptio
 Always explain your reasoning before or after the JSON, but make sure the JSON is on its own line.`;
 
 export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
+  const { postWithCompany } = useApiWithCompany();
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputMessage, setInputMessage] = useState('');
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
@@ -119,7 +121,7 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
       }]);
       // Remove from imported_transactions
       await supabase.from('imported_transactions').delete().eq('id', tx.id);
-      await fetch('/api/sync-journal', { method: 'POST' });
+      await postWithCompany('/api/sync-journal', {});
       // For now, reload the page to refresh context
       if (typeof window !== 'undefined') {
         setTimeout(() => window.location.reload(), 1000);
