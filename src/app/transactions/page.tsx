@@ -1787,11 +1787,15 @@ export default function Page() {
         [txId]: ''
       }));
     } else {
-      // Open modal with pre-populated name
+      // Find the transaction to determine default category type
+      const transaction = imported.find(tx => tx.id === txId);
+      const defaultType = transaction?.received && transaction.received > 0 ? 'Revenue' : 'Expense';
+      
+      // Open modal with pre-populated name and appropriate type
       setNewCategoryModal({
         isOpen: true,
         name: inputValue.trim(),
-        type: 'Expense',
+        type: defaultType,
         parent_id: null,
         transactionId: txId
       });
@@ -3352,10 +3356,12 @@ export default function Page() {
                           onChange={(selectedOption) => {
                             const option = selectedOption as SelectOption | null;
                             if (option?.value === 'add_new') {
+                              // Determine default category type based on transaction
+                              const defaultType = tx.received && tx.received > 0 ? 'Revenue' : 'Expense';
                               setNewCategoryModal({ 
                                 isOpen: true, 
                                 name: '', 
-                                type: 'Expense', 
+                                type: defaultType, 
                                 parent_id: null, 
                                 transactionId: tx.id 
                               });
