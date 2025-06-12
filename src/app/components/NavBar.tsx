@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useAuth } from "./AuthContext";
 import { createCompany } from "@/lib/auth";
 import SettingsModal from "./SettingsModal";
@@ -131,7 +131,8 @@ function NavLink({ href, label }: { href: string, label: string }) {
 
 export default function NavBar() {
   const { user, companies, currentCompany, setCurrentCompany, setCompanies, logout } = useAuth();
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isCompanyDropdownOpen, setIsCompanyDropdownOpen] = useState(false);
+  const [isAccountDropdownOpen, setIsAccountDropdownOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
   const [isEditCompanyModalOpen, setIsEditCompanyModalOpen] = useState(false);
@@ -140,6 +141,26 @@ export default function NavBar() {
     name: string;
     description: string;
   } | null>(null);
+
+  const companyDropdownRef = useRef<HTMLDivElement>(null);
+  const accountDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (companyDropdownRef.current && !companyDropdownRef.current.contains(event.target as Node)) {
+        setIsCompanyDropdownOpen(false);
+      }
+      if (accountDropdownRef.current && !accountDropdownRef.current.contains(event.target as Node)) {
+        setIsAccountDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
 
   const handleCreateCompany = async (name: string, description?: string) => {
     if (!user) throw new Error("User not found");
@@ -178,96 +199,110 @@ export default function NavBar() {
           <NavLink href="/reports/balance-sheet" label="Balance Sheet" />
         </div>
 
-        <div className="relative">
-          <button
-            onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-            className="flex items-center space-x-2 text-gray-700 hover:text-black px-2 py-1 rounded"
-          >
-            <div className="flex flex-col items-start">
-              <span className="text-xs">{user.email}</span>
-              {currentCompany && (
-                <span className="text-xs text-gray-500">{currentCompany.name}</span>
-              )}
-            </div>
-            <ChevronDownIcon className="w-4 h-4" />
-          </button>
+        <div className="flex items-center space-x-4">
+          {/* Company Dropdown */}
+          <div className="relative" ref={companyDropdownRef}>
+            <button
+              onClick={() => setIsCompanyDropdownOpen(!isCompanyDropdownOpen)}
+              className="flex items-center space-x-1 text-gray-700 hover:text-black px-2 py-1 rounded"
+            >
+              <span className="text-xs">
+                {currentCompany ? currentCompany.name : "Select Company"}
+              </span>
+              <ChevronDownIcon className="w-3 h-3" />
+            </button>
 
-          {isDropdownOpen && (
-            <div className="absolute right-0 mt-2 w-64 bg-white border border-gray-200 rounded-md shadow-lg z-50">
-              <div className="py-1">
-                
-                {/* Company List */}
-                {companies.map((companyUser) => (
-                  <div key={companyUser.company_id} className={`flex items-center ${
-                        currentCompany?.id === companyUser.companies.id
-                          ? "bg-gray-100 text-gray-900 font-medium"
-                          : "text-gray-700 hover:bg-gray-100"
-                      }`}>
-                    <button
-                      onClick={() => {
-                        setCurrentCompany(companyUser.companies);
-                        setIsDropdownOpen(false);
-                      }}
-                      className="flex-1 text-left px-4 py-2 text-sm"
-                    >
-                      <div>{companyUser.companies.name}</div>
-                      <div className="text-xs text-gray-500">{companyUser.role}</div>
-                    </button>
-                    <button
-                      onClick={() => {
-                        setEditingCompany({
-                          id: companyUser.companies.id,
-                          name: companyUser.companies.name,
-                          description: companyUser.companies.description || ""
-                        });
-                        setIsEditCompanyModalOpen(true);
-                        setIsDropdownOpen(false);
-                      }}
-                      className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700"
-                      title="Edit company"
-                    >
-                      Edit
-                    </button>
-                  </div>
-                ))}
-                
-                {/* Add New Company Button */}
-                <button
-                  onClick={() => {
-                    setIsCompanyModalOpen(true);
-                    setIsDropdownOpen(false);
-                  }}
-                  className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                >
-                  + Add Company
-                </button>
-                
-                <hr className="my-1 border-gray-200" />
-
-                {/* Settings Option */}
-                <button
-                  onClick={() => {
-                    setIsSettingsOpen(true);
-                    setIsDropdownOpen(false);
-                  }}
-                  className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                >
-                  Settings
-                </button>
-                
-                {/* Logout */}
-                <button
-                  onClick={() => {
-                    logout();
-                    setIsDropdownOpen(false);
-                  }}
-                  className="block w-full text-left px-4 py-2 text-sm text-gray-900 hover:bg-gray-100 font-medium"
-                >
-                  Logout
-                </button>
+            {isCompanyDropdownOpen && (
+              <div className="absolute right-0 mt-2 w-64 bg-white border border-gray-200 rounded-md shadow-lg z-50">
+                <div className="py-1">
+                  {/* Company List */}
+                  {companies.map((companyUser) => (
+                    <div key={companyUser.company_id} className={`flex items-center ${
+                          currentCompany?.id === companyUser.companies.id
+                            ? "bg-gray-100 text-gray-900 font-medium"
+                            : "text-gray-700 hover:bg-gray-100"
+                        }`}>
+                      <button
+                        onClick={() => {
+                          setCurrentCompany(companyUser.companies);
+                          setIsCompanyDropdownOpen(false);
+                        }}
+                        className="flex-1 text-left px-4 py-2 text-sm"
+                      >
+                        <div>{companyUser.companies.name}</div>
+                        <div className="text-xs text-gray-500">{companyUser.role}</div>
+                      </button>
+                      <button
+                        onClick={() => {
+                          setEditingCompany({
+                            id: companyUser.companies.id,
+                            name: companyUser.companies.name,
+                            description: companyUser.companies.description || ""
+                          });
+                          setIsEditCompanyModalOpen(true);
+                          setIsCompanyDropdownOpen(false);
+                        }}
+                        className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700"
+                        title="Edit company"
+                      >
+                        Edit
+                      </button>
+                    </div>
+                  ))}
+                  
+                  {/* Add New Company Button */}
+                  <button
+                    onClick={() => {
+                      setIsCompanyModalOpen(true);
+                      setIsCompanyDropdownOpen(false);
+                    }}
+                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 border-t border-gray-200"
+                  >
+                    + Add Company
+                  </button>
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
+
+          {/* Account Dropdown */}
+          <div className="relative" ref={accountDropdownRef}>
+            <button
+              onClick={() => setIsAccountDropdownOpen(!isAccountDropdownOpen)}
+              className="flex items-center space-x-1 text-gray-700 hover:text-black px-2 py-1 rounded"
+            >
+              <span className="text-xs">{user.email}</span>
+              <ChevronDownIcon className="w-3 h-3" />
+            </button>
+
+            {isAccountDropdownOpen && (
+              <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-md shadow-lg z-50">
+                <div className="py-1">
+                  {/* Settings Option */}
+                  <button
+                    onClick={() => {
+                      setIsSettingsOpen(true);
+                      setIsAccountDropdownOpen(false);
+                    }}
+                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                  >
+                    Settings
+                  </button>
+                  
+                  {/* Logout */}
+                  <button
+                    onClick={() => {
+                      logout();
+                      setIsAccountDropdownOpen(false);
+                    }}
+                    className="block w-full text-left px-4 py-2 text-sm text-gray-900 hover:bg-gray-100 font-medium"
+                  >
+                    Logout
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </nav>
 
