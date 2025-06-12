@@ -13,7 +13,7 @@ export default function AuthForm() {
   const [isLoading, setIsLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
 
-  const { setUser, setCompanies, setCurrentCompany } = useAuth();
+  const { setUser, setCompanies } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -53,10 +53,7 @@ export default function AuthForm() {
             setUser(signInResult.user);
             setCompanies(signInResult.companies);
             
-            // Set first company as default if available
-            if (signInResult.companies.length > 0) {
-              setCurrentCompany(signInResult.companies[0].companies);
-            }
+            // Don't auto-select company - let user choose on home page
           }
         }
       } else {
@@ -67,10 +64,7 @@ export default function AuthForm() {
           setUser(result.user);
           setCompanies(result.companies);
           
-          // Set first company as default if available
-          if (result.companies.length > 0) {
-            setCurrentCompany(result.companies[0].companies);
-          }
+          // Don't auto-select company - let user choose on home page
         }
       }
     } catch {
