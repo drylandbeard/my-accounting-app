@@ -278,25 +278,29 @@ export default function Page() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
-  const formatSyncTime = (date: Date) =>
-    date.toLocaleString(undefined, {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
+  const formatSyncTime = (date: Date) => {
+    const month = (date.getMonth() + 1).toString().padStart(2, '0')
+    const day = date.getDate().toString().padStart(2, '0')
+    const year = date.getFullYear()
+    const time = date.toLocaleTimeString(undefined, {
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
-    });
+    })
+    return `${month}-${day}-${year} ${time}`
+  }
 
   const formatLastSyncTime = (lastSynced: string | null) => {
     if (!lastSynced) return 'Never';
     const date = new Date(lastSynced);
-    return date.toLocaleString(undefined, {
-      month: 'short',
-      day: 'numeric',
+    const month = (date.getMonth() + 1).toString().padStart(2, '0')
+    const day = date.getDate().toString().padStart(2, '0')
+    const year = date.getFullYear()
+    const time = date.toLocaleTimeString(undefined, {
       hour: '2-digit',
       minute: '2-digit'
     });
+    return `${month}-${day}-${year} ${time}`
   };
 
   // Add sync function
@@ -958,7 +962,9 @@ export default function Page() {
     // Parse the date string and create a UTC date
     const [year, month, day] = dateString.split('-').map(Number)
     const date = new Date(Date.UTC(year, month - 1, day))
-    return `${date.getUTCMonth() + 1}/${date.getUTCDate()}/${date.getUTCFullYear()}`
+    const formattedMonth = (date.getUTCMonth() + 1).toString().padStart(2, '0')
+    const formattedDay = date.getUTCDate().toString().padStart(2, '0')
+    return `${formattedMonth}-${formattedDay}-${date.getUTCFullYear()}`
   }
 
   // Add sorting function
