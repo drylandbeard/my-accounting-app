@@ -110,6 +110,10 @@ export default function Page() {
   // Add selected payees state  
   const [selectedPayees, setSelectedPayees] = useState<{ [txId: string]: string }>({});
 
+  // Add state for tracking react-select input values
+  const [payeeInputValues, setPayeeInputValues] = useState<{ [txId: string]: string }>({});
+  const [categoryInputValues, setCategoryInputValues] = useState<{ [txId: string]: string }>({});
+
   // Add missing state for multi-select checkboxes
   const [selectedToAdd, setSelectedToAdd] = useState<Set<string>>(new Set());
   const [selectedAdded, setSelectedAdded] = useState<Set<string>>(new Set());
@@ -1728,6 +1732,77 @@ export default function Page() {
     }));
   };
 
+  // Add helper functions for handling Enter key on react-select
+  const handlePayeeEnterKey = (inputValue: string, txId: string) => {
+    if (!inputValue.trim()) return;
+    
+    // Check if payee already exists (case-insensitive)
+    const existingPayee = payees.find(p => 
+      p.name.toLowerCase() === inputValue.trim().toLowerCase()
+    );
+    
+    if (existingPayee) {
+      // Select the existing payee
+      setSelectedPayees(prev => ({
+        ...prev,
+        [txId]: existingPayee.id
+      }));
+      // Clear the input value
+      setPayeeInputValues(prev => ({
+        ...prev,
+        [txId]: ''
+      }));
+    } else {
+      // Open modal with pre-populated name
+      setNewPayeeModal({
+        isOpen: true,
+        name: inputValue.trim(),
+        transactionId: txId
+      });
+      // Clear the input value
+      setPayeeInputValues(prev => ({
+        ...prev,
+        [txId]: ''
+      }));
+    }
+  };
+
+  const handleCategoryEnterKey = (inputValue: string, txId: string) => {
+    if (!inputValue.trim()) return;
+    
+    // Check if category already exists (case-insensitive)
+    const existingCategory = categories.find(c => 
+      c.name.toLowerCase() === inputValue.trim().toLowerCase()
+    );
+    
+    if (existingCategory) {
+      // Select the existing category
+      setSelectedCategories(prev => ({
+        ...prev,
+        [txId]: existingCategory.id
+      }));
+      // Clear the input value
+      setCategoryInputValues(prev => ({
+        ...prev,
+        [txId]: ''
+      }));
+    } else {
+      // Open modal with pre-populated name
+      setNewCategoryModal({
+        isOpen: true,
+        name: inputValue.trim(),
+        type: 'Expense',
+        parent_id: null,
+        transactionId: txId
+      });
+      // Clear the input value
+      setCategoryInputValues(prev => ({
+        ...prev,
+        [txId]: ''
+      }));
+    }
+  };
+
   // --- RENDER ---
 
   // Check if user has company context for Plaid operations
@@ -3246,6 +3321,20 @@ export default function Page() {
                               }));
                             }
                           }}
+                          onInputChange={(inputValue) => {
+                            setPayeeInputValues(prev => ({
+                              ...prev,
+                              [tx.id]: inputValue
+                            }));
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                              event.preventDefault();
+                              const inputValue = payeeInputValues[tx.id] || '';
+                              handlePayeeEnterKey(inputValue, tx.id);
+                            }
+                          }}
+                          inputValue={payeeInputValues[tx.id] || ''}
                           isSearchable
                           styles={{ 
                             control: (base) => ({ 
@@ -3277,6 +3366,20 @@ export default function Page() {
                               }));
                             }
                           }}
+                          onInputChange={(inputValue) => {
+                            setCategoryInputValues(prev => ({
+                              ...prev,
+                              [tx.id]: inputValue
+                            }));
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                              event.preventDefault();
+                              const inputValue = categoryInputValues[tx.id] || '';
+                              handleCategoryEnterKey(inputValue, tx.id);
+                            }
+                          }}
+                          inputValue={categoryInputValues[tx.id] || ''}
                           isSearchable
                           styles={{ 
                             control: (base) => ({ 
