@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../../../lib/supabaseClient'
 import React from 'react'
 import { v4 as uuidv4 } from 'uuid'
+import { useApiWithCompany } from '@/hooks/useApiWithCompany'
 
 type Account = {
   id: string
@@ -24,6 +25,7 @@ type Transaction = {
 }
 
 export default function Page() {
+  const { hasCompanyContext } = useApiWithCompany()
   const [accounts, setAccounts] = useState<Account[]>([])
   const [journalEntries, setJournalEntries] = useState<Transaction[]>([])
   const [startDate, setStartDate] = useState<string>('')
@@ -488,57 +490,20 @@ export default function Page() {
     )
   }
 
-  // Helper: render account row with total
-  const renderAccountRowWithTotal = (account: Account, level = 0) => {
-    const subaccounts = getSubaccounts(account.id).filter(hasTransactions)
-    const directTotal = calculateAccountDirectTotal(account)
-    const rollupTotal = calculateAccountTotal(account)
-    const isParent = subaccounts.length > 0
 
-    // If this account and all its subaccounts have no transactions, do not render
-    if (rollupTotal === 0) return null
 
+  // Check if user has company context
+  if (!hasCompanyContext) {
     return (
-      <React.Fragment key={account.id}>
-        <tr
-          className="cursor-pointer hover:bg-gray-100"
-          onClick={() => {
-            setSelectedCategory(account)
-            setViewerModal({ isOpen: true, category: account })
-          }}
-        >
-          <td className="border p-1" style={{ paddingLeft: `${level * 20 + 8}px` }}>
-            {account.name}
-          </td>
-          <td className="border p-1 text-right">
-            {formatNumber(directTotal)}
-          </td>
-        </tr>
-        {subaccounts.map(sub =>
-          renderAccountRowWithTotal(sub, level + 1)
-        )}
-        {isParent && (
-          <tr
-            key={`${account.id}-total`}
-            className="cursor-pointer hover:bg-blue-50"
-            onClick={() => {
-              setSelectedCategory(account)
-              setViewerModal({ isOpen: true, category: account })
-            }}
-          >
-            <td
-              className="border p-1 font-semibold bg-gray-50"
-              style={{ paddingLeft: `${level * 20 + 8}px` }}
-            >
-              Total {account.name}
-            </td>
-            <td className="border p-1 text-right font-semibold bg-gray-50">
-              {formatNumber(rollupTotal)}
-            </td>
-          </tr>
-        )}
-      </React.Fragment>
-    )
+      <div className="p-4 bg-white text-gray-900 font-sans text-xs space-y-6">
+        <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+          <h3 className="text-sm font-semibold text-yellow-800 mb-2">Company Selection Required</h3>
+          <p className="text-sm text-yellow-700">
+            Please select a company from the dropdown in the navigation bar to view profit & loss reports.
+          </p>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -989,7 +954,6 @@ export default function Page() {
                       <>
                         <td className="border p-1 text-right w-[150px]">
                           {formatNumber((() => {
-                            const previousRange = getPreviousPeriodRange(new Date(startDate), new Date(endDate))
                             const previousRevenue = calculatePreviousPeriodTotal(revenueRows)
                             const previousCOGS = calculatePreviousPeriodTotal(cogsRows)
                             const previousExpenses = calculatePreviousPeriodTotal(expenseRows)
@@ -998,7 +962,6 @@ export default function Page() {
                         </td>
                         <td className="border p-1 text-right w-[150px]">
                           {formatNumber((() => {
-                            const previousRange = getPreviousPeriodRange(new Date(startDate), new Date(endDate))
                             const previousRevenue = calculatePreviousPeriodTotal(revenueRows)
                             const previousCOGS = calculatePreviousPeriodTotal(cogsRows)
                             const previousExpenses = calculatePreviousPeriodTotal(expenseRows)
