@@ -1025,12 +1025,19 @@ export default function Page() {
         const spent = tx.spent !== undefined ? tx.spent.toString() : '';
         const received = tx.received !== undefined ? tx.received.toString() : '';
         const amount = tx.amount !== undefined ? tx.amount.toString() : '';
+        // Also search formatted amounts (what user sees in display)
+        const spentFormatted = tx.spent ? tx.spent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
+        const receivedFormatted = tx.received ? tx.received.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
+        const amountFormatted = tx.amount !== undefined ? tx.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
         return (
           desc.includes(q) ||
           date.includes(q) ||
           spent.includes(q) ||
           received.includes(q) ||
-          amount.includes(q)
+          amount.includes(q) ||
+          spentFormatted.includes(q) ||
+          receivedFormatted.includes(q) ||
+          amountFormatted.includes(q)
         );
       }),
     toAddSortConfig
@@ -1054,6 +1061,10 @@ export default function Page() {
         const spent = tx.spent !== undefined ? tx.spent.toString() : '';
         const received = tx.received !== undefined ? tx.received.toString() : '';
         const amount = tx.amount !== undefined ? tx.amount.toString() : '';
+        // Also search formatted amounts (what user sees in display)
+        const spentFormatted = tx.spent ? tx.spent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
+        const receivedFormatted = tx.received ? tx.received.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
+        const amountFormatted = tx.amount !== undefined ? tx.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
         // Get the category name for this transaction
         const isAccountDebit = tx.selected_category_id === selectedAccountIdInCOA;
         const categoryId = isAccountDebit ? tx.corresponding_category_id : tx.selected_category_id;
@@ -1065,6 +1076,9 @@ export default function Page() {
           spent.includes(q) ||
           received.includes(q) ||
           amount.includes(q) ||
+          spentFormatted.includes(q) ||
+          receivedFormatted.includes(q) ||
+          amountFormatted.includes(q) ||
           categoryName.includes(q)
         );
       }),
