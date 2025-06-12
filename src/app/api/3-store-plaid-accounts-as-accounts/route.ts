@@ -71,6 +71,7 @@ export async function POST(req: NextRequest) {
       institution_name: institutionName,
       account_number: plaidAccount.mask ? `****${plaidAccount.mask}` : null,
       is_manual: false,
+      last_synced: new Date().toISOString(),
       created_at: new Date().toISOString(),
     }));
 
