@@ -1091,11 +1091,11 @@ export default function Page() {
   const downloadTemplate = () => {
     const headers = ['Date', 'Description', 'Amount']
     const exampleData = [
-      ['2025-01-15', 'Client Payment - Invoice #1001', '1000.00'],
-      ['2025-01-16', 'Office Supplies - Staples', '-150.75'],
-      ['2025-01-17', 'Bank Interest Received', '25.50'],
-      ['2025-01-18', 'Monthly Software Subscription', '-99.99'],
-      ['2025-01-19', 'Customer Refund', '-200.00']
+      ['01-15-2025', 'Client Payment - Invoice #1001', '1000.00'],
+      ['01-16-2025', 'Office Supplies - Staples', '-150.75'],
+      ['01-17-2025', 'Bank Interest Received', '25.50'],
+      ['01-18-2025', 'Monthly Software Subscription', '-99.99'],
+      ['01-19-2025', 'Customer Refund', '-200.00']
     ]
     
     const csvContent = [
@@ -1140,22 +1140,12 @@ export default function Page() {
     for (let i = 0; i < nonEmptyRows.length; i++) {
       const row = nonEmptyRows[i]
       
-      // Validate date format (prefer YYYY-MM-DD, but also support M/D/YY, MM/DD/YY, M/D/YYYY, MM/DD/YYYY)
+      // Validate date format (prefer MM-DD-YYYY, but also support M/D/YY, MM/DD/YY, M/D/YYYY, YYYY-MM-DD)
       let isValidDate = false
       let parsedDate: Date | null = null
 
-      // Try YYYY-MM-DD format first (recommended)
-      if (row.Date.match(/^\d{4}-\d{1,2}-\d{1,2}$/)) {
-        const [yearStr, monthStr, dayStr] = row.Date.split('-')
-        const year = parseInt(yearStr)
-        const month = parseInt(monthStr)
-        const day = parseInt(dayStr)
-        parsedDate = new Date(Date.UTC(year, month - 1, day))
-        isValidDate = !isNaN(parsedDate.getTime()) && month >= 1 && month <= 12 && day >= 1 && day <= 31
-      }
-      
-      // Try M/D/YY or MM/DD/YYYY format as fallback
-      if (!isValidDate && row.Date.match(/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/)) {
+      // Try MM-DD-YYYY format first (recommended)
+      if (row.Date.match(/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/)) {
         const dateParts = row.Date.split(/[\/\-]/)
         const monthNum = parseInt(dateParts[0])
         const dayNum = parseInt(dateParts[1])
@@ -1168,9 +1158,19 @@ export default function Page() {
         parsedDate = new Date(Date.UTC(fullYear, monthNum - 1, dayNum))
         isValidDate = !isNaN(parsedDate.getTime()) && monthNum >= 1 && monthNum <= 12 && dayNum >= 1 && dayNum <= 31
       }
+      
+      // Try YYYY-MM-DD format as fallback
+      if (!isValidDate && row.Date.match(/^\d{4}-\d{1,2}-\d{1,2}$/)) {
+        const [yearStr, monthStr, dayStr] = row.Date.split('-')
+        const year = parseInt(yearStr)
+        const month = parseInt(monthStr)
+        const day = parseInt(dayStr)
+        parsedDate = new Date(Date.UTC(year, month - 1, day))
+        isValidDate = !isNaN(parsedDate.getTime()) && month >= 1 && month <= 12 && day >= 1 && day <= 31
+      }
 
       if (!isValidDate) {
-        return `Invalid date format in row ${i + 1}: "${row.Date}". Please use YYYY-MM-DD format (recommended) or M/D/YYYY format.`
+        return `Invalid date format in row ${i + 1}: "${row.Date}". Please use MM-DD-YYYY format (recommended) or YYYY-MM-DD format.`
       }
 
       // Validate amount
@@ -1217,18 +1217,11 @@ export default function Page() {
             row.Date && row.Amount && row.Description
           )
           .map((row: CSVRow) => {
-            // Parse date - try YYYY-MM-DD format first
+            // Parse date - try MM-DD-YYYY format first
             let parsedDate: Date
             
-            if (row.Date.match(/^\d{4}-\d{1,2}-\d{1,2}$/)) {
-              // YYYY-MM-DD format
-              const [yearStr, monthStr, dayStr] = row.Date.split('-')
-              const year = parseInt(yearStr)
-              const month = parseInt(monthStr)
-              const day = parseInt(dayStr)
-              parsedDate = new Date(Date.UTC(year, month - 1, day))
-            } else {
-              // Fallback to M/D/YY or MM/DD/YYYY format
+            if (row.Date.match(/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/)) {
+              // MM-DD-YYYY format (recommended)
               const dateParts = row.Date.split(/[\/\-]/)
               const monthNum = parseInt(dateParts[0])
               const dayNum = parseInt(dateParts[1])
@@ -1240,6 +1233,13 @@ export default function Page() {
               
               // Create date in UTC to prevent timezone shifts
               parsedDate = new Date(Date.UTC(fullYear, monthNum - 1, dayNum))
+            } else {
+              // Fallback to YYYY-MM-DD format
+              const [yearStr, monthStr, dayStr] = row.Date.split('-')
+              const year = parseInt(yearStr)
+              const month = parseInt(monthStr)
+              const day = parseInt(dayStr)
+              parsedDate = new Date(Date.UTC(year, month - 1, day))
             }
             
             const amount = parseFloat(row.Amount)
@@ -1887,7 +1887,7 @@ export default function Page() {
                         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                           <h4 className="text-sm font-medium text-blue-800 mb-2">CSV Format Instructions:</h4>
                           <ul className="text-sm text-blue-700 space-y-1">
-                            <li>• <strong>Date:</strong> Use YYYY-MM-DD format (e.g., 2024-01-15)</li>
+                            <li>• <strong>Date:</strong> Use MM-DD-YYYY format (e.g., 01-15-2024)</li>
                             <li>• <strong>Description:</strong> Any text describing the transaction</li>
                             <li>• <strong>Amount:</strong> Positive for money received, negative for money spent</li>
                           </ul>
