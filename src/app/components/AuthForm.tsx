@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { signIn, signUp } from "@/lib/auth";
 import { useAuth } from "./AuthContext";
+import { useRouter } from "next/navigation";
 
 export default function AuthForm() {
   const [isSignUp, setIsSignUp] = useState(false);
@@ -14,6 +15,7 @@ export default function AuthForm() {
   const [successMessage, setSuccessMessage] = useState("");
 
   const { setUser, setCompanies } = useAuth();
+  const router = useRouter();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -53,7 +55,8 @@ export default function AuthForm() {
             setUser(signInResult.user);
             setCompanies(signInResult.companies);
             
-            // Don't auto-select company - let user choose on home page
+            // Redirect to homepage
+            router.push("/");
           }
         }
       } else {
@@ -64,7 +67,8 @@ export default function AuthForm() {
           setUser(result.user);
           setCompanies(result.companies);
           
-          // Don't auto-select company - let user choose on home page
+          // Redirect to homepage
+          router.push("/");
         }
       }
     } catch {
