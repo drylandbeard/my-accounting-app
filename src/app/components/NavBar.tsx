@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
 import { useAuth } from "./AuthContext";
-import { createCompany } from "@/lib/auth";
+import { createCompany } from "@/lib/auth-client";
 
 import { ChevronDownIcon, XMarkIcon, CogIcon } from "@heroicons/react/24/outline";
 import { supabase } from "@/lib/supabaseClient";
@@ -161,6 +161,7 @@ export default function NavBar() {
   const handleCreateCompany = async (name: string, description?: string) => {
     if (!user) throw new Error("User not found");
 
+    // Use client-safe createCompany function (no email imports)
     const result = await createCompany(user.id, name, description);
     
     if (result.error) {

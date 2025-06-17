@@ -3,7 +3,7 @@
 import { useAuth } from "@/app/components/AuthContext";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { createCompany, updateUserEmail, updateUserPassword } from "@/lib/auth";
+import { createCompany, updateUserEmail, updateUserPassword } from "@/lib/auth-client";
 import { XMarkIcon, PlusIcon, UserIcon, ArrowRightOnRectangleIcon } from "@heroicons/react/24/outline";
 
 interface CompanyModalProps {
@@ -136,6 +136,7 @@ export default function Homepage() {
   const handleCreateCompany = async (name: string, description?: string) => {
     if (!user) throw new Error("User not found");
 
+    // Use client-safe createCompany function (no email imports)
     const result = await createCompany(user.id, name, description);
     
     if (result.error) {

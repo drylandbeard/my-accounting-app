@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useState } from "react";
-import { signIn, signUp } from "@/lib/auth";
+import React, { useState, useEffect } from "react";
+import { signIn } from "@/lib/auth-client";
 import { useAuth } from "./AuthContext";
 import { useRouter } from "next/navigation";
+import { CheckCircleIcon, XMarkIcon } from "@heroicons/react/24/outline";
 
 export default function AuthForm() {
   const [isSignUp, setIsSignUp] = useState(false);
@@ -13,9 +14,23 @@ export default function AuthForm() {
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
+  const [showVerificationMessage, setShowVerificationMessage] = useState(false);
+  const [isResendingVerification, setIsResendingVerification] = useState(false);
+  const [showToast, setShowToast] = useState(false);
+  const [toastMessage, setToastMessage] = useState("");
 
   const { setUser, setCompanies } = useAuth();
   const router = useRouter();
+
+  // Auto-hide toast after 5 seconds
+  useEffect(() => {
+    if (showToast) {
+      const timer = setTimeout(() => {
+        setShowToast(false);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [showToast]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,31 +52,36 @@ export default function AuthForm() {
 
     try {
       if (isSignUp) {
-        const result = await signUp(email, password);
-        if (result.error) {
+        const response = await fetch("/api/auth/signup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password }),
+        });
+        const result = await response.json();
+        
+        if (!response.ok) {
           setError(result.error);
-        } else {
-          // After successful signup, automatically sign in the user
-          const signInResult = await signIn(email, password);
-          if (signInResult.error) {
-            // If auto sign-in fails, show success message and let them sign in manually
-            setSuccessMessage("Account created successfully! Please wait for an administrator to enable your account access.");
-            setEmail("");
-            setPassword("");
-            setConfirmPassword("");
-            setIsSignUp(false);
-          } else if (signInResult.user) {
-            // Successfully signed in after signup
-            setUser(signInResult.user);
-            setCompanies(signInResult.companies);
-            
-            // Redirect to homepage
-            router.push("/");
-          }
+        } else if (result.verificationSent) {
+          // Show email verification message and toast
+          setShowVerificationMessage(true);
+          setSuccessMessage("Account created successfully! Please check your email and click the verification link to activate your account.");
+          
+          // Show toast notification
+          setToastMessage(`Verification email sent to ${email}! Please check your inbox and click the verification link to activate your account.`);
+          setShowToast(true);
+          
+          setEmail("");
+          setPassword("");
+          setConfirmPassword("");
         }
       } else {
+        // Use client-safe signIn function (no email imports)
         const result = await signIn(email, password);
         if (result.error) {
+          if (result.needsVerification) {
+            setShowVerificationMessage(true);
+            setEmail(result.email || email);
+          }
           setError(result.error);
         } else if (result.user) {
           setUser(result.user);
@@ -82,9 +102,40 @@ export default function AuthForm() {
     setIsSignUp(!isSignUp);
     setError("");
     setSuccessMessage("");
+    setShowVerificationMessage(false);
     setEmail("");
     setPassword("");
     setConfirmPassword("");
+  };
+
+  const handleResendVerification = async () => {
+    if (!email) return;
+
+    setIsResendingVerification(true);
+    setError("");
+    setSuccessMessage("");
+
+    try {
+      const response = await fetch("/api/auth/resend-verification", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setSuccessMessage("Verification email sent! Please check your inbox.");
+      } else {
+        setError(data.error || "Failed to resend verification email.");
+      }
+    } catch {
+      setError("An unexpected error occurred. Please try again.");
+    } finally {
+      setIsResendingVerification(false);
+    }
   };
 
   return (
@@ -109,6 +160,20 @@ export default function AuthForm() {
           {successMessage && (
             <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded text-sm">
               {successMessage}
+            </div>
+          )}
+
+          {showVerificationMessage && !isSignUp && (
+            <div className="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded text-sm">
+              <p className="mb-3">Your account needs email verification to sign in.</p>
+              <button
+                type="button"
+                onClick={handleResendVerification}
+                disabled={isResendingVerification}
+                className="text-blue-600 hover:text-blue-800 underline disabled:opacity-50"
+              >
+                {isResendingVerification ? "Sending..." : "Resend verification email"}
+              </button>
             </div>
           )}
           
@@ -189,6 +254,25 @@ export default function AuthForm() {
           </div>
         </form>
       </div>
+
+      {/* Toast Notification */}
+      {showToast && (
+        <div className="fixed top-4 right-4 z-50 max-w-md">
+          <div className="bg-green-50 border border-green-200 rounded-lg shadow-lg p-4 flex items-start gap-3">
+            <CheckCircleIcon className="w-6 h-6 text-green-600 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <h4 className="text-sm font-medium text-green-800">Email Sent!</h4>
+              <p className="text-sm text-green-700 mt-1">{toastMessage}</p>
+            </div>
+            <button
+              onClick={() => setShowToast(false)}
+              className="text-green-400 hover:text-green-600 transition-colors"
+            >
+              <XMarkIcon className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 } 
