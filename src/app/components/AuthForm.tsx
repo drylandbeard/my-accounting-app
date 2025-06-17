@@ -64,7 +64,6 @@ export default function AuthForm() {
         } else if (result.verificationSent) {
           // Show email verification message and toast
           setShowVerificationMessage(true);
-          setSuccessMessage("Account created successfully! Please check your email and click the verification link to activate your account.");
           
           // Show toast notification
           setToastMessage(`Verification email sent to ${email}! Please check your inbox and click the verification link to activate your account.`);
@@ -103,6 +102,8 @@ export default function AuthForm() {
     setError("");
     setSuccessMessage("");
     setShowVerificationMessage(false);
+    setShowToast(false);
+    setToastMessage("");
     setEmail("");
     setPassword("");
     setConfirmPassword("");

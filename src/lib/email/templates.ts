@@ -100,6 +100,15 @@ export function createVerificationEmailTemplate(data: EmailVerificationData): Em
           <a href="${data.verificationUrl}" class="button">Verify email</a>
           
           <p class="help-text">
+            If the button doesn't work, you can copy and paste this link into your browser:<br>
+            <a href="${data.verificationUrl}" class="link">${data.verificationUrl}</a>
+          </p>
+          
+          <p class="help-text">
+            This verification link will expire in 24 hours. If you didn't create an account with us, you can safely ignore this email.
+          </p>
+          
+          <p class="help-text">
             Questions about SWITCH? Check out our Help Center.
           </p>
           
@@ -124,6 +133,8 @@ export function createVerificationEmailTemplate(data: EmailVerificationData): Em
     To start using SWITCH, just click the verify email link below:
     
     ${data.verificationUrl}
+    
+    This verification link will expire in 24 hours. If you didn't create an account with us, you can safely ignore this email.
     
     Questions about SWITCH? Check out our Help Center.
     
