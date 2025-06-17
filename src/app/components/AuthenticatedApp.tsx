@@ -16,6 +16,10 @@ export default function AuthenticatedApp({ children }: { children: React.ReactNo
   
   // Check if we're on the homepage
   const isHomepage = pathname === "/";
+  
+  // Pages that should be accessible without authentication
+  const publicPages = ["/verify-email"];
+  const isPublicPage = publicPages.some(page => pathname.startsWith(page));
 
   // Show loading state
   if (isLoading) {
@@ -26,9 +30,14 @@ export default function AuthenticatedApp({ children }: { children: React.ReactNo
     );
   }
 
-  // Show login form if not authenticated
-  if (!user) {
+  // Show login form if not authenticated (but allow access to public pages)
+  if (!user && !isPublicPage) {
     return <AuthForm />;
+  }
+
+  // If user is not authenticated but on a public page, show the page without auth wrapper
+  if (!user && isPublicPage) {
+    return <>{children}</>;
   }
 
   // Show authenticated app

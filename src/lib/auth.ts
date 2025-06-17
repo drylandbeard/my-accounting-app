@@ -331,12 +331,11 @@ export async function updateUserRole(userId: string, newRole: "Owner" | "User" |
  */
 export async function verifyEmail(token: string) {
   try {
-    // Get verification token
+    // Get verification token (including used ones for better error handling)
     const { data: verificationToken, error: tokenError } = await supabase
       .from("email_verification_tokens")
       .select("*")
       .eq("token", token)
-      .is("used_at", null)
       .single();
 
     if (tokenError || !verificationToken) {
@@ -348,6 +347,24 @@ export async function verifyEmail(token: string) {
     const expiresAt = new Date(verificationToken.expires_at);
     if (now > expiresAt) {
       return { error: "Verification token has expired" };
+    }
+
+    // Check if token has already been used
+    if (verificationToken.used_at) {
+      // Check if the user is already verified
+      const { data: user } = await supabase
+        .from("users")
+        .select("id, email, role, is_access_enabled")
+        .eq("id", verificationToken.user_id)
+        .single();
+
+      if (user && user.is_access_enabled) {
+        // User is already verified, return success with user data
+        console.log("Token already used but user is verified, returning success");
+        return { success: true, user: { id: user.id, email: user.email, role: user.role } };
+      } else {
+        return { error: "This verification link has already been used" };
+      }
     }
 
     // Enable user access and mark token as used
