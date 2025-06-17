@@ -110,6 +110,10 @@ export default function Page() {
   // Add selected payees state  
   const [selectedPayees, setSelectedPayees] = useState<{ [txId: string]: string }>({});
 
+  // Add state for tracking react-select input values
+  const [payeeInputValues, setPayeeInputValues] = useState<{ [txId: string]: string }>({});
+  const [categoryInputValues, setCategoryInputValues] = useState<{ [txId: string]: string }>({});
+
   // Add missing state for multi-select checkboxes
   const [selectedToAdd, setSelectedToAdd] = useState<Set<string>>(new Set());
   const [selectedAdded, setSelectedAdded] = useState<Set<string>>(new Set());
@@ -278,25 +282,29 @@ export default function Page() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
-  const formatSyncTime = (date: Date) =>
-    date.toLocaleString(undefined, {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
+  const formatSyncTime = (date: Date) => {
+    const month = (date.getMonth() + 1).toString().padStart(2, '0')
+    const day = date.getDate().toString().padStart(2, '0')
+    const year = date.getFullYear()
+    const time = date.toLocaleTimeString(undefined, {
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
-    });
+    })
+    return `${month}-${day}-${year} ${time}`
+  }
 
   const formatLastSyncTime = (lastSynced: string | null) => {
     if (!lastSynced) return 'Never';
     const date = new Date(lastSynced);
-    return date.toLocaleString(undefined, {
-      month: 'short',
-      day: 'numeric',
+    const month = (date.getMonth() + 1).toString().padStart(2, '0')
+    const day = date.getDate().toString().padStart(2, '0')
+    const year = date.getFullYear()
+    const time = date.toLocaleTimeString(undefined, {
       hour: '2-digit',
       minute: '2-digit'
     });
+    return `${month}-${day}-${year} ${time}`
   };
 
   // Add sync function
@@ -958,7 +966,9 @@ export default function Page() {
     // Parse the date string and create a UTC date
     const [year, month, day] = dateString.split('-').map(Number)
     const date = new Date(Date.UTC(year, month - 1, day))
-    return `${date.getUTCMonth() + 1}/${date.getUTCDate()}/${date.getUTCFullYear()}`
+    const formattedMonth = (date.getUTCMonth() + 1).toString().padStart(2, '0')
+    const formattedDay = date.getUTCDate().toString().padStart(2, '0')
+    return `${formattedMonth}-${formattedDay}-${date.getUTCFullYear()}`
   }
 
   // Add sorting function
@@ -1019,12 +1029,19 @@ export default function Page() {
         const spent = tx.spent !== undefined ? tx.spent.toString() : '';
         const received = tx.received !== undefined ? tx.received.toString() : '';
         const amount = tx.amount !== undefined ? tx.amount.toString() : '';
+        // Also search formatted amounts (what user sees in display)
+        const spentFormatted = tx.spent ? tx.spent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
+        const receivedFormatted = tx.received ? tx.received.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
+        const amountFormatted = tx.amount !== undefined ? tx.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
         return (
           desc.includes(q) ||
           date.includes(q) ||
           spent.includes(q) ||
           received.includes(q) ||
-          amount.includes(q)
+          amount.includes(q) ||
+          spentFormatted.includes(q) ||
+          receivedFormatted.includes(q) ||
+          amountFormatted.includes(q)
         );
       }),
     toAddSortConfig
@@ -1048,6 +1065,10 @@ export default function Page() {
         const spent = tx.spent !== undefined ? tx.spent.toString() : '';
         const received = tx.received !== undefined ? tx.received.toString() : '';
         const amount = tx.amount !== undefined ? tx.amount.toString() : '';
+        // Also search formatted amounts (what user sees in display)
+        const spentFormatted = tx.spent ? tx.spent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
+        const receivedFormatted = tx.received ? tx.received.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
+        const amountFormatted = tx.amount !== undefined ? tx.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
         // Get the category name for this transaction
         const isAccountDebit = tx.selected_category_id === selectedAccountIdInCOA;
         const categoryId = isAccountDebit ? tx.corresponding_category_id : tx.selected_category_id;
@@ -1059,6 +1080,9 @@ export default function Page() {
           spent.includes(q) ||
           received.includes(q) ||
           amount.includes(q) ||
+          spentFormatted.includes(q) ||
+          receivedFormatted.includes(q) ||
+          amountFormatted.includes(q) ||
           categoryName.includes(q)
         );
       }),
@@ -1085,11 +1109,11 @@ export default function Page() {
   const downloadTemplate = () => {
     const headers = ['Date', 'Description', 'Amount']
     const exampleData = [
-      ['2025-01-15', 'Client Payment - Invoice #1001', '1000.00'],
-      ['2025-01-16', 'Office Supplies - Staples', '-150.75'],
-      ['2025-01-17', 'Bank Interest Received', '25.50'],
-      ['2025-01-18', 'Monthly Software Subscription', '-99.99'],
-      ['2025-01-19', 'Customer Refund', '-200.00']
+      ['01-15-2025', 'Client Payment - Invoice #1001', '1000.00'],
+      ['01-16-2025', 'Office Supplies - Staples', '-150.75'],
+      ['01-17-2025', 'Bank Interest Received', '25.50'],
+      ['01-18-2025', 'Monthly Software Subscription', '-99.99'],
+      ['01-19-2025', 'Customer Refund', '-200.00']
     ]
     
     const csvContent = [
@@ -1134,22 +1158,12 @@ export default function Page() {
     for (let i = 0; i < nonEmptyRows.length; i++) {
       const row = nonEmptyRows[i]
       
-      // Validate date format (prefer YYYY-MM-DD, but also support M/D/YY, MM/DD/YY, M/D/YYYY, MM/DD/YYYY)
+      // Validate date format (prefer MM-DD-YYYY, but also support M/D/YY, MM/DD/YY, M/D/YYYY, YYYY-MM-DD)
       let isValidDate = false
       let parsedDate: Date | null = null
 
-      // Try YYYY-MM-DD format first (recommended)
-      if (row.Date.match(/^\d{4}-\d{1,2}-\d{1,2}$/)) {
-        const [yearStr, monthStr, dayStr] = row.Date.split('-')
-        const year = parseInt(yearStr)
-        const month = parseInt(monthStr)
-        const day = parseInt(dayStr)
-        parsedDate = new Date(Date.UTC(year, month - 1, day))
-        isValidDate = !isNaN(parsedDate.getTime()) && month >= 1 && month <= 12 && day >= 1 && day <= 31
-      }
-      
-      // Try M/D/YY or MM/DD/YYYY format as fallback
-      if (!isValidDate && row.Date.match(/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/)) {
+      // Try MM-DD-YYYY format first (recommended)
+      if (row.Date.match(/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/)) {
         const dateParts = row.Date.split(/[\/\-]/)
         const monthNum = parseInt(dateParts[0])
         const dayNum = parseInt(dateParts[1])
@@ -1162,9 +1176,19 @@ export default function Page() {
         parsedDate = new Date(Date.UTC(fullYear, monthNum - 1, dayNum))
         isValidDate = !isNaN(parsedDate.getTime()) && monthNum >= 1 && monthNum <= 12 && dayNum >= 1 && dayNum <= 31
       }
+      
+      // Try YYYY-MM-DD format as fallback
+      if (!isValidDate && row.Date.match(/^\d{4}-\d{1,2}-\d{1,2}$/)) {
+        const [yearStr, monthStr, dayStr] = row.Date.split('-')
+        const year = parseInt(yearStr)
+        const month = parseInt(monthStr)
+        const day = parseInt(dayStr)
+        parsedDate = new Date(Date.UTC(year, month - 1, day))
+        isValidDate = !isNaN(parsedDate.getTime()) && month >= 1 && month <= 12 && day >= 1 && day <= 31
+      }
 
       if (!isValidDate) {
-        return `Invalid date format in row ${i + 1}: "${row.Date}". Please use YYYY-MM-DD format (recommended) or M/D/YYYY format.`
+        return `Invalid date format in row ${i + 1}: "${row.Date}". Please use MM-DD-YYYY format (recommended) or YYYY-MM-DD format.`
       }
 
       // Validate amount
@@ -1211,18 +1235,11 @@ export default function Page() {
             row.Date && row.Amount && row.Description
           )
           .map((row: CSVRow) => {
-            // Parse date - try YYYY-MM-DD format first
+            // Parse date - try MM-DD-YYYY format first
             let parsedDate: Date
             
-            if (row.Date.match(/^\d{4}-\d{1,2}-\d{1,2}$/)) {
-              // YYYY-MM-DD format
-              const [yearStr, monthStr, dayStr] = row.Date.split('-')
-              const year = parseInt(yearStr)
-              const month = parseInt(monthStr)
-              const day = parseInt(dayStr)
-              parsedDate = new Date(Date.UTC(year, month - 1, day))
-            } else {
-              // Fallback to M/D/YY or MM/DD/YYYY format
+            if (row.Date.match(/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/)) {
+              // MM-DD-YYYY format (recommended)
               const dateParts = row.Date.split(/[\/\-]/)
               const monthNum = parseInt(dateParts[0])
               const dayNum = parseInt(dateParts[1])
@@ -1234,6 +1251,13 @@ export default function Page() {
               
               // Create date in UTC to prevent timezone shifts
               parsedDate = new Date(Date.UTC(fullYear, monthNum - 1, dayNum))
+            } else {
+              // Fallback to YYYY-MM-DD format
+              const [yearStr, monthStr, dayStr] = row.Date.split('-')
+              const year = parseInt(yearStr)
+              const month = parseInt(monthStr)
+              const day = parseInt(dayStr)
+              parsedDate = new Date(Date.UTC(year, month - 1, day))
             }
             
             const amount = parseFloat(row.Amount)
@@ -1708,6 +1732,81 @@ export default function Page() {
     }));
   };
 
+  // Add helper functions for handling Enter key on react-select
+  const handlePayeeEnterKey = (inputValue: string, txId: string) => {
+    if (!inputValue.trim()) return;
+    
+    // Check if payee already exists (case-insensitive)
+    const existingPayee = payees.find(p => 
+      p.name.toLowerCase() === inputValue.trim().toLowerCase()
+    );
+    
+    if (existingPayee) {
+      // Select the existing payee
+      setSelectedPayees(prev => ({
+        ...prev,
+        [txId]: existingPayee.id
+      }));
+      // Clear the input value
+      setPayeeInputValues(prev => ({
+        ...prev,
+        [txId]: ''
+      }));
+    } else {
+      // Open modal with pre-populated name
+      setNewPayeeModal({
+        isOpen: true,
+        name: inputValue.trim(),
+        transactionId: txId
+      });
+      // Clear the input value
+      setPayeeInputValues(prev => ({
+        ...prev,
+        [txId]: ''
+      }));
+    }
+  };
+
+  const handleCategoryEnterKey = (inputValue: string, txId: string) => {
+    if (!inputValue.trim()) return;
+    
+    // Check if category already exists (case-insensitive)
+    const existingCategory = categories.find(c => 
+      c.name.toLowerCase() === inputValue.trim().toLowerCase()
+    );
+    
+    if (existingCategory) {
+      // Select the existing category
+      setSelectedCategories(prev => ({
+        ...prev,
+        [txId]: existingCategory.id
+      }));
+      // Clear the input value
+      setCategoryInputValues(prev => ({
+        ...prev,
+        [txId]: ''
+      }));
+    } else {
+      // Find the transaction to determine default category type
+      const transaction = imported.find(tx => tx.id === txId);
+      const defaultType = transaction?.received && transaction.received > 0 ? 'Revenue' : 'Expense';
+      
+      // Open modal with pre-populated name and appropriate type
+      setNewCategoryModal({
+        isOpen: true,
+        name: inputValue.trim(),
+        type: defaultType,
+        parent_id: null,
+        transactionId: txId
+      });
+      // Clear the input value
+      setCategoryInputValues(prev => ({
+        ...prev,
+        [txId]: ''
+      }));
+    }
+  };
+
   // --- RENDER ---
 
   // Check if user has company context for Plaid operations
@@ -1881,7 +1980,7 @@ export default function Page() {
                         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                           <h4 className="text-sm font-medium text-blue-800 mb-2">CSV Format Instructions:</h4>
                           <ul className="text-sm text-blue-700 space-y-1">
-                            <li>• <strong>Date:</strong> Use YYYY-MM-DD format (e.g., 2024-01-15)</li>
+                            <li>• <strong>Date:</strong> Use MM-DD-YYYY format (e.g., 01-15-2024)</li>
                             <li>• <strong>Description:</strong> Any text describing the transaction</li>
                             <li>• <strong>Amount:</strong> Positive for money received, negative for money spent</li>
                           </ul>
@@ -3226,6 +3325,20 @@ export default function Page() {
                               }));
                             }
                           }}
+                          onInputChange={(inputValue) => {
+                            setPayeeInputValues(prev => ({
+                              ...prev,
+                              [tx.id]: inputValue
+                            }));
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                              event.preventDefault();
+                              const inputValue = payeeInputValues[tx.id] || '';
+                              handlePayeeEnterKey(inputValue, tx.id);
+                            }
+                          }}
+                          inputValue={payeeInputValues[tx.id] || ''}
                           isSearchable
                           styles={{ 
                             control: (base) => ({ 
@@ -3243,10 +3356,12 @@ export default function Page() {
                           onChange={(selectedOption) => {
                             const option = selectedOption as SelectOption | null;
                             if (option?.value === 'add_new') {
+                              // Determine default category type based on transaction
+                              const defaultType = tx.received && tx.received > 0 ? 'Revenue' : 'Expense';
                               setNewCategoryModal({ 
                                 isOpen: true, 
                                 name: '', 
-                                type: 'Expense', 
+                                type: defaultType, 
                                 parent_id: null, 
                                 transactionId: tx.id 
                               });
@@ -3257,6 +3372,20 @@ export default function Page() {
                               }));
                             }
                           }}
+                          onInputChange={(inputValue) => {
+                            setCategoryInputValues(prev => ({
+                              ...prev,
+                              [tx.id]: inputValue
+                            }));
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                              event.preventDefault();
+                              const inputValue = categoryInputValues[tx.id] || '';
+                              handleCategoryEnterKey(inputValue, tx.id);
+                            }
+                          }}
+                          inputValue={categoryInputValues[tx.id] || ''}
                           isSearchable
                           styles={{ 
                             control: (base) => ({ 

@@ -2,7 +2,7 @@ import { Configuration, PlaidApi, PlaidEnvironments } from 'plaid'
 
 const PLAID_CLIENT_ID = process.env.PLAID_CLIENT_ID!
 const PLAID_SECRET = process.env.PLAID_SECRET!
-const PLAID_ENV = (process.env.PLAID_ENV as 'sandbox' | 'development' | 'production') || 'sandbox'
+const PLAID_ENV = process.env.PLAID_ENV!
 
 const config = new Configuration({
   basePath: PlaidEnvironments[PLAID_ENV],

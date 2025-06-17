@@ -202,6 +202,14 @@ export default function ChartOfAccountsPage() {
     e.preventDefault()
     if (!editingId) return
 
+    // First get the current chart_of_accounts record to check if it has a plaid_account_id
+    const { data: currentAccount } = await supabase
+      .from('chart_of_accounts')
+      .select('plaid_account_id')
+      .eq('id', editingId)
+      .single()
+
+    // Update chart_of_accounts
     const { error } = await supabase
       .from('chart_of_accounts')
       .update({
@@ -213,6 +221,19 @@ export default function ChartOfAccountsPage() {
       .eq('id', editingId)
 
     if (!error) {
+      // If this chart of accounts entry is linked to a plaid account, also update the accounts table
+      if (currentAccount?.plaid_account_id) {
+        await supabase
+          .from('accounts')
+          .update({
+            name: editName,
+            type: editType,
+            subtype: editSubtype || null
+          })
+          .eq('plaid_account_id', currentAccount.plaid_account_id)
+          .eq('company_id', currentCompany!.id)
+      }
+
       setEditingId(null)
       fetchAccounts()
       fetchParentOptions()
@@ -387,7 +408,7 @@ export default function ChartOfAccountsPage() {
             </table>
             {editingId && (
               <div 
-                className="fixed inset-0 backdrop-blur-sm flex items-center justify-center"
+                className="fixed inset-0 bg-black/70 flex items-center justify-center"
                 onClick={(e) => {
                   // Only close if clicking the overlay, not its children
                   if (e.target === e.currentTarget) {

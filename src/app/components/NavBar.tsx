@@ -1,12 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useState, useEffect, useRef } from "react";
 import { useAuth } from "./AuthContext";
-import { createCompany } from "@/lib/auth";
-import SettingsModal from "./SettingsModal";
-import { ChevronDownIcon, XMarkIcon } from "@heroicons/react/24/outline";
+import { createCompany } from "@/lib/auth-client";
+
+import { ChevronDownIcon, XMarkIcon, CogIcon } from "@heroicons/react/24/outline";
 import { supabase } from "@/lib/supabaseClient";
 
 interface CompanyModalProps {
@@ -131,8 +131,9 @@ function NavLink({ href, label }: { href: string, label: string }) {
 
 export default function NavBar() {
   const { user, companies, currentCompany, setCurrentCompany, setCompanies, logout } = useAuth();
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isAccountDropdownOpen, setIsAccountDropdownOpen] = useState(false);
+  const router = useRouter();
+
   const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
   const [isEditCompanyModalOpen, setIsEditCompanyModalOpen] = useState(false);
   const [editingCompany, setEditingCompany] = useState<{
@@ -141,9 +142,26 @@ export default function NavBar() {
     description: string;
   } | null>(null);
 
+  const accountDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (accountDropdownRef.current && !accountDropdownRef.current.contains(event.target as Node)) {
+        setIsAccountDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
   const handleCreateCompany = async (name: string, description?: string) => {
     if (!user) throw new Error("User not found");
 
+    // Use client-safe createCompany function (no email imports)
     const result = await createCompany(user.id, name, description);
     
     if (result.error) {
@@ -161,6 +179,10 @@ export default function NavBar() {
     }
   };
 
+  const handleSwitchCompany = () => {
+    router.push('/');
+  };
+
   if (!user) {
     return null; // Don't show navbar if not authenticated
   }
@@ -169,7 +191,6 @@ export default function NavBar() {
     <>
       <nav className="flex justify-between items-center px-6 py-2 bg-gray-100 border-b border-gray-300 text-xs font-normal">
         <div className="space-x-6 flex">
-          <NavLink href="/" label="Home" />
           <NavLink href="/transactions" label="Transactions" />
           <NavLink href="/automations" label="Automations" />
           <NavLink href="/categories" label="Categories" />
@@ -178,103 +199,66 @@ export default function NavBar() {
           <NavLink href="/reports/balance-sheet" label="Balance Sheet" />
         </div>
 
-        <div className="relative">
+        <div className="flex items-center space-x-4">
+          {/* Switch Company Button */}
           <button
-            onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-            className="flex items-center space-x-2 text-gray-700 hover:text-black px-2 py-1 rounded"
+            onClick={handleSwitchCompany}
+            className="flex items-center space-x-2 text-gray-700 hover:text-black px-3 py-1 rounded border border-gray-300 hover:border-gray-400 transition-colors"
           >
-            <div className="flex flex-col items-start">
-              <span className="text-xs">{user.email}</span>
-              {currentCompany && (
-                <span className="text-xs text-gray-500">{currentCompany.name}</span>
-              )}
-            </div>
-            <ChevronDownIcon className="w-4 h-4" />
+            <span className="text-xs">
+              Switch Company
+            </span>
+            {currentCompany && (
+              <span className="text-xs font-medium text-blue-600">
+                ({currentCompany.name})
+              </span>
+            )}
           </button>
 
-          {isDropdownOpen && (
-            <div className="absolute right-0 mt-2 w-64 bg-white border border-gray-200 rounded-md shadow-lg z-50">
-              <div className="py-1">
-                
-                {/* Company List */}
-                {companies.map((companyUser) => (
-                  <div key={companyUser.company_id} className={`flex items-center ${
-                        currentCompany?.id === companyUser.companies.id
-                          ? "bg-gray-100 text-gray-900 font-medium"
-                          : "text-gray-700 hover:bg-gray-100"
-                      }`}>
-                    <button
-                      onClick={() => {
-                        setCurrentCompany(companyUser.companies);
-                        setIsDropdownOpen(false);
-                      }}
-                      className="flex-1 text-left px-4 py-2 text-sm"
-                    >
-                      <div>{companyUser.companies.name}</div>
-                      <div className="text-xs text-gray-500">{companyUser.role}</div>
-                    </button>
-                    <button
-                      onClick={() => {
-                        setEditingCompany({
-                          id: companyUser.companies.id,
-                          name: companyUser.companies.name,
-                          description: companyUser.companies.description || ""
-                        });
-                        setIsEditCompanyModalOpen(true);
-                        setIsDropdownOpen(false);
-                      }}
-                      className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700"
-                      title="Edit company"
-                    >
-                      Edit
-                    </button>
-                  </div>
-                ))}
-                
-                {/* Add New Company Button */}
-                <button
-                  onClick={() => {
-                    setIsCompanyModalOpen(true);
-                    setIsDropdownOpen(false);
-                  }}
-                  className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                >
-                  + Add Company
-                </button>
-                
-                <hr className="my-1 border-gray-200" />
+          {/* Account Dropdown */}
+          <div className="relative" ref={accountDropdownRef}>
+            <button
+              onClick={() => setIsAccountDropdownOpen(!isAccountDropdownOpen)}
+              className="flex items-center space-x-1 text-gray-700 hover:text-black px-2 py-1 rounded"
+            >
+              <CogIcon className="w-4 h-4" />
+              <ChevronDownIcon className="w-3 h-3" />
+            </button>
 
-                {/* Settings Option */}
-                <button
-                  onClick={() => {
-                    setIsSettingsOpen(true);
-                    setIsDropdownOpen(false);
-                  }}
-                  className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                >
-                  Settings
-                </button>
-                
-                {/* Logout */}
-                <button
-                  onClick={() => {
-                    logout();
-                    setIsDropdownOpen(false);
-                  }}
-                  className="block w-full text-left px-4 py-2 text-sm text-gray-900 hover:bg-gray-100 font-medium"
-                >
-                  Logout
-                </button>
+            {isAccountDropdownOpen && (
+              <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-md shadow-lg z-50">
+                <div className="py-1">
+                  {/* Settings Option */}
+                  <Link
+                    href="/settings"
+                    onClick={() => setIsAccountDropdownOpen(false)}
+                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                  >
+                    Settings
+                  </Link>
+                  
+                  {/* Logout */}
+                  <button
+                    onClick={() => {
+                      logout();
+                      setIsAccountDropdownOpen(false);
+                    }}
+                    className="block w-full text-left px-4 py-2 text-sm text-gray-900 hover:bg-gray-100 font-medium"
+                  >
+                    Logout
+                  </button>
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </nav>
 
-      {/* Settings Modal */}
-      <SettingsModal 
-        isOpen={isSettingsOpen} 
-        onClose={() => setIsSettingsOpen(false)} 
+      {/* Company Modal */}
+      <CompanyModal
+        isOpen={isCompanyModalOpen}
+        onClose={() => setIsCompanyModalOpen(false)}
+        onCreateCompany={handleCreateCompany}
       />
 
       {/* Edit Company Modal */}
@@ -300,45 +284,28 @@ export default function NavBar() {
                 throw new Error(error.message);
               }
 
-              // Update the companies list
-              setCompanies(companies.map(companyUser => 
-                companyUser.companies.id === editingCompany.id
-                  ? {
-                      ...companyUser,
-                      companies: {
-                        ...companyUser.companies,
-                        name: updatedData.name,
-                        description: updatedData.description
-                      }
-                    }
-                  : companyUser
-              ));
+              // Update the companies list in context
+              const updatedCompanies = companies.map(userCompany => ({
+                ...userCompany,
+                companies: userCompany.companies.id === editingCompany.id
+                  ? { ...userCompany.companies, ...updatedData }
+                  : userCompany.companies
+              }));
+              setCompanies(updatedCompanies);
 
               // Update current company if it's the one being edited
               if (currentCompany?.id === editingCompany.id) {
-                setCurrentCompany({
-                  ...currentCompany,
-                  name: updatedData.name,
-                  description: updatedData.description
-                });
+                setCurrentCompany({ ...currentCompany, ...updatedData });
               }
 
               setIsEditCompanyModalOpen(false);
               setEditingCompany(null);
-            } catch (err) {
-              console.error("Error updating company:", err);
-              alert("Failed to update company. Please try again.");
+            } catch (error) {
+              throw new Error(error instanceof Error ? error.message : "Failed to update company");
             }
           }}
         />
       )}
-
-      {/* Company Modal */}
-      <CompanyModal
-        isOpen={isCompanyModalOpen}
-        onClose={() => setIsCompanyModalOpen(false)}
-        onCreateCompany={handleCreateCompany}
-      />
     </>
   );
 }

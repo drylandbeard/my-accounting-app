@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    return NextResponse.json({ message: "User created successfully" });
+    return NextResponse.json(result);
   } catch {
     return NextResponse.json(
       { error: "Internal server error" },

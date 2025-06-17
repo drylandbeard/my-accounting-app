@@ -242,6 +242,20 @@ export default function BalanceSheetPage() {
     return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   }
 
+  // Check if user has company context
+  if (!hasCompanyContext) {
+    return (
+      <div className="p-4 bg-white text-gray-900 font-sans text-xs space-y-6">
+        <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+          <h3 className="text-sm font-semibold text-yellow-800 mb-2">Company Selection Required</h3>
+          <p className="text-sm text-yellow-700">
+            Please select a company from the dropdown in the navigation bar to view balance sheet reports.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-4 bg-white text-gray-900 font-sans text-sm space-y-4 max-w-7xl mx-auto">
       <h1 className="text-xl font-semibold mb-4 text-center">Balance Sheet</h1>

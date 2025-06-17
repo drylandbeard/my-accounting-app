@@ -129,6 +129,20 @@ export default function JournalTablePage() {
     { key: 'category', label: 'Category Name', isCustom: true }
   ];
 
+  // Check if user has company context
+  if (!hasCompanyContext) {
+    return (
+      <div className="p-4 bg-white text-gray-900 font-sans text-xs space-y-6">
+        <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+          <h3 className="text-sm font-semibold text-yellow-800 mb-2">Company Selection Required</h3>
+          <p className="text-sm text-yellow-700">
+            Please select a company from the dropdown in the navigation bar to view journal entries.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-4">
       {loading ? (
