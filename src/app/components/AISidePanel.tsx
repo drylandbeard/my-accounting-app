@@ -22,8 +22,14 @@ const MIN_PANEL_WIDTH = 300;
 const MAX_PANEL_WIDTH = 800;
 const SYSTEM_PROMPT = `You are an expert accounting assistant for a small business accounting app. You help users understand how to categorize transactions, use accounting categories, and manage their finances within the app. Answer questions about accounting best practices, transaction categorization, and how to use the app's features. If a user asks for legal or tax advice, remind them to consult a professional. Be concise, friendly, and clear in your responses. Keep replies short and to the point for easy back and forth.
 
-When referring to transactions or categories, use their date, amount, description, and category name, not internal IDs. For example, to categorize a transaction, respond with:
+When referring to transactions or categories, use their date, amount, description, and category name, not internal IDs. 
+
+Available actions:
+1. To categorize a transaction, respond with:
 {"action": "categorize", "date": "4/9/2025", "amount": 10, "description": "Lunch", "categoryName": "Wages"}
+
+2. To assign a category under a parent category, respond with:
+{"action": "assign_parent_category", "categoryName": "Facebook Ads", "parentCategoryName": "Advertising"}
 
 Always explain your reasoning before or after the JSON, but make sure the JSON is on its own line.`;
 
@@ -86,7 +92,7 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
   }, [isResizing]);
 
   // Add the action handler here so it can access context
-  async function handleAIAction(action: { action: string; date?: string; amount?: number; description?: string; categoryName?: string }): Promise<string> {
+  async function handleAIAction(action: { action: string; date?: string; amount?: number; description?: string; categoryName?: string; parentCategoryName?: string }): Promise<string> {
     if (action.action === 'categorize') {
       // Find the transaction and category by human-friendly fields
       const { date, amount, description, categoryName } = action;
@@ -128,8 +134,56 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
       }
       return `Transaction "${tx.description}" categorized as "${category.name}".`;
     }
+    
+    if (action.action === 'assign_parent_category') {
+      return await assign_parent_category(action.categoryName!, action.parentCategoryName!);
+    }
+    
     // TODO: Implement other actions
     return `Action received: ${JSON.stringify(action)}`;
+  }
+
+  // Function to assign a category under a parent category
+  async function assign_parent_category(categoryName: string, parentCategoryName: string): Promise<string> {
+    // Find the category to be assigned
+    const category = categories.find((c) => c.name.toLowerCase() === categoryName.toLowerCase());
+    if (!category) {
+      return `Could not find category with name '${categoryName}'. Available categories: ${categories.map(c => c.name).join(', ')}`;
+    }
+
+    // Find the parent category
+    const parentCategory = categories.find((c) => c.name.toLowerCase() === parentCategoryName.toLowerCase());
+    if (!parentCategory) {
+      return `Could not find parent category with name '${parentCategoryName}'. Available categories: ${categories.map(c => c.name).join(', ')}`;
+    }
+
+    // Check if the category is already assigned to this parent
+    if (category.parent_id === parentCategory.id) {
+      return `Category '${categoryName}' is already assigned under '${parentCategoryName}'.`;
+    }
+
+    try {
+      // Update the category with the new parent_id
+      const { error } = await supabase
+        .from('chart_of_accounts')
+        .update({ parent_id: parentCategory.id })
+        .eq('id', category.id);
+
+      if (error) {
+        console.error('Error updating category:', error);
+        return `Error assigning category: ${error.message}`;
+      }
+
+      // Refresh the page to update the context
+      if (typeof window !== 'undefined') {
+        setTimeout(() => window.location.reload(), 1000);
+      }
+
+      return `Successfully assigned category '${categoryName}' under parent category '${parentCategoryName}'.`;
+    } catch (error) {
+      console.error('Error in assign_parent_category:', error);
+      return `An error occurred while assigning the category.`;
+    }
   }
 
   const handleSendMessage = async () => {
@@ -187,14 +241,14 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
     ]);
 
     try {
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${process.env.NEXT_PUBLIC_OPENAI_API_KEY}`,
+          'Authorization': `Bearer ${process.env.NEXT_PUBLIC_GROQ_API_KEY}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'gpt-3.5-turbo',
+          model: 'llama-3.3-70b-versatile',
           messages: openAIMessages,
           max_tokens: 256,
           temperature: 0.2,
