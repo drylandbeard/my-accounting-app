@@ -194,9 +194,9 @@ function AddMemberModal({ isOpen, onClose, onAddMember }: AddMemberModalProps) {
                 onChange={(e) => setRole(e.target.value as "Owner" | "User" | "Accountant")}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 focus:border-black focus:outline-none focus:ring-black"
               >
-                <option value="User">User</option>
-                <option value="Accountant">Accountant</option>
                 <option value="Owner">Owner</option>
+                <option value="User">Member</option>
+                <option value="Accountant">Accountant</option>
               </select>
             </div>
           </div>
@@ -323,6 +323,69 @@ function TransferOwnershipModal({ isOpen, onClose, members, onTransferOwnership 
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+interface ConfirmationModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  title: string;
+  message: string;
+  confirmText?: string;
+  cancelText?: string;
+  confirmButtonStyle?: "primary" | "danger";
+}
+
+function ConfirmationModal({ 
+  isOpen, 
+  onClose, 
+  onConfirm, 
+  title, 
+  message, 
+  confirmText = "Confirm", 
+  cancelText = "Cancel",
+  confirmButtonStyle = "primary"
+}: ConfirmationModalProps) {
+  if (!isOpen) return null;
+
+  const confirmButtonClasses = confirmButtonStyle === "danger" 
+    ? "px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 transition-colors"
+    : "px-4 py-2 text-sm font-medium text-white bg-black rounded-md hover:bg-gray-800 transition-colors";
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg shadow-xl w-96 mx-4">
+        <div className="flex justify-between items-center px-6 py-4 border-b border-gray-200">
+          <h2 className="text-base font-semibold text-gray-900">{title}</h2>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            <XMarkIcon className="w-5 h-5" />
+          </button>
+        </div>
+        
+        <div className="px-6 py-4">
+          <p className="text-sm text-gray-700">{message}</p>
+          
+          <div className="flex justify-end gap-3 mt-6">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+            >
+              {cancelText}
+            </button>
+            <button
+              onClick={onConfirm}
+              className={confirmButtonClasses}
+            >
+              {confirmText}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -458,6 +521,19 @@ export default function SettingsPage() {
   const [addMemberModal, setAddMemberModal] = useState(false);
   const [transferOwnershipModal, setTransferOwnershipModal] = useState(false);
   const [deleteCompanyModal, setDeleteCompanyModal] = useState(false);
+  const [confirmationModal, setConfirmationModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    confirmText?: string;
+    confirmButtonStyle?: "primary" | "danger";
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    onConfirm: () => {},
+  });
 
   // Get current user's role in the company
   const currentUserRole = user?.role || "User";
@@ -520,24 +596,46 @@ export default function SettingsPage() {
   };
 
   const handleAddMember = async (email: string, role: "Owner" | "User" | "Accountant") => {
-    // For now, just show a success message since we're keeping this static
-    alert(`Member ${email} with role ${role} would be added to the company.`);
+    setConfirmationModal({
+      isOpen: true,
+      title: "Member Added",
+      message: `Member ${email} with role ${role} would be added to the company.`,
+      onConfirm: () => setConfirmationModal({ ...confirmationModal, isOpen: false }),
+      confirmText: "OK",
+    });
   };
 
   const handleDeleteMember = async (memberId: string) => {
-    if (!window.confirm("Are you sure you want to remove this team member?")) {
-      return;
-    }
-
-    // For now, just show a success message since we're keeping this static
     const member = companyMembers.find(m => m.id === memberId);
-    alert(`Team member ${member?.email || 'Unknown'} would be removed from the company.`);
+    
+    setConfirmationModal({
+      isOpen: true,
+      title: "Remove Team Member",
+      message: `Are you sure you want to remove ${member?.email || 'this team member'} from the company?`,
+      onConfirm: () => {
+        // For now, just show a success message since we're keeping this static
+        setConfirmationModal({
+          isOpen: true,
+          title: "Member Removed",
+          message: `Team member ${member?.email || 'Unknown'} would be removed from the company.`,
+          onConfirm: () => setConfirmationModal({ ...confirmationModal, isOpen: false }),
+          confirmText: "OK",
+        });
+      },
+      confirmText: "Remove",
+      confirmButtonStyle: "danger",
+    });
   };
 
   const handleTransferOwnership = async (newOwnerId: string) => {
-    // For now, just show a success message since we're keeping this static
     const newOwner = companyMembers.find(m => m.id === newOwnerId);
-    alert(`Ownership would be transferred to ${newOwner?.email || 'Unknown'}.`);
+    setConfirmationModal({
+      isOpen: true,
+      title: "Ownership Transferred",
+      message: `Ownership would be transferred to ${newOwner?.email || 'Unknown'}.`,
+      onConfirm: () => setConfirmationModal({ ...confirmationModal, isOpen: false }),
+      confirmText: "OK",
+    });
   };
 
   const handleDeleteCompany = async () => {
@@ -825,6 +923,17 @@ export default function SettingsPage() {
         onClose={() => setDeleteCompanyModal(false)}
         companyName={currentCompany.name}
         onDeleteCompany={handleDeleteCompany}
+      />
+
+      {/* Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={confirmationModal.isOpen}
+        onClose={() => setConfirmationModal({ ...confirmationModal, isOpen: false })}
+        onConfirm={confirmationModal.onConfirm}
+        title={confirmationModal.title}
+        message={confirmationModal.message}
+        confirmText={confirmationModal.confirmText}
+        confirmButtonStyle={confirmationModal.confirmButtonStyle}
       />
     </div>
   );
