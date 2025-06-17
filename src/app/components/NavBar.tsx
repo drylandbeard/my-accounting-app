@@ -190,7 +190,6 @@ export default function NavBar() {
     <>
       <nav className="flex justify-between items-center px-6 py-2 bg-gray-100 border-b border-gray-300 text-xs font-normal">
         <div className="space-x-6 flex">
-          <NavLink href="/" label="Home" />
           <NavLink href="/transactions" label="Transactions" />
           <NavLink href="/automations" label="Automations" />
           <NavLink href="/categories" label="Categories" />

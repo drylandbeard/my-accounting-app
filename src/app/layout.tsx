@@ -4,7 +4,7 @@ import AuthenticatedApp from "@/app/components/AuthenticatedApp";
 
 export const metadata = {
   title: 'Switch',
-  description: 'Your best accounting software',
+  description: 'Your comprehensive accounting solution for managing transactions, automations, and financial reporting.',
 }
 
 export default function RootLayout({
