@@ -2,6 +2,7 @@
 
 import { useAuth } from "@/app/components/AuthContext";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { createCompany, updateUserEmail, updateUserPassword } from "@/lib/auth";
 import { XMarkIcon, PlusIcon, UserIcon, ArrowRightOnRectangleIcon } from "@heroicons/react/24/outline";
 
@@ -114,6 +115,7 @@ export default function Homepage() {
   const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
   const [showAccountSection, setShowAccountSection] = useState(false);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const router = useRouter();
   
   // Profile form states
   const [emailForm, setEmailForm] = useState({
@@ -270,6 +272,11 @@ export default function Homepage() {
       });
       setIsEditingProfile(false);
     }
+  };
+
+  const handleCompanySelect = (company: { id: string; name: string; description?: string }) => {
+    setCurrentCompany(company);
+    router.push('/transactions');
   };
 
   return (
@@ -466,7 +473,7 @@ export default function Homepage() {
                   {companies.map((userCompany) => (
                     <button
                       key={userCompany.company_id}
-                      onClick={() => setCurrentCompany(userCompany.companies)}
+                      onClick={() => handleCompanySelect(userCompany.companies)}
                       className={`p-4 bg-white border rounded-lg hover:shadow-md transition-all text-left ${
                         currentCompany?.id === userCompany.companies.id
                           ? 'border-blue-400 shadow-md ring-2 ring-blue-200'
