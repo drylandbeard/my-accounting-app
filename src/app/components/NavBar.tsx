@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
 import { useAuth } from "./AuthContext";
 import { createCompany } from "@/lib/auth";
-import SettingsModal from "./SettingsModal";
+
 import { ChevronDownIcon, XMarkIcon } from "@heroicons/react/24/outline";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -133,7 +133,7 @@ export default function NavBar() {
   const { user, companies, currentCompany, setCurrentCompany, setCompanies, logout } = useAuth();
   const [isCompanyDropdownOpen, setIsCompanyDropdownOpen] = useState(false);
   const [isAccountDropdownOpen, setIsAccountDropdownOpen] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
   const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
   const [isEditCompanyModalOpen, setIsEditCompanyModalOpen] = useState(false);
   const [editingCompany, setEditingCompany] = useState<{
@@ -279,15 +279,13 @@ export default function NavBar() {
               <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-md shadow-lg z-50">
                 <div className="py-1">
                   {/* Settings Option */}
-                  <button
-                    onClick={() => {
-                      setIsSettingsOpen(true);
-                      setIsAccountDropdownOpen(false);
-                    }}
+                  <Link
+                    href="/settings"
+                    onClick={() => setIsAccountDropdownOpen(false)}
                     className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
                   >
                     Settings
-                  </button>
+                  </Link>
                   
                   {/* Logout */}
                   <button
@@ -306,11 +304,7 @@ export default function NavBar() {
         </div>
       </nav>
 
-      {/* Settings Modal */}
-      <SettingsModal 
-        isOpen={isSettingsOpen} 
-        onClose={() => setIsSettingsOpen(false)} 
-      />
+
 
       {/* Edit Company Modal */}
       {isEditCompanyModalOpen && editingCompany && (
