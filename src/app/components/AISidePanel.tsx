@@ -31,9 +31,14 @@ Available actions:
 {"action": "categorize", "date": "4/9/2025", "amount": 10, "description": "Lunch", "categoryName": "Wages"}
 
 2. To assign a category under a parent category, respond with:
-{"action": "assign_parent_category", "categoryName": "Facebook Ads", "parentCategoryName": "Advertising"}
+{"action": "assign_parent_category", "categoryName": "Child Category Name", "parentCategoryName": "Parent Category Name"}
 
-For assign_parent_category actions, you should ask for confirmation before executing. Say something like: "I will assign the category 'Facebook Ads' under 'Advertising'. Press Confirm to proceed."
+For assign_parent_category actions, you should ask for confirmation before executing. Say something like: "I will assign the category '[Child Category]' under '[Parent Category]'. Press Confirm to proceed." Use the actual category names the user mentioned.
+
+Examples of requests you can handle:
+- "Assign Office Supplies under Expenses"
+- "Put Google Ads under Marketing" 
+- "Move Rent category under Operating Expenses"
 
 Always explain your reasoning before or after the JSON, but make sure the JSON is on its own line.`;
 
