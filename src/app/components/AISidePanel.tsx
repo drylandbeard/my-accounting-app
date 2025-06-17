@@ -10,6 +10,8 @@ import { useApiWithCompany } from '@/hooks/useApiWithCompany';
 interface Message {
   role: 'user' | 'assistant';
   content: string;
+  showConfirmation?: boolean;
+  pendingAction?: any;
 }
 
 interface AISidePanelProps {
@@ -30,6 +32,8 @@ Available actions:
 
 2. To assign a category under a parent category, respond with:
 {"action": "assign_parent_category", "categoryName": "Facebook Ads", "parentCategoryName": "Advertising"}
+
+For assign_parent_category actions, you should ask for confirmation before executing. Say something like: "I will assign the category 'Facebook Ads' under 'Advertising'. Press Confirm to proceed."
 
 Always explain your reasoning before or after the JSON, but make sure the JSON is on its own line.`;
 
@@ -91,8 +95,8 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
     };
   }, [isResizing]);
 
-  // Add the action handler here so it can access context
-  async function handleAIAction(action: { action: string; date?: string; amount?: number; description?: string; categoryName?: string; parentCategoryName?: string }): Promise<string> {
+  // Function to execute confirmed actions
+  async function executeAction(action: { action: string; date?: string; amount?: number; description?: string; categoryName?: string; parentCategoryName?: string }): Promise<string> {
     if (action.action === 'categorize') {
       // Find the transaction and category by human-friendly fields
       const { date, amount, description, categoryName } = action;
@@ -139,8 +143,7 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
       return await assign_parent_category(action.categoryName!, action.parentCategoryName!);
     }
     
-    // TODO: Implement other actions
-    return `Action received: ${JSON.stringify(action)}`;
+    return `Action executed: ${JSON.stringify(action)}`;
   }
 
   // Function to assign a category under a parent category
@@ -185,6 +188,31 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
       return `An error occurred while assigning the category.`;
     }
   }
+
+  // Handle confirmation
+  const handleConfirm = async (messageIndex: number) => {
+    const message = messages[messageIndex];
+    if (message.pendingAction) {
+      // Execute the action
+      const result = await executeAction(message.pendingAction);
+      
+      // Update the message to show the result
+      setMessages(prev => prev.map((msg, idx) => 
+        idx === messageIndex 
+          ? { ...msg, content: msg.content + `\n\n✅ **Confirmed and executed:** ${result}`, showConfirmation: false, pendingAction: undefined }
+          : msg
+      ));
+    }
+  };
+
+  // Handle cancellation
+  const handleCancel = (messageIndex: number) => {
+    setMessages(prev => prev.map((msg, idx) => 
+      idx === messageIndex 
+        ? { ...msg, content: msg.content + '\n\n❌ **Cancelled:** Action was not executed.', showConfirmation: false, pendingAction: undefined }
+        : msg
+    ));
+  };
 
   const handleSendMessage = async () => {
     if (!inputMessage.trim()) return;
@@ -259,11 +287,23 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
 
       // Check for JSON action in the response
       const actionMatch = aiResponse.match(/\{[^}]+\}/);
+      let pendingAction = null;
+      let showConfirmation = false;
+
       if (actionMatch) {
         try {
           const action = JSON.parse(actionMatch[0]);
-          const result = await handleAIAction(action);
-          aiResponse += `\n\n${result}`;
+          
+          // For assign_parent_category, show confirmation instead of executing immediately
+          if (action.action === 'assign_parent_category') {
+            pendingAction = action;
+            showConfirmation = true;
+            // Don't execute the action yet, just prepare for confirmation
+          } else {
+            // For other actions (like categorize), execute immediately
+            const result = await executeAction(action);
+            aiResponse += `\n\n${result}`;
+          }
         } catch {
           aiResponse += '\n\n[Error parsing action JSON]';
         }
@@ -271,7 +311,12 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
 
       setMessages((prev) => [
         ...prev.slice(0, -1), // remove 'Thinking...'
-        { role: 'assistant', content: aiResponse },
+        { 
+          role: 'assistant', 
+          content: aiResponse,
+          showConfirmation,
+          pendingAction
+        },
       ]);
     } catch {
       setMessages((prev) => [
@@ -350,7 +395,25 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
                       : 'bg-gray-100 text-gray-900'
                   } text-xs`}
                 >
-                  {message.content}
+                  <div className="whitespace-pre-line">{message.content}</div>
+                  
+                  {/* Confirmation buttons */}
+                  {message.showConfirmation && message.pendingAction && (
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        onClick={() => handleConfirm(index)}
+                        className="px-3 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700"
+                      >
+                        Confirm
+                      </button>
+                      <button
+                        onClick={() => handleCancel(index)}
+                        className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
