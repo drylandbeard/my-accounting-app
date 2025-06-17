@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import { supabase } from "./supabaseClient";
+import { sendVerificationEmail, generateVerificationToken, createVerificationUrl } from "./email";
 
 /**
  * Hash a password using bcrypt
@@ -35,14 +36,14 @@ export async function signUp(email: string, password: string) {
     // Hash password
     const passwordHash = await hashPassword(password);
 
-    // Create user
+    // Create user with access disabled initially
     const { data: user, error } = await supabase
       .from("users")
       .insert({
         email,
         password_hash: passwordHash,
         role: "Owner",
-        is_access_enabled: true // Enable access immediately for new users
+        is_access_enabled: false // Require email verification
       })
       .select()
       .single();
@@ -51,15 +52,49 @@ export async function signUp(email: string, password: string) {
       return { error: error.message };
     }
 
-    // Create default company "My Company"
-    const defaultCompanyResult = await createCompany(user.id, "My Company", "Default company");
-    
-    if (defaultCompanyResult.error) {
-      // If company creation fails, we should still consider signup successful
-      console.error("Failed to create default company:", defaultCompanyResult.error);
+    // Generate verification token
+    const token = generateVerificationToken();
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + 24); // Expire in 24 hours
+
+    // Store verification token
+    const { error: tokenError } = await supabase
+      .from("email_verification_tokens")
+      .insert({
+        user_id: user.id,
+        token,
+        expires_at: expiresAt.toISOString()
+      });
+
+    if (tokenError) {
+      // Clean up user if token creation fails
+      await supabase.from("users").delete().eq("id", user.id);
+      return { error: "Failed to create verification token" };
     }
 
-    return { user };
+    // Send verification email
+    const verificationUrl = createVerificationUrl(token);
+    const emailResult = await sendVerificationEmail({
+      email: user.email,
+      verificationUrl
+    });
+
+    if (!emailResult.success) {
+      // Clean up user and token if email fails
+      await supabase.from("email_verification_tokens").delete().eq("user_id", user.id);
+      await supabase.from("users").delete().eq("id", user.id);
+      return { error: "Failed to send verification email. Please try again." };
+    }
+
+    return { 
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        is_access_enabled: user.is_access_enabled
+      },
+      verificationSent: true 
+    };
   } catch {
     return { error: "Failed to create user" };
   }
@@ -81,15 +116,19 @@ export async function signIn(email: string, password: string) {
       return { error: "Invalid email or password" };
     }
 
-    // Check if user access is enabled
-    if (!user.is_access_enabled) {
-      return { error: "Account access is not enabled. Please contact administrator." };
-    }
-
-    // Verify password
+    // Verify password first
     const isValid = await verifyPassword(password, user.password_hash);
     if (!isValid) {
       return { error: "Invalid email or password" };
+    }
+
+    // Check if user access is enabled (email verified)
+    if (!user.is_access_enabled) {
+      return { 
+        error: "Please verify your email address before signing in. Check your inbox for a verification link.", 
+        needsVerification: true,
+        email: user.email
+      };
     }
 
     // Get user's companies
@@ -284,5 +323,133 @@ export async function updateUserRole(userId: string, newRole: "Owner" | "User" |
     return { success: true };
   } catch {
     return { error: "Failed to update role" };
+  }
+}
+
+/**
+ * Verify email with token
+ */
+export async function verifyEmail(token: string) {
+  try {
+    // Get verification token
+    const { data: verificationToken, error: tokenError } = await supabase
+      .from("email_verification_tokens")
+      .select("*")
+      .eq("token", token)
+      .is("used_at", null)
+      .single();
+
+    if (tokenError || !verificationToken) {
+      return { error: "Invalid or expired verification token" };
+    }
+
+    // Check if token is expired
+    const now = new Date();
+    const expiresAt = new Date(verificationToken.expires_at);
+    if (now > expiresAt) {
+      return { error: "Verification token has expired" };
+    }
+
+    // Enable user access and mark token as used
+    const { error: userError } = await supabase
+      .from("users")
+      .update({ is_access_enabled: true })
+      .eq("id", verificationToken.user_id);
+
+    if (userError) {
+      return { error: "Failed to verify email" };
+    }
+
+    const { error: tokenUpdateError } = await supabase
+      .from("email_verification_tokens")
+      .update({ used_at: now.toISOString() })
+      .eq("id", verificationToken.id);
+
+    if (tokenUpdateError) {
+      console.error("Failed to mark token as used:", tokenUpdateError);
+    }
+
+    // Get the user
+    const { data: user } = await supabase
+      .from("users")
+      .select("id, email, role")
+      .eq("id", verificationToken.user_id)
+      .single();
+
+    if (user) {
+      // Create default company "My Company" after successful verification
+      const defaultCompanyResult = await createCompany(user.id, "My Company", "Default company");
+      
+      if (defaultCompanyResult.error) {
+        console.error("Failed to create default company:", defaultCompanyResult.error);
+      }
+    }
+
+    return { success: true, user };
+  } catch {
+    return { error: "Failed to verify email" };
+  }
+}
+
+/**
+ * Resend verification email
+ */
+export async function resendVerificationEmail(email: string) {
+  try {
+    // Get user by email
+    const { data: user, error: userError } = await supabase
+      .from("users")
+      .select("*")
+      .eq("email", email)
+      .single();
+
+    if (userError || !user) {
+      return { error: "User not found" };
+    }
+
+    // Check if user is already verified
+    if (user.is_access_enabled) {
+      return { error: "Email is already verified" };
+    }
+
+    // Deactivate any existing tokens for this user
+    await supabase
+      .from("email_verification_tokens")
+      .update({ used_at: new Date().toISOString() })
+      .eq("user_id", user.id)
+      .is("used_at", null);
+
+    // Generate new verification token
+    const token = generateVerificationToken();
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + 24); // Expire in 24 hours
+
+    // Store new verification token
+    const { error: tokenError } = await supabase
+      .from("email_verification_tokens")
+      .insert({
+        user_id: user.id,
+        token,
+        expires_at: expiresAt.toISOString()
+      });
+
+    if (tokenError) {
+      return { error: "Failed to create verification token" };
+    }
+
+    // Send verification email
+    const verificationUrl = createVerificationUrl(token);
+    const emailResult = await sendVerificationEmail({
+      email: user.email,
+      verificationUrl
+    });
+
+    if (!emailResult.success) {
+      return { error: "Failed to send verification email. Please try again." };
+    }
+
+    return { success: true };
+  } catch {
+    return { error: "Failed to resend verification email" };
   }
 } 
