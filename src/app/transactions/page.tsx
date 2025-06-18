@@ -3780,8 +3780,8 @@ export default function Page() {
 
       {/* Account Selection Modal */}
       {accountSelectionModal.isOpen && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50">
-          <div className="bg-white rounded-lg p-6 w-[600px] overflow-y-auto shadow-xl">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-[600px] max-h-[90vh] overflow-y-auto shadow-xl flex flex-col">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold">Link Accounts</h2>
               <button
@@ -3799,7 +3799,7 @@ export default function Page() {
 
             {!importProgress.isImporting ? (
               <>
-                <div className="space-y-4">
+                <div className="space-y-4 flex-1 overflow-y-auto">
                   {accountSelectionModal.accounts.map((account, index) => (
                     <div key={account.id} className="space-y-2 p-3 border rounded-lg">
                       <div className="flex items-center space-x-3">
@@ -3847,7 +3847,7 @@ export default function Page() {
                   ))}
                 </div>
 
-                <div className="flex justify-end space-x-3 mt-6">
+                <div className="flex justify-end space-x-3 mt-6 flex-shrink-0">
                   <button
                     onClick={() => setAccountSelectionModal({ isOpen: false, accounts: [] })}
                     className="px-4 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50"
