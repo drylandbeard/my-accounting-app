@@ -245,15 +245,66 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
   const handleConfirm = async (messageIndex: number) => {
     const message = messages[messageIndex];
     if (message.pendingAction) {
-      // Execute the action
-      const result = await executeAction(message.pendingAction);
-      
-      // Update the message to show the result
-      setMessages(prev => prev.map((msg, idx) => 
-        idx === messageIndex 
-          ? { ...msg, content: msg.content + `\n\n✅ **Confirmed and executed:** ${result}`, showConfirmation: false, pendingAction: undefined }
-          : msg
-      ));
+      if (message.pendingAction.action === 'batch_execute') {
+        // Execute all actions in the queue
+        const results: string[] = [];
+        let currentMessage = message.content + '\n\n✅ **Executing actions:**\n';
+        
+        // Update message to show it's executing
+        setMessages(prev => prev.map((msg, idx) => 
+          idx === messageIndex 
+            ? { ...msg, content: currentMessage, showConfirmation: false, pendingAction: undefined }
+            : msg
+        ));
+        
+        // Execute each action in sequence
+        for (let i = 0; i < pendingToolQueue.length; i++) {
+          const action = pendingToolQueue[i];
+          try {
+            const result = await executeAction(action);
+            results.push(`${i + 1}. ${result}`);
+            currentMessage += `${i + 1}. ${result}\n`;
+            
+            // Update message with progress
+            setMessages(prev => prev.map((msg, idx) => 
+              idx === messageIndex 
+                ? { ...msg, content: currentMessage }
+                : msg
+            ));
+          } catch (error) {
+            results.push(`${i + 1}. Error: ${error}`);
+            currentMessage += `${i + 1}. Error: ${error}\n`;
+            
+            // Update message with error
+            setMessages(prev => prev.map((msg, idx) => 
+              idx === messageIndex 
+                ? { ...msg, content: currentMessage }
+                : msg
+            ));
+          }
+        }
+        
+        // Clear the queue
+        setPendingToolQueue([]);
+        
+        // Final message update
+        currentMessage += `\n🎉 **All actions completed!**`;
+        setMessages(prev => prev.map((msg, idx) => 
+          idx === messageIndex 
+            ? { ...msg, content: currentMessage }
+            : msg
+        ));
+      } else {
+        // Execute single action (backward compatibility)
+        const result = await executeAction(message.pendingAction);
+        
+        // Update the message to show the result
+        setMessages(prev => prev.map((msg, idx) => 
+          idx === messageIndex 
+            ? { ...msg, content: msg.content + `\n\n✅ **Confirmed and executed:** ${result}`, showConfirmation: false, pendingAction: undefined }
+            : msg
+        ));
+      }
     }
   };
 
@@ -319,94 +370,69 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
 
       // Handle tool calls (preferred method)
       if (toolCalls && toolCalls.length > 0) {
-        const toolCall = toolCalls[0];
-        const functionName = toolCall.function?.name;
-        const args = JSON.parse(toolCall.function?.arguments || '{}');
-
-        if (functionName === 'create_category') {
-          // Show confirmation for create_category
-          setMessages((prev) => [
-            ...prev.slice(0, -1), // remove 'Thinking...'
-            { 
-              role: 'assistant', 
-              content: `I will create a new category named "${args.name}" with type "${args.type}". Press Confirm to proceed.`,
-              showConfirmation: true,
-              pendingAction: {
-                action: 'create_category',
-                name: args.name,
-                type: args.type
-              }
-            },
-          ]);
-          return;
-        } else if (functionName === 'rename_category') {
-          // Show confirmation for rename_category
-          setMessages((prev) => [
-            ...prev.slice(0, -1), // remove 'Thinking...'
-            { 
-              role: 'assistant', 
-              content: `I will rename the category "${args.oldName}" to "${args.newName}". Press Confirm to proceed.`,
-              showConfirmation: true,
-              pendingAction: {
-                action: 'rename_category',
-                oldName: args.oldName,
-                newName: args.newName
-              }
-            },
-          ]);
-          return;
-        } else if (functionName === 'delete_category') {
-          // Show confirmation for delete_category
-          setMessages((prev) => [
-            ...prev.slice(0, -1), // remove 'Thinking...'
-            { 
-              role: 'assistant', 
-              content: `I will delete the category "${args.name}". Press Confirm to proceed.`,
-              showConfirmation: true,
-              pendingAction: {
-                action: 'delete_category',
-                name: args.name
-              }
-            },
-          ]);
-          return;
-        } else if (functionName === 'change_category_type') {
-          // Show confirmation for change_category_type
-          setMessages((prev) => [
-            ...prev.slice(0, -1), // remove 'Thinking...'
-            { 
-              role: 'assistant', 
-              content: `I will change the type of category "${args.categoryName}" to "${args.newType}". Press Confirm to proceed.`,
-              showConfirmation: true,
-              pendingAction: {
-                action: 'change_category_type',
-                categoryName: args.categoryName,
-                newType: args.newType
-              }
-            },
-          ]);
-          return;
-        } else if (functionName === 'assign_parent_category') {
-          // Show confirmation for assign_parent_category
-          setMessages((prev) => [
-            ...prev.slice(0, -1), // remove 'Thinking...'
-            { 
-              role: 'assistant', 
-              content: `I will assign the category '${args.childName}' under '${args.parentName}'. Press Confirm to proceed.`,
-              showConfirmation: true,
-              pendingAction: {
-                action: 'assign_parent_category',
-                categoryName: args.childName,
-                parentCategoryName: args.parentName
-              }
-            },
-          ]);
-          return;
+        // Handle multiple tool calls - queue them all up
+        const allActions: any[] = [];
+        let confirmationMessage = "";
+        
+        toolCalls.forEach((toolCall: any, index: number) => {
+          const functionName = toolCall.function?.name;
+          const args = JSON.parse(toolCall.function?.arguments || '{}');
+          
+          if (functionName === 'create_category') {
+            allActions.push({
+              action: 'create_category',
+              name: args.name,
+              type: args.type
+            });
+            confirmationMessage += `${toolCalls.length > 1 ? `${index + 1}. ` : ''}Create category "${args.name}" with type "${args.type}"${toolCalls.length > 1 ? '\n' : ''}`;
+          } else if (functionName === 'rename_category') {
+            allActions.push({
+              action: 'rename_category',
+              oldName: args.oldName,
+              newName: args.newName
+            });
+            confirmationMessage += `${toolCalls.length > 1 ? `${index + 1}. ` : ''}Rename category "${args.oldName}" to "${args.newName}"${toolCalls.length > 1 ? '\n' : ''}`;
+          } else if (functionName === 'delete_category') {
+            allActions.push({
+              action: 'delete_category',
+              name: args.name
+            });
+            confirmationMessage += `${toolCalls.length > 1 ? `${index + 1}. ` : ''}Delete category "${args.name}"${toolCalls.length > 1 ? '\n' : ''}`;
+          } else if (functionName === 'change_category_type') {
+            allActions.push({
+              action: 'change_category_type',
+              categoryName: args.categoryName,
+              newType: args.newType
+            });
+            confirmationMessage += `${toolCalls.length > 1 ? `${index + 1}. ` : ''}Change category "${args.categoryName}" type to "${args.newType}"${toolCalls.length > 1 ? '\n' : ''}`;
+          } else if (functionName === 'assign_parent_category') {
+            allActions.push({
+              action: 'assign_parent_category',
+              categoryName: args.childName,
+              parentCategoryName: args.parentName
+            });
+            confirmationMessage += `${toolCalls.length > 1 ? `${index + 1}. ` : ''}Assign category "${args.childName}" under "${args.parentName}"${toolCalls.length > 1 ? '\n' : ''}`;
+          }
+        });
+        
+        if (toolCalls.length > 1) {
+          confirmationMessage = "I will perform the following actions:\n\n" + confirmationMessage + "\nPress Confirm to execute all actions, or Cancel to abort.";
+        } else {
+          confirmationMessage = "I will " + confirmationMessage.toLowerCase() + ". Press Confirm to proceed.";
         }
         
-        // Handle other tool calls immediately
-        // Add handling for other tools as needed
-        aiResponse = `Tool called: ${functionName} with args: ${JSON.stringify(args)}`;
+        // Set up for batch execution
+        setPendingToolQueue(allActions);
+        setMessages((prev) => [
+          ...prev.slice(0, -1), // remove 'Thinking...'
+          { 
+            role: 'assistant', 
+            content: confirmationMessage,
+            showConfirmation: true,
+            pendingAction: { action: 'batch_execute' }
+          },
+        ]);
+        return;
       }
 
       // Fallback: check for JSON action in the response content
