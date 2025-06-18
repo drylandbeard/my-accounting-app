@@ -27,25 +27,6 @@ interface AISidePanelProps {
 const DEFAULT_PANEL_WIDTH = 400;
 const MIN_PANEL_WIDTH = 300;
 const MAX_PANEL_WIDTH = 800;
-const SYSTEM_PROMPT = `You are an expert accounting assistant for a small business accounting app. You help users understand how to categorize transactions, use accounting categories, and manage their finances within the app. Answer questions about accounting best practices, transaction categorization, and how to use the app's features. If a user asks for legal or tax advice, remind them to consult a professional. Be concise, friendly, and clear in your responses. Keep replies short and to the point for easy back and forth.
-
-When referring to transactions or categories, use their date, amount, description, and category name, not internal IDs. 
-
-Available actions:
-1. To categorize a transaction, respond with:
-{"action": "categorize", "date": "4/9/2025", "amount": 10, "description": "Lunch", "categoryName": "Wages"}
-
-2. To assign a category under a parent category, respond with:
-{"action": "assign_parent_category", "categoryName": "Child Category Name", "parentCategoryName": "Parent Category Name"}
-
-For assign_parent_category actions, you should ask for confirmation before executing. Say something like: "I will assign the category '[Child Category]' under '[Parent Category]'. Press Confirm to proceed." Use the actual category names the user mentioned.
-
-Examples of requests you can handle:
-- "Assign Office Supplies under Expenses"
-- "Put Google Ads under Marketing" 
-- "Move Rent category under Operating Expenses"
-
-Always explain your reasoning before or after the JSON, but make sure the JSON is on its own line.`;
 
 export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -167,53 +148,22 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
     }
     
     if (action.action === 'assign_parent_category') {
-      return await assign_parent_category(action.categoryName!, action.parentCategoryName!);
+      const result = await assignParentCategoryHandler({
+        childName: action.categoryName!,
+        parentName: action.parentCategoryName!,
+        companyId: currentCompany?.id,
+        categories
+      });
+      
+      if (result.success) {
+        await refreshCategories(); // Instead of page reload
+        return `Successfully assigned category '${action.categoryName}' under parent category '${action.parentCategoryName}'.`;
+      } else {
+        return `Error assigning category: ${result.error}`;
+      }
     }
     
     return `Action executed: ${JSON.stringify(action)}`;
-  }
-
-  // Function to assign a category under a parent category
-  async function assign_parent_category(categoryName: string, parentCategoryName: string): Promise<string> {
-    // Find the category to be assigned
-    const category = categories.find((c) => c.name.toLowerCase() === categoryName.toLowerCase());
-    if (!category) {
-      return `Could not find category with name '${categoryName}'. Available categories: ${categories.map(c => c.name).join(', ')}`;
-    }
-
-    // Find the parent category
-    const parentCategory = categories.find((c) => c.name.toLowerCase() === parentCategoryName.toLowerCase());
-    if (!parentCategory) {
-      return `Could not find parent category with name '${parentCategoryName}'. Available categories: ${categories.map(c => c.name).join(', ')}`;
-    }
-
-    // Check if the category is already assigned to this parent
-    if (category.parent_id === parentCategory.id) {
-      return `Category '${categoryName}' is already assigned under '${parentCategoryName}'.`;
-    }
-
-    try {
-      // Update the category with the new parent_id
-      const { error } = await supabase
-        .from('chart_of_accounts')
-        .update({ parent_id: parentCategory.id })
-        .eq('id', category.id);
-
-      if (error) {
-        console.error('Error updating category:', error);
-        return `Error assigning category: ${error.message}`;
-      }
-
-      // Refresh the page to update the context
-      if (typeof window !== 'undefined') {
-        setTimeout(() => window.location.reload(), 1000);
-      }
-
-      return `Successfully assigned category '${categoryName}' under parent category '${parentCategoryName}'.`;
-    } catch (error) {
-      console.error('Error in assign_parent_category:', error);
-      return `An error occurred while assigning the category.`;
-    }
   }
 
   // Handle confirmation
@@ -284,47 +234,94 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
           tools,
         }),
       });
+      
       const data = await res.json();
+      console.log('API Response:', data); // Debug log
+      
       const choice = data.choices?.[0];
       const toolCalls = choice?.message?.tool_calls;
-      let aiResponse = choice?.message?.content?.trim() || 'Sorry, I could not generate a response.';
+      let aiResponse = choice?.message?.content?.trim() || '';
 
-      // Check for JSON action in the response
-      const actionMatch = aiResponse.match(/\{[^}]+\}/);
-      let pendingAction = null;
-      let showConfirmation = false;
+      // Handle tool calls (preferred method)
+      if (toolCalls && toolCalls.length > 0) {
+        const toolCall = toolCalls[0];
+        const functionName = toolCall.function?.name;
+        const args = JSON.parse(toolCall.function?.arguments || '{}');
 
-      if (actionMatch) {
-        try {
-          const action = JSON.parse(actionMatch[0]);
-          
-          // For assign_parent_category, show confirmation instead of executing immediately
-          if (action.action === 'assign_parent_category') {
-            pendingAction = action;
-            showConfirmation = true;
-            // Don't execute the action yet, just prepare for confirmation
-          } else {
-            // For other actions (like categorize), execute immediately
-            const result = await executeAction(action);
-            aiResponse += `\n\n${result}`;
-          }
-        } catch {
-          aiResponse += '\n\n[Error parsing action JSON]';
+        if (functionName === 'assign_parent_category') {
+          // Show confirmation for assign_parent_category
+          setMessages((prev) => [
+            ...prev.slice(0, -1), // remove 'Thinking...'
+            { 
+              role: 'assistant', 
+              content: `I will assign the category '${args.childName}' under '${args.parentName}'. Press Confirm to proceed.`,
+              showConfirmation: true,
+              pendingAction: {
+                action: 'assign_parent_category',
+                categoryName: args.childName,
+                parentCategoryName: args.parentName
+              }
+            },
+          ]);
+          return;
         }
+        
+        // Handle other tool calls immediately
+        // Add handling for other tools as needed
+        aiResponse = `Tool called: ${functionName} with args: ${JSON.stringify(args)}`;
+      }
+
+      // Fallback: check for JSON action in the response content
+      if (!aiResponse && choice?.message?.content) {
+        aiResponse = choice.message.content.trim();
+        
+        const actionMatch = aiResponse.match(/\{[^}]+\}/);
+        let pendingAction = null;
+        let showConfirmation = false;
+
+        if (actionMatch) {
+          try {
+            const action = JSON.parse(actionMatch[0]);
+            
+            if (action.action === 'assign_parent_category') {
+              pendingAction = action;
+              showConfirmation = true;
+            } else {
+              const result = await executeAction(action);
+              aiResponse += `\n\n${result}`;
+            }
+          } catch {
+            aiResponse += '\n\n[Error parsing action JSON]';
+          }
+        }
+
+        setMessages((prev) => [
+          ...prev.slice(0, -1), // remove 'Thinking...'
+          { 
+            role: 'assistant', 
+            content: aiResponse,
+            showConfirmation,
+            pendingAction
+          },
+        ]);
         return;
       }
 
-      // Default: show the AI's response as usual
+      // Default fallback
+      if (!aiResponse) {
+        aiResponse = 'Sorry, I could not generate a response.';
+      }
+
       setMessages((prev) => [
         ...prev.slice(0, -1), // remove 'Thinking...'
         { 
           role: 'assistant', 
-          content: aiResponse,
-          showConfirmation,
-          pendingAction
+          content: aiResponse
         },
       ]);
+
     } catch (err) {
+      console.error('API Error:', err); // Debug log
       setMessages((prev) => [
         ...prev.slice(0, -1),
         { role: 'assistant', content: 'Sorry, there was an error contacting the AI.' },
