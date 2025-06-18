@@ -1,10 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { CheckCircleIcon, XCircleIcon, EnvelopeIcon } from "@heroicons/react/24/outline";
-import { useAuth } from "@/components/AuthContext";
-import { getUserCompanies } from "@/lib/auth-client";
 
 interface InvitationData {
   email: string;
@@ -21,37 +19,73 @@ export default function AcceptInvitationPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [hasProcessedToken, setHasProcessedToken] = useState(false);
+  const [isInvitationValidated, setIsInvitationValidated] = useState(false);
+  const invitationResultRef = useRef<{ success: boolean; processed: boolean }>({ success: false, processed: false });
   
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { setUser: setAuthUser, setCompanies } = useAuth();
 
   const token = searchParams.get("token");
 
   useEffect(() => {
+    console.log("🔄 useEffect triggered", { 
+      token: token ? "present" : "missing", 
+      hasProcessedToken, 
+      isInvitationValidated,
+      refProcessed: invitationResultRef.current.processed,
+      refSuccess: invitationResultRef.current.success 
+    });
+
     if (!token) {
+      console.log("❌ No token found in URL");
       setStatus("error");
       setMessage("Invalid invitation link. The token is missing.");
       return;
     }
 
-    validateInvitation(token);
-  }, [token]);
+    // Prevent processing the same token multiple times
+    if (!invitationResultRef.current.processed && !hasProcessedToken && !isInvitationValidated) {
+      console.log("🔍 Starting invitation validation with token:", token.substring(0, 10) + "...");
+      setHasProcessedToken(true);
+      invitationResultRef.current.processed = true;
+      validateInvitation(token);
+    } else {
+      console.log("🚫 Skipping validation - already processed or in progress");
+    }
+  }, [token, hasProcessedToken, isInvitationValidated]);
 
   const validateInvitation = async (invitationToken: string) => {
+    // Double-check to prevent duplicate processing
+    if (invitationResultRef.current.processed && invitationResultRef.current.success) {
+      console.log("🔄 Token already successfully processed, skipping...");
+      return;
+    }
+
     try {
+      console.log("📡 Making API call to validate invitation token...");
       const response = await fetch(`/api/accept-invitation?token=${invitationToken}`);
       const data = await response.json();
+      
+      console.log("📡 API Response:", { status: response.status, data });
 
       if (response.ok) {
+        console.log("✅ Invitation validation successful");
+        invitationResultRef.current.success = true;
+        setIsInvitationValidated(true);
         setStatus("setup");
         setInvitation(data.invitation);
       } else {
+        console.log("❌ Invitation validation failed:", data.error);
+        invitationResultRef.current.success = false;
+        setIsInvitationValidated(true);
         setStatus("error");
         setMessage(data.error || "Failed to validate invitation.");
       }
     } catch (error) {
-      console.error("Invitation validation error:", error);
+      console.error("💥 Invitation validation error:", error);
+      invitationResultRef.current.success = false;
+      setIsInvitationValidated(true);
       setStatus("error");
       setMessage("An unexpected error occurred. Please try again.");
     }
@@ -81,6 +115,7 @@ export default function AcceptInvitationPage() {
     setIsSubmitting(true);
 
     try {
+      console.log("📡 Completing invitation signup...");
       const response = await fetch("/api/complete-invitation", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -91,42 +126,23 @@ export default function AcceptInvitationPage() {
       });
 
       const data = await response.json();
+      console.log("📡 Complete invitation response:", { status: response.status, data });
 
       if (response.ok) {
-        // Automatically sign in the user
-        const user = data.user;
-        setAuthUser(user);
-
-        // Get user's companies
-        const companiesResult = await getUserCompanies(user.id);
-        
-        if (companiesResult.companies) {
-          const transformedCompanies = companiesResult.companies.map((item: {
-            company_id: string;
-            role: string;
-            companies: { id: string; name: string; description?: string } | { id: string; name: string; description?: string }[];
-          }) => ({
-            company_id: item.company_id,
-            role: item.role as "Owner" | "Member" | "Accountant",
-            companies: Array.isArray(item.companies) ? item.companies[0] : item.companies
-          }));
-
-          setCompanies(transformedCompanies);
-          
-          // No company selected by default - user will choose on homepage
-        }
-
+        console.log("✅ Invitation completed successfully");
         setStatus("success");
         
-        // Redirect to homepage after a brief delay
+        // Redirect to sign-in page after a brief delay
         setTimeout(() => {
+          console.log("🔄 Redirecting to sign-in page...");
           router.push("/");
         }, 2000);
       } else {
+        console.log("❌ Complete invitation failed:", data.error);
         setError(data.error || "Failed to complete signup");
       }
     } catch (error) {
-      console.error("Complete invitation error:", error);
+      console.error("💥 Complete invitation error:", error);
       setError("An unexpected error occurred. Please try again.");
     } finally {
       setIsSubmitting(false);
@@ -166,10 +182,10 @@ export default function AcceptInvitationPage() {
         return (
           <div className="text-center">
             <h2 className="text-xl font-bold text-gray-900 mb-3">Complete Your Account</h2>
-                         <p className="text-sm text-gray-600 mb-6">
-               You&apos;ve been invited to join as a <span className="font-semibold">{invitation?.role}</span>. 
-               Please set your password to complete your account setup.
-             </p>
+            <p className="text-sm text-gray-600 mb-6">
+              You&apos;ve been invited to join as a <span className="font-semibold">{invitation?.role}</span>. 
+              Please set your password to complete your account setup.
+            </p>
 
             <form onSubmit={handleSubmit} className="space-y-4 text-left">
               {error && (
@@ -234,16 +250,17 @@ export default function AcceptInvitationPage() {
       case "success":
         return (
           <div className="text-center">
-            <h2 className="text-xl font-bold text-green-900 mb-3">Welcome to SWITCH!</h2>
-                         <p className="text-sm text-green-700 mb-4">
-               Your account has been set up successfully. You&apos;re being redirected to your dashboard...
-             </p>
+            <h2 className="text-xl font-bold text-green-900 mb-3">Account Setup Complete!</h2>
+            <p className="text-sm text-green-700 mb-4">
+              Your account has been set up successfully. You can now sign in with your email and password.
+            </p>
             <div className="flex justify-center">
               <div className="w-6 h-6 relative">
                 <div className="w-6 h-6 border-2 border-green-100 rounded-full"></div>
                 <div className="w-6 h-6 border-2 border-green-500 border-t-transparent rounded-full animate-spin absolute top-0 left-0"></div>
               </div>
             </div>
+            <p className="text-xs text-gray-500 mt-3">Redirecting you to sign in...</p>
           </div>
         );
 

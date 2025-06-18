@@ -44,6 +44,8 @@ export async function sendTeamInvitation(
   invitedByUserId: string
 ) {
   try {
+    console.log("🔍 sendTeamInvitation - Starting process:", { email, role, companyId, invitedByUserId });
+    
     // Check if user already exists
     const { data: existingUser } = await supabase
       .from("users")
@@ -51,6 +53,9 @@ export async function sendTeamInvitation(
       .eq("email", email)
       .single();
 
+    console.log("👤 Existing user check:", existingUser ? "User exists" : "New user");
+    let userId;
+    
     if (existingUser) {
       // User exists, check if they're already a member of this company
       const { data: existingMember } = await supabase
@@ -64,6 +69,43 @@ export async function sendTeamInvitation(
       if (existingMember) {
         return { error: "User is already a member of this company" };
       }
+      
+      userId = existingUser.id;
+    } else {
+      // Create new user immediately with access disabled
+      const { data: newUser, error: userError } = await supabase
+        .from("users")
+        .insert({
+          email,
+          password_hash: "", // Will be set when they accept the invitation
+          role: role as "Owner" | "Member" | "Accountant",
+          is_access_enabled: false // Disabled until they accept invitation
+        })
+        .select()
+        .single();
+
+      if (userError || !newUser) {
+        return { error: "Failed to create user" };
+      }
+      
+      userId = newUser.id;
+    }
+
+    // Add user to company immediately (they'll be visible in team list)
+    const { error: companyUserError } = await supabase
+      .from("company_users")
+      .insert({
+        company_id: companyId,
+        user_id: userId,
+        role: role as "Owner" | "Member" | "Accountant"
+      });
+
+    if (companyUserError) {
+      // If user was newly created and company association fails, clean up
+      if (!existingUser) {
+        await supabase.from("users").delete().eq("id", userId);
+      }
+      return { error: "Failed to add user to company" };
     }
 
     // Get company details
@@ -94,9 +136,11 @@ export async function sendTeamInvitation(
     expiresAt.setHours(expiresAt.getHours() + 24); // Expire in 24 hours
 
     // Store invitation token
+    console.log("🎫 Creating invitation token:", { userId, token: token.substring(0, 10) + "...", tokenType: "invitation" });
     const { error: tokenError } = await supabase
       .from("email_verification_tokens")
       .insert({
+        user_id: userId,
         token,
         token_type: "invitation",
         invited_email: email,
@@ -107,9 +151,11 @@ export async function sendTeamInvitation(
       });
 
     if (tokenError) {
-      console.error("Token creation error:", tokenError);
+      console.error("❌ Token creation error:", tokenError);
       return { error: "Failed to create invitation token" };
     }
+    
+    console.log("✅ Invitation token created successfully");
 
     // Send invitation email
     const invitationUrl = createInvitationUrl(token);
@@ -131,7 +177,7 @@ export async function sendTeamInvitation(
       return { error: "Failed to send invitation email. Please try again." };
     }
 
-    return { success: true };
+    return { success: true, userId };
   } catch (error) {
     console.error("Team invitation error:", error);
     return { error: "Failed to send invitation" };
@@ -143,6 +189,8 @@ export async function sendTeamInvitation(
  */
 export async function acceptInvitation(token: string) {
   try {
+    console.log("🔍 acceptInvitation - Validating token:", token.substring(0, 10) + "...");
+    
     // Get invitation token
     const { data: invitationToken, error: tokenError } = await supabase
       .from("email_verification_tokens")
@@ -151,7 +199,21 @@ export async function acceptInvitation(token: string) {
       .eq("token_type", "invitation")
       .single();
 
+    console.log("🎫 Token lookup result:", { 
+      found: !!invitationToken, 
+      error: tokenError?.message,
+      tokenData: invitationToken ? {
+        id: invitationToken.id,
+        userId: invitationToken.user_id,
+        email: invitationToken.invited_email,
+        role: invitationToken.invited_role,
+        used: !!invitationToken.used_at,
+        expired: new Date() > new Date(invitationToken.expires_at)
+      } : null
+    });
+
     if (tokenError || !invitationToken) {
+      console.log("❌ Token validation failed:", tokenError?.message || "Token not found");
       return { error: "Invalid or expired invitation token" };
     }
 
@@ -187,6 +249,8 @@ export async function acceptInvitation(token: string) {
  */
 export async function completeInvitationSignup(token: string, password: string) {
   try {
+    console.log("🔍 completeInvitationSignup - Processing token:", token.substring(0, 10) + "...");
+    
     // Get invitation token
     const { data: invitationToken, error: tokenError } = await supabase
       .from("email_verification_tokens")
@@ -195,7 +259,14 @@ export async function completeInvitationSignup(token: string, password: string) 
       .eq("token_type", "invitation")
       .single();
 
+    console.log("🎫 Complete invitation token lookup:", { 
+      found: !!invitationToken, 
+      error: tokenError?.message,
+      userId: invitationToken?.user_id
+    });
+
     if (tokenError || !invitationToken) {
+      console.log("❌ Complete invitation token validation failed:", tokenError?.message || "Token not found");
       return { error: "Invalid or expired invitation token" };
     }
 
@@ -213,62 +284,20 @@ export async function completeInvitationSignup(token: string, password: string) 
 
     const email = invitationToken.invited_email;
     const role = invitationToken.invited_role;
-    const companyId = invitationToken.company_id;
+    const userId = invitationToken.user_id;
 
-    // Check if user already exists
-    let userId;
-    const { data: existingUser } = await supabase
+    // User should already exist (created during invitation), just update password and enable access
+    const passwordHash = await hashPassword(password);
+    const { error: updateError } = await supabase
       .from("users")
-      .select("id, is_access_enabled")
-      .eq("email", email)
-      .single();
+      .update({ 
+        password_hash: passwordHash,
+        is_access_enabled: true 
+      })
+      .eq("id", userId);
 
-    if (existingUser) {
-      // User exists, update their password and enable access
-      const passwordHash = await hashPassword(password);
-      const { error: updateError } = await supabase
-        .from("users")
-        .update({ 
-          password_hash: passwordHash,
-          is_access_enabled: true 
-        })
-        .eq("id", existingUser.id);
-
-      if (updateError) {
-        return { error: "Failed to update user" };
-      }
-      userId = existingUser.id;
-    } else {
-      // Create new user
-      const passwordHash = await hashPassword(password);
-      const { data: newUser, error: userError } = await supabase
-        .from("users")
-        .insert({
-          email,
-          password_hash: passwordHash,
-          role: role as "Owner" | "Member" | "Accountant",
-          is_access_enabled: true
-        })
-        .select()
-        .single();
-
-      if (userError || !newUser) {
-        return { error: "Failed to create user" };
-      }
-      userId = newUser.id;
-    }
-
-    // Add user to company
-    const { error: companyUserError } = await supabase
-      .from("company_users")
-      .insert({
-        company_id: companyId,
-        user_id: userId,
-        role: role as "Owner" | "Member" | "Accountant"
-      });
-
-    if (companyUserError) {
-      return { error: "Failed to add user to company" };
+    if (updateError) {
+      return { error: "Failed to update user" };
     }
 
     // Mark token as used

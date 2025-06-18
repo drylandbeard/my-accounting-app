@@ -5,6 +5,7 @@ import { validateCompanyContext } from "@/lib/auth-utils";
 export async function POST(request: NextRequest) {
   try {
     const { email, role } = await request.json();
+    console.log("📧 Invite member request:", { email, role });
 
     if (!email || !role) {
       return NextResponse.json(
@@ -33,6 +34,7 @@ export async function POST(request: NextRequest) {
     // Get company and user context
     const context = validateCompanyContext(request);
     if ("error" in context) {
+      console.log("❌ Company context validation failed:", context.error);
       return NextResponse.json(
         { error: context.error },
         { status: 400 }
@@ -40,22 +42,28 @@ export async function POST(request: NextRequest) {
     }
 
     const { companyId, userId } = context;
+    console.log("✅ Company context:", { companyId, userId });
 
     // Send invitation
+    console.log("📤 Sending invitation...");
     const result = await sendTeamInvitation(email, role, companyId, userId);
+    console.log("📬 Invitation result:", result);
 
     if (result.error) {
+      console.log("❌ Invitation failed:", result.error);
       return NextResponse.json(
         { error: result.error },
         { status: 400 }
       );
     }
 
+    console.log("✅ Invitation sent successfully");
     return NextResponse.json({
-      message: "Invitation sent successfully"
+      message: "Invitation sent successfully",
+      userId: result.userId
     });
   } catch (error) {
-    console.error("Invite member error:", error);
+    console.error("💥 Invite member error:", error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

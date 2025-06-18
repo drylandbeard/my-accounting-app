@@ -548,26 +548,39 @@ export default function SettingsPage() {
 
   const fetchCompanyMembers = async (companyId: string) => {
     try {
-      const { data, error } = await supabase
+      // First get company users
+      const { data: companyUsers, error: companyUsersError } = await supabase
+        .from("company_users")
+        .select("user_id, role")
+        .eq("company_id", companyId)
+        .eq("is_active", true);
+
+      if (companyUsersError) throw companyUsersError;
+
+      if (!companyUsers || companyUsers.length === 0) {
+        setCompanyMembers([]);
+        return;
+      }
+
+      // Then get user details
+      const userIds = companyUsers.map(cu => cu.user_id);
+      const { data: users, error: usersError } = await supabase
         .from("users")
-        .select("id, email, role, is_access_enabled")
-        .in("id", 
-          await supabase
-            .from("company_users")
-            .select("user_id")
-            .eq("company_id", companyId)
-            .eq("is_active", true)
-            .then(({ data }) => (data || []).map(item => item.user_id))
-        );
+        .select("id, email, is_access_enabled")
+        .in("id", userIds);
 
-      if (error) throw error;
+      if (usersError) throw usersError;
 
-      const members: CompanyMember[] = (data || []).map((member: { id: string; email: string; role: string; is_access_enabled: boolean }) => ({
-        id: member.id,
-        email: member.email,
-        role: (member.role as "Owner" | "Member" | "Accountant"),
-        is_access_enabled: member.is_access_enabled
-      }));
+      // Combine the data
+      const members: CompanyMember[] = (users || []).map((user: { id: string; email: string; is_access_enabled: boolean }) => {
+        const companyUser = companyUsers.find(cu => cu.user_id === user.id);
+        return {
+          id: user.id,
+          email: user.email,
+          role: companyUser?.role as "Owner" | "Member" | "Accountant",
+          is_access_enabled: user.is_access_enabled
+        };
+      });
 
       setCompanyMembers(members);
     } catch (error) {
@@ -609,10 +622,13 @@ export default function SettingsPage() {
         throw new Error(errorData.error || "Failed to send invitation");
       }
 
+      // Refresh team members list to show the newly added member
+      await fetchCompanyMembers(currentCompany.id);
+
       setConfirmationModal({
         isOpen: true,
         title: "Invitation Sent",
-        message: `An invitation has been sent to ${email}. They will receive an email with instructions to join your company as ${role}.`,
+        message: `An invitation has been sent to ${email}. They will receive an email with instructions to join your company as ${role}. The member has been added to your team and will have access once they accept the invitation.`,
         onConfirm: () => setConfirmationModal({ ...confirmationModal, isOpen: false }),
         confirmText: "OK",
       });
