@@ -18,7 +18,7 @@ export default function VerifyEmailPage() {
   const verificationResultRef = useRef<{ success: boolean; processed: boolean }>({ success: false, processed: false });
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { setUser: setAuthUser, setCompanies, setCurrentCompany } = useAuth();
+  const { setUser: setAuthUser, setCompanies } = useAuth();
 
   const token = searchParams.get("token");
 
@@ -162,21 +162,10 @@ export default function VerifyEmailPage() {
         setAuthUser(userToSet);
         setCompanies(transformedCompanies);
         
-        // Set current company to the first one if available
-        if (transformedCompanies.length > 0) {
-          console.log("🏢 Setting current company:", transformedCompanies[0].companies);
-          setCurrentCompany(transformedCompanies[0].companies);
-          
-          // Manually ensure localStorage is updated immediately
-          localStorage.setItem("auth_user", JSON.stringify(userToSet));
-          localStorage.setItem("auth_companies", JSON.stringify(transformedCompanies));
-          localStorage.setItem("auth_current_company", JSON.stringify(transformedCompanies[0].companies));
-        } else {
-          // Manually ensure localStorage is updated immediately
-          localStorage.setItem("auth_user", JSON.stringify(userToSet));
-          localStorage.setItem("auth_companies", JSON.stringify(transformedCompanies));
-          localStorage.removeItem("auth_current_company");
-        }
+        // Manually ensure localStorage is updated immediately
+        localStorage.setItem("auth_user", JSON.stringify(userToSet));
+        localStorage.setItem("auth_companies", JSON.stringify(transformedCompanies));
+        localStorage.removeItem("auth_current_company"); // No company selected by default
       }
       
       // Show success message briefly, then redirect
