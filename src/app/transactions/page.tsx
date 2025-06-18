@@ -1850,7 +1850,7 @@ export default function Page() {
                 <span>Syncing...</span>
               </div>
             ) : (
-              <span>Update Accounts</span>
+              <span>Update</span>
             )}
           </button>
           <button
@@ -1858,19 +1858,7 @@ export default function Page() {
             disabled={!ready}
             className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-xs"
           >
-            Link Accounts
-          </button>
-          <button
-            onClick={() => setImportModal(prev => ({ ...prev, isOpen: true }))}
-            className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-xs"
-          >
-            Import CSV
-          </button>
-          <button
-            onClick={() => setManualAccountModal({ isOpen: true, name: '', type: 'Asset', startingBalance: '0' })}
-            className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-xs"
-          >
-            Add Manual Account
+            Link
           </button>
           <button
             onClick={() => setAccountNamesModal({
@@ -1886,7 +1874,19 @@ export default function Page() {
             })}
             className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-xs"
           >
-            Edit Accounts
+            Edit
+          </button>
+          <button
+            onClick={() => setManualAccountModal({ isOpen: true, name: '', type: 'Asset', startingBalance: '0' })}
+            className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-xs"
+          >
+            Manual
+          </button>
+          <button
+            onClick={() => setImportModal(prev => ({ ...prev, isOpen: true }))}
+            className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-xs"
+          >
+            Import
           </button>
         </div>
       </div>
@@ -2324,7 +2324,7 @@ export default function Page() {
                     }
                   }}
                   isSearchable
-                  styles={{ control: (base) => ({ ...base, minHeight: '30px', fontSize: '0.875rem' }) }}
+                  styles={{ control: (base) => ({ ...base, minHeight: '20px', fontSize: '0.875rem' }) }}
                 />
               </div>
             </div>
@@ -3343,9 +3343,31 @@ export default function Page() {
                           styles={{ 
                             control: (base) => ({ 
                               ...base, 
-                              minHeight: '30px', 
-                              fontSize: '0.875rem'
-                            }) 
+                              minHeight: '24px',
+                              height: '24px',
+                              fontSize: '0.75rem'
+                            }),
+                            valueContainer: (base) => ({
+                              ...base,
+                              padding: '0 4px'
+                            }),
+                            input: (base) => ({
+                              ...base,
+                              margin: '0',
+                              padding: '0'
+                            }),
+                            indicatorsContainer: (base) => ({
+                              ...base,
+                              height: '24px'
+                            }),
+                            dropdownIndicator: (base) => ({
+                              ...base,
+                              padding: '0 4px'
+                            }),
+                            clearIndicator: (base) => ({
+                              ...base,
+                              padding: '0 4px'
+                            })
                           }}
                         />
                       </td>
@@ -3390,9 +3412,31 @@ export default function Page() {
                           styles={{ 
                             control: (base) => ({ 
                               ...base, 
-                              minHeight: '30px', 
-                              fontSize: '0.875rem'
-                            }) 
+                              minHeight: '24px',
+                              height: '24px',
+                              fontSize: '0.75rem'
+                            }),
+                            valueContainer: (base) => ({
+                              ...base,
+                              padding: '0 4px'
+                            }),
+                            input: (base) => ({
+                              ...base,
+                              margin: '0',
+                              padding: '0'
+                            }),
+                            indicatorsContainer: (base) => ({
+                              ...base,
+                              height: '24px'
+                            }),
+                            dropdownIndicator: (base) => ({
+                              ...base,
+                              padding: '0 4px'
+                            }),
+                            clearIndicator: (base) => ({
+                              ...base,
+                              padding: '0 4px'
+                            })
                           }}
                         />
                       </td>
