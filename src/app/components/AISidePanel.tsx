@@ -2,10 +2,15 @@
 
 import { useState, useEffect, useRef, useContext } from 'react';
 import { XMarkIcon, ChatBubbleLeftRightIcon } from '@heroicons/react/24/outline';
+import { SharedContext } from './SharedContext';
 import { supabase } from '@/lib/supabaseClient';
-import { useSelectedToAdd } from './SelectedToAddContext';
-import { AIContext } from './AIContextProvider';
 import { useApiWithCompany } from '@/hooks/useApiWithCompany';
+import { tools } from '../ai/tools';
+import { categoryPrompt } from '../ai/prompts';
+import { createCategoryHandler, createCategoryHelper } from '../ai/functions/createCategory';
+import { renameCategoryHandler, renameCategoryHelper } from '../ai/functions/renameCategory';
+import { assignParentCategoryHandler } from '../ai/functions/assignParentCategory';
+import { deleteCategoryHandler } from '../ai/functions/deleteCategory';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -43,14 +48,15 @@ Examples of requests you can handle:
 Always explain your reasoning before or after the JSON, but make sure the JSON is on its own line.`;
 
 export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
-  const { postWithCompany } = useApiWithCompany();
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputMessage, setInputMessage] = useState('');
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
   const [isResizing, setIsResizing] = useState(false);
   const resizeRef = useRef<HTMLDivElement>(null);
-  const { selectedToAdd } = useSelectedToAdd();
-  const { transactions, categories, accounts, currentAccount } = useContext(AIContext);
+  const { categories, refreshCategories } = useContext(SharedContext);
+  const [pendingToolQueue, setPendingToolQueue] = useState<any[]>([]);
+  const [pendingToolArgs, setPendingToolArgs] = useState<any | null>(null);
+  const { currentCompany } = useApiWithCompany();
 
   // Load saved panel width from localStorage
   useEffect(() => {
@@ -68,14 +74,12 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
   const handleResizeStart = (e: React.MouseEvent) => {
     setIsResizing(true);
     e.preventDefault();
-    // Prevent text selection during resize
     document.body.style.userSelect = 'none';
     document.body.style.cursor = 'ew-resize';
   };
 
   const handleResizeMove = (e: MouseEvent) => {
     if (!isResizing) return;
-
     const newWidth = window.innerWidth - e.clientX;
     if (newWidth >= MIN_PANEL_WIDTH && newWidth <= MAX_PANEL_WIDTH) {
       setPanelWidth(newWidth);
@@ -84,7 +88,6 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
 
   const handleResizeEnd = () => {
     setIsResizing(false);
-    // Restore text selection and cursor
     document.body.style.userSelect = '';
     document.body.style.cursor = '';
   };
@@ -228,42 +231,16 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
     setMessages((prev) => [...prev, newMessage]);
     setInputMessage('');
 
-    // Prepare context for the AI
-    const contextMessages: { role: string; content: string }[] = [];
-    
-    // Add current account context
-    if (currentAccount) {
-      contextMessages.push({
+    // Only provide categories context
+    const contextMessages: { role: string; content: string }[] = [
+      {
         role: 'system',
-        content: `Current account: ${currentAccount.plaid_account_name} (Balance: $${currentAccount.current_balance?.toFixed(2) || '0.00'})`
-      });
-    }
-
-    // Add selected transactions context
-    if (selectedToAdd.size === 1) {
-      const selectedId = Array.from(selectedToAdd)[0];
-      const tx = transactions.find(t => t.id === selectedId);
-      if (tx) {
-        contextMessages.push({
-          role: 'system',
-          content: `Selected transaction: Description: ${tx.description}, Amount: $${tx.amount ?? tx.spent ?? tx.received}, Date: ${tx.date}.`
-        });
+        content: `Available categories: ${categories.map(c => c.name).join(', ')}`
       }
-    } else if (selectedToAdd.size > 1) {
-      contextMessages.push({
-        role: 'system',
-        content: `${selectedToAdd.size} transactions are currently selected.`
-      });
-    }
-
-    // Add available categories context
-    contextMessages.push({
-      role: 'system',
-      content: `Available categories: ${categories.map(c => c.name).join(', ')}`
-    });
+    ];
 
     const openAIMessages = [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: categoryPrompt },
       ...contextMessages,
       ...[...messages, newMessage].map(m => ({ role: m.role, content: m.content }))
     ];
@@ -285,10 +262,13 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
           messages: openAIMessages,
           max_tokens: 256,
           temperature: 0.2,
+          tools,
         }),
       });
       const data = await res.json();
-      let aiResponse = data.choices?.[0]?.message?.content?.trim() || 'Sorry, I could not generate a response.';
+      const choice = data.choices?.[0];
+      const toolCalls = choice?.message?.tool_calls;
+      let aiResponse = choice?.message?.content?.trim() || 'Sorry, I could not generate a response.';
 
       // Check for JSON action in the response
       const actionMatch = aiResponse.match(/\{[^}]+\}/);
@@ -312,8 +292,10 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
         } catch {
           aiResponse += '\n\n[Error parsing action JSON]';
         }
+        return;
       }
 
+      // Default: show the AI's response as usual
       setMessages((prev) => [
         ...prev.slice(0, -1), // remove 'Thinking...'
         { 
@@ -323,7 +305,7 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
           pendingAction
         },
       ]);
-    } catch {
+    } catch (err) {
       setMessages((prev) => [
         ...prev.slice(0, -1),
         { role: 'assistant', content: 'Sorry, there was an error contacting the AI.' },
@@ -331,7 +313,117 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
     }
   };
 
-  // Panel open/close transition - disable transition during resize for smoother experience
+  const handleConfirmTool = async () => {
+    if (!pendingToolArgs || pendingToolQueue.length === 0) return;
+    let result: any;
+    if (pendingToolArgs.type === 'create_category') {
+      result = await createCategoryHandler({ ...pendingToolArgs.args, companyId: currentCompany?.id });
+      if (result.success) {
+        setMessages(prev => [
+          ...prev,
+          { role: 'assistant', content: `Category "${pendingToolArgs.args.name}" (${pendingToolArgs.args.type}) has been created! Would you like to create another category or assign this one to a parent category?` }
+        ]);
+        await refreshCategories();
+      } else {
+        setMessages(prev => [
+          ...prev,
+          { role: 'assistant', content: `Error creating category: ${result.error}` }
+        ]);
+      }
+    } else if (pendingToolArgs.type === 'rename_category') {
+      result = await renameCategoryHandler({ ...pendingToolArgs.args, companyId: currentCompany?.id, categories });
+      if (result.success) {
+        setMessages(prev => [
+          ...prev,
+          { role: 'assistant', content: `Category "${pendingToolArgs.args.oldName}" has been renamed to "${pendingToolArgs.args.newName}". Is there anything else you'd like to change about this category?` }
+        ]);
+        await refreshCategories();
+      } else {
+        setMessages(prev => [
+          ...prev,
+          { role: 'assistant', content: `Error renaming category: ${result.error}` }
+        ]);
+      }
+    } else if (pendingToolArgs.type === 'assign_parent_category') {
+      result = await assignParentCategoryHandler({ ...pendingToolArgs.args, companyId: currentCompany?.id, categories });
+      if (result.success) {
+        setMessages(prev => [
+          ...prev,
+          { role: 'assistant', content: `Assigned "${pendingToolArgs.args.childName}" as a subcategory of "${pendingToolArgs.args.parentName}". Would you like to organize any other categories?` }
+        ]);
+        await refreshCategories();
+      } else {
+        setMessages(prev => [
+          ...prev,
+          { role: 'assistant', content: `Error: ${result.error}` }
+        ]);
+      }
+    } else if (pendingToolArgs.type === 'delete_category') {
+      result = await deleteCategoryHandler({ ...pendingToolArgs.args, companyId: currentCompany?.id, categories });
+      if (result.success) {
+        setMessages(prev => [
+          ...prev,
+          { role: 'assistant', content: `Category "${pendingToolArgs.args.name}" has been deleted. Would you like to make any other changes to your categories?` }
+        ]);
+        await refreshCategories();
+      } else {
+        setMessages(prev => [
+          ...prev,
+          { role: 'assistant', content: `Error deleting category: ${result.error}` }
+        ]);
+      }
+    }
+    // Remove the first tool from the queue and set up the next one
+    const newQueue = pendingToolQueue.slice(1);
+    setPendingToolQueue(newQueue);
+    if (newQueue.length > 0) {
+      const nextTool = newQueue[0];
+      if (nextTool.function?.name === 'create_category') {
+        setPendingToolArgs({ type: 'create_category', args: JSON.parse(nextTool.function.arguments) });
+        setMessages((prev) => [
+          ...prev,
+          { role: 'assistant', content: `To confirm, I will create a new category named "${JSON.parse(nextTool.function.arguments).name}" with type "${JSON.parse(nextTool.function.arguments).type}". Please press confirm.` }
+        ]);
+      } else if (nextTool.function?.name === 'rename_category') {
+        setPendingToolArgs({ type: 'rename_category', args: JSON.parse(nextTool.function.arguments) });
+        setMessages((prev) => [
+          ...prev,
+          { role: 'assistant', content: `To confirm, I will rename the category "${JSON.parse(nextTool.function.arguments).oldName}" to "${JSON.parse(nextTool.function.arguments).newName}". Please press confirm.` }
+        ]);
+      } else if (nextTool.function?.name === 'assign_parent_category') {
+        setPendingToolArgs({ type: 'assign_parent_category', args: JSON.parse(nextTool.function.arguments) });
+        setMessages((prev) => [
+          ...prev,
+          { role: 'assistant', content: `To confirm, I will assign "${JSON.parse(nextTool.function.arguments).childName}" as a subcategory of "${JSON.parse(nextTool.function.arguments).parentName}". Please press confirm.` }
+        ]);
+      } else if (nextTool.function?.name === 'delete_category') {
+        setPendingToolArgs({ type: 'delete_category', args: JSON.parse(nextTool.function.arguments) });
+        setMessages((prev) => [
+          ...prev,
+          { role: 'assistant', content: `To confirm, I will delete the category "${JSON.parse(nextTool.function.arguments).name}". Please press confirm.` }
+        ]);
+      }
+    } else {
+      setPendingToolArgs(null);
+    }
+  };
+
+  useEffect(() => {
+    function handleGlobalKeyDown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        if (pendingToolArgs) {
+          handleConfirmTool();
+        }
+      }
+    }
+    if (pendingToolArgs) {
+      window.addEventListener('keydown', handleGlobalKeyDown);
+    }
+    return () => {
+      window.removeEventListener('keydown', handleGlobalKeyDown);
+    };
+  }, [pendingToolArgs]);
+
   const panelStyle = {
     width: isOpen ? panelWidth : 0,
     transition: isResizing ? 'none' : 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
@@ -347,7 +439,6 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
     position: 'relative' as const,
   };
 
-  // If closed, render floating button
   if (!isOpen) {
     return (
       <button
@@ -359,7 +450,6 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
     );
   }
 
-  // If open, render integrated panel
   return (
     <div 
       style={panelStyle}
@@ -396,7 +486,7 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
                 <div
                   className={`rounded-lg px-4 py-2 max-w-[80%] ${
                     message.role === 'user'
-                      ? 'bg-blue-600 text-white'
+                      ? 'bg-gray-700 text-white'
                       : 'bg-gray-100 text-gray-900'
                   } text-xs`}
                 >
@@ -423,6 +513,21 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
               </div>
             ))}
           </div>
+          {/* Confirmation button for tool confirmation */}
+          {pendingToolArgs && (
+            <div className="flex flex-col items-center my-4">
+              <button
+                className="bg-gray-300 text-gray-900 px-3 py-2 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-400 transition-all duration-100 flex items-center gap-2 text-xs font-medium animate-pulse"
+                style={{ animationDuration: '2s' }}
+                onClick={handleConfirmTool}
+              >
+                Confirm
+                <span className="ml-2 inline-block bg-gray-200 text-gray-700 text-[10px] px-1.5 py-0.5 rounded font-mono border border-gray-300">
+                  ⌘↵
+                </span>
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="border-t border-gray-200 px-4 py-6 sm:px-6 text-xs">
@@ -433,19 +538,17 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
               onChange={(e) => setInputMessage(e.target.value)}
               onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
               placeholder="Type your message..."
-              className="flex-1 rounded-md border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 text-xs"
+              className="flex-1 rounded-md border border-gray-300 px-3 py-2 focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-gray-500 text-xs"
             />
             <button
               onClick={handleSendMessage}
-              className="rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 text-xs"
+              className="rounded-md bg-gray-700 px-4 py-2 text-white hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 text-xs"
             >
               Send
             </button>
           </div>
         </div>
       </div>
-      
-      {/* Enhanced resize handle */}
       <div
         ref={resizeRef}
         className={`absolute left-0 top-0 h-full w-0.5 cursor-ew-resize group ${
@@ -455,8 +558,6 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
         title="Drag to resize panel"
       >
       </div>
-      
-      {/* Overlay during resize to prevent interference */}
       {isResizing && (
         <div className="fixed inset-0 z-50 cursor-ew-resize" style={{ background: 'transparent' }} />
       )}

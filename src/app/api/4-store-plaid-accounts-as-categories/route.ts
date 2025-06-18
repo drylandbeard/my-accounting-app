@@ -68,20 +68,43 @@ export async function POST(req: NextRequest) {
       };
     });
 
-    // Use upsert to handle duplicate entries based on the unique constraint
-    const { data: storedEntries, error: storageError } = await supabase
-      .from("chart_of_accounts")
-      .upsert(chartEntries, { 
-        onConflict: "name,type,subtype,company_id",
-        ignoreDuplicates: false 
-      })
-      .select();
+    // Check for existing entries and only insert new ones to avoid foreign key conflicts
+    const existingEntries = [];
+    const newEntries = [];
 
-    if (storageError) {
-      return NextResponse.json({ 
-        error: "Failed to create chart of accounts entries",
-        details: storageError.message
-      }, { status: 500 });
+    for (const entry of chartEntries) {
+      const { data: existing } = await supabase
+        .from("chart_of_accounts")
+        .select("id")
+        .eq("name", entry.name)
+        .eq("type", entry.type)
+        .eq("company_id", entry.company_id)
+        .eq("subtype", entry.subtype || null)
+        .single();
+
+      if (existing) {
+        existingEntries.push(existing);
+      } else {
+        newEntries.push(entry);
+      }
+    }
+
+    // Only insert new entries
+    let storedEntries = [];
+    if (newEntries.length > 0) {
+      const { data: insertedEntries, error: storageError } = await supabase
+        .from("chart_of_accounts")
+        .insert(newEntries)
+        .select();
+
+      if (storageError) {
+        return NextResponse.json({ 
+          error: "Failed to create chart of accounts entries",
+          details: storageError.message
+        }, { status: 500 });
+      }
+
+      storedEntries = insertedEntries || [];
     }
 
     return NextResponse.json({
