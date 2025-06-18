@@ -56,7 +56,9 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
   const { categories, refreshCategories } = useContext(SharedContext);
   const [pendingToolQueue, setPendingToolQueue] = useState<any[]>([]);
   const [pendingToolArgs, setPendingToolArgs] = useState<any | null>(null);
-  const { currentCompany } = useApiWithCompany();
+  const [transactions, setTransactions] = useState<any[]>([]);
+  const [accounts, setAccounts] = useState<any[]>([]);
+  const { currentCompany, postWithCompany } = useApiWithCompany();
 
   // Load saved panel width from localStorage
   useEffect(() => {
@@ -65,6 +67,23 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
       setPanelWidth(parseInt(savedWidth, 10));
     }
   }, []);
+
+  // Fetch transactions and accounts when component mounts
+  useEffect(() => {
+    const fetchData = async () => {
+      if (!currentCompany) return;
+      
+      const [transactionsData, accountsData] = await Promise.all([
+        supabase.from('imported_transactions').select('*').eq('company_id', currentCompany.id),
+        supabase.from('accounts').select('*').eq('company_id', currentCompany.id)
+      ]);
+      
+      setTransactions(transactionsData.data || []);
+      setAccounts(accountsData.data || []);
+    };
+    
+    fetchData();
+  }, [currentCompany]);
 
   // Save panel width to localStorage
   useEffect(() => {
