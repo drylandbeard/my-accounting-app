@@ -1,5 +1,5 @@
-import { EmailProvider, EmailVerificationData, EmailResponse } from "./types";
-import { createVerificationEmailTemplate } from "./templates";
+import { EmailProvider, EmailVerificationData, EmailInvitationData, EmailResponse } from "./types";
+import { createVerificationEmailTemplate, createInvitationEmailTemplate } from "./templates";
 
 export class EmailService {
   private provider: EmailProvider | null = null;
@@ -66,6 +66,49 @@ export class EmailService {
       return {
         success: false,
         error: error instanceof Error ? error.message : "Failed to send verification email",
+      };
+    }
+  }
+
+  /**
+   * Send team invitation email
+   */
+  async sendInvitationEmail(data: EmailInvitationData): Promise<EmailResponse> {
+    // Ensure provider is initialized
+    if (!this.provider) {
+      await this.initializeProvider();
+    }
+
+    if (!this.provider) {
+      return {
+        success: false,
+        error: "Email service not available on client-side",
+      };
+    }
+
+    try {
+      const template = createInvitationEmailTemplate(data);
+      
+      const result = await this.provider.sendEmail({
+        to: data.email,
+        from: this.fromEmail,
+        subject: template.subject,
+        htmlBody: template.htmlBody,
+        textBody: template.textBody,
+      });
+
+      if (result.success) {
+        console.log(`Invitation email sent successfully via ${this.provider.name} to ${data.email}`);
+      } else {
+        console.error(`Failed to send invitation email via ${this.provider.name}:`, result.error);
+      }
+
+      return result;
+    } catch (error) {
+      console.error("Email service error:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to send invitation email",
       };
     }
   }
