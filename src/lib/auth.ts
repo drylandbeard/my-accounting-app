@@ -1,5 +1,5 @@
 import bcrypt from "bcryptjs";
-import { supabase } from "./supabaseClient";
+import { supabase } from "./supabase";
 import { sendVerificationEmail, generateVerificationToken, createVerificationUrl } from "./email";
 import { getEmailService } from "./email/service";
 

@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from 'react'
 import { usePlaidLink } from 'react-plaid-link'
-import { supabase } from '../../lib/supabaseClient'
+import { supabase } from '../../lib/supabase'
 import dynamic from 'next/dynamic'
 import Papa from 'papaparse'
 import { v4 as uuidv4 } from 'uuid'

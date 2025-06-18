@@ -3,7 +3,7 @@
 import { useAuth } from "@/app/components/AuthContext";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
+import { supabase } from "@/lib/supabase";
 import { useApiWithCompany } from "@/hooks/useApiWithCompany";
 import { XMarkIcon, PlusIcon, CreditCardIcon, TrashIcon, ArrowRightIcon, ExclamationTriangleIcon } from "@heroicons/react/24/outline";
 

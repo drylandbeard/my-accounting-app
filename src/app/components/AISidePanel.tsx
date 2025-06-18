@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useContext } from 'react';
 import { XMarkIcon, ChatBubbleLeftRightIcon } from '@heroicons/react/24/outline';
 import { SharedContext } from './SharedContext';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase } from '@/lib/supabase';
 import { useApiWithCompany } from '@/hooks/useApiWithCompany';
 import { tools } from '../ai/tools';
 import { categoryPrompt } from '../ai/prompts';

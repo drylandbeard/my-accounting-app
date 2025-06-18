@@ -1,5 +1,5 @@
 import bcrypt from "bcryptjs";
-import { supabase } from "./supabaseClient";
+import { supabase } from "./supabase";
 
 /**
  * Hash a password using bcrypt

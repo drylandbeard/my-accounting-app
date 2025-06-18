@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { supabase } from '../../lib/supabaseClient'
+import { supabase } from '../../lib/supabase'
 import { useApiWithCompany } from '@/hooks/useApiWithCompany'
 
 const ACCOUNT_TYPES = [

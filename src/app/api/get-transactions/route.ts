@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { plaidClient } from '@/lib/plaid'
-import { supabase } from '@/lib/supabaseAdmin'
+import { supabase } from '@/lib/supabase'
 import { validateCompanyContext } from '@/lib/auth-utils'
 
 export async function POST(req: NextRequest) {
