@@ -4,7 +4,7 @@ import { useAuth } from "@/app/components/AuthContext";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createCompany, updateUserEmail, updateUserPassword } from "@/lib/auth-client";
-import { XMarkIcon, PlusIcon, UserIcon, ArrowRightOnRectangleIcon } from "@heroicons/react/24/outline";
+import { XMarkIcon, PlusIcon, UserIcon, ArrowRightStartOnRectangleIcon } from "@heroicons/react/24/outline";
 
 interface CompanyModalProps {
   isOpen: boolean;
@@ -297,7 +297,7 @@ export default function Homepage() {
               onClick={handleLogout}
               className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:text-gray-800 border border-gray-300 rounded-md hover:border-gray-400 transition-colors"
             >
-              <ArrowRightOnRectangleIcon className="w-4 h-4" />
+              <ArrowRightStartOnRectangleIcon className="w-4 h-4" />
               Logout
             </button>
           </div>
@@ -461,6 +461,15 @@ export default function Homepage() {
                 </div>
 
                 <div className="flex flex-col gap-3 max-w-lg mx-auto">
+                  {/* Add Company Button */}
+                  <button
+                    onClick={() => setIsCompanyModalOpen(true)}
+                    className="p-3 border border-dashed border-gray-300 rounded-md hover:border-gray-900 hover:bg-gray-50 transition-all text-center text-gray-600 hover:text-gray-900"
+                  >
+                    <PlusIcon className="w-5 h-5 mx-auto mb-1" />
+                    <span className="text-sm">Add Company</span>
+                  </button>
+
                   {companies
                     .filter((userCompany) => 
                       userCompany.companies.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -479,16 +488,6 @@ export default function Homepage() {
                       <p className="text-xs text-gray-500 mt-1">Role: {userCompany.role}</p>
                     </button>
                   ))}
-                  
-                  {/* Add Company Button */}
-                  <button
-                    onClick={() => setIsCompanyModalOpen(true)}
-                    className="p-3 border border-dashed border-gray-300 rounded-md hover:border-gray-900 hover:bg-gray-50 transition-all text-center text-gray-600 hover:text-gray-900"
-                  >
-                    <PlusIcon className="w-5 h-5 mx-auto mb-1" />
-                    <span className="text-sm">Add Company</span>
-                  </button>
-                  
                   {companies.filter((userCompany) => 
                     userCompany.companies.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                     (userCompany.companies.description || "").toLowerCase().includes(searchQuery.toLowerCase())
