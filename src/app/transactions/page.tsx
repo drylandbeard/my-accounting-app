@@ -2366,7 +2366,7 @@ export default function Page() {
           onClick={() => setEditModal({ isOpen: false, transaction: null })}
         >
           <div 
-            className="bg-white rounded-lg p-6 w-[400px] overflow-y-auto shadow-xl"
+            className="bg-white rounded-lg p-6 w-[900px] overflow-y-auto shadow-xl"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex justify-between items-center mb-4">
@@ -2379,64 +2379,26 @@ export default function Page() {
               </button>
             </div>
 
-            <div className="space-y-4">
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Date
-                  </label>
-                  <input
-                    type="date"
-                    value={editModal.transaction.date}
-                    onChange={(e) => setEditModal(prev => ({
-                      ...prev,
-                      transaction: prev.transaction ? {
-                        ...prev.transaction,
-                        date: e.target.value
-                      } : null
-                    }))}
-                    className="w-full border px-2 py-1 rounded"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Spent
-                  </label>
-                  <input
-                    type="number"
-                    value={editModal.transaction.spent ?? 0}
-                    onChange={(e) => setEditModal(prev => ({
-                      ...prev,
-                      transaction: prev.transaction ? {
-                        ...prev.transaction,
-                        spent: parseFloat(e.target.value) || 0
-                      } : null
-                    }))}
-                    className="w-full border px-2 py-1 rounded"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Received
-                  </label>
-                  <input
-                    type="number"
-                    value={editModal.transaction.received ?? 0}
-                    onChange={(e) => setEditModal(prev => ({
-                      ...prev,
-                      transaction: prev.transaction ? {
-                        ...prev.transaction,
-                        received: parseFloat(e.target.value) || 0
-                      } : null
-                    }))}
-                    className="w-full border px-2 py-1 rounded"
-                  />
-                </div>
+            <div className="grid grid-cols-7 gap-2">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Date
+                </label>
+                <input
+                  type="date"
+                  value={editModal.transaction.date}
+                  onChange={(e) => setEditModal(prev => ({
+                    ...prev,
+                    transaction: prev.transaction ? {
+                      ...prev.transaction,
+                      date: e.target.value
+                    } : null
+                  }))}
+                  className="w-full border px-2 py-1 rounded text-xs"
+                />
               </div>
 
-              <div>
+              <div className="col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Description
                 </label>
@@ -2450,80 +2412,114 @@ export default function Page() {
                       description: e.target.value
                     } : null
                   }))}
-                  className="w-full border px-2 py-1 rounded"
+                  className="w-full border px-2 py-1 rounded text-xs"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Payee
-                  </label>
-                  <Select
-                    options={payeeOptions}
-                    value={payeeOptions.find(opt => opt.value === editModal.transaction?.payee_id) || payeeOptions[0]}
-                    onChange={(selectedOption) => {
-                      const option = selectedOption as SelectOption | null;
-                      if (option?.value === 'add_new') {
-                        setNewPayeeModal({ 
-                          isOpen: true, 
-                          name: '', 
-                          transactionId: editModal.transaction?.id || null
-                        });
-                      } else if (editModal.transaction) {
-                        setEditModal(prev => ({
-                          ...prev,
-                          transaction: prev.transaction ? {
-                            ...prev.transaction,
-                            payee_id: option?.value || undefined
-                          } : null
-                        }));
-                      }
-                    }}
-                    isSearchable
-                  />
-                </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Spent
+                </label>
+                <input
+                  type="number"
+                  value={editModal.transaction.spent ?? 0}
+                  onChange={(e) => setEditModal(prev => ({
+                    ...prev,
+                    transaction: prev.transaction ? {
+                      ...prev.transaction,
+                      spent: parseFloat(e.target.value) || 0
+                    } : null
+                  }))}
+                  className="w-full border px-2 py-1 rounded text-xs"
+                />
+              </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Category
-                  </label>
-                  <Select
-                    options={categoryOptions}
-                    value={categoryOptions.find(opt => {
-                      const isAccountDebit = editModal.transaction?.selected_category_id === selectedAccountIdInCOA;
-                      const categoryId = isAccountDebit ? editModal.transaction?.corresponding_category_id : editModal.transaction?.selected_category_id;
-                      return opt.value === categoryId;
-                    })}
-                    onChange={(selectedOption) => {
-                      const option = selectedOption as SelectOption | null;
-                      if (option?.value === 'add_new') {
-                        // Determine default category type based on transaction
-                        const defaultType = editModal.transaction?.received && editModal.transaction.received > 0 ? 'Revenue' : 'Expense';
-                        setNewCategoryModal({ 
-                          isOpen: true, 
-                          name: '', 
-                          type: defaultType, 
-                          parent_id: null, 
-                          transactionId: editModal.transaction?.id || null
-                        });
-                      } else if (option && editModal.transaction) {
-                        const updatedTransaction = { ...editModal.transaction };
-                        const isAccountDebit = updatedTransaction.selected_category_id === selectedAccountIdInCOA;
-                        if (isAccountDebit) {
-                          updatedTransaction.corresponding_category_id = option.value;
-                        } else {
-                          updatedTransaction.selected_category_id = option.value;
-                        }
-                        setEditModal(prev => ({
-                          ...prev,
-                          transaction: updatedTransaction
-                        }));
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Received
+                </label>
+                <input
+                  type="number"
+                  value={editModal.transaction.received ?? 0}
+                  onChange={(e) => setEditModal(prev => ({
+                    ...prev,
+                    transaction: prev.transaction ? {
+                      ...prev.transaction,
+                      received: parseFloat(e.target.value) || 0
+                    } : null
+                  }))}
+                  className="w-full border px-2 py-1 rounded text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Payee
+                </label>
+                <Select
+                  options={payeeOptions}
+                  value={payeeOptions.find(opt => opt.value === editModal.transaction?.payee_id) || payeeOptions[0]}
+                  onChange={(selectedOption) => {
+                    const option = selectedOption as SelectOption | null;
+                    if (option?.value === 'add_new') {
+                      setNewPayeeModal({ 
+                        isOpen: true, 
+                        name: '', 
+                        transactionId: editModal.transaction?.id || null
+                      });
+                    } else if (editModal.transaction) {
+                      setEditModal(prev => ({
+                        ...prev,
+                        transaction: prev.transaction ? {
+                          ...prev.transaction,
+                          payee_id: option?.value || undefined
+                        } : null
+                      }));
+                    }
+                  }}
+                  isSearchable
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Category
+                </label>
+                <Select
+                  options={categoryOptions}
+                  value={categoryOptions.find(opt => {
+                    const isAccountDebit = editModal.transaction?.selected_category_id === selectedAccountIdInCOA;
+                    const categoryId = isAccountDebit ? editModal.transaction?.corresponding_category_id : editModal.transaction?.selected_category_id;
+                    return opt.value === categoryId;
+                  })}
+                  onChange={(selectedOption) => {
+                    const option = selectedOption as SelectOption | null;
+                    if (option?.value === 'add_new') {
+                      // Determine default category type based on transaction
+                      const defaultType = editModal.transaction?.received && editModal.transaction.received > 0 ? 'Revenue' : 'Expense';
+                      setNewCategoryModal({ 
+                        isOpen: true, 
+                        name: '', 
+                        type: defaultType, 
+                        parent_id: null, 
+                        transactionId: editModal.transaction?.id || null
+                      });
+                    } else if (option && editModal.transaction) {
+                      const updatedTransaction = { ...editModal.transaction };
+                      const isAccountDebit = updatedTransaction.selected_category_id === selectedAccountIdInCOA;
+                      if (isAccountDebit) {
+                        updatedTransaction.corresponding_category_id = option.value;
+                      } else {
+                        updatedTransaction.selected_category_id = option.value;
                       }
-                    }}
-                    isSearchable
-                  />
-                </div>
+                      setEditModal(prev => ({
+                        ...prev,
+                        transaction: updatedTransaction
+                      }));
+                    }
+                  }}
+                  isSearchable
+                />
               </div>
             </div>
 
