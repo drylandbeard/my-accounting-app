@@ -111,10 +111,11 @@ function CompanyModal({ isOpen, onClose, onCreateCompany }: CompanyModalProps) {
 }
 
 export default function Homepage() {
-  const { user, currentCompany, companies, setCurrentCompany, setCompanies, logout } = useAuth();
+  const { user, companies, setCurrentCompany, setCompanies, logout } = useAuth();
   const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
   const [showAccountSection, setShowAccountSection] = useState(false);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const router = useRouter();
   
   // Profile form states
@@ -150,7 +151,6 @@ export default function Homepage() {
       };
       
       setCompanies([...companies, newUserCompany]);
-      setCurrentCompany(result.company);
     }
   };
 
@@ -302,25 +302,14 @@ export default function Homepage() {
             </button>
           </div>
         )}
-
-        <h1 className="text-4xl font-bold mb-6">Welcome to SWITCH</h1>
         
         {user && (
           <div className="mb-6">
             <p className="text-lg text-gray-600 mb-2">
               Hello, {user.email}!
             </p>
-            {currentCompany && (
-              <p className="text-sm text-gray-500">
-                Current company: <span className="font-semibold">{currentCompany.name}</span>
-              </p>
-            )}
           </div>
         )}
-        
-        <p className="text-lg text-gray-600 mb-8">
-          Your comprehensive accounting solution for managing transactions, automations, and financial reporting.
-        </p>
 
         {/* Account Section */}
         {showAccountSection && user && (
@@ -457,68 +446,67 @@ export default function Homepage() {
         
         {/* Company Selection - only show when not in account section */}
         {user && !showAccountSection && (
-          <div className="mb-8 p-6 bg-blue-50 border border-blue-200 rounded-lg">
-            <p className="text-blue-800 mb-4">
-              {currentCompany ? "Switch company or create a new one:" : "Select a company to get started:"}
-            </p>
-            
+          <div className="mb-8">
             {companies.length > 0 ? (
-              <div className="space-y-3">
-                <div className={`grid gap-3 ${
-                  companies.length === 0 
-                    ? 'grid-cols-1 max-w-md mx-auto' 
-                    : companies.length === 1 
-                      ? 'grid-cols-1 md:grid-cols-2 max-w-2xl mx-auto' 
-                      : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'
-                }`}>
-                  {companies.map((userCompany) => (
+              <div className="space-y-6">
+                {/* Search Bar */}
+                <div className="max-w-md mx-auto">
+                  <input
+                    type="text"
+                    placeholder="Search companies..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 placeholder-gray-500 focus:border-gray-900 focus:outline-none focus:ring-gray-900 text-sm"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-3 max-w-lg mx-auto">
+                  {companies
+                    .filter((userCompany) => 
+                      userCompany.companies.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                      (userCompany.companies.description || "").toLowerCase().includes(searchQuery.toLowerCase())
+                    )
+                    .map((userCompany) => (
                     <button
                       key={userCompany.company_id}
                       onClick={() => handleCompanySelect(userCompany.companies)}
-                      className={`p-4 bg-white border rounded-lg hover:shadow-md transition-all text-left ${
-                        currentCompany?.id === userCompany.companies.id
-                          ? 'border-blue-400 shadow-md ring-2 ring-blue-200'
-                          : 'border-blue-200 hover:border-blue-400'
-                      }`}
+                      className="p-3 border border-gray-300 rounded-md hover:border-gray-900 hover:bg-gray-50 transition-all text-left"
                     >
-                      <h4 className="font-semibold text-gray-900">{userCompany.companies.name}</h4>
+                      <h4 className="font-medium text-gray-900">{userCompany.companies.name}</h4>
                       {userCompany.companies.description && (
                         <p className="text-sm text-gray-600 mt-1">{userCompany.companies.description}</p>
                       )}
-                      <p className="text-xs text-blue-600 mt-2">Role: {userCompany.role}</p>
-                      {currentCompany?.id === userCompany.companies.id && (
-                        <p className="text-xs text-green-600 mt-1 font-medium">✓ Currently selected</p>
-                      )}
+                      <p className="text-xs text-gray-500 mt-1">Role: {userCompany.role}</p>
                     </button>
                   ))}
                   
-                  {/* Add Company Card */}
+                  {/* Add Company Button */}
                   <button
                     onClick={() => setIsCompanyModalOpen(true)}
-                    className="p-4 bg-white border-2 border-dashed border-gray-300 rounded-lg hover:border-blue-400 hover:shadow-md transition-all flex flex-col items-center justify-center text-gray-500 hover:text-blue-600"
+                    className="p-3 border border-dashed border-gray-300 rounded-md hover:border-gray-900 hover:bg-gray-50 transition-all text-center text-gray-600 hover:text-gray-900"
                   >
-                    <PlusIcon className="w-8 h-8 mb-2" />
-                    <span className="text-sm font-medium">Add Company</span>
+                    <PlusIcon className="w-5 h-5 mx-auto mb-1" />
+                    <span className="text-sm">Add Company</span>
                   </button>
+                  
+                  {companies.filter((userCompany) => 
+                    userCompany.companies.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                    (userCompany.companies.description || "").toLowerCase().includes(searchQuery.toLowerCase())
+                  ).length === 0 && searchQuery && (
+                       <div className="text-center py-6">
+                          <p className="text-gray-500 text-sm">No companies found matching &ldquo;{searchQuery}&rdquo;</p>
+                       </div>
+                  )}
                 </div>
-                {currentCompany ? (
-                  <p className="text-sm text-blue-600 mt-4">
-                    You can access the accounting features from the navigation menu above, or switch to a different company.
-                  </p>
-                ) : (
-                  <p className="text-sm text-blue-600 mt-4">
-                    Click on a company above to start managing your accounting, or create a new company.
-                  </p>
-                )}
               </div>
             ) : (
               <div className="text-center">
-                <p className="text-blue-700 mb-3">
-                  You don&apos;t have any companies yet. Get started by creating your first company.
+                <p className="text-gray-600 mb-4">
+                  You don&apos;t have any companies yet.
                 </p>
                 <button
                   onClick={() => setIsCompanyModalOpen(true)}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-md hover:bg-gray-800 transition-colors"
                 >
                   <PlusIcon className="w-4 h-4" />
                   Create Company
