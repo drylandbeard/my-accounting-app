@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { CheckCircleIcon, XCircleIcon, EnvelopeIcon } from "@heroicons/react/24/outline";
-import { useAuth } from "@/app/components/AuthContext";
+import { useAuth } from "@/components/AuthContext";
 import { getUserCompanies } from "@/lib/auth-client";
 
 export default function VerifyEmailPage() {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useAuth } from "@/app/components/AuthContext";
+import { useAuth } from "@/components/AuthContext";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createCompany, updateUserEmail, updateUserPassword } from "@/lib/auth-client";

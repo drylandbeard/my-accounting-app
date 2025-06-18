@@ -6,7 +6,6 @@ import AuthForm from "./AuthForm";
 import NavBar from "./NavBar";
 import AISidePanel from "./AISidePanel";
 import { SelectedToAddProvider } from "./SelectedToAddContext";
-// import AIContextProvider from "./AIContextProvider";
 import SharedContext from "./SharedContext";
 import { usePathname } from "next/navigation";
 
