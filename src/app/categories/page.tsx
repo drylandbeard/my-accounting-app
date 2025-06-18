@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback, useContext } from 'react'
 import { supabase } from '../../lib/supabaseClient'
 import { useApiWithCompany } from '@/hooks/useApiWithCompany'
+import { SharedContext } from '../components/SharedContext';
 
 const ACCOUNT_TYPES = [
   'Asset',
@@ -19,11 +20,12 @@ type Category = {
   type: string
   subtype?: string
   parent_id?: string | null
+  company_id: string
 }
 
 export default function ChartOfAccountsPage() {
   const { hasCompanyContext, currentCompany } = useApiWithCompany()
-  const [accounts, setAccounts] = useState<Category[]>([])
+  const { categories: accounts, refreshCategories } = useContext(SharedContext)
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
 
@@ -41,152 +43,214 @@ export default function ChartOfAccountsPage() {
   const [editSubtype, setEditSubtype] = useState('')
   const [editParentId, setEditParentId] = useState<string | null>(null)
 
-  useEffect(() => {
-    fetchAccounts()
-    fetchParentOptions()
-  }, [currentCompany?.id, hasCompanyContext])
+  // Real-time and focus states
+  const [highlightedIds, setHighlightedIds] = useState<Set<string>>(new Set())
+  const [lastActionId, setLastActionId] = useState<string | null>(null)
 
-  const fetchAccounts = async () => {
-    if (!hasCompanyContext) return;
+  useEffect(() => {
+    if (accounts) {
+      setLoading(false)
+    }
+  }, [accounts])
+
+  const fetchParentOptions = useCallback(async () => {
+    if (!hasCompanyContext || !currentCompany?.id) return
     
-    setLoading(true)
     const { data, error } = await supabase
       .from('chart_of_accounts')
       .select('*')
       .eq('company_id', currentCompany!.id)
-      .order('parent_id', { ascending: true, nullsFirst: true })
-      .order('type', { ascending: true })
-      .order('name', { ascending: true })
-    if (!error && data) setAccounts(data)
-    setLoading(false)
-  }
-
-  const fetchParentOptions = async () => {
-    if (!hasCompanyContext) return;
-    
-    const { data } = await supabase
-      .from('chart_of_accounts')
-      .select('id, name, type')
-      .eq('company_id', currentCompany!.id)
       .is('parent_id', null)
-    if (data) setParentOptions(data)
-  }
+    
+    if (error) {
+      console.error('Error fetching parent options:', error)
+    } else if (data) {
+      setParentOptions(data as Category[])
+    }
+  }, [currentCompany?.id, hasCompanyContext])
+
+  // Highlight a category and scroll to it
+  const highlightCategory = useCallback((categoryId: string) => {
+    setHighlightedIds(prev => new Set([...prev, categoryId]));
+    setLastActionId(categoryId);
+    
+    setTimeout(() => {
+      const element = document.getElementById(`category-${categoryId}`);
+      if (element) {
+        element.scrollIntoView({ 
+          behavior: 'smooth', 
+          block: 'center' 
+        });
+      }
+    }, 100);
+    
+    setTimeout(() => {
+      setHighlightedIds(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(categoryId);
+        return newSet;
+      });
+      setLastActionId(currentId => (currentId === categoryId ? null : currentId));
+    }, 3000);
+  }, []);
+
+  // Fetch initial data
+  useEffect(() => {
+    refreshCategories()
+    fetchParentOptions()
+  }, [currentCompany?.id, hasCompanyContext, refreshCategories, fetchParentOptions])
+
+  // Set up real-time subscription
+  useEffect(() => {
+    if (!hasCompanyContext || !currentCompany?.id) return
+
+    console.log('Setting up real-time subscription for company:', currentCompany.id)
+
+    const channel = supabase
+      .channel(`chart_of_accounts_${currentCompany.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'chart_of_accounts',
+          filter: `company_id=eq.${currentCompany.id}`
+        },
+        (payload) => {
+          console.log('Real-time change detected:', payload)
+          refreshCategories()
+
+          let recordId: string | null = null;
+          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            recordId = payload.new.id
+          }
+          
+          if (recordId) {
+            highlightCategory(recordId)
+          }
+          
+          fetchParentOptions()
+        }
+      )
+      .subscribe((status) => {
+        console.log('Subscription status:', status)
+      })
+
+    return () => {
+      console.log('Cleaning up real-time subscription')
+      supabase.removeChannel(channel)
+    }
+  }, [currentCompany?.id, hasCompanyContext, highlightCategory, fetchParentOptions, refreshCategories])
 
   const filteredAccounts = accounts
     .filter(account => {
-      const searchLower = search.toLowerCase();
-      const matchesName = account.name.toLowerCase().includes(searchLower);
-      const matchesType = account.type.toLowerCase().includes(searchLower);
-      const matchesSubtype = account.subtype?.toLowerCase().includes(searchLower) ?? false;
+      const searchLower = search.toLowerCase()
+      const matchesName = account.name.toLowerCase().includes(searchLower)
+      const matchesType = account.type.toLowerCase().includes(searchLower)
+      const matchesSubtype = account.subtype?.toLowerCase().includes(searchLower) ?? false
       
-      // If this account matches the search, include it
-      if (matchesName || matchesType || matchesSubtype) return true;
+      if (matchesName || matchesType || matchesSubtype) return true
       
-      // If this is a parent account, check if any of its children match
       if (account.parent_id === null) {
         const hasMatchingChild = accounts.some(child => 
           child.parent_id === account.id && 
           (child.name.toLowerCase().includes(searchLower) ||
            child.type.toLowerCase().includes(searchLower) ||
            (child.subtype?.toLowerCase().includes(searchLower) ?? false))
-        );
-        return hasMatchingChild;
+        )
+        return hasMatchingChild
       }
       
-      return false;
+      return false
     })
     .sort((a, b) => {
-      // If one is a parent of the other, parent comes first
-      if (a.id === b.parent_id) return -1;
-      if (b.id === a.parent_id) return 1;
-      
-      // If they have the same parent, sort by name
+      if (a.id === b.parent_id) return -1
+      if (b.id === a.parent_id) return 1
       if (a.parent_id === b.parent_id) {
-        return a.name.localeCompare(b.name);
+        return a.name.localeCompare(b.name)
       }
-      
-      // If one has a parent and the other doesn't, parent comes first
-      if (a.parent_id === null && b.parent_id !== null) return -1;
-      if (b.parent_id === null && a.parent_id !== null) return 1;
-      
-      // Otherwise sort by type and name
+      if (a.parent_id === null && b.parent_id !== null) return -1
+      if (b.parent_id === null && a.parent_id !== null) return 1
       if (a.type !== b.type) {
-        return a.type.localeCompare(b.type);
+        return a.type.localeCompare(b.type)
       }
-      return a.name.localeCompare(b.name);
-    });
+      return a.name.localeCompare(b.name)
+    })
 
   const handleAddAccount = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!newName || !newType || !hasCompanyContext) return
-    const { error } = await supabase.from('chart_of_accounts').insert([
-      { 
-        name: newName, 
-        type: newType, 
-        subtype: newSubtype, 
-        parent_id: parentId || null,
-        company_id: currentCompany!.id
-      }
-    ])
-    if (!error) {
+    if (!newName || !newType || !hasCompanyContext || !currentCompany?.id) return
+    
+    const { data, error } = await supabase
+      .from('chart_of_accounts')
+      .insert([
+        { 
+          name: newName, 
+          type: newType, 
+          subtype: newSubtype, 
+          parent_id: parentId || null,
+          company_id: currentCompany!.id
+        }
+      ])
+      .select()
+      .single()
+    
+    if (!error && data) {
       setNewName('')
       setNewType('')
       setNewSubtype('')
       setParentId(null)
-      fetchAccounts()
-      fetchParentOptions()
     }
   }
 
   const handleDelete = async (id: string) => {
-    // First check if this is a parent category
     const { data: subcategories } = await supabase
       .from('chart_of_accounts')
       .select('id')
-      .eq('parent_id', id);
+      .eq('parent_id', id)
 
     if (subcategories && subcategories.length > 0) {
-      // This is a parent category, check if any subcategories have transactions
-      const subcategoryIds = subcategories.map(sub => sub.id);
+      const subcategoryIds = subcategories.map(sub => sub.id)
       const { data: transactions, error: txError } = await supabase
         .from('transactions')
         .select('id')
         .or(`debit_account_id.in.(${subcategoryIds.join(',')}),credit_account_id.in.(${subcategoryIds.join(',')})`)
-        .limit(1);
+        .limit(1)
 
       if (txError) {
-        console.error('Error checking transactions:', txError);
-        return;
+        console.error('Error checking transactions:', txError)
+        return
       }
 
       if (transactions && transactions.length > 0) {
-        alert('This category cannot be deleted because it contains subcategories that are used in existing transactions. Please reassign or delete the transactions first.');
-        return;
+        alert('This category cannot be deleted because it contains subcategories that are used in existing transactions. Please reassign or delete the transactions first.')
+        return
       }
     } else {
-      // This is a regular category, check if it has transactions
       const { data: transactions, error: txError } = await supabase
         .from('transactions')
         .select('id')
         .or(`debit_account_id.eq.${id},credit_account_id.eq.${id}`)
-        .limit(1);
+        .limit(1)
 
       if (txError) {
-        console.error('Error checking transactions:', txError);
-        return;
+        console.error('Error checking transactions:', txError)
+        return
       }
 
       if (transactions && transactions.length > 0) {
-        alert('This category cannot be deleted because it is used in existing transactions. Please reassign or delete the transactions first.');
-        return;
+        alert('This category cannot be deleted because it is used in existing transactions. Please reassign or delete the transactions first.')
+        return
       }
     }
 
-    const { error } = await supabase.from('chart_of_accounts').delete().eq('id', id)
+    const { error } = await supabase
+      .from('chart_of_accounts')
+      .delete()
+      .eq('id', id)
+    
     if (!error) {
       setEditingId(null)
-      fetchAccounts()
-      fetchParentOptions()
     }
   }
 
@@ -200,16 +264,14 @@ export default function ChartOfAccountsPage() {
 
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!editingId) return
+    if (!editingId || !hasCompanyContext || !currentCompany?.id) return
 
-    // First get the current chart_of_accounts record to check if it has a plaid_account_id
     const { data: currentAccount } = await supabase
       .from('chart_of_accounts')
       .select('plaid_account_id')
       .eq('id', editingId)
       .single()
 
-    // Update chart_of_accounts
     const { error } = await supabase
       .from('chart_of_accounts')
       .update({
@@ -220,23 +282,20 @@ export default function ChartOfAccountsPage() {
       })
       .eq('id', editingId)
 
-    if (!error) {
-      // If this chart of accounts entry is linked to a plaid account, also update the accounts table
-      if (currentAccount?.plaid_account_id) {
-        await supabase
-          .from('accounts')
-          .update({
-            name: editName,
-            type: editType,
-            subtype: editSubtype || null
-          })
-          .eq('plaid_account_id', currentAccount.plaid_account_id)
-          .eq('company_id', currentCompany!.id)
-      }
+    if (!error && currentAccount?.plaid_account_id) {
+      await supabase
+        .from('accounts')
+        .update({
+          name: editName,
+          type: editType,
+          subtype: editSubtype || null
+        })
+        .eq('plaid_account_id', currentAccount.plaid_account_id)
+        .eq('company_id', currentCompany!.id)
+    }
 
+    if (!error) {
       setEditingId(null)
-      fetchAccounts()
-      fetchParentOptions()
     }
   }
 
@@ -244,25 +303,35 @@ export default function ChartOfAccountsPage() {
     setEditingId(null)
   }
 
-  // Helper to display subaccounts indented
   const renderAccounts = (accounts: Category[], level = 0) => {
-    // Get all parent accounts
-    const parentAccounts = accounts.filter(acc => acc.parent_id === null);
+    const parentAccounts = accounts.filter(acc => acc.parent_id === null)
     
     return parentAccounts.flatMap(parent => {
-      // Get subaccounts for this parent
-      const subAccounts = accounts.filter(acc => acc.parent_id === parent.id);
+      const subAccounts = accounts.filter(acc => acc.parent_id === parent.id)
       
-      // If there are no subaccounts and parent doesn't match search, don't show parent
       if (subAccounts.length === 0 && !accounts.includes(parent)) {
-        return [];
+        return []
       }
       
-      // Return an array of <tr> elements: parent row + subaccount rows
       return [
-        <tr key={parent.id}>
+        <tr 
+          key={parent.id}
+          id={`category-${parent.id}`}
+          className={`transition-colors duration-1000 ${
+            highlightedIds.has(parent.id) 
+              ? 'bg-green-100' 
+              : 'hover:bg-gray-50'
+          }`}
+        >
           <td style={{ paddingLeft: `${level * 16 + 4}px` }} className="border p-1 text-sm">
-            {parent.name}
+            <span className={highlightedIds.has(parent.id) ? 'font-bold text-green-800' : ''}>
+              {parent.name}
+            </span>
+            {lastActionId === parent.id && (
+              <span className="ml-2 inline-block text-green-600">
+                ✨
+              </span>
+            )}
           </td>
           <td className="border p-1 text-sm">{parent.type}</td>
           <td className="border p-1 text-sm">{parent.subtype || ''}</td>
@@ -279,9 +348,24 @@ export default function ChartOfAccountsPage() {
           </td>
         </tr>,
         ...subAccounts.map(subAcc => (
-          <tr key={subAcc.id}>
+          <tr 
+            key={subAcc.id}
+            id={`category-${subAcc.id}`}
+            className={`transition-colors duration-1000 ${
+              highlightedIds.has(subAcc.id) 
+                ? 'bg-green-100' 
+                : 'hover:bg-gray-50'
+            }`}
+          >
             <td style={{ paddingLeft: `${(level + 1) * 16 + 4}px` }} className="border p-1 text-sm">
-              {subAcc.name}
+              <span className={highlightedIds.has(subAcc.id) ? 'font-bold text-green-800' : ''}>
+                {subAcc.name}
+              </span>
+              {lastActionId === subAcc.id && (
+                <span className="ml-2 inline-block text-green-600">
+                  ✨
+                </span>
+              )}
             </td>
             <td className="border p-1 text-sm">{subAcc.type}</td>
             <td className="border p-1 text-sm">{subAcc.subtype || ''}</td>
@@ -298,8 +382,8 @@ export default function ChartOfAccountsPage() {
             </td>
           </tr>
         ))
-      ];
-    }).filter(Boolean).flat(); // Remove null entries and flatten
+      ]
+    }).filter(Boolean).flat()
   }
 
   if (!hasCompanyContext) {
@@ -312,7 +396,7 @@ export default function ChartOfAccountsPage() {
           </p>
         </div>
       </div>
-    );
+    )
   }
 
   return (
@@ -327,7 +411,6 @@ export default function ChartOfAccountsPage() {
         />
       </div>
 
-      {/* Add Category Form */}
       <div className="flex justify-center mb-4">
         <form onSubmit={handleAddAccount} className="flex gap-2 items-center w-full">
           <input
@@ -410,9 +493,8 @@ export default function ChartOfAccountsPage() {
               <div 
                 className="fixed inset-0 bg-black/70 flex items-center justify-center"
                 onClick={(e) => {
-                  // Only close if clicking the overlay, not its children
                   if (e.target === e.currentTarget) {
-                    handleCancelEdit();
+                    handleCancelEdit()
                   }
                 }}
               >

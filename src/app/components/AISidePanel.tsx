@@ -154,9 +154,7 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
       await supabase.from('imported_transactions').delete().eq('id', tx.id);
       await postWithCompany('/api/sync-journal', {});
       // For now, reload the page to refresh context
-      if (typeof window !== 'undefined') {
-        setTimeout(() => window.location.reload(), 1000);
-      }
+      await refreshCategories();
       return `Transaction "${tx.description}" categorized as "${category.name}".`;
     }
     
@@ -257,32 +255,42 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
             : msg
         ));
         
-        // Execute each action in sequence
-        for (let i = 0; i < pendingToolQueue.length; i++) {
-          const action = pendingToolQueue[i];
-          try {
-            const result = await executeAction(action);
-            results.push(`${i + 1}. ${result}`);
-            currentMessage += `${i + 1}. ${result}\n`;
-            
-            // Update message with progress
-            setMessages(prev => prev.map((msg, idx) => 
-              idx === messageIndex 
-                ? { ...msg, content: currentMessage }
-                : msg
-            ));
-          } catch (error) {
-            results.push(`${i + 1}. Error: ${error}`);
-            currentMessage += `${i + 1}. Error: ${error}\n`;
-            
-            // Update message with error
-            setMessages(prev => prev.map((msg, idx) => 
-              idx === messageIndex 
-                ? { ...msg, content: currentMessage }
-                : msg
-            ));
-          }
-        }
+                 // Execute each action in sequence
+         for (let i = 0; i < pendingToolQueue.length; i++) {
+           const action = pendingToolQueue[i];
+           try {
+             // Update to show current action being processed
+             const processingMessage = currentMessage + `\n🔄 Processing action ${i + 1}...`;
+             setMessages(prev => prev.map((msg, idx) => 
+               idx === messageIndex 
+                 ? { ...msg, content: processingMessage }
+                 : msg
+             ));
+             
+             const result = await executeAction(action);
+             results.push(`${i + 1}. ${result}`);
+             currentMessage += `${i + 1}. ${result}\n`;
+             
+             // Categories are already refreshed in executeAction, no need to call again
+             
+             // Update message with progress
+             setMessages(prev => prev.map((msg, idx) => 
+               idx === messageIndex 
+                 ? { ...msg, content: currentMessage }
+                 : msg
+             ));
+           } catch (error) {
+             results.push(`${i + 1}. Error: ${error}`);
+             currentMessage += `${i + 1}. ❌ Error: ${error}\n`;
+             
+             // Update message with error
+             setMessages(prev => prev.map((msg, idx) => 
+               idx === messageIndex 
+                 ? { ...msg, content: currentMessage }
+                 : msg
+             ));
+           }
+         }
         
         // Clear the queue
         setPendingToolQueue([]);
@@ -294,17 +302,37 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
             ? { ...msg, content: currentMessage }
             : msg
         ));
-      } else {
-        // Execute single action (backward compatibility)
-        const result = await executeAction(message.pendingAction);
-        
-        // Update the message to show the result
-        setMessages(prev => prev.map((msg, idx) => 
-          idx === messageIndex 
-            ? { ...msg, content: msg.content + `\n\n✅ **Confirmed and executed:** ${result}`, showConfirmation: false, pendingAction: undefined }
-            : msg
-        ));
-      }
+              } else {
+          // Execute single action (backward compatibility)
+          
+          // Show confirming message first
+          setMessages(prev => prev.map((msg, idx) => 
+            idx === messageIndex 
+              ? { ...msg, content: msg.content + `\n\n🔄 **Confirming and executing...**`, showConfirmation: false, pendingAction: undefined }
+              : msg
+          ));
+          
+          try {
+            const result = await executeAction(message.pendingAction);
+            
+            // Force refresh categories after successful action
+            await refreshCategories();
+            
+            // Update the message to show the result
+            setMessages(prev => prev.map((msg, idx) => 
+              idx === messageIndex 
+                ? { ...msg, content: msg.content.replace('🔄 **Confirming and executing...**', `✅ **Confirmed and executed:** ${result}`) }
+                : msg
+            ));
+          } catch (error) {
+            // Update the message to show the error
+            setMessages(prev => prev.map((msg, idx) => 
+              idx === messageIndex 
+                ? { ...msg, content: msg.content.replace('🔄 **Confirming and executing...**', `❌ **Error:** ${error}`) }
+                : msg
+            ));
+          }
+        }
     }
   };
 
@@ -674,7 +702,7 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 text-xs">
+        <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 bg-gray-50">
           <div className="space-y-4">
             {messages.map((message, index) => (
               <div
@@ -684,28 +712,39 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
                 }`}
               >
                 <div
-                  className={`rounded-lg px-4 py-2 max-w-[80%] ${
+                  className={`rounded-lg px-4 py-3 max-w-[85%] shadow-sm ${
                     message.role === 'user'
-                      ? 'bg-gray-700 text-white'
-                      : 'bg-gray-100 text-gray-900'
-                  } text-xs`}
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-white border border-gray-200 text-gray-800'
+                  }`}
                 >
-                  <div className="whitespace-pre-line">{message.content}</div>
+                  <div 
+                    className={`whitespace-pre-line leading-relaxed ${
+                      message.role === 'user' 
+                        ? 'text-sm font-medium' 
+                        : 'text-sm font-normal'
+                    }`}
+                    style={{
+                      fontFamily: message.role === 'assistant' ? 'ui-sans-serif, system-ui, -apple-system, sans-serif' : 'inherit'
+                    }}
+                  >
+                    {message.content}
+                  </div>
                   
                   {/* Confirmation buttons */}
                   {message.showConfirmation && message.pendingAction && (
-                    <div className="mt-3 flex gap-2">
+                    <div className="mt-4 flex gap-3 border-t border-gray-100 pt-3">
                       <button
                         onClick={() => handleConfirm(index)}
-                        className="px-3 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700"
+                        className="px-4 py-2 bg-green-600 text-white rounded-md text-sm font-medium hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-1 transition-colors duration-200 shadow-sm"
                       >
-                        Confirm
+                        ✓ Confirm
                       </button>
                       <button
                         onClick={() => handleCancel(index)}
-                        className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700"
+                        className="px-4 py-2 bg-gray-500 text-white rounded-md text-sm font-medium hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-1 transition-colors duration-200 shadow-sm"
                       >
-                        Cancel
+                        ✕ Cancel
                       </button>
                     </div>
                   )}
