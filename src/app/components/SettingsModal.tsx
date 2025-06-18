@@ -14,7 +14,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const { user, setUser } = useAuth();
   
   const [email, setEmail] = useState(user?.email || "");
-  const [role, setRole] = useState<"Owner" | "User" | "Accountant">(user?.role || "Owner");
+  const [role, setRole] = useState<"Owner" | "Member" | "Accountant">(user?.role || "Owner");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -53,7 +53,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
       // Update role if changed
       if (role !== user.role) {
-        const roleResult = await updateUserRole(user.id, role as "Owner" | "User" | "Accountant");
+        const roleResult = await updateUserRole(user.id, role as "Owner" | "Member" | "Accountant");
         if (roleResult.error) {
           throw new Error(roleResult.error);
         }
@@ -81,7 +81,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       setUser({
         ...user,
         email,
-        role: role as "Owner" | "User" | "Accountant"
+        role: role as "Owner" | "Member" | "Accountant"
       });
 
       setSuccess("Settings updated successfully!");
@@ -155,11 +155,11 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             </label>
                          <select
                value={role}
-               onChange={(e) => setRole(e.target.value as "Owner" | "User" | "Accountant")}
+               onChange={(e) => setRole(e.target.value as "Owner" | "Member" | "Accountant")}
                className="w-full px-2 py-1 border border-gray-300 rounded-md text-sm focus:border-black focus:outline-none focus:ring-black"
              >
               <option value="Owner">Owner</option>
-              <option value="User">User</option>
+              <option value="Member">Member</option>
               <option value="Accountant">Accountant</option>
             </select>
           </div>

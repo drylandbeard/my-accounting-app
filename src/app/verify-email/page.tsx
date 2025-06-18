@@ -127,7 +127,7 @@ export default function VerifyEmailPage() {
         const userToSet = {
           id: userData.id,
           email: userData.email,
-          role: userData.role as "Owner" | "User" | "Accountant"
+          role: userData.role as "Owner" | "Member" | "Accountant"
         };
         
         setAuthUser(userToSet);
@@ -145,7 +145,7 @@ export default function VerifyEmailPage() {
           companies: { id: string; name: string; description?: string } | { id: string; name: string; description?: string }[];
         }) => ({
           company_id: item.company_id,
-          role: item.role as "Owner" | "User" | "Accountant",
+          role: item.role as "Owner" | "Member" | "Accountant",
           companies: Array.isArray(item.companies) ? item.companies[0] : item.companies
         }));
         
@@ -154,7 +154,7 @@ export default function VerifyEmailPage() {
         const userToSet = {
           id: userData.id,
           email: userData.email,
-          role: userData.role as "Owner" | "User" | "Accountant"
+          role: userData.role as "Owner" | "Member" | "Accountant"
         };
         
         // Set user and companies in auth context

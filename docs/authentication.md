@@ -8,7 +8,7 @@ This document outlines the setup and usage of the new authentication system for 
 - **Email/Password signup and login**
 - **Password hashing using bcryptjs**
 - **Manual access control** (isAccessEnabled flag)
-- **Three user roles**: Owner, User, Accountant
+- **Three user roles**: Owner, Member, Accountant
 
 ### 2. Multi-Company Support
 - **Users can have multiple companies**

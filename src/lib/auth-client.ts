@@ -225,7 +225,7 @@ export async function updateUserPassword(userId: string, currentPassword: string
 /**
  * Update user role
  */
-export async function updateUserRole(userId: string, newRole: "Owner" | "User" | "Accountant") {
+export async function updateUserRole(userId: string, newRole: "Owner" | "Member" | "Accountant") {
   try {
     const { error } = await supabase
       .from("users")

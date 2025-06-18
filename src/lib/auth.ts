@@ -39,7 +39,7 @@ export function createInvitationUrl(token: string, baseUrl?: string): string {
  */
 export async function sendTeamInvitation(
   email: string, 
-  role: "Owner" | "User" | "Accountant", 
+  role: "Owner" | "Member" | "Accountant", 
   companyId: string, 
   invitedByUserId: string
 ) {
@@ -246,7 +246,7 @@ export async function completeInvitationSignup(token: string, password: string) 
         .insert({
           email,
           password_hash: passwordHash,
-          role: role as "Owner" | "User" | "Accountant",
+          role: role as "Owner" | "Member" | "Accountant",
           is_access_enabled: true
         })
         .select()
@@ -264,7 +264,7 @@ export async function completeInvitationSignup(token: string, password: string) 
       .insert({
         company_id: companyId,
         user_id: userId,
-        role: role as "Owner" | "User" | "Accountant"
+        role: role as "Owner" | "Member" | "Accountant"
       });
 
     if (companyUserError) {
@@ -287,7 +287,7 @@ export async function completeInvitationSignup(token: string, password: string) 
       user: {
         id: userId,
         email,
-        role: role as "Owner" | "User" | "Accountant"
+        role: role as "Owner" | "Member" | "Accountant"
       }
     };
   } catch (error) {
@@ -588,7 +588,7 @@ export async function updateUserPassword(userId: string, currentPassword: string
 /**
  * Update user role
  */
-export async function updateUserRole(userId: string, newRole: "Owner" | "User" | "Accountant") {
+export async function updateUserRole(userId: string, newRole: "Owner" | "Member" | "Accountant") {
   try {
     const { error } = await supabase
       .from("users")
