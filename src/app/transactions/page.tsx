@@ -71,7 +71,7 @@ type CSVRow = {
 }
 
 type SortConfig = {
-  key: 'date' | 'description' | 'amount' | null;
+  key: 'date' | 'description' | 'amount' | 'spent' | 'received' | null;
   direction: 'asc' | 'desc';
 }
 
@@ -1018,11 +1018,25 @@ export default function Page() {
           ? aAmount - bAmount
           : bAmount - aAmount;
       }
+      if (sortConfig.key === 'spent') {
+        const aSpent = a.spent ?? 0;
+        const bSpent = b.spent ?? 0;
+        return sortConfig.direction === 'asc'
+          ? aSpent - bSpent
+          : bSpent - aSpent;
+      }
+      if (sortConfig.key === 'received') {
+        const aReceived = a.received ?? 0;
+        const bReceived = b.received ?? 0;
+        return sortConfig.direction === 'asc'
+          ? aReceived - bReceived
+          : bReceived - aReceived;
+      }
       return 0;
     });
   };
 
-  const handleSort = (key: 'date' | 'description' | 'amount', section: 'toAdd' | 'added') => {
+  const handleSort = (key: 'date' | 'description' | 'amount' | 'spent' | 'received', section: 'toAdd' | 'added') => {
     if (section === 'toAdd') {
       setToAddSortConfig(current => ({
         key,
@@ -3367,8 +3381,18 @@ export default function Page() {
                   >
                     Description {toAddSortConfig.key === 'description' && (toAddSortConfig.direction === 'asc' ? '↑' : '↓')}
                   </th>
-                  <th className="border p-1 w-8 text-center">Spent</th>
-                  <th className="border p-1 w-8 text-center">Received</th>
+                  <th 
+                    className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
+                    onClick={() => handleSort('spent', 'toAdd')}
+                  >
+                    Spent {toAddSortConfig.key === 'spent' && (toAddSortConfig.direction === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th 
+                    className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
+                    onClick={() => handleSort('received', 'toAdd')}
+                  >
+                    Received {toAddSortConfig.key === 'received' && (toAddSortConfig.direction === 'asc' ? '↑' : '↓')}
+                  </th>
                   <th className="border p-1 w-8 text-center">Payee</th>
                   <th className="border p-1 w-8 text-center">Category</th>
                   <th className="border p-1 w-8 text-center">Action</th>
@@ -3662,8 +3686,18 @@ export default function Page() {
                   >
                     Description {addedSortConfig.key === 'description' && (addedSortConfig.direction === 'asc' ? '↑' : '↓')}
                   </th>
-                  <th className="border p-1 w-8 text-center">Spent</th>
-                  <th className="border p-1 w-8 text-center">Received</th>
+                  <th 
+                    className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
+                    onClick={() => handleSort('spent', 'added')}
+                  >
+                    Spent {addedSortConfig.key === 'spent' && (addedSortConfig.direction === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th 
+                    className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
+                    onClick={() => handleSort('received', 'added')}
+                  >
+                    Received {addedSortConfig.key === 'received' && (addedSortConfig.direction === 'asc' ? '↑' : '↓')}
+                  </th>
                   <th className="border p-1 w-8 text-center">Payee</th>
                   <th className="border p-1 w-8 text-center">Category</th>
                   <th className="border p-1 w-8 text-center">Undo</th>
