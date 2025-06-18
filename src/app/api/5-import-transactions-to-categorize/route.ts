@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
 
         startingBalanceTransactions.push({
           date: startDate,
-          description: "Opening Balance",
+          description: "Starting Balance",
           plaid_account_id: account.plaid_account_id,
           plaid_account_name: account.name,
           item_id: itemId,
@@ -129,8 +129,8 @@ export async function POST(req: NextRequest) {
     console.log("Inserting transactions...");
 
     // Combine starting balance transactions and regular transactions
-    // Starting balance transactions come first to ensure proper chronological order
-    const allTransactionsToStore = [...startingBalanceTransactions, ...transactionsToStore];
+    // Starting balance transactions come last so they appear at bottom (oldest dates)
+    const allTransactionsToStore = [...transactionsToStore, ...startingBalanceTransactions];
 
     console.log("Total transactions to insert:", allTransactionsToStore.length, 
                 "(", startingBalanceTransactions.length, "starting balance +", transactionsToStore.length, "regular)");
