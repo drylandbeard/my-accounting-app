@@ -4,12 +4,13 @@
 import { useEffect, useState, useRef } from 'react'
 import { usePlaidLink } from 'react-plaid-link'
 import { supabase } from '../../lib/supabase'
-import dynamic from 'next/dynamic'
+
 import Papa from 'papaparse'
 import { v4 as uuidv4 } from 'uuid'
 import { XMarkIcon } from '@heroicons/react/24/outline'
 import { useApiWithCompany } from '@/hooks/useApiWithCompany'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { Select } from '@/components/ui/select'
 
 type Transaction = {
   id: string
@@ -90,7 +91,7 @@ type SelectOption = {
   label: string;
 };
 
-const Select = dynamic(() => import('react-select'), { ssr: false })
+
 
 export default function Page() {
   const { getWithCompany, postWithCompany, hasCompanyContext, currentCompany } = useApiWithCompany()
@@ -2477,7 +2478,6 @@ export default function Page() {
                     }
                   }}
                   isSearchable
-                  styles={{ control: (base) => ({ ...base, minHeight: '20px', fontSize: '0.875rem' }) }}
                 />
               </div>
 
@@ -2519,7 +2519,6 @@ export default function Page() {
                     }
                   }}
                   isSearchable
-                  styles={{ control: (base) => ({ ...base, minHeight: '20px', fontSize: '0.875rem' }) }}
                 />
               </div>
             </div>
@@ -2665,7 +2664,6 @@ export default function Page() {
                     }));
                   }}
                   isSearchable
-                  styles={{ control: (base) => ({ ...base, minHeight: '30px', fontSize: '0.875rem' }) }}
                 />
               </div>
             </div>
@@ -3554,35 +3552,6 @@ export default function Page() {
                           }}
                           inputValue={payeeInputValues[tx.id] || ''}
                           isSearchable
-                          styles={{ 
-                            control: (base) => ({ 
-                              ...base, 
-                              minHeight: '24px',
-                              height: '24px',
-                              fontSize: '0.75rem'
-                            }),
-                            valueContainer: (base) => ({
-                              ...base,
-                              padding: '0 4px'
-                            }),
-                            input: (base) => ({
-                              ...base,
-                              margin: '0',
-                              padding: '0'
-                            }),
-                            indicatorsContainer: (base) => ({
-                              ...base,
-                              height: '24px'
-                            }),
-                            dropdownIndicator: (base) => ({
-                              ...base,
-                              padding: '0 4px'
-                            }),
-                            clearIndicator: (base) => ({
-                              ...base,
-                              padding: '0 4px'
-                            })
-                          }}
                         />
                       </td>
                       <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
@@ -3635,35 +3604,6 @@ export default function Page() {
                           }}
                           inputValue={categoryInputValues[tx.id] || ''}
                           isSearchable
-                          styles={{ 
-                            control: (base) => ({ 
-                              ...base, 
-                              minHeight: '24px',
-                              height: '24px',
-                              fontSize: '0.75rem'
-                            }),
-                            valueContainer: (base) => ({
-                              ...base,
-                              padding: '0 4px'
-                            }),
-                            input: (base) => ({
-                              ...base,
-                              margin: '0',
-                              padding: '0'
-                            }),
-                            indicatorsContainer: (base) => ({
-                              ...base,
-                              height: '24px'
-                            }),
-                            dropdownIndicator: (base) => ({
-                              ...base,
-                              padding: '0 4px'
-                            }),
-                            clearIndicator: (base) => ({
-                              ...base,
-                              padding: '0 4px'
-                            })
-                          }}
                         />
                       </td>
                       <td className="border p-1 w-8 text-center">
