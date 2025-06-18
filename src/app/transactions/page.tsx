@@ -2380,22 +2380,60 @@ export default function Page() {
             </div>
 
             <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Date
-                </label>
-                <input
-                  type="date"
-                  value={editModal.transaction.date}
-                  onChange={(e) => setEditModal(prev => ({
-                    ...prev,
-                    transaction: prev.transaction ? {
-                      ...prev.transaction,
-                      date: e.target.value
-                    } : null
-                  }))}
-                  className="w-full border px-2 py-1 rounded"
-                />
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Date
+                  </label>
+                  <input
+                    type="date"
+                    value={editModal.transaction.date}
+                    onChange={(e) => setEditModal(prev => ({
+                      ...prev,
+                      transaction: prev.transaction ? {
+                        ...prev.transaction,
+                        date: e.target.value
+                      } : null
+                    }))}
+                    className="w-full border px-2 py-1 rounded"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Spent
+                  </label>
+                  <input
+                    type="number"
+                    value={editModal.transaction.spent ?? 0}
+                    onChange={(e) => setEditModal(prev => ({
+                      ...prev,
+                      transaction: prev.transaction ? {
+                        ...prev.transaction,
+                        spent: parseFloat(e.target.value) || 0
+                      } : null
+                    }))}
+                    className="w-full border px-2 py-1 rounded"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Received
+                  </label>
+                  <input
+                    type="number"
+                    value={editModal.transaction.received ?? 0}
+                    onChange={(e) => setEditModal(prev => ({
+                      ...prev,
+                      transaction: prev.transaction ? {
+                        ...prev.transaction,
+                        received: parseFloat(e.target.value) || 0
+                      } : null
+                    }))}
+                    className="w-full border px-2 py-1 rounded"
+                  />
+                </div>
               </div>
 
               <div>
@@ -2416,110 +2454,76 @@ export default function Page() {
                 />
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Spent
-                </label>
-                <input
-                  type="number"
-                  value={editModal.transaction.spent ?? 0}
-                  onChange={(e) => setEditModal(prev => ({
-                    ...prev,
-                    transaction: prev.transaction ? {
-                      ...prev.transaction,
-                      spent: parseFloat(e.target.value) || 0
-                    } : null
-                  }))}
-                  className="w-full border px-2 py-1 rounded"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Received
-                </label>
-                <input
-                  type="number"
-                  value={editModal.transaction.received ?? 0}
-                  onChange={(e) => setEditModal(prev => ({
-                    ...prev,
-                    transaction: prev.transaction ? {
-                      ...prev.transaction,
-                      received: parseFloat(e.target.value) || 0
-                    } : null
-                  }))}
-                  className="w-full border px-2 py-1 rounded"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Payee
-                </label>
-                <Select
-                  options={payeeOptions}
-                  value={payeeOptions.find(opt => opt.value === editModal.transaction?.payee_id) || payeeOptions[0]}
-                  onChange={(selectedOption) => {
-                    const option = selectedOption as SelectOption | null;
-                    if (option?.value === 'add_new') {
-                      setNewPayeeModal({ 
-                        isOpen: true, 
-                        name: '', 
-                        transactionId: editModal.transaction?.id || null
-                      });
-                    } else if (editModal.transaction) {
-                      setEditModal(prev => ({
-                        ...prev,
-                        transaction: prev.transaction ? {
-                          ...prev.transaction,
-                          payee_id: option?.value || undefined
-                        } : null
-                      }));
-                    }
-                  }}
-                  isSearchable
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Category
-                </label>
-                <Select
-                  options={categoryOptions}
-                  value={categoryOptions.find(opt => {
-                    const isAccountDebit = editModal.transaction?.selected_category_id === selectedAccountIdInCOA;
-                    const categoryId = isAccountDebit ? editModal.transaction?.corresponding_category_id : editModal.transaction?.selected_category_id;
-                    return opt.value === categoryId;
-                  })}
-                  onChange={(selectedOption) => {
-                    const option = selectedOption as SelectOption | null;
-                    if (option?.value === 'add_new') {
-                      // Determine default category type based on transaction
-                      const defaultType = editModal.transaction?.received && editModal.transaction.received > 0 ? 'Revenue' : 'Expense';
-                      setNewCategoryModal({ 
-                        isOpen: true, 
-                        name: '', 
-                        type: defaultType, 
-                        parent_id: null, 
-                        transactionId: editModal.transaction?.id || null
-                      });
-                    } else if (option && editModal.transaction) {
-                      const updatedTransaction = { ...editModal.transaction };
-                      const isAccountDebit = updatedTransaction.selected_category_id === selectedAccountIdInCOA;
-                      if (isAccountDebit) {
-                        updatedTransaction.corresponding_category_id = option.value;
-                      } else {
-                        updatedTransaction.selected_category_id = option.value;
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Payee
+                  </label>
+                  <Select
+                    options={payeeOptions}
+                    value={payeeOptions.find(opt => opt.value === editModal.transaction?.payee_id) || payeeOptions[0]}
+                    onChange={(selectedOption) => {
+                      const option = selectedOption as SelectOption | null;
+                      if (option?.value === 'add_new') {
+                        setNewPayeeModal({ 
+                          isOpen: true, 
+                          name: '', 
+                          transactionId: editModal.transaction?.id || null
+                        });
+                      } else if (editModal.transaction) {
+                        setEditModal(prev => ({
+                          ...prev,
+                          transaction: prev.transaction ? {
+                            ...prev.transaction,
+                            payee_id: option?.value || undefined
+                          } : null
+                        }));
                       }
-                      setEditModal(prev => ({
-                        ...prev,
-                        transaction: updatedTransaction
-                      }));
-                    }
-                  }}
-                  isSearchable
-                />
+                    }}
+                    isSearchable
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Category
+                  </label>
+                  <Select
+                    options={categoryOptions}
+                    value={categoryOptions.find(opt => {
+                      const isAccountDebit = editModal.transaction?.selected_category_id === selectedAccountIdInCOA;
+                      const categoryId = isAccountDebit ? editModal.transaction?.corresponding_category_id : editModal.transaction?.selected_category_id;
+                      return opt.value === categoryId;
+                    })}
+                    onChange={(selectedOption) => {
+                      const option = selectedOption as SelectOption | null;
+                      if (option?.value === 'add_new') {
+                        // Determine default category type based on transaction
+                        const defaultType = editModal.transaction?.received && editModal.transaction.received > 0 ? 'Revenue' : 'Expense';
+                        setNewCategoryModal({ 
+                          isOpen: true, 
+                          name: '', 
+                          type: defaultType, 
+                          parent_id: null, 
+                          transactionId: editModal.transaction?.id || null
+                        });
+                      } else if (option && editModal.transaction) {
+                        const updatedTransaction = { ...editModal.transaction };
+                        const isAccountDebit = updatedTransaction.selected_category_id === selectedAccountIdInCOA;
+                        if (isAccountDebit) {
+                          updatedTransaction.corresponding_category_id = option.value;
+                        } else {
+                          updatedTransaction.selected_category_id = option.value;
+                        }
+                        setEditModal(prev => ({
+                          ...prev,
+                          transaction: updatedTransaction
+                        }));
+                      }
+                    }}
+                    isSearchable
+                  />
+                </div>
               </div>
             </div>
 
