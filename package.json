@@ -17,7 +17,6 @@
     "@types/uuid": "^10.0.0",
     "bcryptjs": "^3.0.2",
     "dotenv": "^16.5.0",
-    "mailtrap": "^4.1.0",
     "next": "15.3.1",
     "nodemailer": "^7.0.3",
     "papaparse": "^5.5.2",
