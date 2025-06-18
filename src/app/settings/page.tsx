@@ -1,16 +1,16 @@
 "use client";
 
-import { useAuth } from "@/app/components/AuthContext";
+import { useAuth } from "@/components/AuthContext";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
+import { supabase } from "@/lib/supabase";
 import { useApiWithCompany } from "@/hooks/useApiWithCompany";
 import { XMarkIcon, PlusIcon, CreditCardIcon, TrashIcon, ArrowRightIcon, ExclamationTriangleIcon } from "@heroicons/react/24/outline";
 
 interface CompanyMember {
   id: string;
   email: string;
-  role: "Owner" | "User" | "Accountant";
+  role: "Owner" | "Member" | "Accountant";
   is_access_enabled: boolean;
 }
 
@@ -120,12 +120,12 @@ function EditCompanyModal({ isOpen, onClose, company, onUpdateCompany }: EditCom
 interface AddMemberModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onAddMember: (email: string, role: "Owner" | "User" | "Accountant") => Promise<void>;
+  onAddMember: (email: string, role: "Owner" | "Member" | "Accountant") => Promise<void>;
 }
 
 function AddMemberModal({ isOpen, onClose, onAddMember }: AddMemberModalProps) {
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<"Owner" | "User" | "Accountant">("User");
+  const [role, setRole] = useState<"Owner" | "Member" | "Accountant">("Member");
   const [isAdding, setIsAdding] = useState(false);
   const [error, setError] = useState("");
 
@@ -139,7 +139,7 @@ function AddMemberModal({ isOpen, onClose, onAddMember }: AddMemberModalProps) {
     try {
       await onAddMember(email.trim(), role);
       setEmail("");
-      setRole("User");
+      setRole("Member");
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to add member");
@@ -191,11 +191,11 @@ function AddMemberModal({ isOpen, onClose, onAddMember }: AddMemberModalProps) {
               </label>
               <select
                 value={role}
-                onChange={(e) => setRole(e.target.value as "Owner" | "User" | "Accountant")}
+                onChange={(e) => setRole(e.target.value as "Owner" | "Member" | "Accountant")}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 focus:border-black focus:outline-none focus:ring-black"
               >
                 <option value="Owner">Owner</option>
-                <option value="User">Member</option>
+                <option value="Member">Member</option>
                 <option value="Accountant">Accountant</option>
               </select>
             </div>
@@ -536,7 +536,7 @@ export default function SettingsPage() {
   });
 
   // Get current user's role in the company
-  const currentUserRole = user?.role || "User";
+  const currentUserRole = user?.role || "Member";
   const isOwner = currentUserRole === "Owner";
 
   // Fetch company members when component mounts or current company changes
@@ -565,7 +565,7 @@ export default function SettingsPage() {
       const members: CompanyMember[] = (data || []).map((member: { id: string; email: string; role: string; is_access_enabled: boolean }) => ({
         id: member.id,
         email: member.email,
-        role: (member.role as "Owner" | "User" | "Accountant"),
+        role: (member.role as "Owner" | "Member" | "Accountant"),
         is_access_enabled: member.is_access_enabled
       }));
 
@@ -595,14 +595,37 @@ export default function SettingsPage() {
     }
   };
 
-  const handleAddMember = async (email: string, role: "Owner" | "User" | "Accountant") => {
-    setConfirmationModal({
-      isOpen: true,
-      title: "Member Added",
-      message: `Member ${email} with role ${role} would be added to the company.`,
-      onConfirm: () => setConfirmationModal({ ...confirmationModal, isOpen: false }),
-      confirmText: "OK",
-    });
+  const handleAddMember = async (email: string, role: "Owner" | "Member" | "Accountant") => {
+    if (!currentCompany) return;
+
+    try {
+      const response = await fetchWithCompany("/api/invite-member", {
+        method: "POST",
+        body: JSON.stringify({ email, role }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to send invitation");
+      }
+
+      setConfirmationModal({
+        isOpen: true,
+        title: "Invitation Sent",
+        message: `An invitation has been sent to ${email}. They will receive an email with instructions to join your company as ${role}.`,
+        onConfirm: () => setConfirmationModal({ ...confirmationModal, isOpen: false }),
+        confirmText: "OK",
+      });
+    } catch (error) {
+      setConfirmationModal({
+        isOpen: true,
+        title: "Invitation Failed",
+        message: error instanceof Error ? error.message : "Failed to send invitation. Please try again.",
+        onConfirm: () => setConfirmationModal({ ...confirmationModal, isOpen: false }),
+        confirmText: "OK",
+        confirmButtonStyle: "danger",
+      });
+    }
   };
 
   const handleDeleteMember = async (memberId: string) => {

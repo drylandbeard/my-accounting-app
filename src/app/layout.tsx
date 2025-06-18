@@ -1,6 +1,6 @@
 import './globals.css'
-import { AuthProvider } from "@/app/components/AuthContext";
-import AuthenticatedApp from "@/app/components/AuthenticatedApp";
+import { AuthProvider } from "@/components/AuthContext";
+import AuthenticatedApp from "@/components/AuthenticatedApp";
 
 export const metadata = {
   title: 'Switch',

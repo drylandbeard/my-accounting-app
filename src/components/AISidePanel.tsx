@@ -3,14 +3,13 @@
 import { useState, useEffect, useRef, useContext } from 'react';
 import { XMarkIcon, ChatBubbleLeftRightIcon } from '@heroicons/react/24/outline';
 import { SharedContext } from './SharedContext';
-import { supabase } from '@/lib/supabaseClient';
 import { useApiWithCompany } from '@/hooks/useApiWithCompany';
-import { tools } from '../ai/tools';
-import { categoryPrompt } from '../ai/prompts';
-import { createCategoryHandler, createCategoryHelper } from '../ai/functions/createCategory';
-import { renameCategoryHandler, renameCategoryHelper } from '../ai/functions/renameCategory';
-import { assignParentCategoryHandler } from '../ai/functions/assignParentCategory';
-import { deleteCategoryHandler } from '../ai/functions/deleteCategory';
+import { tools } from '@/ai/tools';
+import { categoryPrompt } from '@/ai/prompts';
+import { createCategoryHandler } from '@/ai/functions/createCategory';
+import { renameCategoryHandler } from '@/ai/functions/renameCategory';
+import { assignParentCategoryHandler } from '@/ai/functions/assignParentCategory';
+import { deleteCategoryHandler } from '@/ai/functions/deleteCategory';
 
 interface Message {
   role: 'user' | 'assistant';

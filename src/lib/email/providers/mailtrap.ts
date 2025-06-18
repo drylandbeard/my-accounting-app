@@ -1,44 +1,45 @@
-import { MailtrapClient } from "mailtrap";
+import nodemailer from "nodemailer";
 import { EmailProvider, EmailMessage, EmailResponse } from "../types";
 
 export class MailtrapProvider implements EmailProvider {
   public readonly name = "mailtrap";
-  private client: MailtrapClient;
+  private transporter: nodemailer.Transporter;
 
   constructor() {
-    const token = process.env.MAILTRAP_API_TOKEN;
-    if (!token) {
-      throw new Error("MAILTRAP_API_TOKEN environment variable is required");
+    const host = "live.smtp.mailtrap.io";
+    const port = 587;
+    const user = "api";
+    const pass = process.env.MAILTRAP_API_TOKEN;
+
+    if (!host || !port || !user || !pass) {
+      throw new Error("MAILTRAP_SMTP_HOST, MAILTRAP_SMTP_PORT, MAILTRAP_SMTP_USER, and MAILTRAP_SMTP_PASS environment variables are required");
     }
-    this.client = new MailtrapClient({
-      token: token,
+
+    this.transporter = nodemailer.createTransport({
+      host: host,
+      port: port,
+      auth: {
+        user: user,
+        pass: pass,
+      },
     });
   }
 
   async sendEmail(message: EmailMessage): Promise<EmailResponse> {
     try {
-      const sender = {
-        email: message.from,
-        name: "SWITCH",
-      };
-
-      const recipients = [
-        {
-          email: message.to,
-        },
-      ];
-
-      const response = await this.client.send({
-        from: sender,
-        to: recipients,
+      const mailOptions = {
+        from: message.from,
+        to: message.to,
         subject: message.subject,
         text: message.textBody,
         html: message.htmlBody,
-      });
+      };
+
+      const result = await this.transporter.sendMail(mailOptions);
 
       return {
         success: true,
-        messageId: response.message_ids?.[0] || "unknown",
+        messageId: result.messageId || "unknown",
       };
     } catch (error) {
       console.error("Mailtrap send error:", error);

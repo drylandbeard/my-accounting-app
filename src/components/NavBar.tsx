@@ -7,7 +7,7 @@ import { useAuth } from "./AuthContext";
 import { createCompany } from "@/lib/auth-client";
 
 import { ChevronDownIcon, XMarkIcon, CogIcon } from "@heroicons/react/24/outline";
-import { supabase } from "@/lib/supabaseClient";
+import { supabase } from "@/lib/supabase";
 
 interface CompanyModalProps {
   isOpen: boolean;

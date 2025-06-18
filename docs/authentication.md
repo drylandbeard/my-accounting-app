@@ -8,7 +8,7 @@ This document outlines the setup and usage of the new authentication system for 
 - **Email/Password signup and login**
 - **Password hashing using bcryptjs**
 - **Manual access control** (isAccessEnabled flag)
-- **Three user roles**: Owner, User, Accountant
+- **Three user roles**: Owner, Member, Accountant
 
 ### 2. Multi-Company Support
 - **Users can have multiple companies**
@@ -113,11 +113,11 @@ npm install bcryptjs @types/bcryptjs
 ## File Structure
 
 ### New Components
-- `src/app/components/AuthContext.tsx` - Authentication state management
-- `src/app/components/AuthForm.tsx` - Login/Signup form
-- `src/app/components/AuthenticatedApp.tsx` - Wrapper for authenticated routes
-- `src/app/components/NavBar.tsx` - Enhanced NavBar with auth features
-- `src/app/components/SettingsModal.tsx` - User settings popup
+- `src/components/AuthContext.tsx` - Authentication state management
+- `src/components/AuthForm.tsx` - Login/Signup form
+- `src/components/AuthenticatedApp.tsx` - Wrapper for authenticated routes
+- `src/components/NavBar.tsx` - Enhanced NavBar with auth features
+- `src/components/SettingsModal.tsx` - User settings popup
 
 ### New API Routes
 - `src/app/api/auth/signup/route.ts` - User registration endpoint

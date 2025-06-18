@@ -1,14 +1,16 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { usePlaidLink } from 'react-plaid-link'
-import { supabase } from '../../lib/supabaseClient'
-import dynamic from 'next/dynamic'
+import { supabase } from '../../lib/supabase'
+
 import Papa from 'papaparse'
 import { v4 as uuidv4 } from 'uuid'
 import { XMarkIcon } from '@heroicons/react/24/outline'
 import { useApiWithCompany } from '@/hooks/useApiWithCompany'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { Select } from '@/components/ui/select'
 
 type Transaction = {
   id: string
@@ -47,6 +49,10 @@ type Account = {
   last_synced: string | null
   is_manual?: boolean
   plaid_account_name?: string // Add missing property
+  institution_name?: string
+  type?: string
+  created_at?: string
+  subtype?: string
 }
 
 type ImportModalState = {
@@ -66,7 +72,7 @@ type CSVRow = {
 }
 
 type SortConfig = {
-  key: 'date' | 'description' | 'amount' | null;
+  key: 'date' | 'description' | 'amount' | 'spent' | 'received' | null;
   direction: 'asc' | 'desc';
 }
 
@@ -85,7 +91,7 @@ type SelectOption = {
   label: string;
 };
 
-const Select = dynamic(() => import('react-select'), { ssr: false })
+
 
 export default function Page() {
   const { getWithCompany, postWithCompany, hasCompanyContext, currentCompany } = useApiWithCompany()
@@ -294,7 +300,7 @@ export default function Page() {
     return `${month}-${day}-${year} ${time}`
   }
 
-  const formatLastSyncTime = (lastSynced: string | null) => {
+  const formatLastSyncTime = (lastSynced: string | null | undefined) => {
     if (!lastSynced) return 'Never';
     const date = new Date(lastSynced);
     const month = (date.getMonth() + 1).toString().padStart(2, '0')
@@ -306,6 +312,26 @@ export default function Page() {
     });
     return `${month}-${day}-${year} ${time}`
   };
+
+  const formatCreatedAt = (createdAt: string | null | undefined) => {
+    if (!createdAt) return 'Unknown';
+    const date = new Date(createdAt);
+    const month = (date.getMonth() + 1).toString().padStart(2, '0')
+    const day = date.getDate().toString().padStart(2, '0')
+    const year = date.getFullYear()
+    return `${month}-${day}-${year}`
+  };
+
+  const getTooltipContent = (acc: Account) => (
+    <div className="text-left">
+      <div className="font-semibold mb-1">{acc.name}</div>
+      <div className="space-y-1">
+        <div><span className="text-gray-300">Institution:</span> {acc.institution_name || 'Manual Account'}</div>
+        <div><span className="text-gray-300">Last Synced:</span> {formatLastSyncTime(acc.last_synced)}</div>
+        <div><span className="text-gray-300">Created:</span> {formatCreatedAt(acc.created_at)}</div>
+      </div>
+    </div>
+  );
 
   // Add sync function
   const syncTransactions = async () => {
@@ -993,11 +1019,25 @@ export default function Page() {
           ? aAmount - bAmount
           : bAmount - aAmount;
       }
+      if (sortConfig.key === 'spent') {
+        const aSpent = a.spent ?? 0;
+        const bSpent = b.spent ?? 0;
+        return sortConfig.direction === 'asc'
+          ? aSpent - bSpent
+          : bSpent - aSpent;
+      }
+      if (sortConfig.key === 'received') {
+        const aReceived = a.received ?? 0;
+        const bReceived = b.received ?? 0;
+        return sortConfig.direction === 'asc'
+          ? aReceived - bReceived
+          : bReceived - aReceived;
+      }
       return 0;
     });
   };
 
-  const handleSort = (key: 'date' | 'description' | 'amount', section: 'toAdd' | 'added') => {
+  const handleSort = (key: 'date' | 'description' | 'amount' | 'spent' | 'received', section: 'toAdd' | 'added') => {
     if (section === 'toAdd') {
       setToAddSortConfig(current => ({
         key,
@@ -1312,31 +1352,56 @@ export default function Page() {
   const handleEditTransaction = async (updatedTransaction: Transaction) => {
     if (!editModal.transaction) return;
 
-    // Find the category based on the selected category ID
-    const category = categories.find(c => c.id === updatedTransaction.selected_category_id);
-    if (!category) return;
+    try {
+      // Find the category based on the selected category ID
+      const category = categories.find(c => c.id === updatedTransaction.selected_category_id);
+      if (!category) {
+        setNotification({ type: 'error', message: 'Selected category not found' });
+        return;
+      }
 
-    // Find the selected account in chart_of_accounts
-    const selectedAccount = categories.find(c => c.plaid_account_id === selectedAccountId);
-    if (!selectedAccount) return;
+      // Find the selected account in chart_of_accounts
+      const selectedAccount = categories.find(c => c.plaid_account_id === selectedAccountId);
+      if (!selectedAccount) {
+        setNotification({ type: 'error', message: 'Account not found in chart of accounts' });
+        return;
+      }
 
-    const selectedAccountIdInCOA = selectedAccount.id;
+      const selectedAccountIdInCOA = selectedAccount.id;
 
-    await supabase
-      .from('transactions')
-      .update({
+      // Call the update transaction API
+      const response = await postWithCompany('/api/update-transaction', {
+        transactionId: editModal.transaction.id,
         date: updatedTransaction.date,
         description: updatedTransaction.description,
         spent: updatedTransaction.spent ?? 0,
         received: updatedTransaction.received ?? 0,
-        selected_category_id: updatedTransaction.selected_category_id,
-        corresponding_category_id: selectedAccountIdInCOA
-      })
-      .eq('id', editModal.transaction.id);
+        selectedCategoryId: updatedTransaction.selected_category_id,
+        correspondingCategoryId: selectedAccountIdInCOA,
+        payeeId: updatedTransaction.payee_id || null,
+        companyId: currentCompany?.id
+      });
 
-    await postWithCompany('/api/sync-journal', {});
-    setEditModal({ isOpen: false, transaction: null });
-    refreshAll();
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to update transaction');
+      }
+
+      // Sync journal after successful update
+      await postWithCompany('/api/sync-journal', {});
+      
+      setEditModal({ isOpen: false, transaction: null });
+      setNotification({ type: 'success', message: 'Transaction updated successfully' });
+      refreshAll();
+
+    } catch (error) {
+      console.error('Error updating transaction:', error);
+      setNotification({ 
+        type: 'error', 
+        message: error instanceof Error ? error.message : 'Failed to update transaction' 
+      });
+    }
   };
 
   // Add handler for updating account name
@@ -1372,12 +1437,34 @@ export default function Page() {
       return;
     }
 
-    // After creating the category, set it as selected for the current transaction
+    // After creating the category, set it as selected for the current transaction or all selected transactions
     if (newCategoryModal.transactionId) {
-      setSelectedCategories(prev => ({
-        ...prev,
-        [newCategoryModal.transactionId!]: data.id
-      }));
+      // Check if this is for the edit modal
+      if (editModal.isOpen && editModal.transaction?.id === newCategoryModal.transactionId) {
+        setEditModal(prev => ({
+          ...prev,
+          transaction: prev.transaction ? {
+            ...prev.transaction,
+            selected_category_id: data.id
+          } : null
+        }));
+      }
+      // Check if the transaction is part of a selection and apply to all selected
+      else if (selectedToAdd.has(newCategoryModal.transactionId) && selectedToAdd.size > 1) {
+        const updates: { [key: string]: string } = {};
+        selectedToAdd.forEach(selectedId => {
+          updates[selectedId] = data.id;
+        });
+        setSelectedCategories(prev => ({
+          ...prev,
+          ...updates
+        }));
+      } else {
+        setSelectedCategories(prev => ({
+          ...prev,
+          [newCategoryModal.transactionId!]: data.id
+        }));
+      }
     }
 
     setNewCategoryModal({ isOpen: false, name: '', type: 'Expense', parent_id: null, transactionId: null });
@@ -1402,12 +1489,34 @@ export default function Page() {
       return;
     }
 
-    // After creating the payee, set it as selected for the current transaction
+    // After creating the payee, set it as selected for the current transaction or all selected transactions
     if (newPayeeModal.transactionId) {
-      setSelectedPayees(prev => ({
-        ...prev,
-        [newPayeeModal.transactionId!]: data.id
-      }));
+      // Check if this is for the edit modal
+      if (editModal.isOpen && editModal.transaction?.id === newPayeeModal.transactionId) {
+        setEditModal(prev => ({
+          ...prev,
+          transaction: prev.transaction ? {
+            ...prev.transaction,
+            payee_id: data.id
+          } : null
+        }));
+      }
+      // Check if the transaction is part of a selection and apply to all selected
+      else if (selectedToAdd.has(newPayeeModal.transactionId) && selectedToAdd.size > 1) {
+        const updates: { [key: string]: string } = {};
+        selectedToAdd.forEach(selectedId => {
+          updates[selectedId] = data.id;
+        });
+        setSelectedPayees(prev => ({
+          ...prev,
+          ...updates
+        }));
+      } else {
+        setSelectedPayees(prev => ({
+          ...prev,
+          [newPayeeModal.transactionId!]: data.id
+        }));
+      }
     }
 
     setNewPayeeModal({ isOpen: false, name: '', transactionId: null });
@@ -1742,16 +1851,37 @@ export default function Page() {
     );
     
     if (existingPayee) {
-      // Select the existing payee
-      setSelectedPayees(prev => ({
-        ...prev,
-        [txId]: existingPayee.id
-      }));
-      // Clear the input value
-      setPayeeInputValues(prev => ({
-        ...prev,
-        [txId]: ''
-      }));
+      // Check if this transaction is selected and apply to all selected transactions
+      if (selectedToAdd.has(txId) && selectedToAdd.size > 1) {
+        const updates: { [key: string]: string } = {};
+        selectedToAdd.forEach(selectedId => {
+          updates[selectedId] = existingPayee.id;
+        });
+        setSelectedPayees(prev => ({
+          ...prev,
+          ...updates
+        }));
+        // Clear input values for all selected transactions
+        const inputUpdates: { [key: string]: string } = {};
+        selectedToAdd.forEach(selectedId => {
+          inputUpdates[selectedId] = '';
+        });
+        setPayeeInputValues(prev => ({
+          ...prev,
+          ...inputUpdates
+        }));
+      } else {
+        // Select the existing payee for single transaction
+        setSelectedPayees(prev => ({
+          ...prev,
+          [txId]: existingPayee.id
+        }));
+        // Clear the input value
+        setPayeeInputValues(prev => ({
+          ...prev,
+          [txId]: ''
+        }));
+      }
     } else {
       // Open modal with pre-populated name
       setNewPayeeModal({
@@ -1776,16 +1906,37 @@ export default function Page() {
     );
     
     if (existingCategory) {
-      // Select the existing category
-      setSelectedCategories(prev => ({
-        ...prev,
-        [txId]: existingCategory.id
-      }));
-      // Clear the input value
-      setCategoryInputValues(prev => ({
-        ...prev,
-        [txId]: ''
-      }));
+      // Check if this transaction is selected and apply to all selected transactions
+      if (selectedToAdd.has(txId) && selectedToAdd.size > 1) {
+        const updates: { [key: string]: string } = {};
+        selectedToAdd.forEach(selectedId => {
+          updates[selectedId] = existingCategory.id;
+        });
+        setSelectedCategories(prev => ({
+          ...prev,
+          ...updates
+        }));
+        // Clear input values for all selected transactions
+        const inputUpdates: { [key: string]: string } = {};
+        selectedToAdd.forEach(selectedId => {
+          inputUpdates[selectedId] = '';
+        });
+        setCategoryInputValues(prev => ({
+          ...prev,
+          ...inputUpdates
+        }));
+      } else {
+        // Select the existing category for single transaction
+        setSelectedCategories(prev => ({
+          ...prev,
+          [txId]: existingCategory.id
+        }));
+        // Clear the input value
+        setCategoryInputValues(prev => ({
+          ...prev,
+          [txId]: ''
+        }));
+      }
     } else {
       // Find the transaction to determine default category type
       const transaction = imported.find(tx => tx.id === txId);
@@ -1850,7 +2001,7 @@ export default function Page() {
                 <span>Syncing...</span>
               </div>
             ) : (
-              <span>Update Accounts</span>
+              <span>Update</span>
             )}
           </button>
           <button
@@ -1858,19 +2009,7 @@ export default function Page() {
             disabled={!ready}
             className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-xs"
           >
-            Link Accounts
-          </button>
-          <button
-            onClick={() => setImportModal(prev => ({ ...prev, isOpen: true }))}
-            className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-xs"
-          >
-            Import CSV
-          </button>
-          <button
-            onClick={() => setManualAccountModal({ isOpen: true, name: '', type: 'Asset', startingBalance: '0' })}
-            className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-xs"
-          >
-            Add Manual Account
+            Link
           </button>
           <button
             onClick={() => setAccountNamesModal({
@@ -1886,26 +2025,43 @@ export default function Page() {
             })}
             className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-xs"
           >
-            Edit Accounts
+            Edit
+          </button>
+          <button
+            onClick={() => setManualAccountModal({ isOpen: true, name: '', type: 'Asset', startingBalance: '0' })}
+            className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-xs"
+          >
+            Manual
+          </button>
+          <button
+            onClick={() => setImportModal(prev => ({ ...prev, isOpen: true }))}
+            className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-xs"
+          >
+            Import
           </button>
         </div>
       </div>
 
       {/* Mini-nav for accounts */}
-      <div className="space-x-2 mb-4 flex flex-row">
-        {accounts.map(acc => (
-          <button
-            key={acc.plaid_account_id}
-            onClick={() => setSelectedAccountId(acc.plaid_account_id)}
-            className={`border px-3 py-1 rounded text-xs flex flex-col items-center ${acc.plaid_account_id === selectedAccountId ? 'bg-gray-200 font-semibold' : 'bg-gray-100 hover:bg-gray-200'}`}
-          >
-            <span>{acc.name}</span>
-            <span className="text-xs text-gray-500 font-normal">
-              Last Updated: {formatLastSyncTime(acc.last_synced)}
-            </span>
-          </button>
-        ))}
-      </div>
+      <TooltipProvider>
+        <div className="space-x-2 mb-4 flex flex-row">
+          {accounts.map(acc => (
+            <Tooltip key={acc.plaid_account_id}>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => setSelectedAccountId(acc.plaid_account_id)}
+                  className={`border px-3 py-1 rounded text-xs flex flex-col items-center ${acc.plaid_account_id === selectedAccountId ? 'bg-gray-200 font-semibold' : 'bg-gray-100 hover:bg-gray-200'}`}
+                >
+                  <span>{acc.name}</span>
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="bg-gray-900 text-white text-xs">
+                {getTooltipContent(acc)}
+              </TooltipContent>
+            </Tooltip>
+          ))}
+        </div>
+      </TooltipProvider>
 
       {/* Import Modal */}
       {importModal.isOpen && (
@@ -2210,7 +2366,7 @@ export default function Page() {
           onClick={() => setEditModal({ isOpen: false, transaction: null })}
         >
           <div 
-            className="bg-white rounded-lg p-6 w-[400px] overflow-y-auto shadow-xl"
+            className="bg-white rounded-lg p-6 w-[900px] overflow-y-auto shadow-xl"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex justify-between items-center mb-4">
@@ -2223,7 +2379,7 @@ export default function Page() {
               </button>
             </div>
 
-            <div className="space-y-4">
+            <div className="grid grid-cols-7 gap-2">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Date
@@ -2238,11 +2394,11 @@ export default function Page() {
                       date: e.target.value
                     } : null
                   }))}
-                  className="w-full border px-2 py-1 rounded"
+                  className="w-full border px-2 py-1 rounded text-xs"
                 />
               </div>
 
-              <div>
+              <div className="col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Description
                 </label>
@@ -2256,7 +2412,7 @@ export default function Page() {
                       description: e.target.value
                     } : null
                   }))}
-                  className="w-full border px-2 py-1 rounded"
+                  className="w-full border px-2 py-1 rounded text-xs"
                 />
               </div>
 
@@ -2274,7 +2430,7 @@ export default function Page() {
                       spent: parseFloat(e.target.value) || 0
                     } : null
                   }))}
-                  className="w-full border px-2 py-1 rounded"
+                  className="w-full border px-2 py-1 rounded text-xs"
                 />
               </div>
 
@@ -2292,7 +2448,36 @@ export default function Page() {
                       received: parseFloat(e.target.value) || 0
                     } : null
                   }))}
-                  className="w-full border px-2 py-1 rounded"
+                  className="w-full border px-2 py-1 rounded text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Payee
+                </label>
+                <Select
+                  options={payeeOptions}
+                  value={payeeOptions.find(opt => opt.value === editModal.transaction?.payee_id) || payeeOptions[0]}
+                  onChange={(selectedOption) => {
+                    const option = selectedOption as SelectOption | null;
+                    if (option?.value === 'add_new') {
+                      setNewPayeeModal({ 
+                        isOpen: true, 
+                        name: '', 
+                        transactionId: editModal.transaction?.id || null
+                      });
+                    } else if (editModal.transaction) {
+                      setEditModal(prev => ({
+                        ...prev,
+                        transaction: prev.transaction ? {
+                          ...prev.transaction,
+                          payee_id: option?.value || undefined
+                        } : null
+                      }));
+                    }
+                  }}
+                  isSearchable
                 />
               </div>
 
@@ -2309,7 +2494,17 @@ export default function Page() {
                   })}
                   onChange={(selectedOption) => {
                     const option = selectedOption as SelectOption | null;
-                    if (option && editModal.transaction) {
+                    if (option?.value === 'add_new') {
+                      // Determine default category type based on transaction
+                      const defaultType = editModal.transaction?.received && editModal.transaction.received > 0 ? 'Revenue' : 'Expense';
+                      setNewCategoryModal({ 
+                        isOpen: true, 
+                        name: '', 
+                        type: defaultType, 
+                        parent_id: null, 
+                        transactionId: editModal.transaction?.id || null
+                      });
+                    } else if (option && editModal.transaction) {
                       const updatedTransaction = { ...editModal.transaction };
                       const isAccountDebit = updatedTransaction.selected_category_id === selectedAccountIdInCOA;
                       if (isAccountDebit) {
@@ -2324,7 +2519,6 @@ export default function Page() {
                     }
                   }}
                   isSearchable
-                  styles={{ control: (base) => ({ ...base, minHeight: '30px', fontSize: '0.875rem' }) }}
                 />
               </div>
             </div>
@@ -2470,7 +2664,6 @@ export default function Page() {
                     }));
                   }}
                   isSearchable
-                  styles={{ control: (base) => ({ ...base, minHeight: '30px', fontSize: '0.875rem' }) }}
                 />
               </div>
             </div>
@@ -3219,6 +3412,15 @@ export default function Page() {
               </span>
             )}
           </button>
+          {(() => {
+          const selected = accounts.find(a => a.plaid_account_id === selectedAccountId);
+          if (!selected || selected.is_manual) return null;
+          return (
+            <span className="ml-4 text-gray-500 text-xs font-normal my-auto">
+              (Current Balance: ${currentBalance.toFixed(2)})
+            </span>
+          );
+        })()}
         </nav>
       </div>
 
@@ -3226,18 +3428,6 @@ export default function Page() {
       <div className="mt-6">
         {activeTab === 'toAdd' && (
           <div className="space-y-2">
-            <h2 className="font-semibold text-base mb-1 flex items-center">
-              To Add
-              {(() => {
-                const selected = accounts.find(a => a.plaid_account_id === selectedAccountId);
-                if (!selected || selected.is_manual) return null;
-                return (
-                  <span className="ml-4 text-gray-500 text-sm font-normal">
-                    (Current Balance: ${currentBalance.toFixed(2)})
-                  </span>
-                );
-              })()}
-            </h2>
             <input
               type="text"
               placeholder="Search transactions..."
@@ -3274,8 +3464,18 @@ export default function Page() {
                   >
                     Description {toAddSortConfig.key === 'description' && (toAddSortConfig.direction === 'asc' ? '↑' : '↓')}
                   </th>
-                  <th className="border p-1 w-8 text-center">Spent</th>
-                  <th className="border p-1 w-8 text-center">Received</th>
+                  <th 
+                    className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
+                    onClick={() => handleSort('spent', 'toAdd')}
+                  >
+                    Spent {toAddSortConfig.key === 'spent' && (toAddSortConfig.direction === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th 
+                    className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
+                    onClick={() => handleSort('received', 'toAdd')}
+                  >
+                    Received {toAddSortConfig.key === 'received' && (toAddSortConfig.direction === 'asc' ? '↑' : '↓')}
+                  </th>
                   <th className="border p-1 w-8 text-center">Payee</th>
                   <th className="border p-1 w-8 text-center">Category</th>
                   <th className="border p-1 w-8 text-center">Action</th>
@@ -3319,10 +3519,22 @@ export default function Page() {
                                 transactionId: tx.id 
                               });
                             } else if (option?.value) {
-                              setSelectedPayees(prev => ({
-                                ...prev,
-                                [tx.id]: option.value
-                              }));
+                              // Check if this transaction is selected and apply to all selected transactions
+                              if (selectedToAdd.has(tx.id) && selectedToAdd.size > 1) {
+                                const updates: { [key: string]: string } = {};
+                                selectedToAdd.forEach(selectedId => {
+                                  updates[selectedId] = option.value;
+                                });
+                                setSelectedPayees(prev => ({
+                                  ...prev,
+                                  ...updates
+                                }));
+                              } else {
+                                setSelectedPayees(prev => ({
+                                  ...prev,
+                                  [tx.id]: option.value
+                                }));
+                              }
                             }
                           }}
                           onInputChange={(inputValue) => {
@@ -3340,13 +3552,6 @@ export default function Page() {
                           }}
                           inputValue={payeeInputValues[tx.id] || ''}
                           isSearchable
-                          styles={{ 
-                            control: (base) => ({ 
-                              ...base, 
-                              minHeight: '30px', 
-                              fontSize: '0.875rem'
-                            }) 
-                          }}
                         />
                       </td>
                       <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
@@ -3366,10 +3571,22 @@ export default function Page() {
                                 transactionId: tx.id 
                               });
                             } else if (option?.value) {
-                              setSelectedCategories(prev => ({
-                                ...prev,
-                                [tx.id]: option.value
-                              }));
+                              // Check if this transaction is selected and apply to all selected transactions
+                              if (selectedToAdd.has(tx.id) && selectedToAdd.size > 1) {
+                                const updates: { [key: string]: string } = {};
+                                selectedToAdd.forEach(selectedId => {
+                                  updates[selectedId] = option.value;
+                                });
+                                setSelectedCategories(prev => ({
+                                  ...prev,
+                                  ...updates
+                                }));
+                              } else {
+                                setSelectedCategories(prev => ({
+                                  ...prev,
+                                  [tx.id]: option.value
+                                }));
+                              }
                             }
                           }}
                           onInputChange={(inputValue) => {
@@ -3387,13 +3604,6 @@ export default function Page() {
                           }}
                           inputValue={categoryInputValues[tx.id] || ''}
                           isSearchable
-                          styles={{ 
-                            control: (base) => ({ 
-                              ...base, 
-                              minHeight: '30px', 
-                              fontSize: '0.875rem'
-                            }) 
-                          }}
                         />
                       </td>
                       <td className="border p-1 w-8 text-center">
@@ -3465,9 +3675,6 @@ export default function Page() {
 
         {activeTab === 'added' && (
           <div className="space-y-2">
-            <h2 className="font-semibold text-base mb-1 flex items-center">
-              Added
-            </h2>
             <input
               type="text"
               placeholder="Search transactions..."
@@ -3504,8 +3711,18 @@ export default function Page() {
                   >
                     Description {addedSortConfig.key === 'description' && (addedSortConfig.direction === 'asc' ? '↑' : '↓')}
                   </th>
-                  <th className="border p-1 w-8 text-center">Spent</th>
-                  <th className="border p-1 w-8 text-center">Received</th>
+                  <th 
+                    className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
+                    onClick={() => handleSort('spent', 'added')}
+                  >
+                    Spent {addedSortConfig.key === 'spent' && (addedSortConfig.direction === 'asc' ? '↑' : '↓')}
+                  </th>
+                  <th 
+                    className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
+                    onClick={() => handleSort('received', 'added')}
+                  >
+                    Received {addedSortConfig.key === 'received' && (addedSortConfig.direction === 'asc' ? '↑' : '↓')}
+                  </th>
                   <th className="border p-1 w-8 text-center">Payee</th>
                   <th className="border p-1 w-8 text-center">Category</th>
                   <th className="border p-1 w-8 text-center">Undo</th>
@@ -3588,8 +3805,8 @@ export default function Page() {
 
       {/* Account Selection Modal */}
       {accountSelectionModal.isOpen && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50">
-          <div className="bg-white rounded-lg p-6 w-[600px] overflow-y-auto shadow-xl">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-[600px] max-h-[90vh] overflow-y-auto shadow-xl flex flex-col">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold">Link Accounts</h2>
               <button
@@ -3607,7 +3824,7 @@ export default function Page() {
 
             {!importProgress.isImporting ? (
               <>
-                <div className="space-y-4">
+                <div className="space-y-4 flex-1 overflow-y-auto">
                   {accountSelectionModal.accounts.map((account, index) => (
                     <div key={account.id} className="space-y-2 p-3 border rounded-lg">
                       <div className="flex items-center space-x-3">
@@ -3655,7 +3872,7 @@ export default function Page() {
                   ))}
                 </div>
 
-                <div className="flex justify-end space-x-3 mt-6">
+                <div className="flex justify-end space-x-3 mt-6 flex-shrink-0">
                   <button
                     onClick={() => setAccountSelectionModal({ isOpen: false, accounts: [] })}
                     className="px-4 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50"

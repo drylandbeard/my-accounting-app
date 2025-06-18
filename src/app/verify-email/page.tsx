@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { CheckCircleIcon, XCircleIcon, EnvelopeIcon } from "@heroicons/react/24/outline";
-import { useAuth } from "@/app/components/AuthContext";
+import { useAuth } from "@/components/AuthContext";
 import { getUserCompanies } from "@/lib/auth-client";
 
 export default function VerifyEmailPage() {
@@ -18,7 +18,7 @@ export default function VerifyEmailPage() {
   const verificationResultRef = useRef<{ success: boolean; processed: boolean }>({ success: false, processed: false });
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { setUser: setAuthUser, setCompanies, setCurrentCompany } = useAuth();
+  const { setUser: setAuthUser, setCompanies } = useAuth();
 
   const token = searchParams.get("token");
 
@@ -127,7 +127,7 @@ export default function VerifyEmailPage() {
         const userToSet = {
           id: userData.id,
           email: userData.email,
-          role: userData.role as "Owner" | "User" | "Accountant"
+          role: userData.role as "Owner" | "Member" | "Accountant"
         };
         
         setAuthUser(userToSet);
@@ -145,7 +145,7 @@ export default function VerifyEmailPage() {
           companies: { id: string; name: string; description?: string } | { id: string; name: string; description?: string }[];
         }) => ({
           company_id: item.company_id,
-          role: item.role as "Owner" | "User" | "Accountant",
+          role: item.role as "Owner" | "Member" | "Accountant",
           companies: Array.isArray(item.companies) ? item.companies[0] : item.companies
         }));
         
@@ -154,7 +154,7 @@ export default function VerifyEmailPage() {
         const userToSet = {
           id: userData.id,
           email: userData.email,
-          role: userData.role as "Owner" | "User" | "Accountant"
+          role: userData.role as "Owner" | "Member" | "Accountant"
         };
         
         // Set user and companies in auth context
@@ -162,21 +162,10 @@ export default function VerifyEmailPage() {
         setAuthUser(userToSet);
         setCompanies(transformedCompanies);
         
-        // Set current company to the first one if available
-        if (transformedCompanies.length > 0) {
-          console.log("🏢 Setting current company:", transformedCompanies[0].companies);
-          setCurrentCompany(transformedCompanies[0].companies);
-          
-          // Manually ensure localStorage is updated immediately
-          localStorage.setItem("auth_user", JSON.stringify(userToSet));
-          localStorage.setItem("auth_companies", JSON.stringify(transformedCompanies));
-          localStorage.setItem("auth_current_company", JSON.stringify(transformedCompanies[0].companies));
-        } else {
-          // Manually ensure localStorage is updated immediately
-          localStorage.setItem("auth_user", JSON.stringify(userToSet));
-          localStorage.setItem("auth_companies", JSON.stringify(transformedCompanies));
-          localStorage.removeItem("auth_current_company");
-        }
+        // Manually ensure localStorage is updated immediately
+        localStorage.setItem("auth_user", JSON.stringify(userToSet));
+        localStorage.setItem("auth_companies", JSON.stringify(transformedCompanies));
+        localStorage.removeItem("auth_current_company"); // No company selected by default
       }
       
       // Show success message briefly, then redirect

@@ -5,7 +5,7 @@ import React, { createContext, useContext, useState, useEffect } from "react";
 export interface User {
   id: string;
   email: string;
-  role: "Owner" | "User" | "Accountant";
+  role: "Owner" | "Member" | "Accountant";
 }
 
 export interface Company {
@@ -16,7 +16,7 @@ export interface Company {
 
 export interface UserCompany {
   company_id: string;
-  role: "Owner" | "User" | "Accountant";
+  role: "Owner" | "Member" | "Accountant";
   companies: Company;
 }
 

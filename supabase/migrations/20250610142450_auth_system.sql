@@ -1,5 +1,5 @@
 -- Create enum for user roles
-CREATE TYPE user_role AS ENUM ('Owner', 'User', 'Accountant');
+CREATE TYPE user_role AS ENUM ('Owner', 'Member', 'Accountant');
 
 -- Create companies table
 CREATE TABLE IF NOT EXISTS companies (

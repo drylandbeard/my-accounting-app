@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs";
-import { supabase } from "./supabaseClient";
+import { supabase } from "./supabase";
 import { sendVerificationEmail, generateVerificationToken, createVerificationUrl } from "./email";
+import { getEmailService } from "./email/service";
 
 /**
  * Hash a password using bcrypt
@@ -15,6 +16,284 @@ export async function hashPassword(password: string): Promise<string> {
  */
 export async function verifyPassword(password: string, hash: string): Promise<boolean> {
   return bcrypt.compare(password, hash);
+}
+
+/**
+ * Generate a secure token for invitations/verification
+ */
+export function generateToken(): string {
+  const randomBytes = crypto.getRandomValues(new Uint8Array(32));
+  return Array.from(randomBytes, byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Create invitation URL
+ */
+export function createInvitationUrl(token: string, baseUrl?: string): string {
+  const base = baseUrl || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  return `${base}/accept-invitation?token=${token}`;
+}
+
+/**
+ * Send team member invitation
+ */
+export async function sendTeamInvitation(
+  email: string, 
+  role: "Owner" | "Member" | "Accountant", 
+  companyId: string, 
+  invitedByUserId: string
+) {
+  try {
+    // Check if user already exists
+    const { data: existingUser } = await supabase
+      .from("users")
+      .select("id")
+      .eq("email", email)
+      .single();
+
+    if (existingUser) {
+      // User exists, check if they're already a member of this company
+      const { data: existingMember } = await supabase
+        .from("company_users")
+        .select("id")
+        .eq("user_id", existingUser.id)
+        .eq("company_id", companyId)
+        .eq("is_active", true)
+        .single();
+
+      if (existingMember) {
+        return { error: "User is already a member of this company" };
+      }
+    }
+
+    // Get company details
+    const { data: company, error: companyError } = await supabase
+      .from("companies")
+      .select("name")
+      .eq("id", companyId)
+      .single();
+
+    if (companyError || !company) {
+      return { error: "Company not found" };
+    }
+
+    // Get inviter details
+    const { data: inviter, error: inviterError } = await supabase
+      .from("users")
+      .select("email")
+      .eq("id", invitedByUserId)
+      .single();
+
+    if (inviterError || !inviter) {
+      return { error: "Inviter not found" };
+    }
+
+    // Generate invitation token
+    const token = generateToken();
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + 24); // Expire in 24 hours
+
+    // Store invitation token
+    const { error: tokenError } = await supabase
+      .from("email_verification_tokens")
+      .insert({
+        token,
+        token_type: "invitation",
+        invited_email: email,
+        invited_role: role,
+        company_id: companyId,
+        invited_by_user_id: invitedByUserId,
+        expires_at: expiresAt.toISOString()
+      });
+
+    if (tokenError) {
+      console.error("Token creation error:", tokenError);
+      return { error: "Failed to create invitation token" };
+    }
+
+    // Send invitation email
+    const invitationUrl = createInvitationUrl(token);
+    const emailService = getEmailService();
+    const emailResult = await emailService.sendInvitationEmail({
+      email,
+      invitationUrl,
+      companyName: company.name,
+      inviterName: inviter.email,
+      role
+    });
+
+    if (!emailResult.success) {
+      // Clean up token if email fails
+      await supabase
+        .from("email_verification_tokens")
+        .delete()
+        .eq("token", token);
+      return { error: "Failed to send invitation email. Please try again." };
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error("Team invitation error:", error);
+    return { error: "Failed to send invitation" };
+  }
+}
+
+/**
+ * Accept team invitation with token
+ */
+export async function acceptInvitation(token: string) {
+  try {
+    // Get invitation token
+    const { data: invitationToken, error: tokenError } = await supabase
+      .from("email_verification_tokens")
+      .select("*")
+      .eq("token", token)
+      .eq("token_type", "invitation")
+      .single();
+
+    if (tokenError || !invitationToken) {
+      return { error: "Invalid or expired invitation token" };
+    }
+
+    // Check if token is expired
+    const now = new Date();
+    const expiresAt = new Date(invitationToken.expires_at);
+    if (now > expiresAt) {
+      return { error: "Invitation has expired" };
+    }
+
+    // Check if token has already been used
+    if (invitationToken.used_at) {
+      return { error: "This invitation has already been accepted" };
+    }
+
+    return { 
+      success: true, 
+      invitation: {
+        email: invitationToken.invited_email,
+        role: invitationToken.invited_role,
+        companyId: invitationToken.company_id,
+        token
+      }
+    };
+  } catch (error) {
+    console.error("Accept invitation error:", error);
+    return { error: "Failed to validate invitation" };
+  }
+}
+
+/**
+ * Complete invitation signup with password
+ */
+export async function completeInvitationSignup(token: string, password: string) {
+  try {
+    // Get invitation token
+    const { data: invitationToken, error: tokenError } = await supabase
+      .from("email_verification_tokens")
+      .select("*")
+      .eq("token", token)
+      .eq("token_type", "invitation")
+      .single();
+
+    if (tokenError || !invitationToken) {
+      return { error: "Invalid or expired invitation token" };
+    }
+
+    // Check if token is expired
+    const now = new Date();
+    const expiresAt = new Date(invitationToken.expires_at);
+    if (now > expiresAt) {
+      return { error: "Invitation has expired" };
+    }
+
+    // Check if token has already been used
+    if (invitationToken.used_at) {
+      return { error: "This invitation has already been accepted" };
+    }
+
+    const email = invitationToken.invited_email;
+    const role = invitationToken.invited_role;
+    const companyId = invitationToken.company_id;
+
+    // Check if user already exists
+    let userId;
+    const { data: existingUser } = await supabase
+      .from("users")
+      .select("id, is_access_enabled")
+      .eq("email", email)
+      .single();
+
+    if (existingUser) {
+      // User exists, update their password and enable access
+      const passwordHash = await hashPassword(password);
+      const { error: updateError } = await supabase
+        .from("users")
+        .update({ 
+          password_hash: passwordHash,
+          is_access_enabled: true 
+        })
+        .eq("id", existingUser.id);
+
+      if (updateError) {
+        return { error: "Failed to update user" };
+      }
+      userId = existingUser.id;
+    } else {
+      // Create new user
+      const passwordHash = await hashPassword(password);
+      const { data: newUser, error: userError } = await supabase
+        .from("users")
+        .insert({
+          email,
+          password_hash: passwordHash,
+          role: role as "Owner" | "Member" | "Accountant",
+          is_access_enabled: true
+        })
+        .select()
+        .single();
+
+      if (userError || !newUser) {
+        return { error: "Failed to create user" };
+      }
+      userId = newUser.id;
+    }
+
+    // Add user to company
+    const { error: companyUserError } = await supabase
+      .from("company_users")
+      .insert({
+        company_id: companyId,
+        user_id: userId,
+        role: role as "Owner" | "Member" | "Accountant"
+      });
+
+    if (companyUserError) {
+      return { error: "Failed to add user to company" };
+    }
+
+    // Mark token as used
+    const { error: tokenUpdateError } = await supabase
+      .from("email_verification_tokens")
+      .update({ used_at: now.toISOString() })
+      .eq("id", invitationToken.id);
+
+    if (tokenUpdateError) {
+      console.error("Failed to mark token as used:", tokenUpdateError);
+    }
+
+    // Return user data for sign-in
+    return { 
+      success: true, 
+      user: {
+        id: userId,
+        email,
+        role: role as "Owner" | "Member" | "Accountant"
+      }
+    };
+  } catch (error) {
+    console.error("Complete invitation signup error:", error);
+    return { error: "Failed to complete invitation signup" };
+  }
 }
 
 /**
@@ -309,7 +588,7 @@ export async function updateUserPassword(userId: string, currentPassword: string
 /**
  * Update user role
  */
-export async function updateUserRole(userId: string, newRole: "Owner" | "User" | "Accountant") {
+export async function updateUserRole(userId: string, newRole: "Owner" | "Member" | "Accountant") {
   try {
     const { error } = await supabase
       .from("users")

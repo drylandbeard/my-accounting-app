@@ -24,6 +24,14 @@ export interface EmailVerificationData {
   userName?: string;
 }
 
+export interface EmailInvitationData {
+  email: string;
+  invitationUrl: string;
+  companyName: string;
+  inviterName: string;
+  role: string;
+}
+
 export interface EmailProvider {
   sendEmail(message: EmailMessage): Promise<EmailResponse>;
   name: string;
