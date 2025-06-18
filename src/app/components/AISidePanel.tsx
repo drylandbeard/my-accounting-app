@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useContext } from 'react';
-import { XMarkIcon, ChatBubbleLeftRightIcon } from '@heroicons/react/24/outline';
+import { XMarkIcon, ChatBubbleLeftRightIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
 import { SharedContext } from './SharedContext';
 import { supabase } from '@/lib/supabaseClient';
 import { useApiWithCompany } from '@/hooks/useApiWithCompany';
@@ -30,7 +30,27 @@ const MIN_PANEL_WIDTH = 300;
 const MAX_PANEL_WIDTH = 800;
 
 export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Message[]>(() => {
+    if (typeof window === 'undefined') {
+      return [];
+    }
+    const savedMessages = localStorage.getItem('aiChatMessages');
+    if (savedMessages) {
+      try {
+        const parsedMessages = JSON.parse(savedMessages);
+        // Filter out any messages with showConfirmation or pendingAction to avoid stale confirmations
+        return parsedMessages.map((msg: Message) => ({
+          role: msg.role,
+          content: msg.content
+        }));
+      } catch (error) {
+        console.error('Error parsing saved messages:', error);
+        localStorage.removeItem('aiChatMessages');
+        return [];
+      }
+    }
+    return [];
+  });
   const [inputMessage, setInputMessage] = useState('');
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
   const [isResizing, setIsResizing] = useState(false);
@@ -49,6 +69,18 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
       setPanelWidth(parseInt(savedWidth, 10));
     }
   }, []);
+
+  // Save messages to localStorage whenever messages change
+  useEffect(() => {
+    // A small delay to batch updates and avoid excessive writes.
+    const handler = setTimeout(() => {
+      localStorage.setItem('aiChatMessages', JSON.stringify(messages));
+    }, 100);
+
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [messages]);
 
   // Fetch transactions and accounts when component mounts
   useEffect(() => {
@@ -71,6 +103,14 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
   useEffect(() => {
     localStorage.setItem('aiPanelWidth', panelWidth.toString());
   }, [panelWidth]);
+
+  // Function to refresh/clear chat context
+  const handleRefreshContext = () => {
+    setMessages([]);
+    localStorage.removeItem('aiChatMessages');
+    setPendingToolQueue([]);
+    setPendingToolArgs(null);
+  };
 
   const handleResizeStart = (e: React.MouseEvent) => {
     setIsResizing(true);
@@ -770,7 +810,7 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
         </div>
 
         <div className="border-t border-gray-200 px-4 py-6 sm:px-6 text-xs">
-          <div className="flex space-x-3">
+          <div className="flex space-x-2">
             <input
               type="text"
               value={inputMessage}
@@ -779,6 +819,13 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
               placeholder="Type your message..."
               className="flex-1 rounded-md border border-gray-300 px-3 py-2 focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-gray-500 text-xs"
             />
+            <button
+              onClick={handleRefreshContext}
+              className="rounded-md bg-orange-600 px-3 py-2 text-white hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 text-xs flex items-center"
+              title="Clear chat context"
+            >
+              <ArrowPathIcon className="h-4 w-4" />
+            </button>
             <button
               onClick={handleSendMessage}
               className="rounded-md bg-gray-700 px-4 py-2 text-white hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 text-xs"
