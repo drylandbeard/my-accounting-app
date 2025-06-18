@@ -41,4 +41,13 @@ export async function deleteCategoryHandler({ name, companyId, categories }: { n
     return { success: false, error: errorMsg };
   }
   return await deleteCategoryHelper(name, companyId, categories);
+}
+
+export async function deleteMultipleCategoriesHandler({ names, companyId, categories }: { names: string[]; companyId: string | undefined; categories: any[] }) {
+  const results = [];
+  for (const name of names) {
+    const result = await deleteCategoryHandler({ name, companyId, categories });
+    results.push({ ...result, name });
+  }
+  return results;
 } 

@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useContext } from 'react'
 import { supabase } from '../../lib/supabaseClient'
 import { useApiWithCompany } from '@/hooks/useApiWithCompany'
+import { SharedContext } from '@/app/components/SharedContext'
 
 const ACCOUNT_TYPES = [
   'Asset',
@@ -23,6 +24,7 @@ type Category = {
 
 export default function ChartOfAccountsPage() {
   const { hasCompanyContext, currentCompany } = useApiWithCompany()
+  const { categoriesVersion } = useContext(SharedContext)
   const [accounts, setAccounts] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -44,7 +46,7 @@ export default function ChartOfAccountsPage() {
   useEffect(() => {
     fetchAccounts()
     fetchParentOptions()
-  }, [currentCompany?.id, hasCompanyContext])
+  }, [currentCompany?.id, hasCompanyContext, categoriesVersion])
 
   const fetchAccounts = async () => {
     if (!hasCompanyContext) return;

@@ -87,9 +87,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
     setCompanies([]);
     setCurrentCompany(null);
-    localStorage.removeItem("auth_user");
-    localStorage.removeItem("auth_companies");
-    localStorage.removeItem("auth_current_company");
+    // Clear all localStorage data
+    localStorage.clear();
   };
 
   return (

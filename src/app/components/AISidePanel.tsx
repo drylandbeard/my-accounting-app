@@ -3,14 +3,18 @@
 import { useState, useEffect, useRef, useContext } from 'react';
 import { XMarkIcon, ChatBubbleLeftRightIcon } from '@heroicons/react/24/outline';
 import { SharedContext } from './SharedContext';
-import { supabase } from '@/lib/supabaseClient';
 import { useApiWithCompany } from '@/hooks/useApiWithCompany';
 import { tools } from '../ai/tools';
 import { categoryPrompt } from '../ai/prompts';
-import { createCategoryHandler, createCategoryHelper } from '../ai/functions/createCategory';
-import { renameCategoryHandler, renameCategoryHelper } from '../ai/functions/renameCategory';
+import { createCategoryHandler } from '../ai/functions/createCategory';
+import { renameCategoryHandler } from '../ai/functions/renameCategory';
 import { assignParentCategoryHandler } from '../ai/functions/assignParentCategory';
 import { deleteCategoryHandler } from '../ai/functions/deleteCategory';
+import { changeCategoryTypeHandler } from '../ai/functions/changeCategoryType';
+import { useAuth } from './AuthContext';
+import { reassignParentCategoryHandler } from '../ai/functions/reassignParentCategory';
+import { createMultipleCategoriesHandler } from '../ai/functions/createMultipleCategories';
+import { deleteMultipleCategoriesHandler } from '../ai/functions/deleteCategory';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -22,9 +26,31 @@ interface AISidePanelProps {
   setIsOpen: (open: boolean) => void;
 }
 
+interface ToolCall {
+  function: {
+    name: string;
+    arguments: string;
+  };
+}
+
+type PendingToolArgs =
+  | { type: 'create_category'; args: any }
+  | { type: 'rename_category'; args: any }
+  | { type: 'assign_parent_category'; args: any }
+  | { type: 'delete_category'; args: any }
+  | { type: 'reassign_parent_category'; args: any }
+  | { type: 'create_multiple_categories'; args: any }
+  | { type: 'delete_multiple_categories'; args: any };
+
 const DEFAULT_PANEL_WIDTH = 400;
 const MIN_PANEL_WIDTH = 300;
 const MAX_PANEL_WIDTH = 800;
+
+// Helper to validate UUID
+function isValidUUID(uuid: string | undefined): boolean {
+  if (!uuid) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(uuid);
+}
 
 export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -33,9 +59,10 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
   const [isResizing, setIsResizing] = useState(false);
   const resizeRef = useRef<HTMLDivElement>(null);
   const { categories, refreshCategories } = useContext(SharedContext);
-  const [pendingToolQueue, setPendingToolQueue] = useState<any[]>([]);
-  const [pendingToolArgs, setPendingToolArgs] = useState<any | null>(null);
+  const [pendingToolQueue, setPendingToolQueue] = useState<ToolCall[]>([]);
+  const [pendingToolArgs, setPendingToolArgs] = useState<PendingToolArgs | null>(null);
   const { currentCompany } = useApiWithCompany();
+  const { user } = useAuth();
 
   // Load saved panel width from localStorage
   useEffect(() => {
@@ -49,6 +76,30 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
   useEffect(() => {
     localStorage.setItem('aiPanelWidth', panelWidth.toString());
   }, [panelWidth]);
+
+  // Load saved messages from localStorage when component mounts
+  useEffect(() => {
+    if (user) {
+      const savedMessages = localStorage.getItem(`aiChatHistory_${user.id}`);
+      if (savedMessages) {
+        setMessages(JSON.parse(savedMessages));
+      }
+    }
+  }, [user]);
+
+  // Save messages to localStorage whenever they change
+  useEffect(() => {
+    if (user && messages.length > 0) {
+      localStorage.setItem(`aiChatHistory_${user.id}`, JSON.stringify(messages));
+    }
+  }, [messages, user]);
+
+  // Clear chat history when user logs out
+  useEffect(() => {
+    if (!user) {
+      setMessages([]);
+    }
+  }, [user]);
 
   const handleResizeStart = (e: React.MouseEvent) => {
     setIsResizing(true);
@@ -128,7 +179,7 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
       const data = await res.json();
       const choice = data.choices?.[0];
       const toolCalls = choice?.message?.tool_calls;
-      let aiResponse = choice?.message?.content?.trim() || 'Sorry, I could not generate a response.';
+      const aiResponse = choice?.message?.content?.trim() || 'Sorry, I could not generate a response.';
 
       if (toolCalls && toolCalls.length > 0) {
         setPendingToolQueue(toolCalls);
@@ -139,6 +190,22 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
           setMessages((prev) => [
             ...prev.slice(0, -1),
             { role: 'assistant', content: `To confirm, I will create a new category named "${JSON.parse(firstTool.function.arguments).name}" with type "${JSON.parse(firstTool.function.arguments).type}". Please press confirm.` }
+          ]);
+        } else if (firstTool.function?.name === 'create_multiple_categories') {
+          setPendingToolArgs({ type: 'create_multiple_categories', args: JSON.parse(firstTool.function.arguments) });
+          const args = JSON.parse(firstTool.function.arguments);
+          const names = args.categories.map((cat: any) => `"${cat.name}"`).join(', ');
+          setMessages((prev) => [
+            ...prev.slice(0, -1),
+            { role: 'assistant', content: `To confirm, I will create the following categories: ${names}. Please press confirm.` }
+          ]);
+        } else if (firstTool.function?.name === 'delete_multiple_categories') {
+          setPendingToolArgs({ type: 'delete_multiple_categories', args: JSON.parse(firstTool.function.arguments) });
+          const args = JSON.parse(firstTool.function.arguments);
+          const names = args.names.map((name: string) => `"${name}"`).join(', ');
+          setMessages((prev) => [
+            ...prev.slice(0, -1),
+            { role: 'assistant', content: `To confirm, I will delete the following categories: ${names}. Please press confirm.` }
           ]);
         } else if (firstTool.function?.name === 'rename_category') {
           setPendingToolArgs({ type: 'rename_category', args: JSON.parse(firstTool.function.arguments) });
@@ -158,6 +225,21 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
             ...prev.slice(0, -1),
             { role: 'assistant', content: `To confirm, I will delete the category "${JSON.parse(firstTool.function.arguments).name}". Please press confirm.` }
           ]);
+        } else if (firstTool.function?.name === 'change_category_type') {
+          setPendingToolArgs({ type: 'change_category_type', args: JSON.parse(firstTool.function.arguments) });
+          setMessages((prev) => [
+            ...prev.slice(0, -1),
+            { role: 'assistant', content: `To confirm, I will change the type of category "${JSON.parse(firstTool.function.arguments).name}" to "${JSON.parse(firstTool.function.arguments).newType}". Please press confirm.` }
+          ]);
+        } else if (firstTool.function?.name === 'reassign_parent_category') {
+          setPendingToolArgs({ type: 'reassign_parent_category', args: JSON.parse(firstTool.function.arguments) });
+          const args = JSON.parse(firstTool.function.arguments);
+          setMessages((prev) => [
+            ...prev.slice(0, -1),
+            { role: 'assistant', content: args.parentName === null || args.parentName === ''
+              ? `To confirm, I will make "${args.childName}" a root category (remove its parent). Please press confirm.`
+              : `To confirm, I will reassign the parent of "${args.childName}" to "${args.parentName}". Please press confirm.` }
+          ]);
         }
         return;
       }
@@ -167,7 +249,7 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
         ...prev.slice(0, -1),
         { role: 'assistant', content: aiResponse },
       ]);
-    } catch (err) {
+    } catch {
       setMessages((prev) => [
         ...prev.slice(0, -1),
         { role: 'assistant', content: 'Sorry, there was an error contacting the AI.' },
@@ -192,6 +274,24 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
           { role: 'assistant', content: `Error creating category: ${result.error}` }
         ]);
       }
+    } else if (pendingToolArgs.type === 'create_multiple_categories') {
+      const categoriesWithCompany = pendingToolArgs.args.categories.map((cat: any) => ({
+        ...cat,
+        companyId: isValidUUID(cat.companyId) ? cat.companyId : currentCompany?.id,
+        parentId: cat.parentId && isValidUUID(cat.parentId) ? cat.parentId : undefined
+      }));
+      result = await createMultipleCategoriesHandler(categoriesWithCompany);
+      const successNames = result.filter((r: any) => r.success).map((r: any) => `"${r.name}"`).join(', ');
+      const errorNames = result.filter((r: any) => !r.success).map((r: any) => `"${r.name}"`).join(', ');
+      setMessages(prev => [
+        ...prev,
+        { role: 'assistant', content:
+          (successNames ? `Categories created: ${successNames}. ` : '') +
+          (errorNames ? `Failed to create: ${errorNames}.` : '') +
+          ' Would you like to create more categories or organize them?'
+        }
+      ]);
+      await refreshCategories();
     } else if (pendingToolArgs.type === 'rename_category') {
       result = await renameCategoryHandler({ ...pendingToolArgs.args, companyId: currentCompany?.id, categories });
       if (result.success) {
@@ -234,6 +334,52 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
           { role: 'assistant', content: `Error deleting category: ${result.error}` }
         ]);
       }
+    } else if (pendingToolArgs.type === 'change_category_type') {
+      result = await changeCategoryTypeHandler({ ...pendingToolArgs.args, companyId: currentCompany?.id, categories });
+      if (result.success) {
+        setMessages(prev => [
+          ...prev,
+          { role: 'assistant', content: `Category "${pendingToolArgs.args.name}" has been changed to type "${pendingToolArgs.args.newType}". Would you like to make any other changes to your categories?` }
+        ]);
+        await refreshCategories();
+      } else {
+        setMessages(prev => [
+          ...prev,
+          { role: 'assistant', content: `Error changing category type: ${result.error}` }
+        ]);
+      }
+    } else if (pendingToolArgs.type === 'reassign_parent_category') {
+      result = await reassignParentCategoryHandler({ ...pendingToolArgs.args, companyId: currentCompany?.id, categories });
+      if (result.success) {
+        setMessages(prev => [
+          ...prev,
+          { role: 'assistant', content: (pendingToolArgs.args.parentName === null || pendingToolArgs.args.parentName === '')
+            ? `Category "${pendingToolArgs.args.childName}" is now a root category (no parent). Would you like to organize any other categories?`
+            : `Category "${pendingToolArgs.args.childName}" has been reassigned to parent "${pendingToolArgs.args.parentName}". Would you like to organize any other categories?` }
+        ]);
+        await refreshCategories();
+      } else {
+        setMessages(prev => [
+          ...prev,
+          { role: 'assistant', content: `Error changing category type: ${result.error}` }
+        ]);
+      }
+    } else if (pendingToolArgs.type === 'delete_multiple_categories') {
+      const names = pendingToolArgs.args.names;
+      const companyId = isValidUUID(pendingToolArgs.args.companyId) ? pendingToolArgs.args.companyId : currentCompany?.id;
+      const cats = pendingToolArgs.args.categories || categories;
+      result = await deleteMultipleCategoriesHandler({ names, companyId, categories: cats });
+      const successNames = result.filter((r: any) => r.success).map((r: any) => `"${r.name}"`).join(', ');
+      const errorNames = result.filter((r: any) => !r.success).map((r: any) => `"${r.name}"`).join(', ');
+      setMessages(prev => [
+        ...prev,
+        { role: 'assistant', content:
+          (successNames ? `Categories deleted: ${successNames}. ` : '') +
+          (errorNames ? `Failed to delete: ${errorNames}.` : '') +
+          ' Would you like to delete more categories or organize them?'
+        }
+      ]);
+      await refreshCategories();
     }
     // Remove the first tool from the queue and set up the next one
     const newQueue = pendingToolQueue.slice(1);
@@ -245,6 +391,22 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
         setMessages((prev) => [
           ...prev,
           { role: 'assistant', content: `To confirm, I will create a new category named "${JSON.parse(nextTool.function.arguments).name}" with type "${JSON.parse(nextTool.function.arguments).type}". Please press confirm.` }
+        ]);
+      } else if (nextTool.function?.name === 'create_multiple_categories') {
+        setPendingToolArgs({ type: 'create_multiple_categories', args: JSON.parse(nextTool.function.arguments) });
+        const args = JSON.parse(nextTool.function.arguments);
+        const names = args.categories.map((cat: any) => `"${cat.name}"`).join(', ');
+        setMessages((prev) => [
+          ...prev,
+          { role: 'assistant', content: `To confirm, I will create the following categories: ${names}. Please press confirm.` }
+        ]);
+      } else if (nextTool.function?.name === 'delete_multiple_categories') {
+        setPendingToolArgs({ type: 'delete_multiple_categories', args: JSON.parse(nextTool.function.arguments) });
+        const args = JSON.parse(nextTool.function.arguments);
+        const names = args.names.map((name: string) => `"${name}"`).join(', ');
+        setMessages((prev) => [
+          ...prev,
+          { role: 'assistant', content: `To confirm, I will delete the following categories: ${names}. Please press confirm.` }
         ]);
       } else if (nextTool.function?.name === 'rename_category') {
         setPendingToolArgs({ type: 'rename_category', args: JSON.parse(nextTool.function.arguments) });
@@ -263,6 +425,21 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
         setMessages((prev) => [
           ...prev,
           { role: 'assistant', content: `To confirm, I will delete the category "${JSON.parse(nextTool.function.arguments).name}". Please press confirm.` }
+        ]);
+      } else if (nextTool.function?.name === 'change_category_type') {
+        setPendingToolArgs({ type: 'change_category_type', args: JSON.parse(nextTool.function.arguments) });
+        setMessages((prev) => [
+          ...prev,
+          { role: 'assistant', content: `To confirm, I will change the type of category "${JSON.parse(nextTool.function.arguments).name}" to "${JSON.parse(nextTool.function.arguments).newType}". Please press confirm.` }
+        ]);
+      } else if (nextTool.function?.name === 'reassign_parent_category') {
+        setPendingToolArgs({ type: 'reassign_parent_category', args: JSON.parse(nextTool.function.arguments) });
+        const args = JSON.parse(nextTool.function.arguments);
+        setMessages((prev) => [
+          ...prev,
+          { role: 'assistant', content: args.parentName === null || args.parentName === ''
+            ? `To confirm, I will make "${args.childName}" a root category (remove its parent). Please press confirm.`
+            : `To confirm, I will reassign the parent of "${args.childName}" to "${args.parentName}". Please press confirm.` }
         ]);
       }
     } else {
@@ -321,7 +498,7 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
         <div className="px-4 py-6 sm:px-6">
           <div className="flex items-start justify-between">
             <div className="font-semibold leading-6 text-gray-900 text-xs">
-              AI Assistant
+              Agent
             </div>
             <div className="ml-3 flex h-7 items-center">
               <button
@@ -407,4 +584,4 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
       )}
     </div>
   );
-} 
+}
