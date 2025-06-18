@@ -1397,12 +1397,24 @@ export default function Page() {
       return;
     }
 
-    // After creating the category, set it as selected for the current transaction
+    // After creating the category, set it as selected for the current transaction or all selected transactions
     if (newCategoryModal.transactionId) {
-      setSelectedCategories(prev => ({
-        ...prev,
-        [newCategoryModal.transactionId!]: data.id
-      }));
+      // Check if the transaction is part of a selection and apply to all selected
+      if (selectedToAdd.has(newCategoryModal.transactionId) && selectedToAdd.size > 1) {
+        const updates: { [key: string]: string } = {};
+        selectedToAdd.forEach(selectedId => {
+          updates[selectedId] = data.id;
+        });
+        setSelectedCategories(prev => ({
+          ...prev,
+          ...updates
+        }));
+      } else {
+        setSelectedCategories(prev => ({
+          ...prev,
+          [newCategoryModal.transactionId!]: data.id
+        }));
+      }
     }
 
     setNewCategoryModal({ isOpen: false, name: '', type: 'Expense', parent_id: null, transactionId: null });
@@ -1427,12 +1439,24 @@ export default function Page() {
       return;
     }
 
-    // After creating the payee, set it as selected for the current transaction
+    // After creating the payee, set it as selected for the current transaction or all selected transactions
     if (newPayeeModal.transactionId) {
-      setSelectedPayees(prev => ({
-        ...prev,
-        [newPayeeModal.transactionId!]: data.id
-      }));
+      // Check if the transaction is part of a selection and apply to all selected
+      if (selectedToAdd.has(newPayeeModal.transactionId) && selectedToAdd.size > 1) {
+        const updates: { [key: string]: string } = {};
+        selectedToAdd.forEach(selectedId => {
+          updates[selectedId] = data.id;
+        });
+        setSelectedPayees(prev => ({
+          ...prev,
+          ...updates
+        }));
+      } else {
+        setSelectedPayees(prev => ({
+          ...prev,
+          [newPayeeModal.transactionId!]: data.id
+        }));
+      }
     }
 
     setNewPayeeModal({ isOpen: false, name: '', transactionId: null });
@@ -1767,16 +1791,37 @@ export default function Page() {
     );
     
     if (existingPayee) {
-      // Select the existing payee
-      setSelectedPayees(prev => ({
-        ...prev,
-        [txId]: existingPayee.id
-      }));
-      // Clear the input value
-      setPayeeInputValues(prev => ({
-        ...prev,
-        [txId]: ''
-      }));
+      // Check if this transaction is selected and apply to all selected transactions
+      if (selectedToAdd.has(txId) && selectedToAdd.size > 1) {
+        const updates: { [key: string]: string } = {};
+        selectedToAdd.forEach(selectedId => {
+          updates[selectedId] = existingPayee.id;
+        });
+        setSelectedPayees(prev => ({
+          ...prev,
+          ...updates
+        }));
+        // Clear input values for all selected transactions
+        const inputUpdates: { [key: string]: string } = {};
+        selectedToAdd.forEach(selectedId => {
+          inputUpdates[selectedId] = '';
+        });
+        setPayeeInputValues(prev => ({
+          ...prev,
+          ...inputUpdates
+        }));
+      } else {
+        // Select the existing payee for single transaction
+        setSelectedPayees(prev => ({
+          ...prev,
+          [txId]: existingPayee.id
+        }));
+        // Clear the input value
+        setPayeeInputValues(prev => ({
+          ...prev,
+          [txId]: ''
+        }));
+      }
     } else {
       // Open modal with pre-populated name
       setNewPayeeModal({
@@ -1801,16 +1846,37 @@ export default function Page() {
     );
     
     if (existingCategory) {
-      // Select the existing category
-      setSelectedCategories(prev => ({
-        ...prev,
-        [txId]: existingCategory.id
-      }));
-      // Clear the input value
-      setCategoryInputValues(prev => ({
-        ...prev,
-        [txId]: ''
-      }));
+      // Check if this transaction is selected and apply to all selected transactions
+      if (selectedToAdd.has(txId) && selectedToAdd.size > 1) {
+        const updates: { [key: string]: string } = {};
+        selectedToAdd.forEach(selectedId => {
+          updates[selectedId] = existingCategory.id;
+        });
+        setSelectedCategories(prev => ({
+          ...prev,
+          ...updates
+        }));
+        // Clear input values for all selected transactions
+        const inputUpdates: { [key: string]: string } = {};
+        selectedToAdd.forEach(selectedId => {
+          inputUpdates[selectedId] = '';
+        });
+        setCategoryInputValues(prev => ({
+          ...prev,
+          ...inputUpdates
+        }));
+      } else {
+        // Select the existing category for single transaction
+        setSelectedCategories(prev => ({
+          ...prev,
+          [txId]: existingCategory.id
+        }));
+        // Clear the input value
+        setCategoryInputValues(prev => ({
+          ...prev,
+          [txId]: ''
+        }));
+      }
     } else {
       // Find the transaction to determine default category type
       const transaction = imported.find(tx => tx.id === txId);
@@ -3346,10 +3412,22 @@ export default function Page() {
                                 transactionId: tx.id 
                               });
                             } else if (option?.value) {
-                              setSelectedPayees(prev => ({
-                                ...prev,
-                                [tx.id]: option.value
-                              }));
+                              // Check if this transaction is selected and apply to all selected transactions
+                              if (selectedToAdd.has(tx.id) && selectedToAdd.size > 1) {
+                                const updates: { [key: string]: string } = {};
+                                selectedToAdd.forEach(selectedId => {
+                                  updates[selectedId] = option.value;
+                                });
+                                setSelectedPayees(prev => ({
+                                  ...prev,
+                                  ...updates
+                                }));
+                              } else {
+                                setSelectedPayees(prev => ({
+                                  ...prev,
+                                  [tx.id]: option.value
+                                }));
+                              }
                             }
                           }}
                           onInputChange={(inputValue) => {
@@ -3415,10 +3493,22 @@ export default function Page() {
                                 transactionId: tx.id 
                               });
                             } else if (option?.value) {
-                              setSelectedCategories(prev => ({
-                                ...prev,
-                                [tx.id]: option.value
-                              }));
+                              // Check if this transaction is selected and apply to all selected transactions
+                              if (selectedToAdd.has(tx.id) && selectedToAdd.size > 1) {
+                                const updates: { [key: string]: string } = {};
+                                selectedToAdd.forEach(selectedId => {
+                                  updates[selectedId] = option.value;
+                                });
+                                setSelectedCategories(prev => ({
+                                  ...prev,
+                                  ...updates
+                                }));
+                              } else {
+                                setSelectedCategories(prev => ({
+                                  ...prev,
+                                  [tx.id]: option.value
+                                }));
+                              }
                             }
                           }}
                           onInputChange={(inputValue) => {
