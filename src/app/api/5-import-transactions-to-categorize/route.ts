@@ -6,6 +6,7 @@ import { validateCompanyContext } from "@/lib/auth-utils";
 /**
  * Import transactions from Plaid and store in imported_transactions table
  * Uses account-specific date ranges as specified by user
+ * Also creates starting balance transactions for each account using the start_date
  */
 export async function POST(req: NextRequest) {
   try {
@@ -44,21 +45,48 @@ export async function POST(req: NextRequest) {
 
     console.log("Fetched transactions:", transactionsResponse.data.transactions.length);
 
-    if (transactionsResponse.data.transactions.length === 0) {
-      console.log("No transactions found in date range");
-      return NextResponse.json({ success: true, count: 0, message: "No transactions found" });
-    }
-
-    // Get account names for mapping (filtered by company)
+    // Get account information including starting balance (filtered by company)
     const { data: accounts } = await supabase
       .from("accounts")
-      .select("plaid_account_id, name")
+      .select("plaid_account_id, name, starting_balance")
       .eq("plaid_item_id", itemId)
       .eq("company_id", companyId);
 
     const accountMap = new Map(
       accounts?.map(acc => [acc.plaid_account_id, acc.name]) || []
     );
+
+    // Create starting balance transactions for each account
+    const startingBalanceTransactions = [];
+    
+    // Filter accounts by selectedAccountIds if specified
+    const relevantAccounts = accounts?.filter(acc => 
+      !selectedAccountIds || selectedAccountIds.length === 0 || selectedAccountIds.includes(acc.plaid_account_id)
+    ) || [];
+
+    for (const account of relevantAccounts) {
+      const startDate = accountDateMap[account.plaid_account_id];
+      if (startDate && account.starting_balance !== null && account.starting_balance !== 0) {
+        const startingBalance = parseFloat(account.starting_balance.toString());
+        
+        // Determine if starting balance is spent or received based on sign
+        const spent = startingBalance < 0 ? Math.abs(startingBalance) : 0;
+        const received = startingBalance > 0 ? startingBalance : 0;
+
+        startingBalanceTransactions.push({
+          date: startDate,
+          description: "Opening Balance",
+          plaid_account_id: account.plaid_account_id,
+          plaid_account_name: account.name,
+          item_id: itemId,
+          company_id: companyId,
+          spent,
+          received,
+        });
+      }
+    }
+
+    console.log("Creating starting balance transactions:", startingBalanceTransactions.length);
 
     // Filter transactions by selected accounts (if specified) AND by account-specific dates
     let filteredTransactions = transactionsResponse.data.transactions;
@@ -100,10 +128,31 @@ export async function POST(req: NextRequest) {
 
     console.log("Inserting transactions...");
 
-    // Insert transactions
+    // Combine starting balance transactions and regular transactions
+    // Starting balance transactions come first to ensure proper chronological order
+    const allTransactionsToStore = [...startingBalanceTransactions, ...transactionsToStore];
+
+    console.log("Total transactions to insert:", allTransactionsToStore.length, 
+                "(", startingBalanceTransactions.length, "starting balance +", transactionsToStore.length, "regular)");
+
+    // If no transactions to insert (no starting balances and no regular transactions)
+    if (allTransactionsToStore.length === 0) {
+      console.log("No transactions to import (no starting balances and no regular transactions)");
+      return NextResponse.json({ 
+        success: true, 
+        count: 0, 
+        startingBalanceCount: 0,
+        regularTransactionCount: 0,
+        message: "No transactions found to import",
+        accountDateMap: accountDateMap,
+        dateRange: { start: earliestStartDate, end: endDate }
+      });
+    }
+
+    // Insert all transactions
     const { data, error } = await supabase
       .from("imported_transactions")
-      .insert(transactionsToStore)
+      .insert(allTransactionsToStore)
       .select();
 
     if (error) {
@@ -117,6 +166,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ 
       success: true, 
       count: data?.length,
+      startingBalanceCount: startingBalanceTransactions.length,
+      regularTransactionCount: transactionsToStore.length,
       accountDateMap: accountDateMap,
       dateRange: { start: earliestStartDate, end: endDate }
     });
