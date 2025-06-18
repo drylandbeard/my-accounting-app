@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { usePlaidLink } from 'react-plaid-link'
 import { supabase } from '../../lib/supabase'
 import dynamic from 'next/dynamic'
@@ -9,6 +9,7 @@ import Papa from 'papaparse'
 import { v4 as uuidv4 } from 'uuid'
 import { XMarkIcon } from '@heroicons/react/24/outline'
 import { useApiWithCompany } from '@/hooks/useApiWithCompany'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
 type Transaction = {
   id: string
@@ -47,6 +48,10 @@ type Account = {
   last_synced: string | null
   is_manual?: boolean
   plaid_account_name?: string // Add missing property
+  institution_name?: string
+  type?: string
+  created_at?: string
+  subtype?: string
 }
 
 type ImportModalState = {
@@ -294,7 +299,7 @@ export default function Page() {
     return `${month}-${day}-${year} ${time}`
   }
 
-  const formatLastSyncTime = (lastSynced: string | null) => {
+  const formatLastSyncTime = (lastSynced: string | null | undefined) => {
     if (!lastSynced) return 'Never';
     const date = new Date(lastSynced);
     const month = (date.getMonth() + 1).toString().padStart(2, '0')
@@ -306,6 +311,26 @@ export default function Page() {
     });
     return `${month}-${day}-${year} ${time}`
   };
+
+  const formatCreatedAt = (createdAt: string | null | undefined) => {
+    if (!createdAt) return 'Unknown';
+    const date = new Date(createdAt);
+    const month = (date.getMonth() + 1).toString().padStart(2, '0')
+    const day = date.getDate().toString().padStart(2, '0')
+    const year = date.getFullYear()
+    return `${month}-${day}-${year}`
+  };
+
+  const getTooltipContent = (acc: Account) => (
+    <div className="text-left">
+      <div className="font-semibold mb-1">{acc.name}</div>
+      <div className="space-y-1">
+        <div><span className="text-gray-300">Institution:</span> {acc.institution_name || 'Manual Account'}</div>
+        <div><span className="text-gray-300">Last Synced:</span> {formatLastSyncTime(acc.last_synced)}</div>
+        <div><span className="text-gray-300">Created:</span> {formatCreatedAt(acc.created_at)}</div>
+      </div>
+    </div>
+  );
 
   // Add sync function
   const syncTransactions = async () => {
@@ -1892,20 +1917,25 @@ export default function Page() {
       </div>
 
       {/* Mini-nav for accounts */}
-      <div className="space-x-2 mb-4 flex flex-row">
-        {accounts.map(acc => (
-          <button
-            key={acc.plaid_account_id}
-            onClick={() => setSelectedAccountId(acc.plaid_account_id)}
-            className={`border px-3 py-1 rounded text-xs flex flex-col items-center ${acc.plaid_account_id === selectedAccountId ? 'bg-gray-200 font-semibold' : 'bg-gray-100 hover:bg-gray-200'}`}
-          >
-            <span>{acc.name}</span>
-            <span className="text-xs text-gray-500 font-normal">
-              Last Updated: {formatLastSyncTime(acc.last_synced)}
-            </span>
-          </button>
-        ))}
-      </div>
+      <TooltipProvider>
+        <div className="space-x-2 mb-4 flex flex-row">
+          {accounts.map(acc => (
+            <Tooltip key={acc.plaid_account_id}>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => setSelectedAccountId(acc.plaid_account_id)}
+                  className={`border px-3 py-1 rounded text-xs flex flex-col items-center ${acc.plaid_account_id === selectedAccountId ? 'bg-gray-200 font-semibold' : 'bg-gray-100 hover:bg-gray-200'}`}
+                >
+                  <span>{acc.name}</span>
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="bg-gray-900 text-white text-xs">
+                {getTooltipContent(acc)}
+              </TooltipContent>
+            </Tooltip>
+          ))}
+        </div>
+      </TooltipProvider>
 
       {/* Import Modal */}
       {importModal.isOpen && (
@@ -3219,6 +3249,15 @@ export default function Page() {
               </span>
             )}
           </button>
+          {(() => {
+          const selected = accounts.find(a => a.plaid_account_id === selectedAccountId);
+          if (!selected || selected.is_manual) return null;
+          return (
+            <span className="ml-4 text-gray-500 text-xs font-normal my-auto">
+              (Current Balance: ${currentBalance.toFixed(2)})
+            </span>
+          );
+        })()}
         </nav>
       </div>
 
@@ -3226,18 +3265,6 @@ export default function Page() {
       <div className="mt-6">
         {activeTab === 'toAdd' && (
           <div className="space-y-2">
-            <h2 className="font-semibold text-base mb-1 flex items-center">
-              To Add
-              {(() => {
-                const selected = accounts.find(a => a.plaid_account_id === selectedAccountId);
-                if (!selected || selected.is_manual) return null;
-                return (
-                  <span className="ml-4 text-gray-500 text-sm font-normal">
-                    (Current Balance: ${currentBalance.toFixed(2)})
-                  </span>
-                );
-              })()}
-            </h2>
             <input
               type="text"
               placeholder="Search transactions..."
@@ -3509,9 +3536,6 @@ export default function Page() {
 
         {activeTab === 'added' && (
           <div className="space-y-2">
-            <h2 className="font-semibold text-base mb-1 flex items-center">
-              Added
-            </h2>
             <input
               type="text"
               placeholder="Search transactions..."
