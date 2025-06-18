@@ -1351,31 +1351,56 @@ export default function Page() {
   const handleEditTransaction = async (updatedTransaction: Transaction) => {
     if (!editModal.transaction) return;
 
-    // Find the category based on the selected category ID
-    const category = categories.find(c => c.id === updatedTransaction.selected_category_id);
-    if (!category) return;
+    try {
+      // Find the category based on the selected category ID
+      const category = categories.find(c => c.id === updatedTransaction.selected_category_id);
+      if (!category) {
+        setNotification({ type: 'error', message: 'Selected category not found' });
+        return;
+      }
 
-    // Find the selected account in chart_of_accounts
-    const selectedAccount = categories.find(c => c.plaid_account_id === selectedAccountId);
-    if (!selectedAccount) return;
+      // Find the selected account in chart_of_accounts
+      const selectedAccount = categories.find(c => c.plaid_account_id === selectedAccountId);
+      if (!selectedAccount) {
+        setNotification({ type: 'error', message: 'Account not found in chart of accounts' });
+        return;
+      }
 
-    const selectedAccountIdInCOA = selectedAccount.id;
+      const selectedAccountIdInCOA = selectedAccount.id;
 
-    await supabase
-      .from('transactions')
-      .update({
+      // Call the update transaction API
+      const response = await postWithCompany('/api/update-transaction', {
+        transactionId: editModal.transaction.id,
         date: updatedTransaction.date,
         description: updatedTransaction.description,
         spent: updatedTransaction.spent ?? 0,
         received: updatedTransaction.received ?? 0,
-        selected_category_id: updatedTransaction.selected_category_id,
-        corresponding_category_id: selectedAccountIdInCOA
-      })
-      .eq('id', editModal.transaction.id);
+        selectedCategoryId: updatedTransaction.selected_category_id,
+        correspondingCategoryId: selectedAccountIdInCOA,
+        payeeId: updatedTransaction.payee_id || null,
+        companyId: currentCompany?.id
+      });
 
-    await postWithCompany('/api/sync-journal', {});
-    setEditModal({ isOpen: false, transaction: null });
-    refreshAll();
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to update transaction');
+      }
+
+      // Sync journal after successful update
+      await postWithCompany('/api/sync-journal', {});
+      
+      setEditModal({ isOpen: false, transaction: null });
+      setNotification({ type: 'success', message: 'Transaction updated successfully' });
+      refreshAll();
+
+    } catch (error) {
+      console.error('Error updating transaction:', error);
+      setNotification({ 
+        type: 'error', 
+        message: error instanceof Error ? error.message : 'Failed to update transaction' 
+      });
+    }
   };
 
   // Add handler for updating account name
@@ -1413,8 +1438,18 @@ export default function Page() {
 
     // After creating the category, set it as selected for the current transaction or all selected transactions
     if (newCategoryModal.transactionId) {
+      // Check if this is for the edit modal
+      if (editModal.isOpen && editModal.transaction?.id === newCategoryModal.transactionId) {
+        setEditModal(prev => ({
+          ...prev,
+          transaction: prev.transaction ? {
+            ...prev.transaction,
+            selected_category_id: data.id
+          } : null
+        }));
+      }
       // Check if the transaction is part of a selection and apply to all selected
-      if (selectedToAdd.has(newCategoryModal.transactionId) && selectedToAdd.size > 1) {
+      else if (selectedToAdd.has(newCategoryModal.transactionId) && selectedToAdd.size > 1) {
         const updates: { [key: string]: string } = {};
         selectedToAdd.forEach(selectedId => {
           updates[selectedId] = data.id;
@@ -1455,8 +1490,18 @@ export default function Page() {
 
     // After creating the payee, set it as selected for the current transaction or all selected transactions
     if (newPayeeModal.transactionId) {
+      // Check if this is for the edit modal
+      if (editModal.isOpen && editModal.transaction?.id === newPayeeModal.transactionId) {
+        setEditModal(prev => ({
+          ...prev,
+          transaction: prev.transaction ? {
+            ...prev.transaction,
+            payee_id: data.id
+          } : null
+        }));
+      }
       // Check if the transaction is part of a selection and apply to all selected
-      if (selectedToAdd.has(newPayeeModal.transactionId) && selectedToAdd.size > 1) {
+      else if (selectedToAdd.has(newPayeeModal.transactionId) && selectedToAdd.size > 1) {
         const updates: { [key: string]: string } = {};
         selectedToAdd.forEach(selectedId => {
           updates[selectedId] = data.id;
@@ -2408,6 +2453,36 @@ export default function Page() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Payee
+                </label>
+                <Select
+                  options={payeeOptions}
+                  value={payeeOptions.find(opt => opt.value === editModal.transaction?.payee_id) || payeeOptions[0]}
+                  onChange={(selectedOption) => {
+                    const option = selectedOption as SelectOption | null;
+                    if (option?.value === 'add_new') {
+                      setNewPayeeModal({ 
+                        isOpen: true, 
+                        name: '', 
+                        transactionId: editModal.transaction?.id || null
+                      });
+                    } else if (editModal.transaction) {
+                      setEditModal(prev => ({
+                        ...prev,
+                        transaction: prev.transaction ? {
+                          ...prev.transaction,
+                          payee_id: option?.value || undefined
+                        } : null
+                      }));
+                    }
+                  }}
+                  isSearchable
+                  styles={{ control: (base) => ({ ...base, minHeight: '20px', fontSize: '0.875rem' }) }}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   Category
                 </label>
                 <Select
@@ -2419,7 +2494,17 @@ export default function Page() {
                   })}
                   onChange={(selectedOption) => {
                     const option = selectedOption as SelectOption | null;
-                    if (option && editModal.transaction) {
+                    if (option?.value === 'add_new') {
+                      // Determine default category type based on transaction
+                      const defaultType = editModal.transaction?.received && editModal.transaction.received > 0 ? 'Revenue' : 'Expense';
+                      setNewCategoryModal({ 
+                        isOpen: true, 
+                        name: '', 
+                        type: defaultType, 
+                        parent_id: null, 
+                        transactionId: editModal.transaction?.id || null
+                      });
+                    } else if (option && editModal.transaction) {
                       const updatedTransaction = { ...editModal.transaction };
                       const isAccountDebit = updatedTransaction.selected_category_id === selectedAccountIdInCOA;
                       if (isAccountDebit) {
