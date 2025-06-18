@@ -11,6 +11,7 @@ import { createCategoryHandler, createCategoryHelper } from '../ai/functions/cre
 import { renameCategoryHandler, renameCategoryHelper } from '../ai/functions/renameCategory';
 import { assignParentCategoryHandler } from '../ai/functions/assignParentCategory';
 import { deleteCategoryHandler } from '../ai/functions/deleteCategory';
+import { changeCategoryTypeHandler } from '../ai/functions/changeCategoryType';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -104,7 +105,19 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
   }, [isResizing]);
 
   // Function to execute confirmed actions
-  async function executeAction(action: { action: string; date?: string; amount?: number; description?: string; categoryName?: string; parentCategoryName?: string }): Promise<string> {
+  async function executeAction(action: { 
+    action: string; 
+    date?: string; 
+    amount?: number; 
+    description?: string; 
+    categoryName?: string; 
+    parentCategoryName?: string;
+    name?: string;
+    type?: string;
+    oldName?: string;
+    newName?: string;
+    newType?: string;
+  }): Promise<string> {
     if (action.action === 'categorize') {
       // Find the transaction and category by human-friendly fields
       const { date, amount, description, categoryName } = action;
@@ -145,6 +158,68 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
         setTimeout(() => window.location.reload(), 1000);
       }
       return `Transaction "${tx.description}" categorized as "${category.name}".`;
+    }
+    
+    if (action.action === 'create_category') {
+      const result = await createCategoryHandler({
+        name: action.name!,
+        type: action.type!,
+        companyId: currentCompany?.id
+      });
+      
+      if (result.success) {
+        await refreshCategories();
+        return `Successfully created category '${action.name}' with type '${action.type}'.`;
+      } else {
+        return `Error creating category: ${result.error}`;
+      }
+    }
+    
+    if (action.action === 'rename_category') {
+      const result = await renameCategoryHandler({
+        oldName: action.oldName!,
+        newName: action.newName!,
+        companyId: currentCompany?.id,
+        categories
+      });
+      
+      if (result.success) {
+        await refreshCategories();
+        return `Successfully renamed category '${action.oldName}' to '${action.newName}'.`;
+      } else {
+        return `Error renaming category: ${result.error}`;
+      }
+    }
+    
+    if (action.action === 'delete_category') {
+      const result = await deleteCategoryHandler({
+        name: action.name!,
+        companyId: currentCompany?.id,
+        categories
+      });
+      
+      if (result.success) {
+        await refreshCategories();
+        return `Successfully deleted category '${action.name}'.`;
+      } else {
+        return `Error deleting category: ${result.error}`;
+      }
+    }
+    
+    if (action.action === 'change_category_type') {
+      const result = await changeCategoryTypeHandler({
+        categoryName: action.categoryName!,
+        newType: action.newType!,
+        companyId: currentCompany?.id,
+        categories
+      });
+      
+      if (result.success) {
+        await refreshCategories();
+        return `Successfully changed category '${action.categoryName}' type to '${action.newType}'.`;
+      } else {
+        return `Error changing category type: ${result.error}`;
+      }
     }
     
     if (action.action === 'assign_parent_category') {
@@ -248,7 +323,70 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
         const functionName = toolCall.function?.name;
         const args = JSON.parse(toolCall.function?.arguments || '{}');
 
-        if (functionName === 'assign_parent_category') {
+        if (functionName === 'create_category') {
+          // Show confirmation for create_category
+          setMessages((prev) => [
+            ...prev.slice(0, -1), // remove 'Thinking...'
+            { 
+              role: 'assistant', 
+              content: `I will create a new category named "${args.name}" with type "${args.type}". Press Confirm to proceed.`,
+              showConfirmation: true,
+              pendingAction: {
+                action: 'create_category',
+                name: args.name,
+                type: args.type
+              }
+            },
+          ]);
+          return;
+        } else if (functionName === 'rename_category') {
+          // Show confirmation for rename_category
+          setMessages((prev) => [
+            ...prev.slice(0, -1), // remove 'Thinking...'
+            { 
+              role: 'assistant', 
+              content: `I will rename the category "${args.oldName}" to "${args.newName}". Press Confirm to proceed.`,
+              showConfirmation: true,
+              pendingAction: {
+                action: 'rename_category',
+                oldName: args.oldName,
+                newName: args.newName
+              }
+            },
+          ]);
+          return;
+        } else if (functionName === 'delete_category') {
+          // Show confirmation for delete_category
+          setMessages((prev) => [
+            ...prev.slice(0, -1), // remove 'Thinking...'
+            { 
+              role: 'assistant', 
+              content: `I will delete the category "${args.name}". Press Confirm to proceed.`,
+              showConfirmation: true,
+              pendingAction: {
+                action: 'delete_category',
+                name: args.name
+              }
+            },
+          ]);
+          return;
+        } else if (functionName === 'change_category_type') {
+          // Show confirmation for change_category_type
+          setMessages((prev) => [
+            ...prev.slice(0, -1), // remove 'Thinking...'
+            { 
+              role: 'assistant', 
+              content: `I will change the type of category "${args.categoryName}" to "${args.newType}". Press Confirm to proceed.`,
+              showConfirmation: true,
+              pendingAction: {
+                action: 'change_category_type',
+                categoryName: args.categoryName,
+                newType: args.newType
+              }
+            },
+          ]);
+          return;
+        } else if (functionName === 'assign_parent_category') {
           // Show confirmation for assign_parent_category
           setMessages((prev) => [
             ...prev.slice(0, -1), // remove 'Thinking...'
@@ -388,6 +526,20 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
           { role: 'assistant', content: `Error deleting category: ${result.error}` }
         ]);
       }
+    } else if (pendingToolArgs.type === 'change_category_type') {
+      result = await changeCategoryTypeHandler({ ...pendingToolArgs.args, companyId: currentCompany?.id, categories });
+      if (result.success) {
+        setMessages(prev => [
+          ...prev,
+          { role: 'assistant', content: `Category "${pendingToolArgs.args.categoryName}" type has been changed to "${pendingToolArgs.args.newType}". Would you like to make any other changes to your categories?` }
+        ]);
+        await refreshCategories();
+      } else {
+        setMessages(prev => [
+          ...prev,
+          { role: 'assistant', content: `Error changing category type: ${result.error}` }
+        ]);
+      }
     }
     // Remove the first tool from the queue and set up the next one
     const newQueue = pendingToolQueue.slice(1);
@@ -417,6 +569,12 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
         setMessages((prev) => [
           ...prev,
           { role: 'assistant', content: `To confirm, I will delete the category "${JSON.parse(nextTool.function.arguments).name}". Please press confirm.` }
+        ]);
+      } else if (nextTool.function?.name === 'change_category_type') {
+        setPendingToolArgs({ type: 'change_category_type', args: JSON.parse(nextTool.function.arguments) });
+        setMessages((prev) => [
+          ...prev,
+          { role: 'assistant', content: `To confirm, I will change the type of category "${JSON.parse(nextTool.function.arguments).categoryName}" to "${JSON.parse(nextTool.function.arguments).newType}". Please press confirm.` }
         ]);
       }
     } else {
