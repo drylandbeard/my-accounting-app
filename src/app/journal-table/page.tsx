@@ -33,6 +33,11 @@ type JournalEntry = {
   [key: string]: unknown; // Allow dynamic property access for additional columns
 };
 
+type SortConfig = {
+  key: 'date' | 'description' | 'payee' | 'debit' | 'credit' | 'category' | null;
+  direction: 'asc' | 'desc';
+};
+
 export default function JournalTablePage() {
   const { hasCompanyContext, currentCompany } = useApiWithCompany();
   const [entries, setEntries] = useState<JournalEntry[]>([]);
@@ -40,6 +45,7 @@ export default function JournalTablePage() {
   const [payees, setPayees] = useState<Payee[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [sortConfig, setSortConfig] = useState<SortConfig>({ key: null, direction: 'asc' });
 
   useEffect(() => {
     fetchJournalEntries();
@@ -91,6 +97,19 @@ export default function JournalTablePage() {
     if (!error) setPayees(data || []);
   };
 
+  const formatDate = (dateString: string) => {
+    // Parse the date string and create a UTC date
+    const [year, month, day] = dateString.split('-').map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    const formattedMonth = (date.getUTCMonth() + 1).toString().padStart(2, '0');
+    const formattedDay = date.getUTCDate().toString().padStart(2, '0');
+    return `${formattedMonth}-${formattedDay}-${date.getUTCFullYear()}`;
+  };
+
+  const formatAmount = (amount: number) => {
+    return amount ? `$${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '';
+  };
+
   function getAccountName(id: string) {
     const account = accounts.find(a => a.id === id);
     return account ? account.name : id;
@@ -102,14 +121,75 @@ export default function JournalTablePage() {
     return payee ? payee.name : '';
   }
 
+  const sortEntries = (entries: JournalEntry[], sortConfig: SortConfig) => {
+    if (!sortConfig.key) return entries;
+
+    return [...entries].sort((a, b) => {
+      if (sortConfig.key === 'date') {
+        return sortConfig.direction === 'asc' 
+          ? new Date(a.date).getTime() - new Date(b.date).getTime()
+          : new Date(b.date).getTime() - new Date(a.date).getTime();
+      }
+      if (sortConfig.key === 'description') {
+        return sortConfig.direction === 'asc'
+          ? a.description.localeCompare(b.description)
+          : b.description.localeCompare(a.description);
+      }
+      if (sortConfig.key === 'payee') {
+        const aPayee = getPayeeName(a.transactions?.payee_id || '');
+        const bPayee = getPayeeName(b.transactions?.payee_id || '');
+        return sortConfig.direction === 'asc'
+          ? aPayee.localeCompare(bPayee)
+          : bPayee.localeCompare(aPayee);
+      }
+      if (sortConfig.key === 'debit') {
+        const aDebit = a.debit ?? 0;
+        const bDebit = b.debit ?? 0;
+        return sortConfig.direction === 'asc'
+          ? aDebit - bDebit
+          : bDebit - aDebit;
+      }
+      if (sortConfig.key === 'credit') {
+        const aCredit = a.credit ?? 0;
+        const bCredit = b.credit ?? 0;
+        return sortConfig.direction === 'asc'
+          ? aCredit - bCredit
+          : bCredit - aCredit;
+      }
+      if (sortConfig.key === 'category') {
+        const aCategory = getAccountName(a.chart_account_id);
+        const bCategory = getAccountName(b.chart_account_id);
+        return sortConfig.direction === 'asc'
+          ? aCategory.localeCompare(bCategory)
+          : bCategory.localeCompare(aCategory);
+      }
+      return 0;
+    });
+  };
+
+  const handleSort = (key: 'date' | 'description' | 'payee' | 'debit' | 'credit' | 'category') => {
+    setSortConfig(current => ({
+      key,
+      direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc'
+    }));
+  };
+
+  const formatColumnLabel = (columnName: string) => {
+    // Convert snake_case to proper Title Case
+    return columnName
+      .split('_')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join(' ');
+  };
+
   // Define specific column order for the journal table
   const orderedColumns = [
-    { key: 'id', label: 'ID' },
-    { key: 'date', label: 'Date' },
-    { key: 'description', label: 'Description' },
-    { key: 'payee', label: 'Payee', isCustom: true },
-    { key: 'debit', label: 'Debit' },
-    { key: 'credit', label: 'Credit' }
+    { key: 'id', label: formatColumnLabel('id'), sortable: false },
+    { key: 'date', label: 'Date', sortable: true },
+    { key: 'description', label: 'Description', sortable: true },
+    { key: 'payee', label: 'Payee', isCustom: true, sortable: true },
+    { key: 'debit', label: 'Debit', sortable: true },
+    { key: 'credit', label: 'Credit', sortable: true }
   ];
 
   // Get all available columns from entries to include any additional fields
@@ -125,9 +205,12 @@ export default function JournalTablePage() {
     ...orderedColumns,
     ...availableColumns
       .filter(col => !orderedColumns.some(ordCol => ordCol.key === col))
-      .map(col => ({ key: col, label: col.toUpperCase() })),
-    { key: 'category', label: 'Category Name', isCustom: true }
+      .map(col => ({ key: col, label: formatColumnLabel(col), sortable: false })),
+    { key: 'category', label: 'Category Name', isCustom: true, sortable: true }
   ];
+
+  // Sort the entries based on current sort configuration
+  const sortedEntries = sortEntries(entries, sortConfig);
 
   // Check if user has company context
   if (!hasCompanyContext) {
@@ -153,22 +236,39 @@ export default function JournalTablePage() {
         <div>No journal entries found.</div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="min-w-full text-xs border">
-            <thead>
+          <table className="w-full border-collapse border border-gray-300">
+            <thead className="bg-gray-100">
               <tr>
                 {finalColumns.map((col) => (
-                  <th key={col.key} className="border px-2 py-1 text-left uppercase tracking-wider">
+                  <th 
+                    key={col.key} 
+                    className={`border p-1 text-center text-xs font-medium tracking-wider ${
+                      col.sortable ? 'cursor-pointer hover:bg-gray-200' : ''
+                    }`}
+                    onClick={col.sortable ? () => handleSort(col.key as 'date' | 'description' | 'payee' | 'debit' | 'credit' | 'category') : undefined}
+                  >
                     {col.label}
+                    {col.sortable && sortConfig.key === col.key && (
+                      <span className="ml-1">
+                        {sortConfig.direction === 'asc' ? '↑' : '↓'}
+                      </span>
+                    )}
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {entries.map((entry) => (
+              {sortedEntries.map((entry) => (
                 <tr key={String(entry.id)}>
                   {finalColumns.map((col) => (
-                    <td key={col.key} className="border px-2 py-1">
-                      {col.key === 'payee' ? (
+                    <td key={col.key} className="border p-1 text-center text-xs">
+                      {col.key === 'date' ? (
+                        formatDate(entry.date)
+                      ) : col.key === 'debit' ? (
+                        formatAmount(entry.debit)
+                      ) : col.key === 'credit' ? (
+                        formatAmount(entry.credit)
+                      ) : col.key === 'payee' ? (
                         getPayeeName(entry.transactions?.payee_id || '')
                       ) : col.key === 'category' ? (
                         getAccountName(entry.chart_account_id)
