@@ -1,6 +1,6 @@
 import bcrypt from "bcryptjs";
 import { supabase } from "./supabase";
-import { sendVerificationEmail, generateVerificationToken, createVerificationUrl } from "./email";
+import { sendVerificationCodeEmail, generateVerificationCode } from "./email";
 import { getEmailService } from "./email/service";
 
 /**
@@ -326,7 +326,7 @@ export async function completeInvitationSignup(token: string, password: string) 
 }
 
 /**
- * Sign up a new user with email and password
+ * Sign up a new user with email verification code
  */
 export async function signUp(email: string, password: string) {
   try {
@@ -360,31 +360,30 @@ export async function signUp(email: string, password: string) {
       return { error: error.message };
     }
 
-    // Generate verification token
-    const token = generateVerificationToken();
+    // Generate verification code (6 digits)
+    const code = generateVerificationCode();
     const expiresAt = new Date();
-    expiresAt.setHours(expiresAt.getHours() + 24); // Expire in 24 hours
+    expiresAt.setMinutes(expiresAt.getMinutes() + 10); // Expire in 10 minutes
 
-    // Store verification token
+    // Store verification code
     const { error: tokenError } = await supabase
       .from("email_verification_tokens")
       .insert({
         user_id: user.id,
-        token,
+        token: code, // Store the 6-digit code as token
         expires_at: expiresAt.toISOString()
       });
 
     if (tokenError) {
       // Clean up user if token creation fails
       await supabase.from("users").delete().eq("id", user.id);
-      return { error: "Failed to create verification token" };
+      return { error: "Failed to create verification code" };
     }
 
-    // Send verification email
-    const verificationUrl = createVerificationUrl(token);
-    const emailResult = await sendVerificationEmail({
+    // Send verification code email
+    const emailResult = await sendVerificationCodeEmail({
       email: user.email,
-      verificationUrl
+      verificationCode: code
     });
 
     if (!emailResult.success) {
@@ -717,7 +716,7 @@ export async function verifyEmail(token: string) {
 }
 
 /**
- * Resend verification email
+ * Resend verification code email
  */
 export async function resendVerificationEmail(email: string) {
   try {
@@ -744,29 +743,28 @@ export async function resendVerificationEmail(email: string) {
       .eq("user_id", user.id)
       .is("used_at", null);
 
-    // Generate new verification token
-    const token = generateVerificationToken();
+    // Generate new verification code (6 digits)
+    const code = generateVerificationCode();
     const expiresAt = new Date();
-    expiresAt.setHours(expiresAt.getHours() + 24); // Expire in 24 hours
+    expiresAt.setMinutes(expiresAt.getMinutes() + 10); // Expire in 10 minutes
 
-    // Store new verification token
+    // Store new verification code
     const { error: tokenError } = await supabase
       .from("email_verification_tokens")
       .insert({
         user_id: user.id,
-        token,
+        token: code, // Store the 6-digit code as token
         expires_at: expiresAt.toISOString()
       });
 
     if (tokenError) {
-      return { error: "Failed to create verification token" };
+      return { error: "Failed to create verification code" };
     }
 
-    // Send verification email
-    const verificationUrl = createVerificationUrl(token);
-    const emailResult = await sendVerificationEmail({
+    // Send verification code email
+    const emailResult = await sendVerificationCodeEmail({
       email: user.email,
-      verificationUrl
+      verificationCode: code
     });
 
     if (!emailResult.success) {
