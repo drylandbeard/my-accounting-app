@@ -415,23 +415,50 @@ export default function ChartOfAccountsPage() {
 
         // Get current values directly from the DOM to ensure we have the latest values
         const getCurrentValues = () => {
-            if (!categoriesTableRef.current)
-                return { editName, editType, editParentId };
+            if (!categoriesTableRef.current) {
+                console.log("No table ref, using state values");
+                return {
+                    name: editName,
+                    type: editType,
+                    parent_id: editParentId,
+                };
+            }
 
-            const nameInput = categoriesTableRef.current.querySelector(
+            // Find the currently editing row by looking for input elements
+            const editingRow = categoriesTableRef.current
+                .querySelector('tr input[type="text"]')
+                ?.closest("tr");
+            if (!editingRow) {
+                console.log("No editing row found, using state values");
+                return {
+                    name: editName,
+                    type: editType,
+                    parent_id: editParentId,
+                };
+            }
+
+            const nameInput = editingRow.querySelector(
                 'input[type="text"]'
             ) as HTMLInputElement;
-            const typeSelect = categoriesTableRef.current.querySelector(
-                "select"
-            ) as HTMLSelectElement;
-            const parentSelects = categoriesTableRef.current.querySelectorAll(
+            const selects = editingRow.querySelectorAll(
                 "select"
             ) as NodeListOf<HTMLSelectElement>;
-            const parentSelect = parentSelects[1]; // Second select is parent category
+            const typeSelect = selects[0]; // First select is type
+            const parentSelect = selects[1]; // Second select is parent
 
             const name = nameInput?.value || editName;
             const type = typeSelect?.value || editType;
-            let parent_id = parentSelect?.value || editParentId || null;
+            let parent_id: string | null = parentSelect?.value || null;
+
+            // Convert empty string to null (for "No Parent" selection)
+            if (
+                parent_id === "" ||
+                parent_id === undefined ||
+                parent_id === "null"
+            ) {
+                console.log("Converting empty/undefined parent_id to null");
+                parent_id = null;
+            }
 
             // Validate parent type matches category type - if not, clear parent
             if (parent_id) {
@@ -449,17 +476,11 @@ export default function ChartOfAccountsPage() {
             return {
                 name,
                 type,
-                parent_id: parent_id === "" ? null : parent_id,
+                parent_id: parent_id as string | null,
             };
         };
 
         const currentValues = getCurrentValues();
-
-        console.log("Saving changes:", {
-            currentValues,
-            editingId,
-            currentCompany,
-        });
 
         try {
             // First get the current chart_of_accounts record to check if it has a plaid_account_id
@@ -903,9 +924,12 @@ export default function ChartOfAccountsPage() {
                             {editingId === parent.id ? (
                                 <select
                                     value={editParentId || ""}
-                                    onChange={(e) =>
-                                        setEditParentId(e.target.value || null)
-                                    }
+                                    onChange={(e) => {
+                                        const value = e.target.value;
+                                        setEditParentId(
+                                            value === "" ? null : value
+                                        );
+                                    }}
                                     className="w-full border-none outline-none bg-transparent text-xs"
                                     onKeyDown={(e) =>
                                         e.key === "Enter" && handleUpdate()
@@ -999,11 +1023,12 @@ export default function ChartOfAccountsPage() {
                                 {editingId === subAcc.id ? (
                                     <select
                                         value={editParentId || ""}
-                                        onChange={(e) =>
+                                        onChange={(e) => {
+                                            const value = e.target.value;
                                             setEditParentId(
-                                                e.target.value || null
-                                            )
-                                        }
+                                                value === "" ? null : value
+                                            );
+                                        }}
                                         className="w-full border-none outline-none bg-transparent text-xs"
                                         onKeyDown={(e) =>
                                             e.key === "Enter" && handleUpdate()
