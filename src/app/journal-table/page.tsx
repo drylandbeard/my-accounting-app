@@ -46,6 +46,7 @@ export default function JournalTablePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sortConfig, setSortConfig] = useState<SortConfig>({ key: null, direction: 'asc' });
+  const [searchTerm, setSearchTerm] = useState<string>('');
 
   useEffect(() => {
     fetchJournalEntries();
@@ -209,8 +210,42 @@ export default function JournalTablePage() {
     { key: 'category', label: 'Category Name', isCustom: true, sortable: true }
   ];
 
-  // Sort the entries based on current sort configuration
-  const sortedEntries = sortEntries(entries, sortConfig);
+  const filterEntries = (entries: JournalEntry[], searchTerm: string) => {
+    if (!searchTerm.trim()) return entries;
+    
+    const lowercaseSearch = searchTerm.toLowerCase();
+    
+    return entries.filter(entry => {
+      // Search in date (formatted)
+      const formattedDate = formatDate(entry.date);
+      if (formattedDate.toLowerCase().includes(lowercaseSearch)) return true;
+      
+      // Search in description
+      if (entry.description.toLowerCase().includes(lowercaseSearch)) return true;
+      
+      // Search in payee name
+      const payeeName = getPayeeName(entry.transactions?.payee_id || '');
+      if (payeeName.toLowerCase().includes(lowercaseSearch)) return true;
+      
+      // Search in debit amount (formatted)
+      const debitAmount = formatAmount(entry.debit);
+      if (debitAmount.toLowerCase().includes(lowercaseSearch)) return true;
+      
+      // Search in credit amount (formatted)
+      const creditAmount = formatAmount(entry.credit);
+      if (creditAmount.toLowerCase().includes(lowercaseSearch)) return true;
+      
+      // Search in category name
+      const categoryName = getAccountName(entry.chart_account_id);
+      if (categoryName.toLowerCase().includes(lowercaseSearch)) return true;
+      
+      return false;
+    });
+  };
+
+  // Filter entries based on search term, then sort
+  const filteredEntries = filterEntries(entries, searchTerm);
+  const sortedAndFilteredEntries = sortEntries(filteredEntries, sortConfig);
 
   // Check if user has company context
   if (!hasCompanyContext) {
@@ -235,52 +270,62 @@ export default function JournalTablePage() {
       ) : !entries.length ? (
         <div>No journal entries found.</div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse border border-gray-300">
-            <thead className="bg-gray-100">
-              <tr>
-                {finalColumns.map((col) => (
-                  <th 
-                    key={col.key} 
-                    className={`border p-1 text-center text-xs font-medium tracking-wider ${
-                      col.sortable ? 'cursor-pointer hover:bg-gray-200' : ''
-                    }`}
-                    onClick={col.sortable ? () => handleSort(col.key as 'date' | 'description' | 'payee' | 'debit' | 'credit' | 'category') : undefined}
-                  >
-                    {col.label}
-                    {col.sortable && sortConfig.key === col.key && (
-                      <span className="ml-1">
-                        {sortConfig.direction === 'asc' ? '↑' : '↓'}
-                      </span>
-                    )}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {sortedEntries.map((entry) => (
-                <tr key={String(entry.id)}>
+        <div className="space-y-4">
+          <input
+            type="text"
+            placeholder="Search journal entries..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="border px-2 py-1 w-full text-xs mb-2"
+          />
+
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse border border-gray-300">
+              <thead className="bg-gray-100">
+                <tr>
                   {finalColumns.map((col) => (
-                    <td key={col.key} className="border p-1 text-center text-xs">
-                      {col.key === 'date' ? (
-                        formatDate(entry.date)
-                      ) : col.key === 'debit' ? (
-                        formatAmount(entry.debit)
-                      ) : col.key === 'credit' ? (
-                        formatAmount(entry.credit)
-                      ) : col.key === 'payee' ? (
-                        getPayeeName(entry.transactions?.payee_id || '')
-                      ) : col.key === 'category' ? (
-                        getAccountName(entry.chart_account_id)
-                      ) : (
-                        String(entry[col.key] ?? '')
+                    <th 
+                      key={col.key} 
+                      className={`border p-1 text-center text-xs font-medium tracking-wider ${
+                        col.sortable ? 'cursor-pointer hover:bg-gray-200' : ''
+                      }`}
+                      onClick={col.sortable ? () => handleSort(col.key as 'date' | 'description' | 'payee' | 'debit' | 'credit' | 'category') : undefined}
+                    >
+                      {col.label}
+                      {col.sortable && sortConfig.key === col.key && (
+                        <span className="ml-1">
+                          {sortConfig.direction === 'asc' ? '↑' : '↓'}
+                        </span>
                       )}
-                    </td>
+                    </th>
                   ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {sortedAndFilteredEntries.map((entry) => (
+                  <tr key={String(entry.id)}>
+                    {finalColumns.map((col) => (
+                      <td key={col.key} className="border p-1 text-center text-xs">
+                        {col.key === 'date' ? (
+                          formatDate(entry.date)
+                        ) : col.key === 'debit' ? (
+                          formatAmount(entry.debit)
+                        ) : col.key === 'credit' ? (
+                          formatAmount(entry.credit)
+                        ) : col.key === 'payee' ? (
+                          getPayeeName(entry.transactions?.payee_id || '')
+                        ) : col.key === 'category' ? (
+                          getAccountName(entry.chart_account_id)
+                        ) : (
+                          String(entry[col.key] ?? '')
+                        )}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>
