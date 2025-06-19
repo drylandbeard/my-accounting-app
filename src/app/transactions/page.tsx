@@ -12,6 +12,27 @@ import { useApiWithCompany } from '@/hooks/useApiWithCompany'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Select } from '@/components/ui/select'
 
+// @dnd-kit imports
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import {
+  useSortable,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+
 type Transaction = {
   id: string
   date: string
@@ -53,6 +74,7 @@ type Account = {
   type?: string
   created_at?: string
   subtype?: string
+  display_order?: number // Add display order for sorting
 }
 
 type ImportModalState = {
@@ -91,7 +113,100 @@ type SelectOption = {
   label: string;
 };
 
+// Sortable Account Item Component
+function SortableAccountItem({ account, index, onNameChange, onDelete, deleteConfirmation, onDeleteConfirmationChange, accountToDelete }: {
+  account: { id: string; name: string; order?: number };
+  index: number;
+  onNameChange: (value: string) => void;
+  onDelete: () => void;
+  deleteConfirmation: string;
+  onDeleteConfirmationChange: (value: string) => void;
+  accountToDelete: string | null;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: account.id });
 
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div 
+      ref={setNodeRef}
+      style={style}
+      className={`space-y-2 p-2 border rounded transition-colors ${
+        isDragging ? 'bg-gray-100 shadow-lg' : 'bg-white'
+      }`}
+    >
+      <div className="flex items-center gap-2">
+        <button
+          {...attributes}
+          {...listeners}
+          className="text-gray-400 text-sm cursor-grab active:cursor-grabbing hover:text-gray-600"
+        >
+          ⋮⋮
+        </button>
+        <input
+          type="text"
+          value={account.name}
+          onChange={(e) => onNameChange(e.target.value)}
+          className="flex-1 border px-2 py-1 rounded"
+        />
+        <button
+          onClick={onDelete}
+          className="text-red-600 hover:text-red-800 px-2 py-1"
+        >
+          Delete
+        </button>
+      </div>
+      {accountToDelete === account.id && (
+        <div className="bg-red-50 p-3 rounded border border-red-200">
+          <p className="text-sm text-red-700 mb-2">
+            Warning: This will permanently delete the account and all its transactions.
+            Type &quot;delete&quot; to confirm.
+          </p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={deleteConfirmation}
+              onChange={(e) => onDeleteConfirmationChange(e.target.value)}
+              placeholder="Type 'delete' to confirm"
+              className="flex-1 border px-2 py-1 rounded"
+            />
+            <button
+              onClick={() => {
+                if (deleteConfirmation === 'delete') {
+                  // Call a deletion handler that will be passed from parent
+                  onDelete();
+                }
+              }}
+              disabled={deleteConfirmation !== 'delete'}
+              className="px-3 py-1 bg-red-600 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Confirm Delete
+            </button>
+            <button
+              onClick={() => {
+                onDeleteConfirmationChange('');
+              }}
+              className="px-3 py-1 border rounded"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function Page() {
   const { getWithCompany, postWithCompany, hasCompanyContext, currentCompany } = useApiWithCompany()
@@ -200,7 +315,7 @@ export default function Page() {
   // Add new state for account names modal
   const [accountNamesModal, setAccountNamesModal] = useState<{
     isOpen: boolean;
-    accounts: { id: string; name: string }[];
+    accounts: { id: string; name: string; order?: number }[];
     accountToDelete: string | null;
     deleteConfirmation: string;
   }>({
@@ -812,6 +927,8 @@ export default function Page() {
       .from('accounts')
       .select('*')
       .eq('company_id', currentCompany?.id)
+      .order('display_order', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: true })
     setAccounts(data || [])
     if (data && data.length > 0 && !selectedAccountId) {
       setSelectedAccountId(data[0].plaid_account_id)
@@ -1332,12 +1449,12 @@ export default function Page() {
     })
   }
 
-  const handleDragOver = (e: React.DragEvent) => {
+  const handleCsvDragOver = (e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
   }
 
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+  const handleCsvDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
     const file = e.dataTransfer?.files[0];
@@ -1593,10 +1710,13 @@ export default function Page() {
   const handleUpdateAccountNames = async () => {
     for (const account of accountNamesModal.accounts) {
       if (account.id) {  // Only update if id exists
-        // Update accounts table - update both name and plaid_account_name for consistency
+        // Update accounts table - update both name and display_order
         await supabase
           .from('accounts')
-          .update({ name: account.name })
+          .update({ 
+            name: account.name,
+            display_order: account.order || 0
+          })
           .eq('plaid_account_id', account.id);
         // Update chart_of_accounts table
         await supabase
@@ -1607,6 +1727,37 @@ export default function Page() {
     }
     refreshAll();
     setAccountNamesModal({ isOpen: false, accounts: [], accountToDelete: null, deleteConfirmation: '' });
+  };
+
+  // @dnd-kit sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  // Handle drag end for account reordering
+  const handleAccountDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (active.id !== over?.id && over) {
+      const oldIndex = accountNamesModal.accounts.findIndex(account => account.id === active.id);
+      const newIndex = accountNamesModal.accounts.findIndex(account => account.id === over.id);
+      
+      const reorderedAccounts = arrayMove(accountNamesModal.accounts, oldIndex, newIndex);
+      
+      // Update order values
+      const accountsWithOrder = reorderedAccounts.map((account, index) => ({
+        ...account,
+        order: index
+      }));
+
+      setAccountNamesModal(prev => ({
+        ...prev,
+        accounts: accountsWithOrder
+      }));
+    }
   };
 
   // Add function to handle account deletion
@@ -2016,9 +2167,10 @@ export default function Page() {
               isOpen: true,
               accounts: accounts
                 .filter(acc => acc.plaid_account_id)
-                .map(acc => ({
+                .map((acc, index) => ({
                   id: acc.plaid_account_id || '',
-                  name: acc.plaid_account_name || acc.name || 'Unknown Account'
+                  name: acc.plaid_account_name || acc.name || 'Unknown Account',
+                  order: index
                 })),
               accountToDelete: null,
               deleteConfirmation: ''
@@ -2147,8 +2299,8 @@ export default function Page() {
                       </div>
                       <div 
                         className={`border-2 border-dashed border-gray-300 rounded-lg p-6 text-center transition-colors duration-200 ${!importModal.selectedAccount ? 'opacity-50' : 'hover:border-gray-400'}`}
-                        onDragOver={handleDragOver}
-                        onDrop={handleDrop}
+                        onDragOver={handleCsvDragOver}
+                        onDrop={handleCsvDrop}
                       >
                         <input
                           type="file"
@@ -2820,14 +2972,17 @@ export default function Page() {
       {accountNamesModal.isOpen && (
         <div 
           className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
-          onClick={() => setAccountNamesModal({ isOpen: false, accounts: [], accountToDelete: null, deleteConfirmation: '' })}
+                          onClick={() => setAccountNamesModal({ isOpen: false, accounts: [], accountToDelete: null, deleteConfirmation: '' })}
         >
           <div 
             className="bg-white rounded-lg p-6 w-[400px] overflow-y-auto shadow-xl"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Edit Accounts</h2>
+              <div>
+                <h2 className="text-lg font-semibold">Edit Accounts</h2>
+                <p className="text-sm text-gray-600">Drag accounts to reorder them</p>
+              </div>
               <button
                 onClick={() => setAccountNamesModal({ isOpen: false, accounts: [], accountToDelete: null, deleteConfirmation: '' })}
                 className="text-gray-500 hover:text-gray-700 text-xl"
@@ -2836,73 +2991,50 @@ export default function Page() {
               </button>
             </div>
 
-            <div className="space-y-4">
-              {accountNamesModal.accounts.map((account, index) => (
-                <div key={account.id} className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={account.name}
-                      onChange={(e) => {
+            <DndContext 
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleAccountDragEnd}
+            >
+              <SortableContext 
+                items={accountNamesModal.accounts.map(account => account.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                <div className="space-y-4">
+                  {accountNamesModal.accounts.map((account, index) => (
+                    <SortableAccountItem
+                      key={account.id}
+                      account={account}
+                      index={index}
+                      onNameChange={(value: string) => {
                         const newAccounts = [...accountNamesModal.accounts];
-                        newAccounts[index] = { ...account, name: e.target.value };
+                        newAccounts[index] = { ...account, name: value };
                         setAccountNamesModal(prev => ({
                           ...prev,
                           accounts: newAccounts
                         }));
                       }}
-                      className="flex-1 border px-2 py-1 rounded"
-                    />
-                    <button
-                      onClick={() => setAccountNamesModal(prev => ({
+                      onDelete={() => {
+                        if (accountNamesModal.deleteConfirmation === 'delete' && accountNamesModal.accountToDelete === account.id) {
+                          handleDeleteAccount(account.id);
+                        } else {
+                          setAccountNamesModal(prev => ({
+                            ...prev,
+                            accountToDelete: account.id
+                          }));
+                        }
+                      }}
+                      deleteConfirmation={accountNamesModal.deleteConfirmation}
+                      onDeleteConfirmationChange={(value: string) => setAccountNamesModal(prev => ({
                         ...prev,
-                        accountToDelete: account.id
+                        deleteConfirmation: value
                       }))}
-                      className="text-red-600 hover:text-red-800 px-2 py-1"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                  {accountNamesModal.accountToDelete === account.id && (
-                    <div className="bg-red-50 p-3 rounded border border-red-200">
-                      <p className="text-sm text-red-700 mb-2">
-                        Warning: This will permanently delete the account and all its transactions.
-                        Type &quot;delete&quot; to confirm.
-                      </p>
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          value={accountNamesModal.deleteConfirmation}
-                          onChange={(e) => setAccountNamesModal(prev => ({
-                            ...prev,
-                            deleteConfirmation: e.target.value
-                          }))}
-                          placeholder="Type 'delete' to confirm"
-                          className="flex-1 border px-2 py-1 rounded"
-                        />
-                        <button
-                          onClick={() => handleDeleteAccount(account.id)}
-                          disabled={accountNamesModal.deleteConfirmation !== 'delete'}
-                          className="px-3 py-1 bg-red-600 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          Confirm Delete
-                        </button>
-                        <button
-                          onClick={() => setAccountNamesModal(prev => ({
-                            ...prev,
-                            accountToDelete: null,
-                            deleteConfirmation: ''
-                          }))}
-                          className="px-3 py-1 border rounded"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  )}
+                      accountToDelete={accountNamesModal.accountToDelete}
+                    />
+                  ))}
                 </div>
-              ))}
-            </div>
+              </SortableContext>
+            </DndContext>
 
             <div className="flex justify-end mt-6">
               <button
