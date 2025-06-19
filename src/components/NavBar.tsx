@@ -6,8 +6,8 @@ import { useState, useEffect, useRef } from "react";
 import { useAuth } from "./AuthContext";
 import { createCompany } from "@/lib/auth-client";
 
-import { ChevronDownIcon, XMarkIcon, CogIcon } from "@heroicons/react/24/outline";
-import { supabase } from "@/lib/supabaseClient";
+import { ChevronDown, X, Settings, User, LogOut } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 
 interface CompanyModalProps {
   isOpen: boolean;
@@ -51,7 +51,7 @@ function CompanyModal({ isOpen, onClose, onCreateCompany }: CompanyModalProps) {
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600 transition-colors"
           >
-            <XMarkIcon className="w-4 h-4" />
+            <X className="w-4 h-4" />
           </button>
         </div>
         
@@ -129,7 +129,13 @@ function NavLink({ href, label }: { href: string, label: string }) {
   );
 }
 
-export default function NavBar() {
+interface NavBarProps {
+  showAccountAction?: () => void;
+  showAccountSection?: boolean;
+  isGatewayPage?: boolean;
+}
+
+export default function NavBar({ showAccountAction, showAccountSection, isGatewayPage = false }: NavBarProps) {
   const { user, companies, currentCompany, setCurrentCompany, setCompanies, logout } = useAuth();
   const [isAccountDropdownOpen, setIsAccountDropdownOpen] = useState(false);
   const router = useRouter();
@@ -190,67 +196,103 @@ export default function NavBar() {
   return (
     <>
       <nav className="flex justify-between items-center px-6 py-2 bg-gray-100 border-b border-gray-300 text-xs font-normal">
+        {/* Left side - Navigation or Empty for Gateway */}
         <div className="space-x-6 flex">
-          <NavLink href="/transactions" label="Transactions" />
-          <NavLink href="/automations" label="Automations" />
-          <NavLink href="/categories" label="Categories" />
-          <NavLink href="/journal-table" label="Journal Table" />
-          <NavLink href="/reports/pnl" label="Profit & Loss" />
-          <NavLink href="/reports/balance-sheet" label="Balance Sheet" />
+          {!isGatewayPage && (
+            <>
+              <NavLink href="/transactions" label="Transactions" />
+              <NavLink href="/automations" label="Automations" />
+              <NavLink href="/categories" label="Categories" />
+              <NavLink href="/journal-table" label="Journal Table" />
+              <NavLink href="/reports/pnl" label="Profit & Loss" />
+              <NavLink href="/reports/balance-sheet" label="Balance Sheet" />
+            </>
+          )}
         </div>
 
+        {/* Right side - Actions */}
         <div className="flex items-center space-x-4">
-          {/* Switch Company Button */}
-          <button
-            onClick={handleSwitchCompany}
-            className="flex items-center space-x-2 text-gray-700 hover:text-black px-3 py-1 rounded border border-gray-300 hover:border-gray-400 transition-colors"
-          >
-            <span className="text-xs">
-              Switch Company
-            </span>
-            {currentCompany && (
-              <span className="text-xs font-medium text-blue-600">
-                ({currentCompany.name})
-              </span>
-            )}
-          </button>
-
-          {/* Account Dropdown */}
-          <div className="relative" ref={accountDropdownRef}>
+          {/* Gateway page specific buttons */}
+          {isGatewayPage && showAccountAction && (
             <button
-              onClick={() => setIsAccountDropdownOpen(!isAccountDropdownOpen)}
-              className="flex items-center space-x-1 text-gray-700 hover:text-black px-2 py-1 rounded"
+              onClick={showAccountAction}
+              className="flex items-center space-x-2 text-gray-700 hover:text-black px-3 py-1 rounded border border-gray-300 hover:border-gray-400 transition-colors"
             >
-              <CogIcon className="w-4 h-4" />
-              <ChevronDownIcon className="w-3 h-3" />
+              <User className="w-4 h-4" />
+              <span className="text-xs">
+                {showAccountSection ? "Back to Companies" : "Account"}
+              </span>
             </button>
+          )}
 
-            {isAccountDropdownOpen && (
-              <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-md shadow-lg z-50">
-                <div className="py-1">
-                  {/* Settings Option */}
-                  <Link
-                    href="/settings"
-                    onClick={() => setIsAccountDropdownOpen(false)}
-                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                  >
-                    Settings
-                  </Link>
-                  
-                  {/* Logout */}
-                  <button
-                    onClick={() => {
-                      logout();
-                      setIsAccountDropdownOpen(false);
-                    }}
-                    className="block w-full text-left px-4 py-2 text-sm text-gray-900 hover:bg-gray-100 font-medium"
-                  >
-                    Logout
-                  </button>
+          {/* Switch Company Button - only show when not on gateway page */}
+          {!isGatewayPage && (
+            <button
+              onClick={handleSwitchCompany}
+              className="flex items-center space-x-2 text-gray-700 hover:text-black px-3 py-1 rounded border border-gray-300 hover:border-gray-400 transition-colors"
+            >
+              <span className="text-xs">
+                Switch Company
+              </span>
+              {currentCompany && (
+                <span className="text-xs font-medium text-blue-600">
+                  ({currentCompany.name})
+                </span>
+              )}
+            </button>
+          )}
+
+          {/* Logout button for gateway page */}
+          {isGatewayPage && (
+            <button
+              onClick={logout}
+              className="flex items-center space-x-2 text-gray-700 hover:text-black px-3 py-1 rounded border border-gray-300 hover:border-gray-400 transition-colors"
+            >
+              <LogOut className="w-4 h-4" />
+              <span className="text-xs">
+                Logout
+              </span>
+            </button>
+          )}
+
+          {/* Account Dropdown - only show when not on gateway page */}
+          {!isGatewayPage && (
+            <div className="relative" ref={accountDropdownRef}>
+              <button
+                onClick={() => setIsAccountDropdownOpen(!isAccountDropdownOpen)}
+                className="flex items-center space-x-1 text-gray-700 hover:text-black px-2 py-1 rounded"
+              >
+                <Settings className="w-4 h-4" />
+                <ChevronDown className="w-4 h-4" />
+              </button>
+
+              {isAccountDropdownOpen && (
+                <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-md shadow-lg z-50">
+                  <div className="py-1">
+                    {/* Settings Option */}
+                    <Link
+                      href="/settings"
+                      onClick={() => setIsAccountDropdownOpen(false)}
+                      className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                    >
+                      Settings
+                    </Link>
+                    
+                    {/* Logout */}
+                    <button
+                      onClick={() => {
+                        logout();
+                        setIsAccountDropdownOpen(false);
+                      }}
+                      className="block w-full text-left px-4 py-2 text-sm text-gray-900 hover:bg-gray-100 font-medium"
+                    >
+                      Logout
+                    </button>
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          )}
         </div>
       </nav>
 
@@ -357,7 +399,7 @@ function EditCompanyModal({ isOpen, onClose, company, onUpdateCompany }: EditCom
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600 transition-colors"
           >
-            <XMarkIcon className="w-4 h-4" />
+            <X className="w-4 h-4" />
           </button>
         </div>
         

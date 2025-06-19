@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useState, useEffect, ReactNode, useCallback } from 'react';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase } from '@/lib/supabase';
 import { useApiWithCompany } from '@/hooks/useApiWithCompany';
 
 interface Category {

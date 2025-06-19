@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { plaidClient } from "@/lib/plaid";
-import { supabase } from "@/lib/supabaseAdmin";
+import { supabase } from "@/lib/supabase";
 import { CountryCode } from "plaid";
 import { validateCompanyContext } from "@/lib/auth-utils";
 

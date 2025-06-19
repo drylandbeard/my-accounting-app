@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabaseAdmin';
+import { supabase } from '@/lib/supabase';
 import { v4 as uuidv4 } from 'uuid';
 import { validateCompanyContext } from '@/lib/auth-utils';
 

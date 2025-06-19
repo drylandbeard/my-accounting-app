@@ -1,6 +1,6 @@
 "use client";
 
-import { useAuth } from "@/app/components/AuthContext";
+import { useAuth } from "@/components/AuthContext";
 
 /**
  * Custom hook for making API requests with company context

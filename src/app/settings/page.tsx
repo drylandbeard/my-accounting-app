@@ -1,16 +1,16 @@
 "use client";
 
-import { useAuth } from "@/app/components/AuthContext";
+import { useAuth } from "@/components/AuthContext";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
+import { supabase } from "@/lib/supabase";
 import { useApiWithCompany } from "@/hooks/useApiWithCompany";
-import { XMarkIcon, PlusIcon, CreditCardIcon, TrashIcon, ArrowRightIcon, ExclamationTriangleIcon } from "@heroicons/react/24/outline";
+import { X, Plus, CreditCard, Trash, ArrowRight, AlertTriangle } from "lucide-react";
 
 interface CompanyMember {
   id: string;
   email: string;
-  role: "Owner" | "User" | "Accountant";
+  role: "Owner" | "Member" | "Accountant";
   is_access_enabled: boolean;
 }
 
@@ -55,7 +55,7 @@ function EditCompanyModal({ isOpen, onClose, company, onUpdateCompany }: EditCom
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600 transition-colors"
           >
-            <XMarkIcon className="w-5 h-5" />
+            <X className="w-5 h-5" />
           </button>
         </div>
         
@@ -120,12 +120,12 @@ function EditCompanyModal({ isOpen, onClose, company, onUpdateCompany }: EditCom
 interface AddMemberModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onAddMember: (email: string, role: "Owner" | "User" | "Accountant") => Promise<void>;
+  onAddMember: (email: string, role: "Owner" | "Member" | "Accountant") => Promise<void>;
 }
 
 function AddMemberModal({ isOpen, onClose, onAddMember }: AddMemberModalProps) {
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<"Owner" | "User" | "Accountant">("User");
+  const [role, setRole] = useState<"Owner" | "Member" | "Accountant">("Member");
   const [isAdding, setIsAdding] = useState(false);
   const [error, setError] = useState("");
 
@@ -139,7 +139,7 @@ function AddMemberModal({ isOpen, onClose, onAddMember }: AddMemberModalProps) {
     try {
       await onAddMember(email.trim(), role);
       setEmail("");
-      setRole("User");
+      setRole("Member");
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to add member");
@@ -159,7 +159,7 @@ function AddMemberModal({ isOpen, onClose, onAddMember }: AddMemberModalProps) {
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600 transition-colors"
           >
-            <XMarkIcon className="w-5 h-5" />
+            <X className="w-5 h-5" />
           </button>
         </div>
         
@@ -191,11 +191,11 @@ function AddMemberModal({ isOpen, onClose, onAddMember }: AddMemberModalProps) {
               </label>
               <select
                 value={role}
-                onChange={(e) => setRole(e.target.value as "Owner" | "User" | "Accountant")}
+                onChange={(e) => setRole(e.target.value as "Owner" | "Member" | "Accountant")}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 focus:border-black focus:outline-none focus:ring-black"
               >
                 <option value="Owner">Owner</option>
-                <option value="User">Member</option>
+                <option value="Member">Member</option>
                 <option value="Accountant">Accountant</option>
               </select>
             </div>
@@ -265,7 +265,7 @@ function TransferOwnershipModal({ isOpen, onClose, members, onTransferOwnership 
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600 transition-colors"
           >
-            <XMarkIcon className="w-5 h-5" />
+            <X className="w-5 h-5" />
           </button>
         </div>
         
@@ -364,7 +364,7 @@ function ConfirmationModal({
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600 transition-colors"
           >
-            <XMarkIcon className="w-5 h-5" />
+            <X className="w-5 h-5" />
           </button>
         </div>
         
@@ -435,14 +435,14 @@ function DeleteCompanyModal({ isOpen, onClose, companyName, onDeleteCompany }: D
       <div className="bg-white rounded-lg shadow-xl w-96 mx-4">
         <div className="flex justify-between items-center px-6 py-4 border-b border-gray-200">
           <div className="flex items-center gap-2">
-            <ExclamationTriangleIcon className="w-5 h-5 text-red-600" />
+            <AlertTriangle className="w-5 h-5 text-red-600" />
             <h2 className="text-base font-semibold text-gray-900">Delete Company</h2>
           </div>
           <button
             onClick={handleClose}
             className="text-gray-400 hover:text-gray-600 transition-colors"
           >
-            <XMarkIcon className="w-5 h-5" />
+            <X className="w-5 h-5" />
           </button>
         </div>
         
@@ -456,7 +456,7 @@ function DeleteCompanyModal({ isOpen, onClose, companyName, onDeleteCompany }: D
             
             <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-md text-sm">
               <div className="flex">
-                <ExclamationTriangleIcon className="w-5 h-5 text-red-600 mr-2 flex-shrink-0 mt-0.5" />
+                <AlertTriangle className="w-5 h-5 text-red-600 mr-2 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium">This action cannot be undone.</p>
                   <p className="mt-1">This will permanently delete the company <strong>&ldquo;{companyName}&rdquo;</strong> and all of its data including transactions, accounts, and team members.</p>
@@ -536,7 +536,7 @@ export default function SettingsPage() {
   });
 
   // Get current user's role in the company
-  const currentUserRole = user?.role || "User";
+  const currentUserRole = user?.role || "Member";
   const isOwner = currentUserRole === "Owner";
 
   // Fetch company members when component mounts or current company changes
@@ -548,26 +548,39 @@ export default function SettingsPage() {
 
   const fetchCompanyMembers = async (companyId: string) => {
     try {
-      const { data, error } = await supabase
+      // First get company users
+      const { data: companyUsers, error: companyUsersError } = await supabase
+        .from("company_users")
+        .select("user_id, role")
+        .eq("company_id", companyId)
+        .eq("is_active", true);
+
+      if (companyUsersError) throw companyUsersError;
+
+      if (!companyUsers || companyUsers.length === 0) {
+        setCompanyMembers([]);
+        return;
+      }
+
+      // Then get user details
+      const userIds = companyUsers.map(cu => cu.user_id);
+      const { data: users, error: usersError } = await supabase
         .from("users")
-        .select("id, email, role, is_access_enabled")
-        .in("id", 
-          await supabase
-            .from("company_users")
-            .select("user_id")
-            .eq("company_id", companyId)
-            .eq("is_active", true)
-            .then(({ data }) => (data || []).map(item => item.user_id))
-        );
+        .select("id, email, is_access_enabled")
+        .in("id", userIds);
 
-      if (error) throw error;
+      if (usersError) throw usersError;
 
-      const members: CompanyMember[] = (data || []).map((member: { id: string; email: string; role: string; is_access_enabled: boolean }) => ({
-        id: member.id,
-        email: member.email,
-        role: (member.role as "Owner" | "User" | "Accountant"),
-        is_access_enabled: member.is_access_enabled
-      }));
+      // Combine the data
+      const members: CompanyMember[] = (users || []).map((user: { id: string; email: string; is_access_enabled: boolean }) => {
+        const companyUser = companyUsers.find(cu => cu.user_id === user.id);
+        return {
+          id: user.id,
+          email: user.email,
+          role: companyUser?.role as "Owner" | "Member" | "Accountant",
+          is_access_enabled: user.is_access_enabled
+        };
+      });
 
       setCompanyMembers(members);
     } catch (error) {
@@ -595,14 +608,40 @@ export default function SettingsPage() {
     }
   };
 
-  const handleAddMember = async (email: string, role: "Owner" | "User" | "Accountant") => {
-    setConfirmationModal({
-      isOpen: true,
-      title: "Member Added",
-      message: `Member ${email} with role ${role} would be added to the company.`,
-      onConfirm: () => setConfirmationModal({ ...confirmationModal, isOpen: false }),
-      confirmText: "OK",
-    });
+  const handleAddMember = async (email: string, role: "Owner" | "Member" | "Accountant") => {
+    if (!currentCompany) return;
+
+    try {
+      const response = await fetchWithCompany("/api/member/invite-member", {
+        method: "POST",
+        body: JSON.stringify({ email, role }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to send invitation");
+      }
+
+      // Refresh team members list to show the newly added member
+      await fetchCompanyMembers(currentCompany.id);
+
+      setConfirmationModal({
+        isOpen: true,
+        title: "Invitation Sent",
+        message: `An invitation has been sent to ${email}. They will receive an email with instructions to join your company as ${role}. The member has been added to your team and will have access once they accept the invitation.`,
+        onConfirm: () => setConfirmationModal({ ...confirmationModal, isOpen: false }),
+        confirmText: "OK",
+      });
+    } catch (error) {
+      setConfirmationModal({
+        isOpen: true,
+        title: "Invitation Failed",
+        message: error instanceof Error ? error.message : "Failed to send invitation. Please try again.",
+        onConfirm: () => setConfirmationModal({ ...confirmationModal, isOpen: false }),
+        confirmText: "OK",
+        confirmButtonStyle: "danger",
+      });
+    }
   };
 
   const handleDeleteMember = async (memberId: string) => {
@@ -743,7 +782,7 @@ export default function SettingsPage() {
                   onClick={() => setTransferOwnershipModal(true)}
                   className="text-sm text-orange-600 hover:text-orange-800 flex items-center gap-1"
                 >
-                  <ArrowRightIcon className="w-4 h-4" />
+                  <ArrowRight className="w-4 h-4" />
                   Transfer Ownership
                 </button>
               )}
@@ -751,7 +790,7 @@ export default function SettingsPage() {
                 onClick={() => setAddMemberModal(true)}
                 className="bg-gray-100 hover:bg-gray-200 border px-3 py-1 rounded text-sm flex items-center space-x-1"
               >
-                <PlusIcon className="w-4 h-4" />
+                <Plus className="w-4 h-4" />
                 <span>Add Member</span>
               </button>
             </div>
@@ -836,7 +875,7 @@ export default function SettingsPage() {
               <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <CreditCardIcon className="w-8 h-8 text-gray-400" />
+                    <CreditCard className="w-8 h-8 text-gray-400" />
                     <div>
                       <p className="text-sm font-medium text-gray-900">**** **** **** 4242</p>
                       <p className="text-xs text-gray-500">Expires 12/2028</p>
@@ -881,7 +920,7 @@ export default function SettingsPage() {
                       onClick={() => setDeleteCompanyModal(true)}
                       className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-red-700 bg-red-100 border border-red-300 rounded-md hover:bg-red-200 transition-colors"
                     >
-                      <TrashIcon className="w-4 h-4" />
+                      <Trash className="w-4 h-4" />
                       Delete Company
                     </button>
                   </div>

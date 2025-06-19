@@ -1,16 +1,20 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable prefer-const */
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 'use client';
 
 import { useState, useEffect, useRef, useContext } from 'react';
-import { XMarkIcon, ChatBubbleLeftRightIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
+import { supabase } from '@/lib/supabase';
+import { X, MessageSquare, RefreshCcw } from 'lucide-react';
 import { SharedContext } from './SharedContext';
-import { supabase } from '@/lib/supabaseClient';
 import { useApiWithCompany } from '@/hooks/useApiWithCompany';
-import { tools } from '../ai/tools';
-import { categoryPrompt } from '../ai/prompts';
-import { createCategoryHandler, createCategoryHelper } from '../ai/functions/createCategory';
-import { renameCategoryHandler, renameCategoryHelper } from '../ai/functions/renameCategory';
-import { assignParentCategoryHandler } from '../ai/functions/assignParentCategory';
-import { deleteCategoryHandler } from '../ai/functions/deleteCategory';
+import { tools } from '@/ai/tools';
+import { categoryPrompt } from '@/ai/prompts';
+import { createCategoryHandler } from '@/ai/functions/createCategory';
+import { renameCategoryHandler } from '@/ai/functions/renameCategory';
+import { assignParentCategoryHandler } from '@/ai/functions/assignParentCategory';
+import { deleteCategoryHandler } from '@/ai/functions/deleteCategory';
 import { changeCategoryTypeHandler } from '../ai/functions/changeCategoryType';
 
 interface Message {
@@ -883,7 +887,7 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
         onClick={() => setIsOpen(true)}
         className="fixed right-4 bottom-4 p-3 bg-blue-600 text-white rounded-full shadow-lg hover:bg-blue-700 transition-colors z-40"
       >
-        <ChatBubbleLeftRightIcon className="h-6 w-6" />
+                  <MessageSquare className="h-6 w-6" />
       </button>
     );
   }
@@ -917,7 +921,7 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
                 onClick={() => setIsOpen(false)}
               >
                 <span className="sr-only">Close panel</span>
-                <XMarkIcon className="h-6 w-6" aria-hidden="true" />
+                <X className="h-6 w-6" aria-hidden="true" />
               </button>
             </div>
           </div>
@@ -1021,7 +1025,7 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
                   }}
                   className="block w-full text-left px-2 py-1 rounded text-blue-600 hover:bg-blue-50 transition-colors"
                 >
-                  • What's the best way to structure my chart of accounts?
+                  • What&apos;s the best way to structure my chart of accounts?
                 </button>
               </div>
             </div>
@@ -1043,7 +1047,7 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
               className="rounded-md bg-orange-600 px-3 py-2 text-white hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 text-xs flex items-center"
               title="Clear chat context"
             >
-              <ArrowPathIcon className="h-4 w-4" />
+              <RefreshCcw className="h-4 w-4" />
             </button>
             <button
               onClick={handleSendMessage}

@@ -1,4 +1,4 @@
-import { supabase } from "../src/lib/supabaseAdmin";
+import { supabase } from "../src/lib/supabase";
 
 /**
  * Clean up expired email verification tokens
