@@ -29,9 +29,11 @@ export function generateToken(): string {
 /**
  * Create invitation URL
  */
-export function createInvitationUrl(token: string, baseUrl?: string): string {
-  const base = baseUrl || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-  return `${base}/accept-invitation?token=${token}`;
+export function createInvitationUrl(token: string): string {
+  const baseUrl = process.env.NODE_ENV === "development" 
+    ? "http://localhost:3000" 
+    : process.env.NEXT_PUBLIC_BASE_URL || "https://www.use-switch.com";
+  return `${baseUrl}/accept-invitation?token=${token}`;
 }
 
 /**

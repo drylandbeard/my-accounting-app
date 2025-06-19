@@ -17,7 +17,9 @@ export function generateVerificationCode(): string {
 /**
  * Create verification URL
  */
-export function createVerificationUrl(token: string, baseUrl?: string): string {
-  const base = baseUrl || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-  return `${base}/verify-email?token=${token}`;
+export function createVerificationUrl(token: string): string {
+  const baseUrl = process.env.NODE_ENV === "development" 
+    ? "http://localhost:3000" 
+    : process.env.NEXT_PUBLIC_BASE_URL || "https://www.use-switch.com";
+  return `${baseUrl}/verify-email?token=${token}`;
 } 

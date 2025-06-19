@@ -73,7 +73,7 @@ function showConfiguration() {
   console.log("=" .repeat(50));
   console.log(`EMAIL_PROVIDER: ${process.env.EMAIL_PROVIDER || "mailtrap (default)"}`);
   console.log(`EMAIL_FROM: ${process.env.EMAIL_FROM || "Not set"}`);
-  console.log(`NEXT_PUBLIC_APP_URL: ${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000 (default)"}`);
+  console.log(`NEXT_PUBLIC_BASE_URL: ${process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000 (default)"}`);
   console.log("");
 
   // Show provider-specific config
