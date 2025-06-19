@@ -1,7 +1,6 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { usePlaidLink } from 'react-plaid-link'
 import { supabase } from '../../lib/supabase'
 
@@ -98,25 +97,15 @@ type SortConfig = {
   direction: 'asc' | 'desc';
 }
 
-type JournalEntry = {
-  date: string
-  description: string
-  entries: {
-    account_id: string
-    amount: number
-    type: 'debit' | 'credit'
-  }[]
-}
-
 type SelectOption = {
   value: string;
   label: string;
 };
 
 // Sortable Account Item Component
-function SortableAccountItem({ account, index, onNameChange, onDelete, deleteConfirmation, onDeleteConfirmationChange, accountToDelete }: {
+function SortableAccountItem({ account, onNameChange, onDelete, deleteConfirmation, onDeleteConfirmationChange, accountToDelete }: {
   account: { id: string; name: string; order?: number };
-  index: number;
+  index?: number;
   onNameChange: (value: string) => void;
   onDelete: () => void;
   deleteConfirmation: string;
@@ -220,10 +209,6 @@ export default function Page() {
   // Removed unused searchQuery state
   const [toAddSearchQuery, setToAddSearchQuery] = useState('')
   const [addedSearchQuery, setAddedSearchQuery] = useState('')
-  const [manualDate, setManualDate] = useState('')
-  const [manualDescription, setManualDescription] = useState('')
-  const [manualAmount, setManualAmount] = useState('')
-  const [manualCategoryId, setManualCategoryId] = useState('')
 
   // Add selected categories state
   const [selectedCategories, setSelectedCategories] = useState<{ [txId: string]: string }>({});
@@ -401,7 +386,6 @@ export default function Page() {
   });
 
   const [isSyncing, setIsSyncing] = useState(false);
-  const [syncError, setSyncError] = useState<string | null>(null);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const formatSyncTime = (date: Date) => {
     const month = (date.getMonth() + 1).toString().padStart(2, '0')
@@ -451,7 +435,6 @@ export default function Page() {
   // Add sync function
   const syncTransactions = async () => {
     setIsSyncing(true);
-    setSyncError(null);
     setNotification(null);
     try {
       if (!hasCompanyContext) {
@@ -524,7 +507,7 @@ export default function Page() {
       setTimeout(() => setNotification(null), 4000);
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to sync transactions';
-      setSyncError(errorMessage);
+      console.error(errorMessage);
       setNotification({ type: 'error', message: errorMessage });
       setTimeout(() => setNotification(null), 4000);
     } finally {
@@ -774,108 +757,6 @@ export default function Page() {
   // Add tab state for switching between To Add and Added sections
   const [activeTab, setActiveTab] = useState<'toAdd' | 'added'>('toAdd');
 
-  // Add function to handle date selection and start import
-  const handleDateSelection = async () => {
-    try {
-      // Get selected accounts
-      const selectedAccounts = accountSelectionModal.accounts
-        .filter(acc => acc.selected);
-
-      if (selectedAccounts.length === 0) {
-        setNotification({ 
-          type: 'error', 
-          message: 'Please select at least one account' 
-        });
-        return;
-      }
-
-      // Validate dates
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      
-      for (const account of selectedAccounts) {
-        // Parse date in local timezone to avoid timezone issues
-        const [year, month, day] = account.startDate.split('-').map(Number);
-        const selectedDate = new Date(year, month - 1, day);
-        if (selectedDate > today) {
-          setNotification({ 
-            type: 'error', 
-            message: 'Start date cannot be in the future' 
-          });
-          return;
-        }
-      }
-
-      // Set initial progress state
-      setImportProgress({
-        isImporting: true,
-        currentStep: 'Starting import...',
-        progress: 0,
-        totalSteps: selectedAccounts.length
-      });
-
-      // Import each selected account with its selected start date
-      for (let i = 0; i < selectedAccounts.length; i++) {
-        const account = selectedAccounts[i];
-        
-        // Update progress
-        setImportProgress(prev => ({
-          ...prev,
-          currentStep: `Importing transactions for ${account.name}...`,
-          progress: i + 1
-        }));
-
-        const response = await fetch('/api/get-transactions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            access_token: account.access_token,
-            item_id: account.item_id,
-            account_id: account.id,
-            start_date: account.startDate
-          }),
-        });
-
-        if (!response.ok) {
-          const error = await response.json();
-          throw new Error(error.error || 'Failed to sync transactions');
-        }
-      }
-
-      // Update progress for final step
-      setImportProgress(prev => ({
-        ...prev,
-        currentStep: 'Finalizing import...',
-        progress: prev.totalSteps
-      }));
-
-      // Close modal and refresh
-      setAccountSelectionModal({ isOpen: false, accounts: [] });
-      await refreshAll();
-      setNotification({ 
-        type: 'success', 
-        message: 'Accounts linked and transactions imported successfully' 
-      });
-
-    } catch (error) {
-      console.error('Error in handleDateSelection:', error);
-      setNotification({ 
-        type: 'error', 
-        message: error instanceof Error ? error.message : 'Failed to link accounts' 
-      });
-    } finally {
-      // Reset progress state
-      setImportProgress({
-        isImporting: false,
-        currentStep: '',
-        progress: 0,
-        totalSteps: 0
-      });
-    }
-  };
-
   // 2️⃣ Supabase Fetching
   const fetchImportedTransactions = async () => {
     if (!hasCompanyContext) return;
@@ -1058,39 +939,6 @@ export default function Page() {
     }
   };
 
-  const addManualTransaction = async () => {
-    if (!manualDate || !manualDescription || !manualAmount || !selectedAccountId || !manualCategoryId) return;
-
-    const category = categories.find(c => c.id === manualCategoryId);
-    if (!category) return;
-
-    // Find the selected account in chart_of_accounts by plaid_account_id
-    const selectedAccount = categories.find(
-      c => c.plaid_account_id === selectedAccountId
-    );
-    const selectedAccountIdInCOA = selectedAccount?.id;
-    if (!selectedAccountIdInCOA) {
-      alert('Account not found in chart of accounts.');
-      return;
-    }
-
-    await supabase.from('transactions').insert([{
-      date: manualDate,
-      description: manualDescription,
-      amount: parseFloat(manualAmount),
-      selected_category_id: manualCategoryId,
-      corresponding_category_id: selectedAccountIdInCOA,
-      plaid_account_id: selectedAccountId,
-      plaid_account_name: accounts.find(acc => acc.plaid_account_id === selectedAccountId)?.plaid_account_name || ''
-    }]);
-
-    setManualDate('');
-    setManualDescription('');
-    setManualAmount('');
-    setManualCategoryId('');
-    refreshAll();
-  }
-
   // 4️⃣ Category dropdown
   const categoryOptions: SelectOption[] = [
     { value: '', label: 'Select' },
@@ -1246,7 +1094,6 @@ export default function Page() {
     addedSortConfig
   );
 
-  const accountName = accounts.find(a => a.plaid_account_id === selectedAccountId)?.plaid_account_name || ''
   const currentBalance = accounts.find(a => a.plaid_account_id === selectedAccountId)?.current_balance || 0
 
   // Calculate the Switch Balance for the selected account (only for Added tab)
@@ -1256,14 +1103,6 @@ export default function Page() {
   const switchBalance = confirmedAccountTransactions.reduce((sum, tx) => {
     return sum + (tx.received ?? 0) - (tx.spent ?? 0);
   }, 0);
-
-  // Helper to get the display amount for a transaction relative to the selected account
-  function getDisplayAmountForSelectedAccount(tx: Transaction, selectedAccountIdInCOA: string | undefined) {
-    if (!selectedAccountIdInCOA) return Number(tx.amount);
-    if (tx.selected_category_id === selectedAccountIdInCOA) return Number(tx.amount);
-    if (tx.corresponding_category_id === selectedAccountIdInCOA) return -Number(tx.amount);
-    return Number(tx.amount);
-  }
 
   const downloadTemplate = () => {
     const headers = ['Date', 'Description', 'Amount']
@@ -3650,7 +3489,6 @@ export default function Page() {
               </thead>
               <tbody>
                 {imported.map(tx => {
-                  const category = categories.find(c => c.id === selectedCategories[tx.id]);
                   return (
                     <tr key={tx.id}>
                       <td className="border p-1 w-8 text-center">
