@@ -612,7 +612,7 @@ export default function SettingsPage() {
     if (!currentCompany) return;
 
     try {
-      const response = await fetchWithCompany("/api/invite-member", {
+      const response = await fetchWithCompany("/api/member/invite-member", {
         method: "POST",
         body: JSON.stringify({ email, role }),
       });

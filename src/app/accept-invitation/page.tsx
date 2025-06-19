@@ -116,7 +116,7 @@ export default function AcceptInvitationPage() {
 
     try {
       console.log("📡 Completing invitation signup...");
-      const response = await fetch("/api/complete-invitation", {
+      const response = await fetch("/api/member/complete-invitation", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
