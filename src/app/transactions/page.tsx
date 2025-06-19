@@ -1470,6 +1470,20 @@ export default function Page() {
     if (!editModal.transaction) return;
 
     try {
+      // Validate that only spent OR received has a value, not both
+      const spent = updatedTransaction.spent ?? 0;
+      const received = updatedTransaction.received ?? 0;
+      
+      if (spent > 0 && received > 0) {
+        setNotification({ type: 'error', message: 'A transaction cannot have both spent and received amounts. Please enter only one.' });
+        return;
+      }
+
+      if (spent === 0 && received === 0) {
+        setNotification({ type: 'error', message: 'A transaction must have either a spent or received amount.' });
+        return;
+      }
+
       // Find the category based on the selected category ID
       const category = categories.find(c => c.id === updatedTransaction.selected_category_id);
       if (!category) {
@@ -2575,13 +2589,18 @@ export default function Page() {
                 <input
                   type="number"
                   value={editModal.transaction.spent ?? 0}
-                  onChange={(e) => setEditModal(prev => ({
-                    ...prev,
-                    transaction: prev.transaction ? {
-                      ...prev.transaction,
-                      spent: parseFloat(e.target.value) || 0
-                    } : null
-                  }))}
+                  onChange={(e) => {
+                    const spentValue = parseFloat(e.target.value) || 0;
+                    setEditModal(prev => ({
+                      ...prev,
+                      transaction: prev.transaction ? {
+                        ...prev.transaction,
+                        spent: spentValue,
+                        // Clear received when spent has a value
+                        received: spentValue > 0 ? 0 : prev.transaction.received
+                      } : null
+                    }));
+                  }}
                   className="w-full border px-2 py-1 rounded text-xs"
                 />
               </div>
@@ -2593,13 +2612,18 @@ export default function Page() {
                 <input
                   type="number"
                   value={editModal.transaction.received ?? 0}
-                  onChange={(e) => setEditModal(prev => ({
-                    ...prev,
-                    transaction: prev.transaction ? {
-                      ...prev.transaction,
-                      received: parseFloat(e.target.value) || 0
-                    } : null
-                  }))}
+                  onChange={(e) => {
+                    const receivedValue = parseFloat(e.target.value) || 0;
+                    setEditModal(prev => ({
+                      ...prev,
+                      transaction: prev.transaction ? {
+                        ...prev.transaction,
+                        received: receivedValue,
+                        // Clear spent when received has a value
+                        spent: receivedValue > 0 ? 0 : prev.transaction.spent
+                      } : null
+                    }));
+                  }}
                   className="w-full border px-2 py-1 rounded text-xs"
                 />
               </div>

@@ -45,6 +45,24 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Validate that only spent OR received has a value, not both
+    const spentValue = spent ?? 0;
+    const receivedValue = received ?? 0;
+    
+    if (spentValue > 0 && receivedValue > 0) {
+      return NextResponse.json(
+        { error: 'A transaction cannot have both spent and received amounts' },
+        { status: 400 }
+      )
+    }
+
+    if (spentValue === 0 && receivedValue === 0) {
+      return NextResponse.json(
+        { error: 'A transaction must have either a spent or received amount' },
+        { status: 400 }
+      )
+    }
+
     // Verify the transaction exists and belongs to the company
     const { data: existingTransaction, error: fetchError } = await supabase
       .from('transactions')
