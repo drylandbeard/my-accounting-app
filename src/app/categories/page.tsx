@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { supabase } from "../../lib/supabase";
 import { useApiWithCompany } from "@/hooks/useApiWithCompany";
 import Papa from "papaparse";
 import { v4 as uuidv4 } from "uuid";
-import { X } from 'lucide-react'
+import { X } from "lucide-react";
 
 const ACCOUNT_TYPES = [
     "Asset",
@@ -75,6 +75,7 @@ export default function ChartOfAccountsPage() {
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState("");
     const [payeeSearch, setPayeeSearch] = useState("");
+    const categoriesTableRef = useRef<HTMLDivElement>(null);
 
     // Add new account state
     const [newName, setNewName] = useState("");
@@ -412,41 +413,158 @@ export default function ChartOfAccountsPage() {
     const handleUpdate = async () => {
         if (!editingId) return;
 
-        // First get the current chart_of_accounts record to check if it has a plaid_account_id
-        const { data: currentAccount } = await supabase
-            .from("chart_of_accounts")
-            .select("plaid_account_id")
-            .eq("id", editingId)
-            .single();
+        // Get current values directly from the DOM to ensure we have the latest values
+        const getCurrentValues = () => {
+            if (!categoriesTableRef.current)
+                return { editName, editType, editParentId };
 
-        // Update chart_of_accounts
-        const { error } = await supabase
-            .from("chart_of_accounts")
-            .update({
-                name: editName,
-                type: editType,
-                parent_id: editParentId,
-            })
-            .eq("id", editingId);
+            const nameInput = categoriesTableRef.current.querySelector(
+                'input[type="text"]'
+            ) as HTMLInputElement;
+            const typeSelect = categoriesTableRef.current.querySelector(
+                "select"
+            ) as HTMLSelectElement;
+            const parentSelects = categoriesTableRef.current.querySelectorAll(
+                "select"
+            ) as NodeListOf<HTMLSelectElement>;
+            const parentSelect = parentSelects[1]; // Second select is parent category
 
-        if (!error) {
+            const name = nameInput?.value || editName;
+            const type = typeSelect?.value || editType;
+            let parent_id = parentSelect?.value || editParentId || null;
+
+            // Validate parent type matches category type - if not, clear parent
+            if (parent_id) {
+                const parentCategory = parentOptions.find(
+                    (opt) => opt.id === parent_id
+                );
+                if (parentCategory && parentCategory.type !== type) {
+                    console.log(
+                        `Clearing parent ${parentCategory.name} (${parentCategory.type}) because it doesn't match category type ${type}`
+                    );
+                    parent_id = null;
+                }
+            }
+
+            return {
+                name,
+                type,
+                parent_id: parent_id === "" ? null : parent_id,
+            };
+        };
+
+        const currentValues = getCurrentValues();
+
+        console.log("Saving changes:", {
+            currentValues,
+            editingId,
+            currentCompany,
+        });
+
+        try {
+            // First get the current chart_of_accounts record to check if it has a plaid_account_id
+            const { data: currentAccount, error: fetchError } = await supabase
+                .from("chart_of_accounts")
+                .select("plaid_account_id")
+                .eq("id", editingId)
+                .single();
+
+            if (fetchError) {
+                console.error("Error fetching current account:", fetchError);
+                alert("Error fetching account data. Please try again.");
+                return;
+            }
+
+            // Update chart_of_accounts
+            const { error } = await supabase
+                .from("chart_of_accounts")
+                .update({
+                    name: currentValues.name,
+                    type: currentValues.type,
+                    parent_id:
+                        currentValues.parent_id === ""
+                            ? null
+                            : currentValues.parent_id,
+                })
+                .eq("id", editingId);
+
+            if (error) {
+                console.error("Error updating chart of accounts:", error);
+                alert("Error saving changes. Please try again.");
+                return;
+            }
+
+            console.log("Successfully updated chart of accounts");
+
             // If this chart of accounts entry is linked to a plaid account, also update the accounts table
             if (currentAccount?.plaid_account_id) {
-                await supabase
+                const { error: accountsError } = await supabase
                     .from("accounts")
                     .update({
-                        name: editName,
-                        type: editType,
+                        name: currentValues.name,
+                        type: currentValues.type,
                     })
                     .eq("plaid_account_id", currentAccount.plaid_account_id)
                     .eq("company_id", currentCompany!.id);
+
+                if (accountsError) {
+                    console.error(
+                        "Error updating accounts table:",
+                        accountsError
+                    );
+                    // Don't return here as the main update succeeded
+                }
             }
 
             setEditingId(null);
-            fetchAccounts();
-            fetchParentOptions();
+            await fetchAccounts();
+            await fetchParentOptions();
+            console.log("Update completed successfully");
+        } catch (error) {
+            console.error("Unexpected error during update:", error);
+            alert("An unexpected error occurred. Please try again.");
         }
     };
+
+    // Handle clicks outside the table or on other rows to save changes
+    useEffect(() => {
+        const handleClickToSave = (event: MouseEvent) => {
+            if (!editingId || !categoriesTableRef.current) return;
+
+            const target = event.target as Node;
+
+            // If click is outside the table, save
+            if (!categoriesTableRef.current.contains(target)) {
+                handleUpdate();
+                return;
+            }
+
+            // If click is inside the table, check if it's on a different row
+            const clickedRow = (target as Element).closest("tr");
+            if (clickedRow) {
+                // Get all the input/select elements in the currently editing row
+                const editingInputs =
+                    categoriesTableRef.current.querySelectorAll(
+                        `tr input[type="text"], tr select`
+                    );
+
+                // Check if the clicked element is one of the editing inputs
+                const isClickOnCurrentEditingElement = Array.from(
+                    editingInputs
+                ).some((input) => input.contains(target) || input === target);
+
+                // If not clicking on the current editing elements, save
+                if (!isClickOnCurrentEditingElement) {
+                    handleUpdate();
+                }
+            }
+        };
+
+        document.addEventListener("mousedown", handleClickToSave);
+        return () => {
+            document.removeEventListener("mousedown", handleClickToSave);
+        };
+    }, [editingId]);
 
     const handleUpdatePayee = async () => {
         if (!editingPayeeId) return;
@@ -748,7 +866,6 @@ export default function ChartOfAccountsPage() {
                                         setEditName(e.target.value)
                                     }
                                     className="w-full border-none outline-none bg-transparent text-xs"
-                                    onBlur={handleUpdate}
                                     onKeyDown={(e) =>
                                         e.key === "Enter" && handleUpdate()
                                     }
@@ -762,11 +879,12 @@ export default function ChartOfAccountsPage() {
                             {editingId === parent.id ? (
                                 <select
                                     value={editType}
-                                    onChange={(e) =>
-                                        setEditType(e.target.value)
-                                    }
+                                    onChange={(e) => {
+                                        setEditType(e.target.value);
+                                        // Clear parent when type changes since parent must match type
+                                        setEditParentId(null);
+                                    }}
                                     className="w-full border-none outline-none bg-transparent text-xs"
-                                    onBlur={handleUpdate}
                                     onKeyDown={(e) =>
                                         e.key === "Enter" && handleUpdate()
                                     }
@@ -781,7 +899,36 @@ export default function ChartOfAccountsPage() {
                                 parent.type
                             )}
                         </td>
-                        <td className="border p-1 text-xs"></td>
+                        <td className="border p-1 text-xs">
+                            {editingId === parent.id ? (
+                                <select
+                                    value={editParentId || ""}
+                                    onChange={(e) =>
+                                        setEditParentId(e.target.value || null)
+                                    }
+                                    className="w-full border-none outline-none bg-transparent text-xs"
+                                    onKeyDown={(e) =>
+                                        e.key === "Enter" && handleUpdate()
+                                    }
+                                >
+                                    <option value="">No Parent</option>
+                                    {parentOptions
+                                        .filter(
+                                            (opt) =>
+                                                opt.id !== parent.id && // Can't be parent of itself
+                                                (opt.type === editType ||
+                                                    !editType)
+                                        )
+                                        .map((opt) => (
+                                            <option key={opt.id} value={opt.id}>
+                                                {opt.name} ({opt.type})
+                                            </option>
+                                        ))}
+                                </select>
+                            ) : (
+                                ""
+                            )}
+                        </td>
                         <td className="border p-1 text-xs">
                             <div className="flex gap-2 justify-center">
                                 <button
@@ -815,7 +962,6 @@ export default function ChartOfAccountsPage() {
                                             setEditName(e.target.value)
                                         }
                                         className="w-full border-none outline-none bg-transparent text-xs"
-                                        onBlur={handleUpdate}
                                         onKeyDown={(e) =>
                                             e.key === "Enter" && handleUpdate()
                                         }
@@ -829,11 +975,12 @@ export default function ChartOfAccountsPage() {
                                 {editingId === subAcc.id ? (
                                     <select
                                         value={editType}
-                                        onChange={(e) =>
-                                            setEditType(e.target.value)
-                                        }
+                                        onChange={(e) => {
+                                            setEditType(e.target.value);
+                                            // Clear parent when type changes since parent must match type
+                                            setEditParentId(null);
+                                        }}
                                         className="w-full border-none outline-none bg-transparent text-xs"
-                                        onBlur={handleUpdate}
                                         onKeyDown={(e) =>
                                             e.key === "Enter" && handleUpdate()
                                         }
@@ -849,7 +996,39 @@ export default function ChartOfAccountsPage() {
                                 )}
                             </td>
                             <td className="border p-1 text-xs">
-                                {parent.name}
+                                {editingId === subAcc.id ? (
+                                    <select
+                                        value={editParentId || ""}
+                                        onChange={(e) =>
+                                            setEditParentId(
+                                                e.target.value || null
+                                            )
+                                        }
+                                        className="w-full border-none outline-none bg-transparent text-xs"
+                                        onKeyDown={(e) =>
+                                            e.key === "Enter" && handleUpdate()
+                                        }
+                                    >
+                                        <option value="">No Parent</option>
+                                        {parentOptions
+                                            .filter(
+                                                (opt) =>
+                                                    opt.id !== subAcc.id && // Can't be parent of itself
+                                                    (opt.type === editType ||
+                                                        !editType)
+                                            )
+                                            .map((opt) => (
+                                                <option
+                                                    key={opt.id}
+                                                    value={opt.id}
+                                                >
+                                                    {opt.name} ({opt.type})
+                                                </option>
+                                            ))}
+                                    </select>
+                                ) : (
+                                    parent.name
+                                )}
                             </td>
                             <td className="border p-1 text-xs">
                                 <div className="flex gap-2 justify-center">
@@ -980,7 +1159,10 @@ export default function ChartOfAccountsPage() {
                     </div>
 
                     {/* Categories Table */}
-                    <div className="bg-white rounded shadow-sm">
+                    <div
+                        className="bg-white rounded shadow-sm"
+                        ref={categoriesTableRef}
+                    >
                         {loading ? (
                             <div className="p-4 text-center text-gray-500 text-xs">
                                 Loading...
