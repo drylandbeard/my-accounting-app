@@ -7,7 +7,7 @@ import { supabase } from '../../lib/supabase'
 
 import Papa from 'papaparse'
 import { v4 as uuidv4 } from 'uuid'
-import { XMarkIcon } from '@heroicons/react/24/outline'
+import { X } from 'lucide-react'
 import { useApiWithCompany } from '@/hooks/useApiWithCompany'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Select } from '@/components/ui/select'
@@ -2073,7 +2073,7 @@ export default function Page() {
                 onClick={() => setImportModal(prev => ({ ...prev, isOpen: false }))}
                 className="text-gray-500 hover:text-gray-700"
               >
-                <XMarkIcon className="w-4 h-4" />
+                <X className="w-4 h-4" />
               </button>
             </div>
             
@@ -2375,7 +2375,7 @@ export default function Page() {
                 onClick={() => setEditModal({ isOpen: false, transaction: null })}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
-                <XMarkIcon className="w-4 h-4" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
@@ -2551,7 +2551,7 @@ export default function Page() {
                 onClick={() => setAccountEditModal({ isOpen: false, account: null, newName: '' })}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
-                <XMarkIcon className="w-4 h-4" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
@@ -2600,7 +2600,7 @@ export default function Page() {
                 onClick={() => setNewCategoryModal({ isOpen: false, name: '', type: 'Expense', parent_id: null, transactionId: null })}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
-                <XMarkIcon className="w-4 h-4" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
@@ -2696,7 +2696,7 @@ export default function Page() {
                 onClick={() => setNewPayeeModal({ isOpen: false, name: '', transactionId: null })}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
-                <XMarkIcon className="w-4 h-4" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
@@ -2746,7 +2746,7 @@ export default function Page() {
                 onClick={() => setManualAccountModal({ isOpen: false, name: '', type: 'Asset', startingBalance: '0' })}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
-                <XMarkIcon className="w-4 h-4" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
@@ -2832,7 +2832,7 @@ export default function Page() {
                 onClick={() => setAccountNamesModal({ isOpen: false, accounts: [], accountToDelete: null, deleteConfirmation: '' })}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
-                <XMarkIcon className="w-4 h-4" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
@@ -2926,7 +2926,7 @@ export default function Page() {
                 onClick={() => setJournalEntryModal(prev => ({ ...prev, isOpen: false }))}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
-                <XMarkIcon className="w-4 h-4" />
+                <X className="w-4 h-4" />
               </button>
             </div>
             
@@ -3110,7 +3110,7 @@ export default function Page() {
                 onClick={() => setPastJournalEntriesModal(prev => ({ ...prev, isOpen: false }))}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
-                <XMarkIcon className="w-4 h-4" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
@@ -3180,7 +3180,7 @@ export default function Page() {
                 onClick={() => setEditJournalEntryModal({ isOpen: false, entry: null })}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
-                <XMarkIcon className="w-4 h-4" />
+                <X className="w-4 h-4" />
               </button>
             </div>
             
@@ -3814,7 +3814,7 @@ export default function Page() {
                 className="text-gray-500 hover:text-gray-700 text-xl"
                 disabled={importProgress.isImporting}
               >
-                <XMarkIcon className="w-4 h-4" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 

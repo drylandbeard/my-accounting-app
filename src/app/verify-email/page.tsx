@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { CheckCircleIcon, XCircleIcon, EnvelopeIcon } from "@heroicons/react/24/outline";
+import { CheckCircle, XCircle, Mail } from "lucide-react";
 import { useAuth } from "@/components/AuthContext";
 import { getUserCompanies } from "@/lib/auth-client";
 
@@ -223,10 +223,10 @@ export default function VerifyEmailPage() {
   const renderIcon = () => {
     switch (status) {
       case "success":
-        return <CheckCircleIcon className="w-8 h-8 text-green-500" />;
+        return <CheckCircle className="w-8 h-8 text-green-500" />;
       case "error":
       case "expired":
-        return <XCircleIcon className="w-8 h-8 text-red-500" />;
+        return <XCircle className="w-8 h-8 text-red-500" />;
       case "loading":
       default:
         return (
@@ -321,7 +321,7 @@ export default function VerifyEmailPage() {
                   disabled={isResending}
                   className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium py-2 px-4 rounded-md transition-colors flex items-center gap-2 mx-auto text-sm"
                 >
-                  <EnvelopeIcon className="w-4 h-4" />
+                  <Mail className="w-4 h-4" />
                   {isResending ? "Sending..." : "Resend Verification Email"}
                 </button>
               </div>

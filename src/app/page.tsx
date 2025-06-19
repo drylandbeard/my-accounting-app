@@ -4,7 +4,7 @@ import { useAuth } from "@/components/AuthContext";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createCompany, updateUserEmail, updateUserPassword } from "@/lib/auth-client";
-import { XMarkIcon, PlusIcon } from "@heroicons/react/24/outline";
+import { X, Plus } from "lucide-react";
 import NavBar from "@/components/NavBar";
 
 interface CompanyModalProps {
@@ -49,7 +49,7 @@ function CompanyModal({ isOpen, onClose, onCreateCompany }: CompanyModalProps) {
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600 transition-colors"
           >
-            <XMarkIcon className="w-4 h-4" />
+            <X className="w-4 h-4" />
           </button>
         </div>
         
@@ -439,7 +439,7 @@ export default function GatewayPage() {
                       className="flex items-center gap-1 text-sm text-gray-700 hover:text-black transition-colors"
                     >
                       Add Company
-                      <PlusIcon className="w-4 h-4" />
+                      <Plus className="w-4 h-4" />
                     </button>
                   </div>
 
@@ -523,7 +523,7 @@ export default function GatewayPage() {
                     onClick={() => setIsCompanyModalOpen(true)}
                     className="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-md hover:bg-gray-800 transition-colors"
                   >
-                    <PlusIcon className="w-4 h-4" />
+                    <Plus className="w-4 h-4" />
                     Create Company
                   </button>
                 </div>

@@ -6,7 +6,7 @@ import { useState, useEffect, useRef } from "react";
 import { useAuth } from "./AuthContext";
 import { createCompany } from "@/lib/auth-client";
 
-import { ChevronDownIcon, XMarkIcon, CogIcon, UserIcon, ArrowRightStartOnRectangleIcon } from "@heroicons/react/24/outline";
+import { ChevronDown, X, Settings, User, LogOut } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 interface CompanyModalProps {
@@ -51,7 +51,7 @@ function CompanyModal({ isOpen, onClose, onCreateCompany }: CompanyModalProps) {
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600 transition-colors"
           >
-            <XMarkIcon className="w-4 h-4" />
+            <X className="w-4 h-4" />
           </button>
         </div>
         
@@ -218,7 +218,7 @@ export default function NavBar({ showAccountAction, showAccountSection, isGatewa
               onClick={showAccountAction}
               className="flex items-center space-x-2 text-gray-700 hover:text-black px-3 py-1 rounded border border-gray-300 hover:border-gray-400 transition-colors"
             >
-              <UserIcon className="w-4 h-4" />
+              <User className="w-4 h-4" />
               <span className="text-xs">
                 {showAccountSection ? "Back to Companies" : "Account"}
               </span>
@@ -248,7 +248,7 @@ export default function NavBar({ showAccountAction, showAccountSection, isGatewa
               onClick={logout}
               className="flex items-center space-x-2 text-gray-700 hover:text-black px-3 py-1 rounded border border-gray-300 hover:border-gray-400 transition-colors"
             >
-              <ArrowRightStartOnRectangleIcon className="w-4 h-4" />
+              <LogOut className="w-4 h-4" />
               <span className="text-xs">
                 Logout
               </span>
@@ -262,8 +262,8 @@ export default function NavBar({ showAccountAction, showAccountSection, isGatewa
                 onClick={() => setIsAccountDropdownOpen(!isAccountDropdownOpen)}
                 className="flex items-center space-x-1 text-gray-700 hover:text-black px-2 py-1 rounded"
               >
-                <CogIcon className="w-4 h-4" />
-                <ChevronDownIcon className="w-3 h-3" />
+                <Settings className="w-4 h-4" />
+                <ChevronDown className="w-4 h-4" />
               </button>
 
               {isAccountDropdownOpen && (
@@ -399,7 +399,7 @@ function EditCompanyModal({ isOpen, onClose, company, onUpdateCompany }: EditCom
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600 transition-colors"
           >
-            <XMarkIcon className="w-4 h-4" />
+            <X className="w-4 h-4" />
           </button>
         </div>
         

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useAuth } from "./AuthContext";
-import { XMarkIcon } from "@heroicons/react/24/outline";
+import { X } from "lucide-react";
 import { updateUserEmail, updateUserPassword, updateUserRole } from "@/lib/auth";
 
 interface SettingsModalProps {
@@ -120,7 +120,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600 transition-colors"
           >
-            <XMarkIcon className="w-4 h-4" />
+            <X className="w-4 h-4" />
           </button>
         </div>
         

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { CheckCircleIcon, XCircleIcon, EnvelopeIcon } from "@heroicons/react/24/outline";
+import { CheckCircle, XCircle, Mail } from "lucide-react";
 
 interface InvitationData {
   email: string;
@@ -152,11 +152,11 @@ export default function AcceptInvitationPage() {
   const renderIcon = () => {
     switch (status) {
       case "success":
-        return <CheckCircleIcon className="w-8 h-8 text-green-500" />;
+        return <CheckCircle className="w-8 h-8 text-green-500" />;
       case "error":
-        return <XCircleIcon className="w-8 h-8 text-red-500" />;
+        return <XCircle className="w-8 h-8 text-red-500" />;
       case "setup":
-        return <EnvelopeIcon className="w-8 h-8 text-blue-500" />;
+        return <Mail className="w-8 h-8 text-blue-500" />;
       case "loading":
       default:
         return (
