@@ -1,4 +1,155 @@
-import { EmailTemplate, EmailVerificationData } from "./types";
+import { EmailTemplate, EmailVerificationData, EmailVerificationCodeData } from "./types";
+
+/**
+ * Generate email verification template with verification code
+ */
+export function createVerificationCodeEmailTemplate(data: EmailVerificationCodeData): EmailTemplate {
+  const subject = "Your verification code - SWITCH";
+  
+  const htmlBody = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Your Verification Code</title>
+        <style>
+          body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+            margin: 0; 
+            padding: 40px 20px; 
+            background-color: #ffffff; 
+            color: #333333;
+            line-height: 1.5;
+          }
+          .container { 
+            max-width: 500px; 
+            margin: 0 auto; 
+            text-align: center;
+          }
+          .brand { 
+            font-size: 20px;
+            font-weight: 600;
+            color: #1a1a1a;
+            margin: 0 0 48px 0;
+            text-align: left;
+          }
+          .title {
+            font-size: 28px;
+            font-weight: 600;
+            color: #1a1a1a;
+            margin: 0 0 24px 0;
+            line-height: 1.2;
+          }
+          .description {
+            font-size: 16px;
+            color: #666666;
+            margin: 0 0 40px 0;
+            line-height: 1.5;
+          }
+          .code-container {
+            background-color: #f8f9fa;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            padding: 24px;
+            margin: 32px 0;
+          }
+          .code {
+            font-size: 36px;
+            font-weight: 700;
+            color: #1a1a1a;
+            letter-spacing: 8px;
+            margin: 0;
+            font-family: 'Courier New', Courier, monospace;
+          }
+          .code-label {
+            font-size: 14px;
+            color: #666666;
+            margin: 8px 0 0 0;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+          }
+          .help-text {
+            font-size: 14px;
+            color: #999999;
+            margin: 32px 0;
+            line-height: 1.4;
+          }
+          .footer { 
+            margin-top: 60px;
+            padding-top: 24px;
+            border-top: 1px solid #eeeeee;
+            font-size: 12px;
+            color: #999999;
+            line-height: 1.4;
+          }
+          @media (max-width: 600px) {
+            body { padding: 20px 16px; }
+            .title { font-size: 24px; }
+            .code { font-size: 28px; letter-spacing: 4px; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="brand">SWITCH</div>
+          
+          <h1 class="title">Your verification code</h1>
+          
+          <p class="description">
+            Enter this code in the verification page to complete your account setup:
+          </p>
+          
+          <div class="code-container">
+            <div class="code">${data.verificationCode}</div>
+            <div class="code-label">Verification Code</div>
+          </div>
+          
+          <p class="help-text">
+            This verification code will expire in 10 minutes. If you didn't create an account with us, you can safely ignore this email.
+          </p>
+          
+          <p class="help-text">
+            Questions about SWITCH? Check out our Help Center.
+          </p>
+          
+          <div class="footer">
+            <p style="margin: 0 0 8px 0;">
+              SWITCH is a comprehensive accounting solution for managing transactions, automations, and financial reporting.
+            </p>
+            <p style="margin: 0;">
+              © ${new Date().getFullYear()} SWITCH. All rights reserved.
+            </p>
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
+
+  const textBody = `
+    SWITCH
+    
+    Your verification code
+    
+    Enter this code in the verification page to complete your account setup:
+    
+    ${data.verificationCode}
+    
+    This verification code will expire in 10 minutes. If you didn't create an account with us, you can safely ignore this email.
+    
+    Questions about SWITCH? Check out our Help Center.
+    
+    SWITCH is a comprehensive accounting solution for managing transactions, automations, and financial reporting.
+    
+    © ${new Date().getFullYear()} SWITCH. All rights reserved.
+  `;
+
+  return {
+    subject,
+    htmlBody,
+    textBody
+  };
+}
 
 /**
  * Generate email verification template

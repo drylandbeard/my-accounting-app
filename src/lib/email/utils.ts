@@ -7,6 +7,14 @@ export function generateVerificationToken(): string {
 }
 
 /**
+ * Generate a 6-digit verification code
+ */
+export function generateVerificationCode(): string {
+  const code = Math.floor(100000 + Math.random() * 900000).toString();
+  return code;
+}
+
+/**
  * Create verification URL
  */
 export function createVerificationUrl(token: string, baseUrl?: string): string {
