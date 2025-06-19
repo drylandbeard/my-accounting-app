@@ -33,7 +33,7 @@ export const tools = [
     type: 'function',
     function: {
       name: 'assign_parent_category',
-      description: 'Assign an existing category as a subcategory under another by setting the parent_id field.',
+      description: 'Assign or reassign an existing category as a subcategory under another by setting the parent_id field. This can be used both to initially assign a parent or to move a category to a different parent.',
       parameters: {
         type: 'object',
         properties: {
@@ -56,6 +56,22 @@ export const tools = [
           name: { type: 'string', description: 'The name of the category to delete' },
         },
         required: ['name'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'change_category_type',
+      description: 'Change the type of an existing chart of account category (e.g., from Revenue to Expense, Asset to Liability, etc.)',
+      parameters: {
+        type: 'object',
+        properties: {  
+          categoryName: { type: 'string', description: 'The name of the category to change' },
+          newType: { type: 'string', description: 'The new type for the category (Asset, Liability, Equity, Revenue, or Expense)' },
+          companyId: { type: 'string', description: 'The company ID' },
+        },
+        required: ['categoryName', 'newType', 'companyId'],
       },
     },
   },
