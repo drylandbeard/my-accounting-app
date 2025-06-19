@@ -14,17 +14,17 @@ interface Category {
   plaid_account_id?: string | null;
 }
 
-export type SharedContextType = {
+export type AISharedContextType = {
   categories: Category[];
   refreshCategories: () => Promise<void>;
 };
 
-export const SharedContext = createContext<SharedContextType>({
+export const AISharedContext = createContext<AISharedContextType>({
   categories: [],
   refreshCategories: async () => {},
 });
 
-export default function SharedContextProvider({ children }: { children: ReactNode }) {
+export default function AISharedContextProvider({ children }: { children: ReactNode }) {
   const [categories, setCategories] = useState<Category[]>([]);
   const { currentCompany, hasCompanyContext } = useApiWithCompany();
 
@@ -59,8 +59,8 @@ export default function SharedContextProvider({ children }: { children: ReactNod
   }, [refreshCategories]);
 
   return (
-    <SharedContext.Provider value={{ categories, refreshCategories }}>
+    <AISharedContext.Provider value={{ categories, refreshCategories }}>
       {children}
-    </SharedContext.Provider>
+    </AISharedContext.Provider>
   );
 } 

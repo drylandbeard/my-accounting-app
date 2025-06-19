@@ -6,7 +6,7 @@ import AuthForm from "./AuthForm";
 import NavBar from "./NavBar";
 import AISidePanel from "./AISidePanel";
 import { SelectedToAddProvider } from "./SelectedToAddContext";
-import SharedContext from "./SharedContext";
+import AISharedContext from "./AISharedContext";
 import { usePathname } from "next/navigation";
 
 export default function AuthenticatedApp({ children }: { children: React.ReactNode }) {
@@ -43,7 +43,7 @@ export default function AuthenticatedApp({ children }: { children: React.ReactNo
   // Show authenticated app
   return (
     <SelectedToAddProvider>
-      <SharedContext>
+      <AISharedContext>
         {/* Only show navbar if not on homepage */}
         {!isHomepage && <NavBar />}
         <div className={`flex ${isHomepage ? 'min-h-screen' : ''}`} style={isHomepage ? {} : { height: 'calc(100vh - 4rem)' }}>
@@ -58,7 +58,7 @@ export default function AuthenticatedApp({ children }: { children: React.ReactNo
           */}
           {!isHomepage && <AISidePanel isOpen={isAIPanelOpen} setIsOpen={setIsAIPanelOpen} />}
         </div>
-      </SharedContext>
+      </AISharedContext>
     </SelectedToAddProvider>
   );
 } 
