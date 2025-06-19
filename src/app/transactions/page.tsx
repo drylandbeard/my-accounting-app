@@ -1,16 +1,36 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { usePlaidLink } from 'react-plaid-link'
 import { supabase } from '../../lib/supabase'
 
 import Papa from 'papaparse'
 import { v4 as uuidv4 } from 'uuid'
-import { XMarkIcon } from '@heroicons/react/24/outline'
+import { X } from 'lucide-react'
 import { useApiWithCompany } from '@/hooks/useApiWithCompany'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Select } from '@/components/ui/select'
+
+// @dnd-kit imports
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import {
+  useSortable,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 
 type Transaction = {
   id: string
@@ -53,6 +73,7 @@ type Account = {
   type?: string
   created_at?: string
   subtype?: string
+  display_order?: number // Add display order for sorting
 }
 
 type ImportModalState = {
@@ -76,22 +97,105 @@ type SortConfig = {
   direction: 'asc' | 'desc';
 }
 
-type JournalEntry = {
-  date: string
-  description: string
-  entries: {
-    account_id: string
-    amount: number
-    type: 'debit' | 'credit'
-  }[]
-}
-
 type SelectOption = {
   value: string;
   label: string;
 };
 
+// Sortable Account Item Component
+function SortableAccountItem({ account, onNameChange, onDelete, deleteConfirmation, onDeleteConfirmationChange, accountToDelete }: {
+  account: { id: string; name: string; order?: number };
+  index?: number;
+  onNameChange: (value: string) => void;
+  onDelete: () => void;
+  deleteConfirmation: string;
+  onDeleteConfirmationChange: (value: string) => void;
+  accountToDelete: string | null;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: account.id });
 
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div 
+      ref={setNodeRef}
+      style={style}
+      className={`space-y-2 p-2 border rounded transition-colors ${
+        isDragging ? 'bg-gray-100 shadow-lg' : 'bg-white'
+      }`}
+    >
+      <div className="flex items-center gap-2">
+        <button
+          {...attributes}
+          {...listeners}
+          className="text-gray-400 text-sm cursor-grab active:cursor-grabbing hover:text-gray-600"
+        >
+          ⋮⋮
+        </button>
+        <input
+          type="text"
+          value={account.name}
+          onChange={(e) => onNameChange(e.target.value)}
+          className="flex-1 border px-2 py-1 rounded"
+        />
+        <button
+          onClick={onDelete}
+          className="text-red-600 hover:text-red-800 px-2 py-1"
+        >
+          Delete
+        </button>
+      </div>
+      {accountToDelete === account.id && (
+        <div className="bg-red-50 p-3 rounded border border-red-200">
+          <p className="text-sm text-red-700 mb-2">
+            Warning: This will permanently delete the account and all its transactions.
+            Type &quot;delete&quot; to confirm.
+          </p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={deleteConfirmation}
+              onChange={(e) => onDeleteConfirmationChange(e.target.value)}
+              placeholder="Type 'delete' to confirm"
+              className="flex-1 border px-2 py-1 rounded"
+            />
+            <button
+              onClick={() => {
+                if (deleteConfirmation === 'delete') {
+                  // Call a deletion handler that will be passed from parent
+                  onDelete();
+                }
+              }}
+              disabled={deleteConfirmation !== 'delete'}
+              className="px-3 py-1 bg-red-600 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Confirm Delete
+            </button>
+            <button
+              onClick={() => {
+                onDeleteConfirmationChange('');
+              }}
+              className="px-3 py-1 border rounded"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function Page() {
   const { getWithCompany, postWithCompany, hasCompanyContext, currentCompany } = useApiWithCompany()
@@ -105,10 +209,6 @@ export default function Page() {
   // Removed unused searchQuery state
   const [toAddSearchQuery, setToAddSearchQuery] = useState('')
   const [addedSearchQuery, setAddedSearchQuery] = useState('')
-  const [manualDate, setManualDate] = useState('')
-  const [manualDescription, setManualDescription] = useState('')
-  const [manualAmount, setManualAmount] = useState('')
-  const [manualCategoryId, setManualCategoryId] = useState('')
 
   // Add selected categories state
   const [selectedCategories, setSelectedCategories] = useState<{ [txId: string]: string }>({});
@@ -200,7 +300,7 @@ export default function Page() {
   // Add new state for account names modal
   const [accountNamesModal, setAccountNamesModal] = useState<{
     isOpen: boolean;
-    accounts: { id: string; name: string }[];
+    accounts: { id: string; name: string; order?: number }[];
     accountToDelete: string | null;
     deleteConfirmation: string;
   }>({
@@ -286,7 +386,6 @@ export default function Page() {
   });
 
   const [isSyncing, setIsSyncing] = useState(false);
-  const [syncError, setSyncError] = useState<string | null>(null);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const formatSyncTime = (date: Date) => {
     const month = (date.getMonth() + 1).toString().padStart(2, '0')
@@ -336,7 +435,6 @@ export default function Page() {
   // Add sync function
   const syncTransactions = async () => {
     setIsSyncing(true);
-    setSyncError(null);
     setNotification(null);
     try {
       if (!hasCompanyContext) {
@@ -409,7 +507,7 @@ export default function Page() {
       setTimeout(() => setNotification(null), 4000);
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to sync transactions';
-      setSyncError(errorMessage);
+      console.error(errorMessage);
       setNotification({ type: 'error', message: errorMessage });
       setTimeout(() => setNotification(null), 4000);
     } finally {
@@ -659,108 +757,6 @@ export default function Page() {
   // Add tab state for switching between To Add and Added sections
   const [activeTab, setActiveTab] = useState<'toAdd' | 'added'>('toAdd');
 
-  // Add function to handle date selection and start import
-  const handleDateSelection = async () => {
-    try {
-      // Get selected accounts
-      const selectedAccounts = accountSelectionModal.accounts
-        .filter(acc => acc.selected);
-
-      if (selectedAccounts.length === 0) {
-        setNotification({ 
-          type: 'error', 
-          message: 'Please select at least one account' 
-        });
-        return;
-      }
-
-      // Validate dates
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      
-      for (const account of selectedAccounts) {
-        // Parse date in local timezone to avoid timezone issues
-        const [year, month, day] = account.startDate.split('-').map(Number);
-        const selectedDate = new Date(year, month - 1, day);
-        if (selectedDate > today) {
-          setNotification({ 
-            type: 'error', 
-            message: 'Start date cannot be in the future' 
-          });
-          return;
-        }
-      }
-
-      // Set initial progress state
-      setImportProgress({
-        isImporting: true,
-        currentStep: 'Starting import...',
-        progress: 0,
-        totalSteps: selectedAccounts.length
-      });
-
-      // Import each selected account with its selected start date
-      for (let i = 0; i < selectedAccounts.length; i++) {
-        const account = selectedAccounts[i];
-        
-        // Update progress
-        setImportProgress(prev => ({
-          ...prev,
-          currentStep: `Importing transactions for ${account.name}...`,
-          progress: i + 1
-        }));
-
-        const response = await fetch('/api/get-transactions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            access_token: account.access_token,
-            item_id: account.item_id,
-            account_id: account.id,
-            start_date: account.startDate
-          }),
-        });
-
-        if (!response.ok) {
-          const error = await response.json();
-          throw new Error(error.error || 'Failed to sync transactions');
-        }
-      }
-
-      // Update progress for final step
-      setImportProgress(prev => ({
-        ...prev,
-        currentStep: 'Finalizing import...',
-        progress: prev.totalSteps
-      }));
-
-      // Close modal and refresh
-      setAccountSelectionModal({ isOpen: false, accounts: [] });
-      await refreshAll();
-      setNotification({ 
-        type: 'success', 
-        message: 'Accounts linked and transactions imported successfully' 
-      });
-
-    } catch (error) {
-      console.error('Error in handleDateSelection:', error);
-      setNotification({ 
-        type: 'error', 
-        message: error instanceof Error ? error.message : 'Failed to link accounts' 
-      });
-    } finally {
-      // Reset progress state
-      setImportProgress({
-        isImporting: false,
-        currentStep: '',
-        progress: 0,
-        totalSteps: 0
-      });
-    }
-  };
-
   // 2️⃣ Supabase Fetching
   const fetchImportedTransactions = async () => {
     if (!hasCompanyContext) return;
@@ -812,6 +808,8 @@ export default function Page() {
       .from('accounts')
       .select('*')
       .eq('company_id', currentCompany?.id)
+      .order('display_order', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: true })
     setAccounts(data || [])
     if (data && data.length > 0 && !selectedAccountId) {
       setSelectedAccountId(data[0].plaid_account_id)
@@ -940,39 +938,6 @@ export default function Page() {
       alert(error instanceof Error ? error.message : 'Failed to undo transaction. Please try again.');
     }
   };
-
-  const addManualTransaction = async () => {
-    if (!manualDate || !manualDescription || !manualAmount || !selectedAccountId || !manualCategoryId) return;
-
-    const category = categories.find(c => c.id === manualCategoryId);
-    if (!category) return;
-
-    // Find the selected account in chart_of_accounts by plaid_account_id
-    const selectedAccount = categories.find(
-      c => c.plaid_account_id === selectedAccountId
-    );
-    const selectedAccountIdInCOA = selectedAccount?.id;
-    if (!selectedAccountIdInCOA) {
-      alert('Account not found in chart of accounts.');
-      return;
-    }
-
-    await supabase.from('transactions').insert([{
-      date: manualDate,
-      description: manualDescription,
-      amount: parseFloat(manualAmount),
-      selected_category_id: manualCategoryId,
-      corresponding_category_id: selectedAccountIdInCOA,
-      plaid_account_id: selectedAccountId,
-      plaid_account_name: accounts.find(acc => acc.plaid_account_id === selectedAccountId)?.plaid_account_name || ''
-    }]);
-
-    setManualDate('');
-    setManualDescription('');
-    setManualAmount('');
-    setManualCategoryId('');
-    refreshAll();
-  }
 
   // 4️⃣ Category dropdown
   const categoryOptions: SelectOption[] = [
@@ -1129,22 +1094,15 @@ export default function Page() {
     addedSortConfig
   );
 
-  const accountName = accounts.find(a => a.plaid_account_id === selectedAccountId)?.plaid_account_name || ''
   const currentBalance = accounts.find(a => a.plaid_account_id === selectedAccountId)?.current_balance || 0
 
-  // Calculate the Switch (Accounting) Balance for the selected account
-  // Simply total received minus total spent
-  const switchBalance = transactions.reduce((sum, tx) => {
+  // Calculate the Switch Balance for the selected account (only for Added tab)
+  // Only sum confirmed transactions - starting balance is included as a "Starting Balance" transaction
+  const confirmedAccountTransactions = confirmed.filter(tx => tx.plaid_account_id === selectedAccountId);
+  
+  const switchBalance = confirmedAccountTransactions.reduce((sum, tx) => {
     return sum + (tx.received ?? 0) - (tx.spent ?? 0);
   }, 0);
-
-  // Helper to get the display amount for a transaction relative to the selected account
-  function getDisplayAmountForSelectedAccount(tx: Transaction, selectedAccountIdInCOA: string | undefined) {
-    if (!selectedAccountIdInCOA) return Number(tx.amount);
-    if (tx.selected_category_id === selectedAccountIdInCOA) return Number(tx.amount);
-    if (tx.corresponding_category_id === selectedAccountIdInCOA) return -Number(tx.amount);
-    return Number(tx.amount);
-  }
 
   const downloadTemplate = () => {
     const headers = ['Date', 'Description', 'Amount']
@@ -1332,12 +1290,12 @@ export default function Page() {
     })
   }
 
-  const handleDragOver = (e: React.DragEvent) => {
+  const handleCsvDragOver = (e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
   }
 
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+  const handleCsvDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
     const file = e.dataTransfer?.files[0];
@@ -1353,6 +1311,20 @@ export default function Page() {
     if (!editModal.transaction) return;
 
     try {
+      // Validate that only spent OR received has a value, not both
+      const spent = updatedTransaction.spent ?? 0;
+      const received = updatedTransaction.received ?? 0;
+      
+      if (spent > 0 && received > 0) {
+        setNotification({ type: 'error', message: 'A transaction cannot have both spent and received amounts. Please enter only one.' });
+        return;
+      }
+
+      if (spent === 0 && received === 0) {
+        setNotification({ type: 'error', message: 'A transaction must have either a spent or received amount.' });
+        return;
+      }
+
       // Find the category based on the selected category ID
       const category = categories.find(c => c.id === updatedTransaction.selected_category_id);
       if (!category) {
@@ -1593,10 +1565,13 @@ export default function Page() {
   const handleUpdateAccountNames = async () => {
     for (const account of accountNamesModal.accounts) {
       if (account.id) {  // Only update if id exists
-        // Update accounts table - update both name and plaid_account_name for consistency
+        // Update accounts table - update both name and display_order
         await supabase
           .from('accounts')
-          .update({ name: account.name })
+          .update({ 
+            name: account.name,
+            display_order: account.order || 0
+          })
           .eq('plaid_account_id', account.id);
         // Update chart_of_accounts table
         await supabase
@@ -1607,6 +1582,37 @@ export default function Page() {
     }
     refreshAll();
     setAccountNamesModal({ isOpen: false, accounts: [], accountToDelete: null, deleteConfirmation: '' });
+  };
+
+  // @dnd-kit sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  // Handle drag end for account reordering
+  const handleAccountDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (active.id !== over?.id && over) {
+      const oldIndex = accountNamesModal.accounts.findIndex(account => account.id === active.id);
+      const newIndex = accountNamesModal.accounts.findIndex(account => account.id === over.id);
+      
+      const reorderedAccounts = arrayMove(accountNamesModal.accounts, oldIndex, newIndex);
+      
+      // Update order values
+      const accountsWithOrder = reorderedAccounts.map((account, index) => ({
+        ...account,
+        order: index
+      }));
+
+      setAccountNamesModal(prev => ({
+        ...prev,
+        accounts: accountsWithOrder
+      }));
+    }
   };
 
   // Add function to handle account deletion
@@ -2016,9 +2022,10 @@ export default function Page() {
               isOpen: true,
               accounts: accounts
                 .filter(acc => acc.plaid_account_id)
-                .map(acc => ({
+                .map((acc, index) => ({
                   id: acc.plaid_account_id || '',
-                  name: acc.plaid_account_name || acc.name || 'Unknown Account'
+                  name: acc.plaid_account_name || acc.name || 'Unknown Account',
+                  order: index
                 })),
               accountToDelete: null,
               deleteConfirmation: ''
@@ -2073,7 +2080,7 @@ export default function Page() {
                 onClick={() => setImportModal(prev => ({ ...prev, isOpen: false }))}
                 className="text-gray-500 hover:text-gray-700"
               >
-                <XMarkIcon className="w-4 h-4" />
+                <X className="w-4 h-4" />
               </button>
             </div>
             
@@ -2147,8 +2154,8 @@ export default function Page() {
                       </div>
                       <div 
                         className={`border-2 border-dashed border-gray-300 rounded-lg p-6 text-center transition-colors duration-200 ${!importModal.selectedAccount ? 'opacity-50' : 'hover:border-gray-400'}`}
-                        onDragOver={handleDragOver}
-                        onDrop={handleDrop}
+                        onDragOver={handleCsvDragOver}
+                        onDrop={handleCsvDrop}
                       >
                         <input
                           type="file"
@@ -2375,7 +2382,7 @@ export default function Page() {
                 onClick={() => setEditModal({ isOpen: false, transaction: null })}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
-                <XMarkIcon className="w-4 h-4" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
@@ -2423,13 +2430,18 @@ export default function Page() {
                 <input
                   type="number"
                   value={editModal.transaction.spent ?? 0}
-                  onChange={(e) => setEditModal(prev => ({
-                    ...prev,
-                    transaction: prev.transaction ? {
-                      ...prev.transaction,
-                      spent: parseFloat(e.target.value) || 0
-                    } : null
-                  }))}
+                  onChange={(e) => {
+                    const spentValue = parseFloat(e.target.value) || 0;
+                    setEditModal(prev => ({
+                      ...prev,
+                      transaction: prev.transaction ? {
+                        ...prev.transaction,
+                        spent: spentValue,
+                        // Clear received when spent has a value
+                        received: spentValue > 0 ? 0 : prev.transaction.received
+                      } : null
+                    }));
+                  }}
                   className="w-full border px-2 py-1 rounded text-xs"
                 />
               </div>
@@ -2441,13 +2453,18 @@ export default function Page() {
                 <input
                   type="number"
                   value={editModal.transaction.received ?? 0}
-                  onChange={(e) => setEditModal(prev => ({
-                    ...prev,
-                    transaction: prev.transaction ? {
-                      ...prev.transaction,
-                      received: parseFloat(e.target.value) || 0
-                    } : null
-                  }))}
+                  onChange={(e) => {
+                    const receivedValue = parseFloat(e.target.value) || 0;
+                    setEditModal(prev => ({
+                      ...prev,
+                      transaction: prev.transaction ? {
+                        ...prev.transaction,
+                        received: receivedValue,
+                        // Clear spent when received has a value
+                        spent: receivedValue > 0 ? 0 : prev.transaction.spent
+                      } : null
+                    }));
+                  }}
                   className="w-full border px-2 py-1 rounded text-xs"
                 />
               </div>
@@ -2551,7 +2568,7 @@ export default function Page() {
                 onClick={() => setAccountEditModal({ isOpen: false, account: null, newName: '' })}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
-                <XMarkIcon className="w-4 h-4" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
@@ -2600,7 +2617,7 @@ export default function Page() {
                 onClick={() => setNewCategoryModal({ isOpen: false, name: '', type: 'Expense', parent_id: null, transactionId: null })}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
-                <XMarkIcon className="w-4 h-4" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
@@ -2696,7 +2713,7 @@ export default function Page() {
                 onClick={() => setNewPayeeModal({ isOpen: false, name: '', transactionId: null })}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
-                <XMarkIcon className="w-4 h-4" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
@@ -2746,7 +2763,7 @@ export default function Page() {
                 onClick={() => setManualAccountModal({ isOpen: false, name: '', type: 'Asset', startingBalance: '0' })}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
-                <XMarkIcon className="w-4 h-4" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
@@ -2820,89 +2837,69 @@ export default function Page() {
       {accountNamesModal.isOpen && (
         <div 
           className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
-          onClick={() => setAccountNamesModal({ isOpen: false, accounts: [], accountToDelete: null, deleteConfirmation: '' })}
+                          onClick={() => setAccountNamesModal({ isOpen: false, accounts: [], accountToDelete: null, deleteConfirmation: '' })}
         >
           <div 
             className="bg-white rounded-lg p-6 w-[400px] overflow-y-auto shadow-xl"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Edit Accounts</h2>
+              <div>
+                <h2 className="text-lg font-semibold">Edit Accounts</h2>
+                <p className="text-sm text-gray-600">Drag accounts to reorder them</p>
+              </div>
               <button
                 onClick={() => setAccountNamesModal({ isOpen: false, accounts: [], accountToDelete: null, deleteConfirmation: '' })}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
-                <XMarkIcon className="w-4 h-4" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="space-y-4">
-              {accountNamesModal.accounts.map((account, index) => (
-                <div key={account.id} className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={account.name}
-                      onChange={(e) => {
+            <DndContext 
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleAccountDragEnd}
+            >
+              <SortableContext 
+                items={accountNamesModal.accounts.map(account => account.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                <div className="space-y-4">
+                  {accountNamesModal.accounts.map((account, index) => (
+                    <SortableAccountItem
+                      key={account.id}
+                      account={account}
+                      index={index}
+                      onNameChange={(value: string) => {
                         const newAccounts = [...accountNamesModal.accounts];
-                        newAccounts[index] = { ...account, name: e.target.value };
+                        newAccounts[index] = { ...account, name: value };
                         setAccountNamesModal(prev => ({
                           ...prev,
                           accounts: newAccounts
                         }));
                       }}
-                      className="flex-1 border px-2 py-1 rounded"
-                    />
-                    <button
-                      onClick={() => setAccountNamesModal(prev => ({
+                      onDelete={() => {
+                        if (accountNamesModal.deleteConfirmation === 'delete' && accountNamesModal.accountToDelete === account.id) {
+                          handleDeleteAccount(account.id);
+                        } else {
+                          setAccountNamesModal(prev => ({
+                            ...prev,
+                            accountToDelete: account.id
+                          }));
+                        }
+                      }}
+                      deleteConfirmation={accountNamesModal.deleteConfirmation}
+                      onDeleteConfirmationChange={(value: string) => setAccountNamesModal(prev => ({
                         ...prev,
-                        accountToDelete: account.id
+                        deleteConfirmation: value
                       }))}
-                      className="text-red-600 hover:text-red-800 px-2 py-1"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                  {accountNamesModal.accountToDelete === account.id && (
-                    <div className="bg-red-50 p-3 rounded border border-red-200">
-                      <p className="text-sm text-red-700 mb-2">
-                        Warning: This will permanently delete the account and all its transactions.
-                        Type &quot;delete&quot; to confirm.
-                      </p>
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          value={accountNamesModal.deleteConfirmation}
-                          onChange={(e) => setAccountNamesModal(prev => ({
-                            ...prev,
-                            deleteConfirmation: e.target.value
-                          }))}
-                          placeholder="Type 'delete' to confirm"
-                          className="flex-1 border px-2 py-1 rounded"
-                        />
-                        <button
-                          onClick={() => handleDeleteAccount(account.id)}
-                          disabled={accountNamesModal.deleteConfirmation !== 'delete'}
-                          className="px-3 py-1 bg-red-600 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          Confirm Delete
-                        </button>
-                        <button
-                          onClick={() => setAccountNamesModal(prev => ({
-                            ...prev,
-                            accountToDelete: null,
-                            deleteConfirmation: ''
-                          }))}
-                          className="px-3 py-1 border rounded"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  )}
+                      accountToDelete={accountNamesModal.accountToDelete}
+                    />
+                  ))}
                 </div>
-              ))}
-            </div>
+              </SortableContext>
+            </DndContext>
 
             <div className="flex justify-end mt-6">
               <button
@@ -2926,7 +2923,7 @@ export default function Page() {
                 onClick={() => setJournalEntryModal(prev => ({ ...prev, isOpen: false }))}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
-                <XMarkIcon className="w-4 h-4" />
+                <X className="w-4 h-4" />
               </button>
             </div>
             
@@ -3110,7 +3107,7 @@ export default function Page() {
                 onClick={() => setPastJournalEntriesModal(prev => ({ ...prev, isOpen: false }))}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
-                <XMarkIcon className="w-4 h-4" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
@@ -3180,7 +3177,7 @@ export default function Page() {
                 onClick={() => setEditJournalEntryModal({ isOpen: false, entry: null })}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
-                <XMarkIcon className="w-4 h-4" />
+                <X className="w-4 h-4" />
               </button>
             </div>
             
@@ -3413,14 +3410,23 @@ export default function Page() {
             )}
           </button>
           {(() => {
-          const selected = accounts.find(a => a.plaid_account_id === selectedAccountId);
-          if (!selected || selected.is_manual) return null;
-          return (
-            <span className="ml-4 text-gray-500 text-xs font-normal my-auto">
-              (Current Balance: ${currentBalance.toFixed(2)})
-            </span>
-          );
-        })()}
+            const selected = accounts.find(a => a.plaid_account_id === selectedAccountId);
+            if (!selected || selected.is_manual) return null;
+            return (
+              <div className="ml-4 flex items-center gap-3 my-auto">
+                <div className="flex items-center gap-1 px-2 py-1 bg-gray-50 border border-gray-200 rounded-md">
+                  <span className="text-gray-700 text-xs font-medium">Current Balance:</span>
+                  <span className="text-gray-900 text-xs font-semibold">${currentBalance.toFixed(2)}</span>
+                </div>
+                {activeTab === 'added' && (
+                  <div className="flex items-center gap-1 px-2 py-1 bg-gray-50 border border-gray-200 rounded-md">
+                    <span className="text-gray-700 text-xs font-medium">Switch Balance:</span>
+                    <span className="text-gray-900 text-xs font-semibold">${switchBalance.toFixed(2)}</span>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </nav>
       </div>
 
@@ -3483,7 +3489,6 @@ export default function Page() {
               </thead>
               <tbody>
                 {imported.map(tx => {
-                  const category = categories.find(c => c.id === selectedCategories[tx.id]);
                   return (
                     <tr key={tx.id}>
                       <td className="border p-1 w-8 text-center">
@@ -3814,7 +3819,7 @@ export default function Page() {
                 className="text-gray-500 hover:text-gray-700 text-xl"
                 disabled={importProgress.isImporting}
               >
-                <XMarkIcon className="w-4 h-4" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 

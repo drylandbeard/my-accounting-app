@@ -4,7 +4,8 @@ import { useAuth } from "@/components/AuthContext";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createCompany, updateUserEmail, updateUserPassword } from "@/lib/auth-client";
-import { XMarkIcon, PlusIcon, UserIcon, ArrowRightStartOnRectangleIcon } from "@heroicons/react/24/outline";
+import { X, Plus } from "lucide-react";
+import NavBar from "@/components/NavBar";
 
 interface CompanyModalProps {
   isOpen: boolean;
@@ -48,7 +49,7 @@ function CompanyModal({ isOpen, onClose, onCreateCompany }: CompanyModalProps) {
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600 transition-colors"
           >
-            <XMarkIcon className="w-4 h-4" />
+            <X className="w-4 h-4" />
           </button>
         </div>
         
@@ -110,8 +111,8 @@ function CompanyModal({ isOpen, onClose, onCreateCompany }: CompanyModalProps) {
   );
 }
 
-export default function Homepage() {
-  const { user, companies, setCurrentCompany, setCompanies, logout } = useAuth();
+export default function GatewayPage() {
+  const { user, companies, setCurrentCompany, setCompanies } = useAuth();
   const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
   const [showAccountSection, setShowAccountSection] = useState(false);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
@@ -249,10 +250,6 @@ export default function Homepage() {
     }
   };
 
-  const handleLogout = () => {
-    logout();
-  };
-
   const handleAccountClick = () => {
     setShowAccountSection(!showAccountSection);
     // Reset form when showing account section
@@ -281,247 +278,267 @@ export default function Homepage() {
   };
 
   return (
-    <main className="flex items-center justify-center min-h-screen">
-      <div className="text-center max-w-4xl mx-auto px-6">
-        {/* Header with action buttons */}
-        {user && (
-          <div className="flex justify-end gap-3 mb-8">
-            <button
-              onClick={handleAccountClick}
-              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:text-gray-800 border border-gray-300 rounded-md hover:border-gray-400 transition-colors"
-            >
-              <UserIcon className="w-4 h-4" />
-              {showAccountSection ? "Back to Companies" : "Account"}
-            </button>
-            <button
-              onClick={handleLogout}
-              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:text-gray-800 border border-gray-300 rounded-md hover:border-gray-400 transition-colors"
-            >
-              <ArrowRightStartOnRectangleIcon className="w-4 h-4" />
-              Logout
-            </button>
-          </div>
-        )}
-        
-        {user && (
-          <div className="mb-6">
-            <p className="text-lg text-gray-600 mb-2">
-              Hello, {user.email}!
-            </p>
-          </div>
-        )}
+    <>
+      <NavBar 
+        showAccountAction={handleAccountClick}
+        showAccountSection={showAccountSection}
+        isGatewayPage={true}
+      />
+      <main className="flex items-center justify-center min-h-screen">
+        <div className="text-center max-w-4xl mx-auto px-6">
+          {user && (
+            <div className="mb-6">
+              <p className="text-lg text-gray-600 mb-2">
+                Hello, {user.email}!
+              </p>
+            </div>
+          )}
 
-        {/* Account Section */}
-        {showAccountSection && user && (
-          <div className="mb-8 p-6 bg-gray-50 border border-gray-200 rounded-lg max-w-md mx-auto">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Account Details</h3>
-            
-            {emailForm.error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm mb-4">
-                {emailForm.error}
-              </div>
-            )}
-            {passwordForm.error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm mb-4">
-                {passwordForm.error}
-              </div>
-            )}
-            {(emailForm.success || passwordForm.success) && (
-              <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-md text-sm mb-4">
-                Profile updated successfully!
-              </div>
-            )}
+          {/* Account Section */}
+          {showAccountSection && user && (
+            <div className="mb-8 p-6 bg-gray-50 border border-gray-200 rounded-lg max-w-md mx-auto">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Account Details</h3>
+              
+              {emailForm.error && (
+                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm mb-4">
+                  {emailForm.error}
+                </div>
+              )}
+              {passwordForm.error && (
+                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm mb-4">
+                  {passwordForm.error}
+                </div>
+              )}
+              {(emailForm.success || passwordForm.success) && (
+                <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-md text-sm mb-4">
+                  Profile updated successfully!
+                </div>
+              )}
 
-            <div className="space-y-4 text-left">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Email Address
-                </label>
-                <input
-                  type="email"
-                  value={emailForm.email}
-                  onChange={(e) => setEmailForm(prev => ({ ...prev, email: e.target.value }))}
-                  disabled={!isEditingProfile}
-                  className={`w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 focus:border-black focus:outline-none focus:ring-black ${
-                    !isEditingProfile ? "bg-gray-50 text-gray-500" : ""
-                  }`}
-                />
-              </div>
-
-              {isEditingProfile ? (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Current Password
-                    </label>
-                    <input
-                      type="password"
-                      value={passwordForm.currentPassword}
-                      onChange={(e) => setPasswordForm(prev => ({ ...prev, currentPassword: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 focus:border-black focus:outline-none focus:ring-black"
-                      placeholder="Enter current password"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      New Password
-                    </label>
-                    <input
-                      type="password"
-                      value={passwordForm.newPassword}
-                      onChange={(e) => setPasswordForm(prev => ({ ...prev, newPassword: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 focus:border-black focus:outline-none focus:ring-black"
-                      placeholder="Enter new password"
-                      minLength={6}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Confirm New Password
-                    </label>
-                    <input
-                      type="password"
-                      value={passwordForm.confirmPassword}
-                      onChange={(e) => setPasswordForm(prev => ({ ...prev, confirmPassword: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 focus:border-black focus:outline-none focus:ring-black"
-                      placeholder="Confirm new password"
-                      minLength={6}
-                    />
-                  </div>
-                </>
-              ) : (
+              <div className="space-y-4 text-left">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Password
+                    Email Address
                   </label>
                   <input
-                    type="password"
-                    value="••••••••"
-                    disabled
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-gray-500"
-                  />
-                </div>
-              )}
-            </div>
-
-            <div className="mt-6">
-              {isEditingProfile ? (
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => {
-                      setIsEditingProfile(false);
-                      setEmailForm(prev => ({ ...prev, email: user.email, error: "", success: false }));
-                      setPasswordForm({
-                        currentPassword: "",
-                        newPassword: "",
-                        confirmPassword: "",
-                        isUpdating: false,
-                        error: "",
-                        success: false
-                      });
-                    }}
-                    className="flex-1 px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleUpdateProfile}
-                    disabled={emailForm.isUpdating || passwordForm.isUpdating}
-                    className="flex-1 px-4 py-2 text-sm font-medium text-white bg-black rounded-md hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {emailForm.isUpdating || passwordForm.isUpdating ? "Saving..." : "Save"}
-                  </button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => setIsEditingProfile(true)}
-                  className="w-full px-4 py-2 text-sm font-medium text-white bg-black rounded-md hover:bg-gray-800"
-                >
-                  Edit Profile
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-        
-        {/* Company Selection - only show when not in account section */}
-        {user && !showAccountSection && (
-          <div className="mb-8">
-            {companies.length > 0 ? (
-              <div className="space-y-6">
-                {/* Search Bar */}
-                <div className="max-w-md mx-auto">
-                  <input
-                    type="text"
-                    placeholder="Search companies..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 placeholder-gray-500 focus:border-gray-900 focus:outline-none focus:ring-gray-900 text-sm"
+                    type="email"
+                    value={emailForm.email}
+                    onChange={(e) => setEmailForm(prev => ({ ...prev, email: e.target.value }))}
+                    disabled={!isEditingProfile}
+                    className={`w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 focus:border-black focus:outline-none focus:ring-black ${
+                      !isEditingProfile ? "bg-gray-50 text-gray-500" : ""
+                    }`}
                   />
                 </div>
 
-                <div className="flex flex-col gap-3 max-w-lg mx-auto">
+                {isEditingProfile ? (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Current Password
+                      </label>
+                      <input
+                        type="password"
+                        value={passwordForm.currentPassword}
+                        onChange={(e) => setPasswordForm(prev => ({ ...prev, currentPassword: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 focus:border-black focus:outline-none focus:ring-black"
+                        placeholder="Enter current password"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        New Password
+                      </label>
+                      <input
+                        type="password"
+                        value={passwordForm.newPassword}
+                        onChange={(e) => setPasswordForm(prev => ({ ...prev, newPassword: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 focus:border-black focus:outline-none focus:ring-black"
+                        placeholder="Enter new password"
+                        minLength={6}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Confirm New Password
+                      </label>
+                      <input
+                        type="password"
+                        value={passwordForm.confirmPassword}
+                        onChange={(e) => setPasswordForm(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 focus:border-black focus:outline-none focus:ring-black"
+                        placeholder="Confirm new password"
+                        minLength={6}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Password
+                    </label>
+                    <input
+                      type="password"
+                      value="••••••••"
+                      disabled
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-gray-500"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-6">
+                {isEditingProfile ? (
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => {
+                        setIsEditingProfile(false);
+                        setEmailForm(prev => ({ ...prev, email: user.email, error: "", success: false }));
+                        setPasswordForm({
+                          currentPassword: "",
+                          newPassword: "",
+                          confirmPassword: "",
+                          isUpdating: false,
+                          error: "",
+                          success: false
+                        });
+                      }}
+                      className="flex-1 px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleUpdateProfile}
+                      disabled={emailForm.isUpdating || passwordForm.isUpdating}
+                      className="flex-1 px-4 py-2 text-sm font-medium text-white bg-black rounded-md hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {emailForm.isUpdating || passwordForm.isUpdating ? "Saving..." : "Save"}
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setIsEditingProfile(true)}
+                    className="w-full px-4 py-2 text-sm font-medium text-white bg-black rounded-md hover:bg-gray-800"
+                  >
+                    Edit Profile
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+          
+          {/* Company Selection - only show when not in account section */}
+          {user && !showAccountSection && (
+            <div className="mb-8">
+              {companies.length > 0 ? (
+                <div className="space-y-4 max-w-4xl mx-auto">
                   {/* Add Company Button */}
-                  <button
-                    onClick={() => setIsCompanyModalOpen(true)}
-                    className="p-3 border border-dashed border-gray-300 rounded-md hover:border-gray-900 hover:bg-gray-50 transition-all text-center text-gray-600 hover:text-gray-900"
-                  >
-                    <PlusIcon className="w-5 h-5 mx-auto mb-1" />
-                    <span className="text-sm">Add Company</span>
-                  </button>
+                  <div className="flex justify-start">
+                    <button
+                      onClick={() => setIsCompanyModalOpen(true)}
+                      className="flex items-center gap-1 text-sm text-gray-700 hover:text-black transition-colors"
+                    >
+                      Add Company
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  </div>
 
-                  {companies
-                    .filter((userCompany) => 
+                  {/* Search Bar */}
+                  <div className="w-full">
+                    <input
+                      type="text"
+                      placeholder="Search companies..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 placeholder-gray-500 focus:border-gray-900 focus:outline-none focus:ring-gray-900 text-sm"
+                    />
+                  </div>
+
+                  {/* Company Table */}
+                  <div className="border border-gray-300 rounded-md overflow-hidden">
+                    <table className="w-full">
+                      <thead className="bg-gray-50 border-b border-gray-300">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                            Company
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                            Description
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                            Role
+                          </th>
+                          <th className="px-4 py-3 text-right text-xs font-medium text-gray-700 uppercase tracking-wider">
+                            Action
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {companies
+                          .filter((userCompany) => 
+                            userCompany.companies.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                            (userCompany.companies.description || "").toLowerCase().includes(searchQuery.toLowerCase())
+                          )
+                          .map((userCompany) => (
+                          <tr key={userCompany.company_id} className="hover:bg-gray-50">
+                            <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                              {userCompany.companies.name}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-600">
+                              {userCompany.companies.description || "-"}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-600">
+                              {userCompany.role}
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <button
+                                onClick={() => handleCompanySelect(userCompany.companies)}
+                                className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 transition-colors ml-auto"
+                              >
+                                Enter
+                                <span>→</span>
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    
+                    {companies.filter((userCompany) => 
                       userCompany.companies.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                       (userCompany.companies.description || "").toLowerCase().includes(searchQuery.toLowerCase())
-                    )
-                    .map((userCompany) => (
-                    <button
-                      key={userCompany.company_id}
-                      onClick={() => handleCompanySelect(userCompany.companies)}
-                      className="p-3 border border-gray-300 rounded-md hover:border-gray-900 hover:bg-gray-50 transition-all text-left"
-                    >
-                      <h4 className="font-medium text-gray-900">{userCompany.companies.name}</h4>
-                      {userCompany.companies.description && (
-                        <p className="text-sm text-gray-600 mt-1">{userCompany.companies.description}</p>
-                      )}
-                      <p className="text-xs text-gray-500 mt-1">Role: {userCompany.role}</p>
-                    </button>
-                  ))}
-                  {companies.filter((userCompany) => 
-                    userCompany.companies.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                    (userCompany.companies.description || "").toLowerCase().includes(searchQuery.toLowerCase())
-                  ).length === 0 && searchQuery && (
-                       <div className="text-center py-6">
-                          <p className="text-gray-500 text-sm">No companies found matching &ldquo;{searchQuery}&rdquo;</p>
-                       </div>
-                  )}
+                    ).length === 0 && searchQuery && (
+                      <div className="text-center py-6 bg-white">
+                        <p className="text-gray-500 text-sm">No companies found matching &ldquo;{searchQuery}&rdquo;</p>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ) : (
-              <div className="text-center">
-                <p className="text-gray-600 mb-4">
-                  You don&apos;t have any companies yet.
-                </p>
-                <button
-                  onClick={() => setIsCompanyModalOpen(true)}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-md hover:bg-gray-800 transition-colors"
-                >
-                  <PlusIcon className="w-4 h-4" />
-                  Create Company
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+              ) : (
+                <div className="text-center">
+                  <p className="text-gray-600 mb-4">
+                    You don&apos;t have any companies yet.
+                  </p>
+                  <button
+                    onClick={() => setIsCompanyModalOpen(true)}
+                    className="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-md hover:bg-gray-800 transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Create Company
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
-      {/* Company Modal */}
-      <CompanyModal
-        isOpen={isCompanyModalOpen}
-        onClose={() => setIsCompanyModalOpen(false)}
-        onCreateCompany={handleCreateCompany}
-      />
-    </main>
+        {/* Company Modal */}
+        <CompanyModal
+          isOpen={isCompanyModalOpen}
+          onClose={() => setIsCompanyModalOpen(false)}
+          onCreateCompany={handleCreateCompany}
+        />
+      </main>
+    </>
   );
 } 

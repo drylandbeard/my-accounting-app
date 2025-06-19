@@ -4,7 +4,18 @@ import React, { useState, useEffect } from "react";
 import { signIn } from "@/lib/auth-client";
 import { useAuth } from "./AuthContext";
 import { useRouter } from "next/navigation";
-import { CheckCircleIcon, XMarkIcon } from "@heroicons/react/24/outline";
+import { CheckCircle, X } from "lucide-react";
+import { GalleryVerticalEnd } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 export default function AuthForm() {
   const [isSignUp, setIsSignUp] = useState(false);
@@ -62,16 +73,8 @@ export default function AuthForm() {
         if (!response.ok) {
           setError(result.error);
         } else if (result.verificationSent) {
-          // Show email verification message and toast
-          setShowVerificationMessage(true);
-          
-          // Show toast notification
-          setToastMessage(`Verification email sent to ${email}! Please check your inbox and click the verification link to activate your account.`);
-          setShowToast(true);
-          
-          setEmail("");
-          setPassword("");
-          setConfirmPassword("");
+          // Redirect to verification page with email parameter
+          router.push(`/verify-email?email=${encodeURIComponent(email)}`);
         }
       } else {
         // Use client-safe signIn function (no email imports)
@@ -140,127 +143,148 @@ export default function AuthForm() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="max-w-md w-full space-y-8 p-8">
-        <div className="text-center">
-          <h2 className="mt-6 text-3xl font-bold text-gray-900">
-            {isSignUp ? "Create your account" : "Sign in to your account"}
-          </h2>
-          <p className="mt-2 text-sm text-gray-600">
-            Welcome to SWITCH Accounting
-          </p>
-        </div>
+    <div className="bg-muted flex min-h-svh flex-col items-center justify-center gap-6 p-6 md:p-10">
+      <div className="flex w-full max-w-sm flex-col gap-6">
+        <a href="#" className="flex items-center gap-2 self-center font-medium">
+          <div className="bg-primary text-primary-foreground flex size-6 items-center justify-center rounded-md">
+            <GalleryVerticalEnd className="size-4" />
+          </div>
+          Switch
+        </a>
         
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          {error && (
-            <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded text-sm">
-              {error}
-            </div>
-          )}
-          
-          {successMessage && (
-            <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded text-sm">
-              {successMessage}
-            </div>
-          )}
-
-          {showVerificationMessage && !isSignUp && (
-            <div className="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded text-sm">
-              <p className="mb-3">Your account needs email verification to sign in.</p>
-              <button
-                type="button"
-                onClick={handleResendVerification}
-                disabled={isResendingVerification}
-                className="text-blue-600 hover:text-blue-800 underline disabled:opacity-50"
-              >
-                {isResendingVerification ? "Sending..." : "Resend verification email"}
-              </button>
-            </div>
-          )}
-          
-          <div className="space-y-4">
-            <div>
-              <label htmlFor="email" className="sr-only">
-                Email address
-              </label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                autoComplete="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="relative block w-full rounded-md border border-gray-300 px-3 py-2 text-gray-900 placeholder-gray-500 focus:z-10 focus:border-black focus:outline-none focus:ring-black text-sm"
-                placeholder="Email address"
-              />
-            </div>
-            <div>
-              <label htmlFor="password" className="sr-only">
-                Password
-              </label>
-              <input
-                id="password"
-                name="password"
-                type="password"
-                autoComplete={isSignUp ? "new-password" : "current-password"}
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="relative block w-full border border-gray-300 px-3 py-2 text-gray-900 placeholder-gray-500 focus:z-10 focus:border-black focus:outline-none focus:ring-black text-sm rounded-md"
-                placeholder="Password"
-              />
-            </div>
-            {isSignUp && (
-              <div>
-                <label htmlFor="confirmPassword" className="sr-only">
-                  Confirm Password
-                </label>
-                <input
-                  id="confirmPassword"
-                  name="confirmPassword"
-                  type="password"
-                  autoComplete="new-password"
-                  required
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="relative block w-full rounded-md border border-gray-300 px-3 py-2 text-gray-900 placeholder-gray-500 focus:z-10 focus:border-black focus:outline-none focus:ring-black text-sm"
-                  placeholder="Confirm password"
-                />
-              </div>
-            )}
-          </div>
-
-          <div>
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="group relative flex w-full justify-center rounded-md border border-transparent bg-gray-600 py-2 px-4 text-sm font-medium text-white hover:bg-black focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isLoading ? "Processing..." : (isSignUp ? "Sign up" : "Sign in")}
-            </button>
-          </div>
-
-          <div className="text-center">
-            <button
-              type="button"
-              onClick={toggleMode}
-              className="text-gray-600 hover:text-gray-500 text-sm"
-            >
+        <Card>
+          <CardHeader className="text-center">
+            <CardTitle className="text-xl">
+              {isSignUp ? "Create your account" : "Welcome back"}
+            </CardTitle>
+            <CardDescription>
               {isSignUp 
-                ? "Already have an account? Sign in" 
-                : "Don't have an account? Sign up"
+                ? "Enter your details to create your account" 
+                : "Enter your credentials to access your account"
               }
-            </button>
-          </div>
-        </form>
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleSubmit}>
+              <div className="grid gap-6">
+                {/* Error Messages */}
+                {error && (
+                  <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded text-sm">
+                    {error}
+                  </div>
+                )}
+                
+                {successMessage && (
+                  <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded text-sm">
+                    {successMessage}
+                  </div>
+                )}
+
+                {showVerificationMessage && !isSignUp && (
+                  <div className="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded text-sm">
+                    <p className="mb-3">Your account needs email verification to sign in.</p>
+                    <button
+                      type="button"
+                      onClick={handleResendVerification}
+                      disabled={isResendingVerification}
+                      className="text-blue-600 hover:text-blue-800 underline disabled:opacity-50"
+                    >
+                      {isResendingVerification ? "Sending..." : "Resend verification email"}
+                    </button>
+                  </div>
+                )}
+
+                {/* Form Fields */}
+                <div className="grid gap-6">
+                  <div className="grid gap-3">
+                    <Label htmlFor="email">Email</Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      placeholder="me@example.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="grid gap-3">
+                    <Label htmlFor="password">Password</Label>
+                    <Input 
+                      id="password" 
+                      type="password" 
+                      placeholder="Enter your password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      autoComplete={isSignUp ? "new-password" : "current-password"}
+                      required 
+                    />
+                  </div>
+                  {isSignUp && (
+                    <div className="grid gap-3">
+                      <Label htmlFor="confirmPassword">Confirm Password</Label>
+                      <Input
+                        id="confirmPassword"
+                        type="password"
+                        placeholder="Confirm your password"
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        autoComplete="new-password"
+                        required
+                      />
+                    </div>
+                  )}
+                  <Button type="submit" className="w-full" disabled={isLoading}>
+                    {isLoading ? "Processing..." : (isSignUp ? "Sign up" : "Login")}
+                  </Button>
+                </div>
+                
+                <div className="text-center text-sm">
+                  {isSignUp ? (
+                    <>
+                      Already have an account?{" "}
+                      <button
+                        type="button"
+                        onClick={toggleMode}
+                        className="underline underline-offset-4 hover:text-primary"
+                      >
+                        Sign in
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      Don&apos;t have an account?{" "}
+                      <button
+                        type="button"
+                        onClick={toggleMode}
+                        className="underline underline-offset-4 hover:text-primary"
+                      >
+                        Sign up
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+        
+        <div className="text-muted-foreground text-center text-xs text-balance">
+          By continuing, you agree to our{" "}
+          <a href="#" className="underline underline-offset-4 hover:text-primary">
+            Terms of Service
+          </a>{" "}
+          and{" "}
+          <a href="#" className="underline underline-offset-4 hover:text-primary">
+            Privacy Policy
+          </a>.
+        </div>
       </div>
 
       {/* Toast Notification */}
       {showToast && (
         <div className="fixed top-4 right-4 z-50 max-w-md">
           <div className="bg-green-50 border border-green-200 rounded-lg shadow-lg p-4 flex items-start gap-3">
-            <CheckCircleIcon className="w-6 h-6 text-green-600 flex-shrink-0 mt-0.5" />
+                          <CheckCircle className="w-6 h-6 text-green-600 flex-shrink-0 mt-0.5" />
             <div className="flex-1">
               <h4 className="text-sm font-medium text-green-800">Email Sent!</h4>
               <p className="text-sm text-green-700 mt-1">{toastMessage}</p>
@@ -269,7 +293,7 @@ export default function AuthForm() {
               onClick={() => setShowToast(false)}
               className="text-green-400 hover:text-green-600 transition-colors"
             >
-              <XMarkIcon className="w-5 h-5" />
+                              <X className="w-5 h-5" />
             </button>
           </div>
         </div>

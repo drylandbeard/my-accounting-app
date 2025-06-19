@@ -24,6 +24,12 @@ export interface EmailVerificationData {
   userName?: string;
 }
 
+export interface EmailVerificationCodeData {
+  email: string;
+  verificationCode: string;
+  userName?: string;
+}
+
 export interface EmailInvitationData {
   email: string;
   invitationUrl: string;

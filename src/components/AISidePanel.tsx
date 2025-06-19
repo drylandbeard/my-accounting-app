@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useContext } from 'react';
-import { XMarkIcon, ChatBubbleLeftRightIcon } from '@heroicons/react/24/outline';
+import { X, MessageSquare } from 'lucide-react';
 import { SharedContext } from './SharedContext';
 import { useApiWithCompany } from '@/hooks/useApiWithCompany';
 import { tools } from '@/ai/tools';
@@ -306,7 +306,7 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
         onClick={() => setIsOpen(true)}
         className="fixed right-4 bottom-4 p-3 bg-blue-600 text-white rounded-full shadow-lg hover:bg-blue-700 transition-colors z-40"
       >
-        <ChatBubbleLeftRightIcon className="h-6 w-6" />
+                  <MessageSquare className="h-6 w-6" />
       </button>
     );
   }
@@ -329,7 +329,7 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
                 onClick={() => setIsOpen(false)}
               >
                 <span className="sr-only">Close panel</span>
-                <XMarkIcon className="h-6 w-6" aria-hidden="true" />
+                <X className="h-6 w-6" aria-hidden="true" />
               </button>
             </div>
           </div>
