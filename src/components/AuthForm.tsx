@@ -73,16 +73,8 @@ export default function AuthForm() {
         if (!response.ok) {
           setError(result.error);
         } else if (result.verificationSent) {
-          // Show email verification message and toast
-          setShowVerificationMessage(true);
-          
-          // Show toast notification
-          setToastMessage(`Verification email sent to ${email}! Please check your inbox and click the verification link to activate your account.`);
-          setShowToast(true);
-          
-          setEmail("");
-          setPassword("");
-          setConfirmPassword("");
+          // Redirect to verification page with email parameter
+          router.push(`/verify-email?email=${encodeURIComponent(email)}`);
         }
       } else {
         // Use client-safe signIn function (no email imports)
