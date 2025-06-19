@@ -2,6 +2,7 @@
 
 import { createContext, useState, useEffect, ReactNode } from 'react';
 import { supabase } from '@/lib/supabase';
+import { useApiWithCompany } from '@/hooks/useApiWithCompany';
 
 interface Transaction {
   id: string;
@@ -22,6 +23,7 @@ interface Category {
   type: string;
   subtype?: string;
   plaid_account_id?: string | null;
+  parent_id?: string | null;
 }
 
 interface Account {
@@ -48,6 +50,7 @@ export const AIContext = createContext<AIContextType>({
 });
 
 export default function AIContextProvider({ children }: { children: ReactNode }) {
+  const { hasCompanyContext, currentCompany } = useApiWithCompany();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -55,26 +58,31 @@ export default function AIContextProvider({ children }: { children: ReactNode })
 
   useEffect(() => {
     const fetchData = async () => {
+      if (!hasCompanyContext) return;
+
       const { data: txData } = await supabase
         .from('imported_transactions')
-        .select('*');
+        .select('*')
+        .eq('company_id', currentCompany!.id);
       setTransactions(txData || []);
 
       const { data: catData } = await supabase
         .from('chart_of_accounts')
-        .select('*');
+        .select('*')
+        .eq('company_id', currentCompany!.id);
       setCategories(catData || []);
 
       const { data: accData } = await supabase
         .from('accounts')
-        .select('*');
+        .select('*')
+        .eq('company_id', currentCompany!.id);
       setAccounts(accData || []);
       if (accData && accData.length > 0) {
         setCurrentAccount(accData[0]);
       }
     };
     fetchData();
-  }, []);
+  }, [hasCompanyContext, currentCompany?.id]);
 
   return (
     <AIContext.Provider value={{ transactions, categories, accounts, currentAccount }}>

@@ -6,7 +6,7 @@ import AuthForm from "./AuthForm";
 import NavBar from "./NavBar";
 import AISidePanel from "./AISidePanel";
 import { SelectedToAddProvider } from "./SelectedToAddContext";
-import SharedContext from "./SharedContext";
+import AISharedContext from "./AISharedContext";
 import { usePathname } from "next/navigation";
 
 export default function AuthenticatedApp({ children }: { children: React.ReactNode }) {
@@ -43,22 +43,22 @@ export default function AuthenticatedApp({ children }: { children: React.ReactNo
   // Show authenticated app
   return (
     <SelectedToAddProvider>
-      <SharedContext>
+      <AISharedContext>
         {/* Only show navbar if not on homepage */}
         {!isHomepage && <NavBar />}
         <div className={`flex ${isHomepage ? 'min-h-screen' : ''}`} style={isHomepage ? {} : { height: 'calc(100vh - 4rem)' }}>
           <main className={`flex-1 ${isHomepage ? '' : 'overflow-auto'}`}>
             {children}
           </main>
-          {isAIPanelOpen && !isHomepage && (
-            <AISidePanel isOpen={isAIPanelOpen} setIsOpen={setIsAIPanelOpen} />
-          )}
+          {/* 
+            The previous conditional rendering of AISidePanel caused it to unmount and remount,
+            losing its internal state (like chat history). 
+            By rendering a single instance, the state is preserved across open/close actions.
+            The component itself handles whether to show the full panel or just the "open" button.
+          */}
+          {!isHomepage && <AISidePanel isOpen={isAIPanelOpen} setIsOpen={setIsAIPanelOpen} />}
         </div>
-        {/* Always render the panel for floating button when closed, but not on homepage */}
-        {!isAIPanelOpen && !isHomepage && (
-          <AISidePanel isOpen={isAIPanelOpen} setIsOpen={setIsAIPanelOpen} />
-        )}
-      </SharedContext>
+      </AISharedContext>
     </SelectedToAddProvider>
   );
 } 
