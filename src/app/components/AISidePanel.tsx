@@ -49,7 +49,24 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
         return [];
       }
     }
-    return [];
+    // Return welcome message for new users
+    return [{
+      role: 'assistant',
+      content: `👋 Hey there! I'm your **continuous** accounting assistant agent. I'm always monitoring your workflow and looking for ways to optimize it!
+
+🔄 **Continuous Mode**: I'll automatically suggest improvements when you make changes, monitor for new transactions, and check in periodically to help enhance your accounting setup.
+
+I can help you:
+• Create and organize chart of account categories
+• Set up category hierarchies that make sense for your business
+• Proactively suggest optimizations as you work
+• Monitor changes and offer continuous improvements
+• Answer questions about accounting structure
+
+What kind of business are you running? I'd love to learn more so I can continuously provide tailored suggestions! 💡
+
+*Tip: Toggle the "🔄 Continuous" button in the header if you prefer manual-only assistance.*`
+    }];
   });
   const [inputMessage, setInputMessage] = useState('');
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
@@ -61,6 +78,15 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
   const [transactions, setTransactions] = useState<any[]>([]);
   const [accounts, setAccounts] = useState<any[]>([]);
   const { currentCompany, postWithCompany } = useApiWithCompany();
+  const [lastActivityTime, setLastActivityTime] = useState<number>(Date.now());
+  const [proactiveMode, setProactiveMode] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    const saved = localStorage.getItem('aiProactiveMode');
+    return saved !== null ? JSON.parse(saved) : true;
+  });
+  const [lastCategoriesHash, setLastCategoriesHash] = useState<string>('');
+  const [lastTransactionsCount, setLastTransactionsCount] = useState<number>(0);
+  const [recentProactiveMessages, setRecentProactiveMessages] = useState<Set<string>>(new Set());
 
   // Load saved panel width from localStorage
   useEffect(() => {
@@ -103,6 +129,112 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
   useEffect(() => {
     localStorage.setItem('aiPanelWidth', panelWidth.toString());
   }, [panelWidth]);
+
+  // Save proactive mode setting
+  useEffect(() => {
+    localStorage.setItem('aiProactiveMode', JSON.stringify(proactiveMode));
+  }, [proactiveMode]);
+
+  // Helper function to add proactive message without duplicates
+  const addProactiveMessage = (messageKey: string, content: string, delay: number = 2000) => {
+    if (recentProactiveMessages.has(messageKey)) return;
+    
+    setRecentProactiveMessages(prev => new Set(prev).add(messageKey));
+    
+    setTimeout(() => {
+      setMessages(prev => {
+        // Double-check the message hasn't been added already
+        const lastMessage = prev[prev.length - 1];
+        if (lastMessage?.role === 'assistant' && lastMessage.content.includes(content.substring(0, 50))) {
+          return prev;
+        }
+        return [...prev, { role: 'assistant', content }];
+      });
+    }, delay);
+
+    // Clear the message key after 5 minutes to allow future similar messages
+    setTimeout(() => {
+      setRecentProactiveMessages(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(messageKey);
+        return newSet;
+      });
+    }, 5 * 60 * 1000);
+  };
+
+  // Continuous monitoring - detect changes and proactively suggest improvements
+  useEffect(() => {
+    if (!proactiveMode || !currentCompany) return;
+    
+    const categoriesHash = JSON.stringify(categories.map(c => ({ id: c.id, name: c.name, type: c.type })));
+    const transactionsCount = transactions.length;
+    
+    // Check for category changes
+    if (lastCategoriesHash && lastCategoriesHash !== categoriesHash && categoriesHash !== '[]') {
+      const messageKey = `category-changes-${Date.now()}`;
+      const content = `🔍 I noticed you've made changes to your categories! Here are some suggestions to optimize further:
+
+• **Review category hierarchy**: Would you like me to suggest better parent-child relationships?
+• **Check for duplicates**: I can help identify any similar categories that could be merged
+• **Optimize for reporting**: Let's ensure your categories align with your reporting needs
+
+What would you like to focus on next? I'm here to help you continuously improve your accounting structure! 💡`;
+      
+      addProactiveMessage(messageKey, content, 2000);
+    }
+    
+    // Check for new transactions
+    if (lastTransactionsCount > 0 && transactionsCount > lastTransactionsCount) {
+      const newTransactionsCount = transactionsCount - lastTransactionsCount;
+      const messageKey = `new-transactions-${transactionsCount}`;
+      const content = `📊 I see you have ${newTransactionsCount} new transaction${newTransactionsCount > 1 ? 's' : ''} to categorize!
+
+Here's how I can help optimize this:
+• **Batch categorization**: I can help you quickly categorize similar transactions
+• **Create missing categories**: Need new categories for these transactions?
+• **Set up rules**: Want me to suggest automation for recurring transactions?
+
+Ready to tackle these together? What type of transactions are these mostly? 🚀`;
+      
+      addProactiveMessage(messageKey, content, 1500);
+    }
+    
+    setLastCategoriesHash(categoriesHash);
+    setLastTransactionsCount(transactionsCount);
+  }, [categories, transactions, lastCategoriesHash, lastTransactionsCount, proactiveMode, currentCompany, recentProactiveMessages]);
+
+  // Periodic check-ins to keep AI engaged
+  useEffect(() => {
+    if (!proactiveMode) return;
+    
+    const checkInInterval = setInterval(() => {
+      const timeSinceLastActivity = Date.now() - lastActivityTime;
+      const tenMinutes = 10 * 60 * 1000;
+      
+      // If user hasn't interacted in 10 minutes, send a helpful check-in
+      if (timeSinceLastActivity > tenMinutes && messages.length > 1) {
+        const checkInMessages = [
+          `👋 Still working on your accounting? I'm here if you need any suggestions for optimizing your categories or workflow!`,
+          `💡 Quick question: Have you considered setting up subcategories for better expense tracking? I can help organize them!`,
+          `📈 How's your financial organization going? I noticed some areas where we could improve efficiency - want to explore them?`,
+          `🎯 Ready to take your accounting to the next level? I have some ideas for optimizing your current setup!`
+        ];
+        
+        const randomMessage = checkInMessages[Math.floor(Math.random() * checkInMessages.length)];
+        const messageKey = `check-in-${Date.now()}`;
+        
+        addProactiveMessage(messageKey, randomMessage, 0);
+        setLastActivityTime(Date.now()); // Reset timer after check-in
+      }
+    }, 60000); // Check every minute
+    
+    return () => clearInterval(checkInInterval);
+  }, [lastActivityTime, messages.length, proactiveMode, recentProactiveMessages]);
+
+  // Update activity time on user interaction
+  const updateActivityTime = () => {
+    setLastActivityTime(Date.now());
+  };
 
   // Function to refresh/clear chat context
   const handleRefreshContext = () => {
@@ -157,7 +289,8 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
     oldName?: string;
     newName?: string;
     newType?: string;
-  }): Promise<string> {
+  }, skipRefresh: boolean = false, customCategories?: any[]): Promise<string> {
+    const categoriesToUse = customCategories || categories;
     if (action.action === 'categorize') {
       // Find the transaction and category by human-friendly fields
       const { date, amount, description, categoryName } = action;
@@ -167,7 +300,7 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
         (t.amount === amount || t.spent === amount || t.received === amount || t.amount === Number(amount) || t.spent === Number(amount) || t.received === Number(amount)) &&
         (description ? t.description === description : true)
       );
-      const category = categories.find((c) => c.name.toLowerCase() === categoryName?.toLowerCase());
+      const category = categoriesToUse.find((c) => c.name.toLowerCase() === categoryName?.toLowerCase());
       if (!tx) return `Could not find transaction with date ${date}, amount ${amount}${description ? ", description '" + description + "'" : ''}`;
       if (!category) return `Could not find category with name '${categoryName}'`;
 
@@ -175,7 +308,7 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
       const account = accounts.find((a) => a.plaid_account_id === tx.plaid_account_id);
       if (!account) return `Could not find account for transaction`;
       // Find the account in chart_of_accounts
-      const selectedAccount = categories.find((c) => c.plaid_account_id === tx.plaid_account_id);
+      const selectedAccount = categoriesToUse.find((c) => c.plaid_account_id === tx.plaid_account_id);
       if (!selectedAccount) return `Could not find chart of account for transaction`;
       const selectedAccountIdInCOA = selectedAccount.id;
 
@@ -193,8 +326,10 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
       // Remove from imported_transactions
       await supabase.from('imported_transactions').delete().eq('id', tx.id);
       await postWithCompany('/api/sync-journal', {});
-      // For now, reload the page to refresh context
-      await refreshCategories();
+      // Refresh categories unless we're in batch mode
+      if (!skipRefresh) {
+        await refreshCategories();
+      }
       return `Transaction "${tx.description}" categorized as "${category.name}".`;
     }
     
@@ -206,7 +341,9 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
       });
       
       if (result.success) {
-        await refreshCategories();
+        if (!skipRefresh) {
+          await refreshCategories();
+        }
         return `Successfully created category '${action.name}' with type '${action.type}'.`;
       } else {
         return `Error creating category: ${result.error}`;
@@ -218,11 +355,13 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
         oldName: action.oldName!,
         newName: action.newName!,
         companyId: currentCompany?.id,
-        categories
+        categories: categoriesToUse
       });
       
       if (result.success) {
-        await refreshCategories();
+        if (!skipRefresh) {
+          await refreshCategories();
+        }
         return `Successfully renamed category '${action.oldName}' to '${action.newName}'.`;
       } else {
         return `Error renaming category: ${result.error}`;
@@ -233,11 +372,13 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
       const result = await deleteCategoryHandler({
         name: action.name!,
         companyId: currentCompany?.id,
-        categories
+        categories: categoriesToUse
       });
       
       if (result.success) {
-        await refreshCategories();
+        if (!skipRefresh) {
+          await refreshCategories();
+        }
         return `Successfully deleted category '${action.name}'.`;
       } else {
         return `Error deleting category: ${result.error}`;
@@ -249,11 +390,13 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
         categoryName: action.categoryName!,
         newType: action.newType!,
         companyId: currentCompany?.id,
-        categories
+        categories: categoriesToUse
       });
       
       if (result.success) {
-        await refreshCategories();
+        if (!skipRefresh) {
+          await refreshCategories();
+        }
         return `Successfully changed category '${action.categoryName}' type to '${action.newType}'.`;
       } else {
         return `Error changing category type: ${result.error}`;
@@ -265,11 +408,13 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
         childName: action.categoryName!,
         parentName: action.parentCategoryName!,
         companyId: currentCompany?.id,
-        categories
+        categories: categoriesToUse
       });
       
       if (result.success) {
-        await refreshCategories(); // Instead of page reload
+        if (!skipRefresh) {
+          await refreshCategories();
+        }
         return `Successfully assigned category '${action.categoryName}' under parent category '${action.parentCategoryName}'.`;
       } else {
         return `Error assigning category: ${result.error}`;
@@ -295,42 +440,63 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
             : msg
         ));
         
-                 // Execute each action in sequence
-         for (let i = 0; i < pendingToolQueue.length; i++) {
-           const action = pendingToolQueue[i];
-           try {
-             // Update to show current action being processed
-             const processingMessage = currentMessage + `\n🔄 Processing action ${i + 1}...`;
-             setMessages(prev => prev.map((msg, idx) => 
-               idx === messageIndex 
-                 ? { ...msg, content: processingMessage }
-                 : msg
-             ));
-             
-             const result = await executeAction(action);
-             results.push(`${i + 1}. ${result}`);
-             currentMessage += `${i + 1}. ${result}\n`;
-             
-             // Categories are already refreshed in executeAction, no need to call again
-             
-             // Update message with progress
-             setMessages(prev => prev.map((msg, idx) => 
-               idx === messageIndex 
-                 ? { ...msg, content: currentMessage }
-                 : msg
-             ));
-           } catch (error) {
-             results.push(`${i + 1}. Error: ${error}`);
-             currentMessage += `${i + 1}. ❌ Error: ${error}\n`;
-             
-             // Update message with error
-             setMessages(prev => prev.map((msg, idx) => 
-               idx === messageIndex 
-                 ? { ...msg, content: currentMessage }
-                 : msg
-             ));
-           }
-         }
+        // Execute each action in sequence with proper async handling
+        for (let i = 0; i < pendingToolQueue.length; i++) {
+          const action = pendingToolQueue[i];
+          try {
+            // Update to show current action being processed
+            const processingMessage = currentMessage + `\n🔄 Processing action ${i + 1}...`;
+            setMessages(prev => prev.map((msg, idx) => 
+              idx === messageIndex 
+                ? { ...msg, content: processingMessage }
+                : msg
+            ));
+            
+            // For actions that depend on recently created categories, get fresh data
+            let freshCategories = categories;
+            if (action.action === 'assign_parent_category' && i > 0) {
+              // Refresh categories and wait for the update
+              await refreshCategories();
+              await new Promise(resolve => setTimeout(resolve, 1000));
+              
+              // Fetch fresh categories directly from database
+              if (currentCompany) {
+                const { data: freshCategoriesData } = await supabase
+                  .from('chart_of_accounts')
+                  .select('*')
+                  .eq('company_id', currentCompany.id);
+                freshCategories = freshCategoriesData || categories;
+              }
+            }
+            
+            const result = await executeAction(action, true, freshCategories);
+            results.push(`${i + 1}. ${result}`);
+            currentMessage += `${i + 1}. ${result}\n`;
+            
+            // CRITICAL: Wait for categories to be refreshed before next action
+            await refreshCategories();
+            
+            // Add a small delay to ensure state is updated
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            // Update message with progress
+            setMessages(prev => prev.map((msg, idx) => 
+              idx === messageIndex 
+                ? { ...msg, content: currentMessage }
+                : msg
+            ));
+          } catch (error) {
+            results.push(`${i + 1}. Error: ${error}`);
+            currentMessage += `${i + 1}. ❌ Error: ${error}\n`;
+            
+            // Update message with error
+            setMessages(prev => prev.map((msg, idx) => 
+              idx === messageIndex 
+                ? { ...msg, content: currentMessage }
+                : msg
+            ));
+          }
+        }
         
         // Clear the queue
         setPendingToolQueue([]);
@@ -387,6 +553,10 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
 
   const handleSendMessage = async () => {
     if (!inputMessage.trim()) return;
+    
+    // Update activity time on user interaction
+    updateActivityTime();
+    
     const newMessage: Message = {
       role: 'user',
       content: inputMessage,
@@ -727,9 +897,20 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
         <div className="px-4 py-6 sm:px-6">
           <div className="flex items-start justify-between">
             <div className="font-semibold leading-6 text-gray-900 text-xs">
-              AI Assistant
+              🤖 Agent
             </div>
-            <div className="ml-3 flex h-7 items-center">
+            <div className="ml-3 flex h-7 items-center space-x-2">
+              <button
+                onClick={() => setProactiveMode(!proactiveMode)}
+                className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                  proactiveMode 
+                    ? 'bg-green-100 text-green-800 hover:bg-green-200' 
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+                title={proactiveMode ? 'Continuous mode ON - I\'ll proactively suggest improvements' : 'Continuous mode OFF - I\'ll only respond when asked'}
+              >
+                {proactiveMode ? '🔄 Continuous' : '⏸️ Manual'}
+              </button>
               <button
                 type="button"
                 className="rounded-md bg-white text-gray-400 hover:text-gray-500"
@@ -810,13 +991,51 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
         </div>
 
         <div className="border-t border-gray-200 px-4 py-6 sm:px-6 text-xs">
+          {/* Quick suggestions for new users */}
+          {messages.length <= 1 && (
+            <div className="mb-3 text-xs text-gray-600">
+              <div className="text-gray-500 mb-2">💡 Try asking:</div>
+              <div className="space-y-1">
+                <button 
+                  onClick={() => {
+                    setInputMessage("What categories should I create for my business?");
+                    updateActivityTime();
+                  }}
+                  className="block w-full text-left px-2 py-1 rounded text-blue-600 hover:bg-blue-50 transition-colors"
+                >
+                  • What categories should I create for my business?
+                </button>
+                <button 
+                  onClick={() => {
+                    setInputMessage("How can I organize my expense categories better?");
+                    updateActivityTime();
+                  }}
+                  className="block w-full text-left px-2 py-1 rounded text-blue-600 hover:bg-blue-50 transition-colors"
+                >
+                  • How can I organize my expense categories better?
+                </button>
+                <button 
+                  onClick={() => {
+                    setInputMessage("What's the best way to structure my chart of accounts?");
+                    updateActivityTime();
+                  }}
+                  className="block w-full text-left px-2 py-1 rounded text-blue-600 hover:bg-blue-50 transition-colors"
+                >
+                  • What's the best way to structure my chart of accounts?
+                </button>
+              </div>
+            </div>
+          )}
           <div className="flex space-x-2">
             <input
               type="text"
               value={inputMessage}
-              onChange={(e) => setInputMessage(e.target.value)}
+              onChange={(e) => {
+                setInputMessage(e.target.value);
+                updateActivityTime();
+              }}
               onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-              placeholder="Type your message..."
+              placeholder="Ask me anything about your accounting setup..."
               className="flex-1 rounded-md border border-gray-300 px-3 py-2 focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-gray-500 text-xs"
             />
             <button
