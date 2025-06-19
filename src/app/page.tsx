@@ -431,9 +431,20 @@ export default function GatewayPage() {
           {user && !showAccountSection && (
             <div className="mb-8">
               {companies.length > 0 ? (
-                <div className="space-y-6">
+                <div className="space-y-4 max-w-4xl mx-auto">
+                  {/* Add Company Button */}
+                  <div className="flex justify-start">
+                    <button
+                      onClick={() => setIsCompanyModalOpen(true)}
+                      className="flex items-center gap-1 text-sm text-gray-700 hover:text-black transition-colors"
+                    >
+                      Add Company
+                      <PlusIcon className="w-4 h-4" />
+                    </button>
+                  </div>
+
                   {/* Search Bar */}
-                  <div className="max-w-md mx-auto">
+                  <div className="w-full">
                     <input
                       type="text"
                       placeholder="Search companies..."
@@ -443,41 +454,63 @@ export default function GatewayPage() {
                     />
                   </div>
 
-                  <div className="flex flex-col gap-3 max-w-lg mx-auto">
-                    {/* Add Company Button */}
-                    <button
-                      onClick={() => setIsCompanyModalOpen(true)}
-                      className="p-3 border border-dashed border-gray-300 rounded-md hover:border-gray-900 hover:bg-gray-50 transition-all text-center text-gray-600 hover:text-gray-900"
-                    >
-                      <PlusIcon className="w-5 h-5 mx-auto mb-1" />
-                      <span className="text-sm">Add Company</span>
-                    </button>
-
-                    {companies
-                      .filter((userCompany) => 
-                        userCompany.companies.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                        (userCompany.companies.description || "").toLowerCase().includes(searchQuery.toLowerCase())
-                      )
-                      .map((userCompany) => (
-                      <button
-                        key={userCompany.company_id}
-                        onClick={() => handleCompanySelect(userCompany.companies)}
-                        className="p-3 border border-gray-300 rounded-md hover:border-gray-900 hover:bg-gray-50 transition-all text-left"
-                      >
-                        <h4 className="font-medium text-gray-900">{userCompany.companies.name}</h4>
-                        {userCompany.companies.description && (
-                          <p className="text-sm text-gray-600 mt-1">{userCompany.companies.description}</p>
-                        )}
-                        <p className="text-xs text-gray-500 mt-1">Role: {userCompany.role}</p>
-                      </button>
-                    ))}
+                  {/* Company Table */}
+                  <div className="border border-gray-300 rounded-md overflow-hidden">
+                    <table className="w-full">
+                      <thead className="bg-gray-50 border-b border-gray-300">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                            Company
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                            Description
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                            Role
+                          </th>
+                          <th className="px-4 py-3 text-right text-xs font-medium text-gray-700 uppercase tracking-wider">
+                            Action
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {companies
+                          .filter((userCompany) => 
+                            userCompany.companies.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                            (userCompany.companies.description || "").toLowerCase().includes(searchQuery.toLowerCase())
+                          )
+                          .map((userCompany) => (
+                          <tr key={userCompany.company_id} className="hover:bg-gray-50">
+                            <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                              {userCompany.companies.name}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-600">
+                              {userCompany.companies.description || "-"}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-600">
+                              {userCompany.role}
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <button
+                                onClick={() => handleCompanySelect(userCompany.companies)}
+                                className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 transition-colors ml-auto"
+                              >
+                                Enter
+                                <span>→</span>
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    
                     {companies.filter((userCompany) => 
                       userCompany.companies.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                       (userCompany.companies.description || "").toLowerCase().includes(searchQuery.toLowerCase())
                     ).length === 0 && searchQuery && (
-                         <div className="text-center py-6">
-                            <p className="text-gray-500 text-sm">No companies found matching &ldquo;{searchQuery}&rdquo;</p>
-                         </div>
+                      <div className="text-center py-6 bg-white">
+                        <p className="text-gray-500 text-sm">No companies found matching &ldquo;{searchQuery}&rdquo;</p>
+                      </div>
                     )}
                   </div>
                 </div>
