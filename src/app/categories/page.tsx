@@ -5,7 +5,7 @@ import { supabase } from "../../lib/supabase";
 import { useApiWithCompany } from "@/hooks/useApiWithCompany";
 import Papa from "papaparse";
 import { v4 as uuidv4 } from "uuid";
-import { XMarkIcon } from "@heroicons/react/24/outline";
+import { X } from 'lucide-react'
 
 const ACCOUNT_TYPES = [
     "Asset",
@@ -1217,7 +1217,7 @@ export default function ChartOfAccountsPage() {
                                 }
                                 className="text-gray-500 hover:text-gray-700"
                             >
-                                <XMarkIcon className="w-4 h-4" />
+                                <X className="w-4 h-4" />
                             </button>
                         </div>
 
@@ -1634,7 +1634,7 @@ export default function ChartOfAccountsPage() {
                                 }
                                 className="text-gray-500 hover:text-gray-700"
                             >
-                                <XMarkIcon className="w-4 h-4" />
+                                <X className="w-4 h-4" />
                             </button>
                         </div>
 
