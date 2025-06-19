@@ -1249,9 +1249,11 @@ export default function Page() {
   const accountName = accounts.find(a => a.plaid_account_id === selectedAccountId)?.plaid_account_name || ''
   const currentBalance = accounts.find(a => a.plaid_account_id === selectedAccountId)?.current_balance || 0
 
-  // Calculate the Switch (Accounting) Balance for the selected account
-  // Simply total received minus total spent
-  const switchBalance = transactions.reduce((sum, tx) => {
+  // Calculate the Switch Balance for the selected account (only for Added tab)
+  // Only sum confirmed transactions - starting balance is included as a "Starting Balance" transaction
+  const confirmedAccountTransactions = confirmed.filter(tx => tx.plaid_account_id === selectedAccountId);
+  
+  const switchBalance = confirmedAccountTransactions.reduce((sum, tx) => {
     return sum + (tx.received ?? 0) - (tx.spent ?? 0);
   }, 0);
 
@@ -3569,14 +3571,23 @@ export default function Page() {
             )}
           </button>
           {(() => {
-          const selected = accounts.find(a => a.plaid_account_id === selectedAccountId);
-          if (!selected || selected.is_manual) return null;
-          return (
-            <span className="ml-4 text-gray-500 text-xs font-normal my-auto">
-              (Current Balance: ${currentBalance.toFixed(2)})
-            </span>
-          );
-        })()}
+            const selected = accounts.find(a => a.plaid_account_id === selectedAccountId);
+            if (!selected || selected.is_manual) return null;
+            return (
+              <div className="ml-4 flex items-center gap-3 my-auto">
+                <div className="flex items-center gap-1 px-2 py-1 bg-gray-50 border border-gray-200 rounded-md">
+                  <span className="text-gray-700 text-xs font-medium">Current Balance:</span>
+                  <span className="text-gray-900 text-xs font-semibold">${currentBalance.toFixed(2)}</span>
+                </div>
+                {activeTab === 'added' && (
+                  <div className="flex items-center gap-1 px-2 py-1 bg-gray-50 border border-gray-200 rounded-md">
+                    <span className="text-gray-700 text-xs font-medium">Switch Balance:</span>
+                    <span className="text-gray-900 text-xs font-semibold">${switchBalance.toFixed(2)}</span>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </nav>
       </div>
 
