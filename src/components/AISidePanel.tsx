@@ -1,12 +1,8 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
-/* eslint-disable prefer-const */
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
 'use client';
 
 import { useState, useEffect, useRef, useContext } from 'react';
 import { supabase } from '@/lib/supabase';
-import { X, MessageSquare, RefreshCcw } from 'lucide-react';
+import { X, RefreshCcw } from 'lucide-react';
 import { AISharedContext } from './AISharedContext';
 import { useApiWithCompany } from '@/hooks/useApiWithCompany';
 import { tools } from '@/ai/tools';
@@ -882,14 +878,7 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
   };
 
   if (!isOpen) {
-    return (
-      <button
-        onClick={() => setIsOpen(true)}
-        className="fixed right-4 bottom-4 p-3 bg-blue-600 text-white rounded-full shadow-lg hover:bg-blue-700 transition-colors z-40"
-      >
-                  <MessageSquare className="h-6 w-6" />
-      </button>
-    );
+    return null;
   }
 
   return (
