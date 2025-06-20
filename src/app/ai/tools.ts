@@ -54,8 +54,10 @@ export const tools = [
         type: 'object',
         properties: {
           name: { type: 'string', description: 'The name of the category to delete' },
+          type: { type: 'string', description: 'The type of the category (for create)' },
         },
         required: ['name'],
+        optional: ['type'],
       },
     },
   },
@@ -151,4 +153,32 @@ export const tools = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'batch_category_operations',
+      description: 'Perform multiple category operations (create, assign parent, etc.) in a single call.',
+      parameters: {
+        type: 'object',
+        properties: {
+          operations: {
+            type: 'array',
+            description: 'List of operations to perform',
+            items: {
+              type: 'object',
+              properties: {
+                action: { type: 'string', description: 'The action to perform (create, assign_parent)' },
+                name: { type: 'string', description: 'The name of the category' },
+                type: { type: 'string', description: 'The type of the category (for create)' },
+                parentName: { type: 'string', description: 'The parent category name (for assign_parent)' },
+                companyId: { type: 'string', description: 'The company ID' },
+              },
+              required: ['action', 'name'],
+            },
+          },
+        },
+        required: ['operations'],
+      },
+    },
+  }
 ]; 

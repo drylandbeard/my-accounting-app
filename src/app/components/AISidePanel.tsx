@@ -15,6 +15,7 @@ import { useAuth } from './AuthContext';
 import { reassignParentCategoryHandler } from '../ai/functions/reassignParentCategory';
 import { createMultipleCategoriesHandler } from '../ai/functions/createMultipleCategories';
 import { deleteMultipleCategoriesHandler } from '../ai/functions/deleteCategory';
+import { batchCategoryOperationsHandler, BatchCategoryOperation } from '../ai/functions/batchCategoryOperations';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -34,13 +35,14 @@ interface ToolCall {
 }
 
 type PendingToolArgs =
-  | { type: 'create_category'; args: any }
-  | { type: 'rename_category'; args: any }
-  | { type: 'assign_parent_category'; args: any }
-  | { type: 'delete_category'; args: any }
-  | { type: 'reassign_parent_category'; args: any }
-  | { type: 'create_multiple_categories'; args: any }
-  | { type: 'delete_multiple_categories'; args: any };
+  | { type: 'create_category'; args: Record<string, any> }
+  | { type: 'rename_category'; args: Record<string, any> }
+  | { type: 'assign_parent_category'; args: Record<string, any> }
+  | { type: 'delete_category'; args: Record<string, any> }
+  | { type: 'reassign_parent_category'; args: Record<string, any> }
+  | { type: 'create_multiple_categories'; args: Record<string, any> }
+  | { type: 'delete_multiple_categories'; args: Record<string, any> }
+  | { type: 'batch_category_operations'; args: { operations: BatchCategoryOperation[] } };
 
 const DEFAULT_PANEL_WIDTH = 400;
 const MIN_PANEL_WIDTH = 300;
@@ -182,9 +184,9 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
       const aiResponse = choice?.message?.content?.trim() || 'Sorry, I could not generate a response.';
 
       if (toolCalls && toolCalls.length > 0) {
-        setPendingToolQueue(toolCalls);
+        setPendingToolQueue(toolCalls as ToolCall[]);
         // Set up the first tool's args for confirmation
-        const firstTool = toolCalls[0];
+        const firstTool = toolCalls[0] as ToolCall;
         if (firstTool.function?.name === 'create_category') {
           setPendingToolArgs({ type: 'create_category', args: JSON.parse(firstTool.function.arguments) });
           setMessages((prev) => [
@@ -223,7 +225,15 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
           setPendingToolArgs({ type: 'delete_category', args: JSON.parse(firstTool.function.arguments) });
           setMessages((prev) => [
             ...prev.slice(0, -1),
-            { role: 'assistant', content: `To confirm, I will delete the category "${JSON.parse(firstTool.function.arguments).name}". Please press confirm.` }
+            { 
+              role: 'assistant', 
+              content: (() => {
+                const args = JSON.parse(firstTool.function.arguments);
+                return `To confirm, I will delete the category "${args.name}"` +
+                  (args.type ? ` with type "${args.type}"` : '') +
+                  `. Please press confirm.`;
+              })()
+            }
           ]);
         } else if (firstTool.function?.name === 'change_category_type') {
           setPendingToolArgs({ type: 'change_category_type', args: JSON.parse(firstTool.function.arguments) });
@@ -239,6 +249,32 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
             { role: 'assistant', content: args.parentName === null || args.parentName === ''
               ? `To confirm, I will make "${args.childName}" a root category (remove its parent). Please press confirm.`
               : `To confirm, I will reassign the parent of "${args.childName}" to "${args.parentName}". Please press confirm.` }
+          ]);
+        } else if (firstTool.function?.name === 'batch_category_operations') {
+          setPendingToolArgs({ type: 'batch_category_operations', args: JSON.parse(firstTool.function.arguments) });
+          const args = JSON.parse(firstTool.function.arguments);
+          const summary = args.operations.map((op: BatchCategoryOperation) => {
+            if (op.action === 'create') {
+              return `Create category "${op.name}" (${op.type})`;
+            } else if (op.action === 'assign_parent') {
+              return `Assign "${op.name}" as a subcategory of "${op.parentName}"`;
+            } else if (op.action === 'rename') {
+              return `Rename "${op.name}" to "${op.newName}"`;
+            } else if (op.action === 'delete') {
+              return `Delete category "${op.name}"`;
+            } else if (op.action === 'change_type') {
+              return `Change type of "${op.name}" to "${op.newType}"`;
+            } else if (op.action === 'reassign_parent') {
+              return op.parentName === null || op.parentName === ''
+                ? `Make "${op.name}" a root category`
+                : `Reassign parent of "${op.name}" to "${op.parentName}"`;
+            } else {
+              return `Unknown operation for "${op.name}"`;
+            }
+          }).join('; ');
+          setMessages((prev) => [
+            ...prev.slice(0, -1),
+            { role: 'assistant', content: `To confirm, I will perform the following operations: ${summary}. Please press confirm.` }
           ]);
         }
         return;
@@ -380,6 +416,36 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
         }
       ]);
       await refreshCategories();
+    } else if (pendingToolArgs.type === 'batch_category_operations') {
+      const operations = pendingToolArgs.args.operations;
+      const results = await batchCategoryOperationsHandler(operations, categories, currentCompany?.id || '');
+      const messagesArr = results.map((r: any) => {
+        if (r.result.success) {
+          switch (r.action) {
+            case 'create':
+              return `Category "${r.name}" created.`;
+            case 'assign_parent':
+              return `Assigned "${r.name}" as a subcategory.`;
+            case 'rename':
+              return `Renamed category to "${r.name}".`;
+            case 'delete':
+              return `Category "${r.name}" deleted.`;
+            case 'change_type':
+              return `Changed type of "${r.name}".`;
+            case 'reassign_parent':
+              return `Reassigned parent for "${r.name}".`;
+            default:
+              return `Operation on "${r.name}" succeeded.`;
+          }
+        } else {
+          return `Error with "${r.name}": ${r.result.error}`;
+        }
+      });
+      setMessages(prev => [
+        ...prev,
+        { role: 'assistant', content: messagesArr.join(' ') + ' Would you like to perform more operations?' }
+      ]);
+      await refreshCategories();
     }
     // Remove the first tool from the queue and set up the next one
     const newQueue = pendingToolQueue.slice(1);
@@ -424,7 +490,7 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
         setPendingToolArgs({ type: 'delete_category', args: JSON.parse(nextTool.function.arguments) });
         setMessages((prev) => [
           ...prev,
-          { role: 'assistant', content: `To confirm, I will delete the category "${JSON.parse(nextTool.function.arguments).name}". Please press confirm.` }
+          { role: 'assistant', content: `To confirm, I will delete the category "${JSON.parse(nextTool.function.arguments).name}" with type "${JSON.parse(nextTool.function.arguments).type}". Please press confirm.` }
         ]);
       } else if (nextTool.function?.name === 'change_category_type') {
         setPendingToolArgs({ type: 'change_category_type', args: JSON.parse(nextTool.function.arguments) });
@@ -440,6 +506,32 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
           { role: 'assistant', content: args.parentName === null || args.parentName === ''
             ? `To confirm, I will make "${args.childName}" a root category (remove its parent). Please press confirm.`
             : `To confirm, I will reassign the parent of "${args.childName}" to "${args.parentName}". Please press confirm.` }
+        ]);
+      } else if (nextTool.function?.name === 'batch_category_operations') {
+        setPendingToolArgs({ type: 'batch_category_operations', args: JSON.parse(nextTool.function.arguments) });
+        const args = JSON.parse(nextTool.function.arguments);
+        const summary = args.operations.map((op: BatchCategoryOperation) => {
+          if (op.action === 'create') {
+            return `Create category "${op.name}" (${op.type})`;
+          } else if (op.action === 'assign_parent') {
+            return `Assign "${op.name}" as a subcategory of "${op.parentName}"`;
+          } else if (op.action === 'rename') {
+            return `Rename "${op.name}" to "${op.newName}"`;
+          } else if (op.action === 'delete') {
+            return `Delete category "${op.name}"`;
+          } else if (op.action === 'change_type') {
+            return `Change type of "${op.name}" to "${op.newType}"`;
+          } else if (op.action === 'reassign_parent') {
+            return op.parentName === null || op.parentName === ''
+              ? `Make "${op.name}" a root category`
+              : `Reassign parent of "${op.name}" to "${op.parentName}"`;
+          } else {
+            return `Unknown operation for "${op.name}"`;
+          }
+        }).join('; ');
+        setMessages((prev) => [
+          ...prev,
+          { role: 'assistant', content: `To confirm, I will perform the following operations: ${summary}. Please press confirm.` }
         ]);
       }
     } else {
