@@ -11,6 +11,15 @@ import { useApiWithCompany } from '@/hooks/useApiWithCompany'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Select } from '@/components/ui/select'
 import { 
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+  PaginationEllipsis,
+} from '@/components/ui/pagination'
+import { 
   FinancialAmount, 
   formatAmount, 
   toFinancialAmount, 
@@ -257,6 +266,11 @@ export default function TransactionsPage() {
   // Add sorting state
   const [toAddSortConfig, setToAddSortConfig] = useState<SortConfig>({ key: null, direction: 'asc' });
   const [addedSortConfig, setAddedSortConfig] = useState<SortConfig>({ key: null, direction: 'asc' });
+
+  // Add pagination state
+  const ITEMS_PER_PAGE = 100;
+  const [toAddCurrentPage, setToAddCurrentPage] = useState(1);
+  const [addedCurrentPage, setAddedCurrentPage] = useState(1);
 
   // Add import modal state
   const [importModal, setImportModal] = useState<ImportModalState>({
@@ -793,7 +807,7 @@ export default function TransactionsPage() {
     
     const { data } = await supabase
       .from('imported_transactions')
-      .select('*')
+      .select('id, date, description, spent, received, plaid_account_id, plaid_account_name, selected_category_id, payee_id, company_id')
       .eq('company_id', currentCompany?.id)
       .neq('plaid_account_name', null)
     
@@ -823,7 +837,7 @@ export default function TransactionsPage() {
     
     const { data } = await supabase
       .from('transactions')
-      .select('*')
+      .select('id, date, description, spent, received, plaid_account_id, plaid_account_name, selected_category_id, corresponding_category_id, payee_id, company_id')
       .eq('company_id', currentCompany?.id)
       .neq('plaid_account_name', null)
     setTransactions(data || [])
@@ -834,7 +848,7 @@ export default function TransactionsPage() {
     
     const { data } = await supabase
       .from('chart_of_accounts')
-      .select('*')
+      .select('id, name, type, subtype, plaid_account_id')
       .eq('company_id', currentCompany?.id)
     setCategories(data || [])
   }
@@ -1102,6 +1116,83 @@ export default function TransactionsPage() {
     refreshAll()
   }, [currentCompany?.id]) // Refresh when company changes
 
+  // Add real-time subscriptions for live updates
+  useEffect(() => {
+    if (!hasCompanyContext || !currentCompany?.id) return;
+
+    const subscriptions: ReturnType<typeof supabase.channel>[] = [];
+
+    // Subscribe to imported transactions changes
+    const importedTxSubscription = supabase
+      .channel('imported_transactions_changes')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'imported_transactions',
+        filter: `company_id=eq.${currentCompany.id}`
+      }, (payload) => {
+        console.log('Imported transactions changed:', payload.eventType);
+        fetchImportedTransactions();
+      })
+      .subscribe();
+
+    // Subscribe to confirmed transactions changes
+    const confirmedTxSubscription = supabase
+      .channel('transactions_changes')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'transactions',
+        filter: `company_id=eq.${currentCompany.id}`
+      }, (payload) => {
+        console.log('Transactions changed:', payload.eventType);
+        fetchConfirmedTransactions();
+      })
+      .subscribe();
+
+    // Subscribe to categories changes
+    const categoriesSubscription = supabase
+      .channel('categories_changes')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'chart_of_accounts',
+        filter: `company_id=eq.${currentCompany.id}`
+      }, (payload) => {
+        console.log('Categories changed:', payload.eventType);
+        fetchCategories();
+      })
+      .subscribe();
+
+    // Subscribe to payees changes
+    const payeesSubscription = supabase
+      .channel('payees_changes')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'payees',
+        filter: `company_id=eq.${currentCompany.id}`
+      }, (payload) => {
+        console.log('Payees changed:', payload.eventType);
+        fetchPayees();
+      })
+      .subscribe();
+
+    subscriptions.push(
+      importedTxSubscription,
+      confirmedTxSubscription,
+      categoriesSubscription,
+      payeesSubscription
+    );
+
+    // Cleanup subscriptions on unmount or company change
+    return () => {
+      subscriptions.forEach(subscription => {
+        supabase.removeChannel(subscription);
+      });
+    };
+  }, [currentCompany?.id, hasCompanyContext]);
+
   // Apply automations automatically when transactions or related data changes (UI state only)
   useEffect(() => {
     if (importedTransactions.length > 0 && categories.length > 0 && payees.length > 0 && hasCompanyContext) {
@@ -1117,6 +1208,15 @@ export default function TransactionsPage() {
       applyAutomationsToTransactions();
     }
   }, [selectedAccountId, importedTransactions, categories, payees, hasCompanyContext]);
+
+  // Reset pagination when search queries change
+  useEffect(() => {
+    setToAddCurrentPage(1);
+  }, [toAddSearchQuery, selectedAccountId, toAddSortConfig]);
+
+  useEffect(() => {
+    setAddedCurrentPage(1);
+  }, [addedSearchQuery, selectedAccountId, addedSortConfig]);
 
   // 3️⃣ Actions
   const addTransaction = async (tx: Transaction, selectedCategoryId: string, selectedPayeeId?: string) => {
@@ -1348,8 +1448,19 @@ export default function TransactionsPage() {
   );
   const selectedAccountIdInCOA = selectedAccount?.id;
 
-  // Update the imported transactions to use sorting
-  const imported = sortTransactions(
+  // Helper function for pagination
+  const getPaginatedData = <T,>(data: T[], currentPage: number, itemsPerPage: number) => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    return {
+      paginatedData: data.slice(startIndex, endIndex),
+      totalPages: Math.ceil(data.length / itemsPerPage),
+      totalItems: data.length
+    };
+  };
+
+  // Update the imported transactions to use sorting and pagination
+  const importedFiltered = sortTransactions(
     importedTransactions
       .filter(tx => tx.plaid_account_id === selectedAccountId)
       .filter(tx => {
@@ -1378,8 +1489,14 @@ export default function TransactionsPage() {
     toAddSortConfig
   );
 
-  // Update the confirmed transactions to use sorting
-  const confirmed = sortTransactions(
+  const { paginatedData: imported, totalPages: toAddTotalPages } = getPaginatedData(
+    importedFiltered,
+    toAddCurrentPage,
+    ITEMS_PER_PAGE
+  );
+
+  // Update the confirmed transactions to use sorting and pagination
+  const confirmedFiltered = sortTransactions(
     transactions
       .filter(tx => {
         if (tx.plaid_account_id === selectedAccountId) return true;
@@ -1418,6 +1535,12 @@ export default function TransactionsPage() {
         );
       }),
     addedSortConfig
+  );
+
+  const { paginatedData: confirmed, totalPages: addedTotalPages } = getPaginatedData(
+    confirmedFiltered,
+    addedCurrentPage,
+    ITEMS_PER_PAGE
   );
 
   const currentBalance = toFinancialAmount(accounts.find(a => a.plaid_account_id === selectedAccountId)?.current_balance || '0.00')
@@ -2171,6 +2294,93 @@ export default function TransactionsPage() {
         transactions: [...prev.entry.transactions, { account_id: '', account_name: '', amount: 0, type: 'debit' }]
       } : null
     }));
+  };
+
+  // Custom Pagination Component matching button styling
+  const CustomPagination = ({ 
+    currentPage, 
+    totalPages, 
+    onPageChange 
+  }: { 
+    currentPage: number; 
+    totalPages: number; 
+    onPageChange: (page: number) => void;
+  }) => {
+    if (totalPages <= 1) return null;
+
+    const getVisiblePages = () => {
+      const delta = 2;
+      const range = [];
+      const rangeWithDots = [];
+
+      for (let i = Math.max(2, currentPage - delta); i <= Math.min(totalPages - 1, currentPage + delta); i++) {
+        range.push(i);
+      }
+
+      if (currentPage - delta > 2) {
+        rangeWithDots.push(1, '...');
+      } else {
+        rangeWithDots.push(1);
+      }
+
+      rangeWithDots.push(...range);
+
+      if (currentPage + delta < totalPages - 1) {
+        rangeWithDots.push('...', totalPages);
+      } else {
+        rangeWithDots.push(totalPages);
+      }
+
+      return rangeWithDots;
+    };
+
+    return (
+      <Pagination className="justify-start">
+        <PaginationContent className="gap-1">
+          <PaginationItem>
+            <PaginationPrevious 
+              onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+              className={`border px-3 py-1 rounded text-xs h-auto ${
+                currentPage === 1 
+                  ? 'bg-gray-50 text-gray-400 cursor-not-allowed' 
+                  : 'bg-gray-100 hover:bg-gray-200 cursor-pointer'
+              }`}
+            />
+          </PaginationItem>
+          
+          {getVisiblePages().map((page, index) => (
+            <PaginationItem key={index}>
+              {page === '...' ? (
+                <PaginationEllipsis className="border px-3 py-1 rounded text-xs h-auto bg-gray-100" />
+              ) : (
+                <PaginationLink
+                  onClick={() => onPageChange(page as number)}
+                  isActive={page === currentPage}
+                  className={`border px-3 py-1 rounded text-xs h-auto cursor-pointer ${
+                    page === currentPage
+                      ? 'bg-gray-200 text-gray-900 font-semibold'
+                      : 'bg-gray-100 hover:bg-gray-200'
+                  }`}
+                >
+                  {page}
+                </PaginationLink>
+              )}
+            </PaginationItem>
+          ))}
+          
+          <PaginationItem>
+            <PaginationNext 
+              onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
+              className={`border px-3 py-1 rounded text-xs h-auto ${
+                currentPage === totalPages 
+                  ? 'bg-gray-50 text-gray-400 cursor-not-allowed' 
+                  : 'bg-gray-100 hover:bg-gray-200 cursor-pointer'
+              }`}
+            />
+          </PaginationItem>
+        </PaginationContent>
+      </Pagination>
+    );
   };
 
   // Add helper functions for handling Enter key on react-select
@@ -3740,9 +3950,9 @@ export default function TransactionsPage() {
             }`}
           >
             To Add
-            {imported.length > 0 && (
+            {importedFiltered.length > 0 && (
               <span className="ml-2 bg-gray-100 text-gray-900 py-0.5 px-2 rounded-full text-xs">
-                {imported.length}
+                {importedFiltered.length}
               </span>
             )}
           </button>
@@ -3755,9 +3965,9 @@ export default function TransactionsPage() {
             }`}
           >
             Added
-            {confirmed.length > 0 && (
+            {confirmedFiltered.length > 0 && (
               <span className="ml-2 bg-gray-100 text-gray-900 py-0.5 px-2 rounded-full text-xs">
-                {confirmed.length}
+                {confirmedFiltered.length}
               </span>
             )}
           </button>
@@ -4011,6 +4221,18 @@ export default function TransactionsPage() {
                 })}
               </tbody>
             </table>
+            {/* Pagination for To Add table */}
+            <div className="mt-4 flex items-center justify-between">
+              <div className="text-sm text-gray-600">
+                Showing {imported.length} of {importedFiltered.length} transactions
+              </div>
+              <CustomPagination 
+                currentPage={toAddCurrentPage}
+                totalPages={toAddTotalPages}
+                onPageChange={setToAddCurrentPage}
+              />
+            </div>
+
             {selectedToAdd.size > 0 && (() => {
               const selectedTransactions = imported.filter(tx => selectedToAdd.has(tx.id));
               const hasValidCategories = selectedTransactions.every(tx => selectedCategories[tx.id]);
@@ -4190,6 +4412,18 @@ export default function TransactionsPage() {
                 })}
               </tbody>
             </table>
+            {/* Pagination for Added table */}
+            <div className="mt-4 flex items-center justify-between">
+              <div className="text-sm text-gray-600">
+                Showing {confirmed.length} of {confirmedFiltered.length} transactions
+              </div>
+              <CustomPagination 
+                currentPage={addedCurrentPage}
+                totalPages={addedTotalPages}
+                onPageChange={setAddedCurrentPage}
+              />
+            </div>
+
             {selectedAdded.size > 0 && (() => {
               const selectedConfirmed = confirmed.filter(tx => selectedAdded.has(tx.id));
               const isProcessing = isUndoingTransactions || selectedConfirmed.some(tx => processingTransactions.has(tx.id));
