@@ -45,7 +45,7 @@ export default function AuthenticatedApp({ children }: { children: React.ReactNo
     <SelectedToAddProvider>
       <AISharedContext>
         {/* Only show navbar if not on homepage */}
-        {!isHomepage && <NavBar />}
+        {!isHomepage && <NavBar onToggleAI={() => setIsAIPanelOpen(!isAIPanelOpen)} />}
         <div className={`flex ${isHomepage ? 'min-h-screen' : ''}`} style={isHomepage ? {} : { height: 'calc(100vh - 2.7rem)' }}>
           <main className={`flex-1 ${isHomepage ? '' : 'overflow-auto'}`}>
             {children}
