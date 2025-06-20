@@ -29,9 +29,10 @@ export async function createCategoryHelper(
       return { success: false, error: error.message };
     }
     return { success: true };
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Unexpected error creating category:', err);
-    return { success: false, error: err.message || 'Unknown error' };
+    const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+    return { success: false, error: errorMessage };
   }
 }
 

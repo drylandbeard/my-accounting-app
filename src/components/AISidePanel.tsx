@@ -7,7 +7,7 @@
 import { useState, useEffect, useRef, useContext } from 'react';
 import { supabase } from '@/lib/supabase';
 import { X, MessageSquare, RefreshCcw } from 'lucide-react';
-import { SharedContext } from './SharedContext';
+import { AISharedContext } from './AISharedContext';
 import { useApiWithCompany } from '@/hooks/useApiWithCompany';
 import { tools } from '@/ai/tools';
 import { categoryPrompt } from '@/ai/prompts';
@@ -76,7 +76,7 @@ What kind of business are you running? I'd love to learn more so I can continuou
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
   const [isResizing, setIsResizing] = useState(false);
   const resizeRef = useRef<HTMLDivElement>(null);
-  const { categories, refreshCategories } = useContext(SharedContext);
+  const { categories, refreshCategories } = useContext(AISharedContext);
   const [pendingToolQueue, setPendingToolQueue] = useState<any[]>([]);
   const [pendingToolArgs, setPendingToolArgs] = useState<any | null>(null);
   const [transactions, setTransactions] = useState<any[]>([]);

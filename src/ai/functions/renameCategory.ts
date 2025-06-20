@@ -5,7 +5,7 @@ export interface Category {
   id: string;
   name: string;
   type: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 // Helper: Renames a category in the chart_of_accounts table by id
@@ -27,9 +27,10 @@ export async function renameCategoryHelper(oldName: string, newName: string, com
       return { success: false, error: error.message };
     }
     return { success: true };
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Unexpected error renaming category:', err);
-    return { success: false, error: err.message || 'Unknown error' };
+    const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+    return { success: false, error: errorMessage };
   }
 }
 
