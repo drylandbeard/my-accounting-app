@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useContext, useCallback } from "react";
+import { useEffect, useState, useContext, useCallback, useRef } from "react";
 import { supabase } from "../../lib/supabase";
 import { useApiWithCompany } from "@/hooks/useApiWithCompany";
 import { AISharedContext } from "@/components/AISharedContext";
@@ -8,14 +8,7 @@ import Papa from "papaparse";
 import { v4 as uuidv4 } from "uuid";
 import { X } from "lucide-react";
 
-const ACCOUNT_TYPES = [
-  "Asset",
-  "Liability",
-  "Equity",
-  "Revenue",
-  "COGS",
-  "Expense",
-];
+const ACCOUNT_TYPES = ["Asset", "Liability", "Equity", "Revenue", "COGS", "Expense"];
 
 type Category = {
   id: string;
@@ -76,6 +69,7 @@ export default function ChartOfAccountsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [payeeSearch, setPayeeSearch] = useState("");
+  const categoriesTableRef = useRef<HTMLDivElement>(null);
 
   // Add new account state
   const [newName, setNewName] = useState("");
@@ -101,25 +95,23 @@ export default function ChartOfAccountsPage() {
   const [lastActionId, setLastActionId] = useState<string | null>(null);
 
   // Import modal state
-  const [categoryImportModal, setCategoryImportModal] =
-    useState<CategoryImportModalState>({
-      isOpen: false,
-      step: "upload",
-      csvData: [],
-      isLoading: false,
-      error: null,
-      selectedCategories: new Set(),
-    });
+  const [categoryImportModal, setCategoryImportModal] = useState<CategoryImportModalState>({
+    isOpen: false,
+    step: "upload",
+    csvData: [],
+    isLoading: false,
+    error: null,
+    selectedCategories: new Set(),
+  });
 
-  const [payeeImportModal, setPayeeImportModal] =
-    useState<PayeeImportModalState>({
-      isOpen: false,
-      step: "upload",
-      csvData: [],
-      isLoading: false,
-      error: null,
-      selectedPayees: new Set(),
-    });
+  const [payeeImportModal, setPayeeImportModal] = useState<PayeeImportModalState>({
+    isOpen: false,
+    step: "upload",
+    csvData: [],
+    isLoading: false,
+    error: null,
+    selectedPayees: new Set(),
+  });
 
   // Sorting state
   const [categorySortConfig, setCategorySortConfig] = useState<SortConfig>({
@@ -133,26 +125,26 @@ export default function ChartOfAccountsPage() {
 
   // AI Integration - Highlight a category and scroll to it
   const highlightCategory = useCallback((categoryId: string) => {
-    setHighlightedIds(prev => new Set([...prev, categoryId]));
+    setHighlightedIds((prev) => new Set([...prev, categoryId]));
     setLastActionId(categoryId);
-    
+
     setTimeout(() => {
       const element = document.getElementById(`category-${categoryId}`);
       if (element) {
-        element.scrollIntoView({ 
-          behavior: 'smooth', 
-          block: 'center' 
+        element.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
         });
       }
     }, 100);
-    
+
     setTimeout(() => {
-      setHighlightedIds(prev => {
+      setHighlightedIds((prev) => {
         const newSet = new Set(prev);
         newSet.delete(categoryId);
         return newSet;
       });
-      setLastActionId(currentId => (currentId === categoryId ? null : currentId));
+      setLastActionId((currentId) => (currentId === categoryId ? null : currentId));
     }, 3000);
   }, []);
 
@@ -164,13 +156,13 @@ export default function ChartOfAccountsPage() {
 
   const fetchParentOptions = useCallback(async () => {
     if (!hasCompanyContext || !currentCompany?.id) return;
-    
+
     const { data, error } = await supabase
       .from("chart_of_accounts")
       .select("*")
       .eq("company_id", currentCompany!.id)
       .is("parent_id", null);
-    
+
     if (error) {
       console.error("Error fetching parent options:", error);
     } else if (data) {
@@ -187,40 +179,40 @@ export default function ChartOfAccountsPage() {
   useEffect(() => {
     if (!hasCompanyContext || !currentCompany?.id) return;
 
-    console.log('Setting up real-time subscription for company:', currentCompany.id);
+    console.log("Setting up real-time subscription for company:", currentCompany.id);
 
     const channel = supabase
       .channel(`chart_of_accounts_${currentCompany.id}`)
       .on(
-        'postgres_changes',
+        "postgres_changes",
         {
-          event: '*',
-          schema: 'public',
-          table: 'chart_of_accounts',
-          filter: `company_id=eq.${currentCompany.id}`
+          event: "*",
+          schema: "public",
+          table: "chart_of_accounts",
+          filter: `company_id=eq.${currentCompany.id}`,
         },
         (payload) => {
-          console.log('Real-time change detected:', payload);
+          console.log("Real-time change detected:", payload);
           refreshCategories();
 
           let recordId: string | null = null;
-          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+          if (payload.eventType === "INSERT" || payload.eventType === "UPDATE") {
             recordId = payload.new.id;
           }
-          
+
           if (recordId) {
             highlightCategory(recordId);
           }
-          
+
           fetchParentOptions();
         }
       )
       .subscribe((status) => {
-        console.log('Subscription status:', status);
+        console.log("Subscription status:", status);
       });
 
     return () => {
-      console.log('Cleaning up real-time subscription');
+      console.log("Cleaning up real-time subscription");
       supabase.removeChannel(channel);
     };
   }, [currentCompany?.id, hasCompanyContext, highlightCategory, fetchParentOptions, refreshCategories]);
@@ -231,25 +223,15 @@ export default function ChartOfAccountsPage() {
 
     return [...categories].sort((a, b) => {
       if (sortConfig.key === "name") {
-        return sortConfig.direction === "asc"
-          ? a.name.localeCompare(b.name)
-          : b.name.localeCompare(a.name);
+        return sortConfig.direction === "asc" ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name);
       }
       if (sortConfig.key === "type") {
-        return sortConfig.direction === "asc"
-          ? a.type.localeCompare(b.type)
-          : b.type.localeCompare(a.type);
+        return sortConfig.direction === "asc" ? a.type.localeCompare(b.type) : b.type.localeCompare(a.type);
       }
       if (sortConfig.key === "parent") {
-        const aParent = a.parent_id
-          ? accounts.find((acc) => acc.id === a.parent_id)?.name || ""
-          : "";
-        const bParent = b.parent_id
-          ? accounts.find((acc) => acc.id === b.parent_id)?.name || ""
-          : "";
-        return sortConfig.direction === "asc"
-          ? aParent.localeCompare(bParent)
-          : bParent.localeCompare(aParent);
+        const aParent = a.parent_id ? accounts.find((acc) => acc.id === a.parent_id)?.name || "" : "";
+        const bParent = b.parent_id ? accounts.find((acc) => acc.id === b.parent_id)?.name || "" : "";
+        return sortConfig.direction === "asc" ? aParent.localeCompare(bParent) : bParent.localeCompare(aParent);
       }
       return 0;
     });
@@ -260,9 +242,7 @@ export default function ChartOfAccountsPage() {
 
     return [...payees].sort((a, b) => {
       if (sortConfig.key === "name") {
-        return sortConfig.direction === "asc"
-          ? a.name.localeCompare(b.name)
-          : b.name.localeCompare(a.name);
+        return sortConfig.direction === "asc" ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name);
       }
       return 0;
     });
@@ -271,16 +251,14 @@ export default function ChartOfAccountsPage() {
   const handleCategorySort = (key: "name" | "type" | "parent") => {
     setCategorySortConfig((current) => ({
       key,
-      direction:
-        current.key === key && current.direction === "asc" ? "desc" : "asc",
+      direction: current.key === key && current.direction === "asc" ? "desc" : "asc",
     }));
   };
 
   const handlePayeeSort = (key: "name") => {
     setPayeeSortConfig((current) => ({
       key,
-      direction:
-        current.key === key && current.direction === "asc" ? "desc" : "asc",
+      direction: current.key === key && current.direction === "asc" ? "desc" : "asc",
     }));
   };
 
@@ -309,8 +287,7 @@ export default function ChartOfAccountsPage() {
         const hasMatchingChild = accounts.some(
           (child) =>
             child.parent_id === account.id &&
-            (child.name.toLowerCase().includes(searchLower) ||
-              child.type.toLowerCase().includes(searchLower))
+            (child.name.toLowerCase().includes(searchLower) || child.type.toLowerCase().includes(searchLower))
         );
         return hasMatchingChild;
       }
@@ -321,9 +298,7 @@ export default function ChartOfAccountsPage() {
   );
 
   const filteredPayees = sortPayees(
-    payees.filter((payee) =>
-      payee.name.toLowerCase().includes(payeeSearch.toLowerCase())
-    ),
+    payees.filter((payee) => payee.name.toLowerCase().includes(payeeSearch.toLowerCase())),
     payeeSortConfig
   );
 
@@ -364,10 +339,7 @@ export default function ChartOfAccountsPage() {
 
   const handleDelete = async (id: string) => {
     // First check if this is a parent category
-    const { data: subcategories } = await supabase
-      .from("chart_of_accounts")
-      .select("id")
-      .eq("parent_id", id);
+    const { data: subcategories } = await supabase.from("chart_of_accounts").select("id").eq("parent_id", id);
 
     if (subcategories && subcategories.length > 0) {
       // This is a parent category, check if any subcategories have transactions
@@ -376,9 +348,9 @@ export default function ChartOfAccountsPage() {
         .from("transactions")
         .select("id")
         .or(
-          `selected_category_id.in.(${subcategoryIds.join(
+          `selected_category_id.in.(${subcategoryIds.join(",")}),corresponding_category_id.in.(${subcategoryIds.join(
             ","
-          )}),corresponding_category_id.in.(${subcategoryIds.join(",")})`
+          )})`
         )
         .limit(1);
 
@@ -414,10 +386,7 @@ export default function ChartOfAccountsPage() {
       }
     }
 
-    const { error } = await supabase
-      .from("chart_of_accounts")
-      .delete()
-      .eq("id", id);
+    const { error } = await supabase.from("chart_of_accounts").delete().eq("id", id);
     if (!error) {
       setEditingId(null);
       // Categories will be refreshed automatically via real-time subscription
@@ -467,41 +436,158 @@ export default function ChartOfAccountsPage() {
   const handleUpdate = async () => {
     if (!editingId) return;
 
-    // First get the current chart_of_accounts record to check if it has a plaid_account_id
-    const { data: currentAccount } = await supabase
-      .from("chart_of_accounts")
-      .select("plaid_account_id")
-      .eq("id", editingId)
-      .single();
+    // Get current values directly from the DOM to ensure we have the latest values
+    const getCurrentValues = () => {
+      if (!categoriesTableRef.current) {
+        console.log("No table ref, using state values");
+        return {
+          name: editName,
+          type: editType,
+          parent_id: editParentId,
+        };
+      }
 
-    // Update chart_of_accounts
-    const { error } = await supabase
-      .from("chart_of_accounts")
-      .update({
-        name: editName,
-        type: editType,
-        parent_id: editParentId,
-      })
-      .eq("id", editingId);
+      // Find the currently editing row by looking for input elements
+      const editingRow = categoriesTableRef.current.querySelector('tr input[type="text"]')?.closest("tr");
+      if (!editingRow) {
+        console.log("No editing row found, using state values");
+        return {
+          name: editName,
+          type: editType,
+          parent_id: editParentId,
+        };
+      }
 
-    if (!error) {
+      const nameInput = editingRow.querySelector('input[type="text"]') as HTMLInputElement;
+      const selects = editingRow.querySelectorAll("select") as NodeListOf<HTMLSelectElement>;
+      const typeSelect = selects[0]; // First select is type
+      const parentSelect = selects[1]; // Second select is parent
+
+      const name = nameInput?.value || editName;
+      const type = typeSelect?.value || editType;
+      let parent_id: string | null = parentSelect?.value || null;
+
+      // Convert empty string to null (for "No Parent" selection)
+      if (parent_id === "" || parent_id === undefined || parent_id === "null") {
+        console.log("Converting empty/undefined parent_id to null");
+        parent_id = null;
+      }
+
+      // Validate parent type matches category type - if not, clear parent
+      if (parent_id) {
+        const parentCategory = parentOptions.find((opt) => opt.id === parent_id);
+        if (parentCategory && parentCategory.type !== type) {
+          console.log(
+            `Clearing parent ${parentCategory.name} (${parentCategory.type}) because it doesn't match category type ${type}`
+          );
+          parent_id = null;
+        }
+      }
+
+      return {
+        name,
+        type,
+        parent_id: parent_id as string | null,
+      };
+    };
+
+    const currentValues = getCurrentValues();
+
+    try {
+      // First get the current chart_of_accounts record to check if it has a plaid_account_id
+      const { data: currentAccount, error: fetchError } = await supabase
+        .from("chart_of_accounts")
+        .select("plaid_account_id")
+        .eq("id", editingId)
+        .single();
+
+      if (fetchError) {
+        console.error("Error fetching current account:", fetchError);
+        alert("Error fetching account data. Please try again.");
+        return;
+      }
+
+      // Update chart_of_accounts
+      const { error } = await supabase
+        .from("chart_of_accounts")
+        .update({
+          name: currentValues.name,
+          type: currentValues.type,
+          parent_id: currentValues.parent_id === "" ? null : currentValues.parent_id,
+        })
+        .eq("id", editingId);
+
+      if (error) {
+        console.error("Error updating chart of accounts:", error);
+        alert("Error saving changes. Please try again.");
+        return;
+      }
+
+      console.log("Successfully updated chart of accounts");
+
       // If this chart of accounts entry is linked to a plaid account, also update the accounts table
       if (currentAccount?.plaid_account_id) {
-        await supabase
+        const { error: accountsError } = await supabase
           .from("accounts")
           .update({
-            name: editName,
-            type: editType,
+            name: currentValues.name,
+            type: currentValues.type,
           })
           .eq("plaid_account_id", currentAccount.plaid_account_id)
           .eq("company_id", currentCompany!.id);
+
+        if (accountsError) {
+          console.error("Error updating accounts table:", accountsError);
+          // Don't return here as the main update succeeded
+        }
       }
 
       setEditingId(null);
       // Categories will be refreshed automatically via real-time subscription
       fetchParentOptions();
+      console.log("Update completed successfully");
+    } catch (error) {
+      console.error("Unexpected error during update:", error);
+      alert("An unexpected error occurred. Please try again.");
     }
   };
+
+  // Handle clicks outside the table or on other rows to save changes
+  useEffect(() => {
+    const handleClickToSave = (event: MouseEvent) => {
+      if (!editingId || !categoriesTableRef.current) return;
+
+      const target = event.target as Node;
+
+      // If click is outside the table, save
+      if (!categoriesTableRef.current.contains(target)) {
+        handleUpdate();
+        return;
+      }
+
+      // If click is inside the table, check if it's on a different row
+      const clickedRow = (target as Element).closest("tr");
+      if (clickedRow) {
+        // Get all the input/select elements in the currently editing row
+        const editingInputs = categoriesTableRef.current.querySelectorAll(`tr input[type="text"], tr select`);
+
+        // Check if the clicked element is one of the editing inputs
+        const isClickOnCurrentEditingElement = Array.from(editingInputs).some(
+          (input) => input.contains(target) || input === target
+        );
+
+        // If not clicking on the current editing elements, save
+        if (!isClickOnCurrentEditingElement) {
+          handleUpdate();
+        }
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickToSave);
+    return () => {
+      document.removeEventListener("mousedown", handleClickToSave);
+    };
+  }, [editingId]);
 
   const handleUpdatePayee = async () => {
     if (!editingPayeeId) return;
@@ -551,13 +637,9 @@ export default function ChartOfAccountsPage() {
     const requiredColumns = ["Name", "Type"];
     const headers = Object.keys(data.data[0]);
 
-    const missingColumns = requiredColumns.filter(
-      (col) => !headers.includes(col)
-    );
+    const missingColumns = requiredColumns.filter((col) => !headers.includes(col));
     if (missingColumns.length > 0) {
-      return `Missing required columns: ${missingColumns.join(
-        ", "
-      )}. Expected: Name, Type, Parent Category (optional)`;
+      return `Missing required columns: ${missingColumns.join(", ")}. Expected: Name, Type, Parent Category (optional)`;
     }
 
     const nonEmptyRows = data.data.filter((row) => row.Name && row.Type);
@@ -570,15 +652,11 @@ export default function ChartOfAccountsPage() {
       const row = nonEmptyRows[i];
 
       if (!row.Name.trim()) {
-        return `Empty name in row ${
-          i + 1
-        }. Please provide a name for each category.`;
+        return `Empty name in row ${i + 1}. Please provide a name for each category.`;
       }
 
       if (!ACCOUNT_TYPES.includes(row.Type)) {
-        return `Invalid type "${row.Type}" in row ${
-          i + 1
-        }. Valid types are: ${ACCOUNT_TYPES.join(", ")}`;
+        return `Invalid type "${row.Type}" in row ${i + 1}. Valid types are: ${ACCOUNT_TYPES.join(", ")}`;
       }
     }
 
@@ -593,13 +671,9 @@ export default function ChartOfAccountsPage() {
     const requiredColumns = ["Name"];
     const headers = Object.keys(data.data[0]);
 
-    const missingColumns = requiredColumns.filter(
-      (col) => !headers.includes(col)
-    );
+    const missingColumns = requiredColumns.filter((col) => !headers.includes(col));
     if (missingColumns.length > 0) {
-      return `Missing required columns: ${missingColumns.join(
-        ", "
-      )}. Expected: Name`;
+      return `Missing required columns: ${missingColumns.join(", ")}. Expected: Name`;
     }
 
     const nonEmptyRows = data.data.filter((row) => row.Name);
@@ -612,9 +686,7 @@ export default function ChartOfAccountsPage() {
       const row = nonEmptyRows[i];
 
       if (!row.Name.trim()) {
-        return `Empty name in row ${
-          i + 1
-        }. Please provide a name for each payee.`;
+        return `Empty name in row ${i + 1}. Please provide a name for each payee.`;
       }
     }
 
@@ -622,13 +694,8 @@ export default function ChartOfAccountsPage() {
   };
 
   // Import file handling functions
-  const handleCategoryFileUpload = (
-    event: React.ChangeEvent<HTMLInputElement> | DragEvent
-  ) => {
-    const file =
-      event instanceof DragEvent
-        ? event.dataTransfer?.files[0]
-        : event.target.files?.[0];
+  const handleCategoryFileUpload = (event: React.ChangeEvent<HTMLInputElement> | DragEvent) => {
+    const file = event instanceof DragEvent ? event.dataTransfer?.files[0] : event.target.files?.[0];
 
     if (!file) return;
 
@@ -685,13 +752,8 @@ export default function ChartOfAccountsPage() {
     });
   };
 
-  const handlePayeeFileUpload = (
-    event: React.ChangeEvent<HTMLInputElement> | DragEvent
-  ) => {
-    const file =
-      event instanceof DragEvent
-        ? event.dataTransfer?.files[0]
-        : event.target.files?.[0];
+  const handlePayeeFileUpload = (event: React.ChangeEvent<HTMLInputElement> | DragEvent) => {
+    const file = event instanceof DragEvent ? event.dataTransfer?.files[0] : event.target.files?.[0];
 
     if (!file) return;
 
@@ -777,9 +839,7 @@ export default function ChartOfAccountsPage() {
     return parentAccounts
       .flatMap((parent) => {
         // Get subaccounts for this parent
-        const subAccounts = accounts.filter(
-          (acc) => acc.parent_id === parent.id
-        );
+        const subAccounts = accounts.filter((acc) => acc.parent_id === parent.id);
 
         // If there are no subaccounts and parent doesn't match search, don't show parent
         if (subAccounts.length === 0 && !accounts.includes(parent)) {
@@ -788,47 +848,38 @@ export default function ChartOfAccountsPage() {
 
         // Return an array of <tr> elements: parent row + subaccount rows
         return [
-          <tr 
+          <tr
             key={parent.id}
             id={`category-${parent.id}`}
             className={`transition-colors duration-1000 ${
-              highlightedIds.has(parent.id) 
-                ? 'bg-green-100' 
-                : 'hover:bg-gray-50'
+              highlightedIds.has(parent.id) ? "bg-green-100" : "hover:bg-gray-50"
             }`}
           >
-            <td
-              style={{ paddingLeft: `${level * 16 + 4}px` }}
-              className="border p-1 text-xs"
-            >
+            <td style={{ paddingLeft: `${level * 16 + 4}px` }} className="border p-1 text-xs">
               {editingId === parent.id ? (
                 <input
                   type="text"
                   value={editName}
                   onChange={(e) => setEditName(e.target.value)}
                   className="w-full border-none outline-none bg-transparent text-xs"
-                  onBlur={handleUpdate}
                   onKeyDown={(e) => e.key === "Enter" && handleUpdate()}
                   autoFocus
                 />
               ) : (
-                <span className={highlightedIds.has(parent.id) ? 'font-bold text-green-800' : ''}>
-                  {parent.name}
-                </span>
+                <span className={highlightedIds.has(parent.id) ? "font-bold text-green-800" : ""}>{parent.name}</span>
               )}
-              {lastActionId === parent.id && (
-                <span className="ml-2 inline-block text-green-600">
-                  ✨
-                </span>
-              )}
+              {lastActionId === parent.id && <span className="ml-2 inline-block text-green-600">✨</span>}
             </td>
             <td className="border p-1 text-xs">
               {editingId === parent.id ? (
                 <select
                   value={editType}
-                  onChange={(e) => setEditType(e.target.value)}
+                  onChange={(e) => {
+                    setEditType(e.target.value);
+                    // Clear parent when type changes since parent must match type
+                    setEditParentId(null);
+                  }}
                   className="w-full border-none outline-none bg-transparent text-xs"
-                  onBlur={handleUpdate}
                   onKeyDown={(e) => e.key === "Enter" && handleUpdate()}
                 >
                   {ACCOUNT_TYPES.map((type) => (
@@ -841,32 +892,51 @@ export default function ChartOfAccountsPage() {
                 parent.type
               )}
             </td>
-            <td className="border p-1 text-xs"></td>
+            <td className="border p-1 text-xs">
+              {editingId === parent.id ? (
+                <select
+                  value={editParentId || ""}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setEditParentId(value === "" ? null : value);
+                  }}
+                  className="w-full border-none outline-none bg-transparent text-xs"
+                  onKeyDown={(e) => e.key === "Enter" && handleUpdate()}
+                >
+                  <option value="">No Parent</option>
+                  {parentOptions
+                    .filter(
+                      (opt) =>
+                        opt.id !== parent.id && // Can't be parent of itself
+                        (opt.type === editType || !editType)
+                    )
+                    .map((opt) => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.name} ({opt.type})
+                      </option>
+                    ))}
+                </select>
+              ) : (
+                ""
+              )}
+            </td>
             <td className="border p-1 text-xs">
               <div className="flex gap-2 justify-center">
-                <button
-                  onClick={() => handleEdit(parent)}
-                  className="text-xs hover:underline text-blue-600"
-                >
+                <button onClick={() => handleEdit(parent)} className="text-xs hover:underline text-blue-600">
                   Edit
                 </button>
-                <button
-                  onClick={() => handleDelete(parent.id)}
-                  className="text-xs hover:underline text-red-600"
-                >
+                <button onClick={() => handleDelete(parent.id)} className="text-xs hover:underline text-red-600">
                   Delete
                 </button>
               </div>
             </td>
           </tr>,
           ...subAccounts.map((subAcc) => (
-            <tr 
+            <tr
               key={subAcc.id}
               id={`category-${subAcc.id}`}
               className={`transition-colors duration-1000 ${
-                highlightedIds.has(subAcc.id) 
-                  ? 'bg-green-100' 
-                  : 'hover:bg-gray-50'
+                highlightedIds.has(subAcc.id) ? "bg-green-100" : "hover:bg-gray-50"
               }`}
             >
               <td
@@ -881,28 +951,24 @@ export default function ChartOfAccountsPage() {
                     value={editName}
                     onChange={(e) => setEditName(e.target.value)}
                     className="w-full border-none outline-none bg-transparent text-xs"
-                    onBlur={handleUpdate}
                     onKeyDown={(e) => e.key === "Enter" && handleUpdate()}
                     autoFocus
                   />
                 ) : (
-                  <span className={highlightedIds.has(subAcc.id) ? 'font-bold text-green-800' : ''}>
-                    {subAcc.name}
-                  </span>
+                  <span className={highlightedIds.has(subAcc.id) ? "font-bold text-green-800" : ""}>{subAcc.name}</span>
                 )}
-                {lastActionId === subAcc.id && (
-                  <span className="ml-2 inline-block text-green-600">
-                    ✨
-                  </span>
-                )}
+                {lastActionId === subAcc.id && <span className="ml-2 inline-block text-green-600">✨</span>}
               </td>
               <td className="border p-1 text-xs">
                 {editingId === subAcc.id ? (
                   <select
                     value={editType}
-                    onChange={(e) => setEditType(e.target.value)}
+                    onChange={(e) => {
+                      setEditType(e.target.value);
+                      // Clear parent when type changes since parent must match type
+                      setEditParentId(null);
+                    }}
                     className="w-full border-none outline-none bg-transparent text-xs"
-                    onBlur={handleUpdate}
                     onKeyDown={(e) => e.key === "Enter" && handleUpdate()}
                   >
                     {ACCOUNT_TYPES.map((type) => (
@@ -915,19 +981,40 @@ export default function ChartOfAccountsPage() {
                   subAcc.type
                 )}
               </td>
-              <td className="border p-1 text-xs">{parent.name}</td>
+              <td className="border p-1 text-xs">
+                {editingId === subAcc.id ? (
+                  <select
+                    value={editParentId || ""}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setEditParentId(value === "" ? null : value);
+                    }}
+                    className="w-full border-none outline-none bg-transparent text-xs"
+                    onKeyDown={(e) => e.key === "Enter" && handleUpdate()}
+                  >
+                    <option value="">No Parent</option>
+                    {parentOptions
+                      .filter(
+                        (opt) =>
+                          opt.id !== subAcc.id && // Can't be parent of itself
+                          (opt.type === editType || !editType)
+                      )
+                      .map((opt) => (
+                        <option key={opt.id} value={opt.id}>
+                          {opt.name} ({opt.type})
+                        </option>
+                      ))}
+                  </select>
+                ) : (
+                  parent.name
+                )}
+              </td>
               <td className="border p-1 text-xs">
                 <div className="flex gap-2 justify-center">
-                  <button
-                    onClick={() => handleEdit(subAcc)}
-                    className="text-xs hover:underline text-blue-600"
-                  >
+                  <button onClick={() => handleEdit(subAcc)} className="text-xs hover:underline text-blue-600">
                     Edit
                   </button>
-                  <button
-                    onClick={() => handleDelete(subAcc.id)}
-                    className="text-xs hover:underline text-red-600"
-                  >
+                  <button onClick={() => handleDelete(subAcc.id)} className="text-xs hover:underline text-red-600">
                     Delete
                   </button>
                 </div>
@@ -944,12 +1031,9 @@ export default function ChartOfAccountsPage() {
     return (
       <div className="p-4 bg-white text-gray-900 font-sans text-xs space-y-6">
         <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-          <h3 className="text-sm font-semibold text-yellow-800 mb-2">
-            Company Selection Required
-          </h3>
+          <h3 className="text-sm font-semibold text-yellow-800 mb-2">Company Selection Required</h3>
           <p className="text-sm text-yellow-700">
-            Please select a company from the dropdown in the navigation bar to
-            manage chart of accounts.
+            Please select a company from the dropdown in the navigation bar to manage chart of accounts.
           </p>
         </div>
       </div>
@@ -991,10 +1075,7 @@ export default function ChartOfAccountsPage() {
 
           {/* Add Category Form */}
           <div className="mb-4">
-            <form
-              onSubmit={handleAddAccount}
-              className="flex gap-2 items-center"
-            >
+            <form onSubmit={handleAddAccount} className="flex gap-2 items-center">
               <input
                 type="text"
                 placeholder="Category Name"
@@ -1040,11 +1121,9 @@ export default function ChartOfAccountsPage() {
           </div>
 
           {/* Categories Table */}
-          <div className="bg-white rounded shadow-sm">
+          <div className="bg-white rounded shadow-sm" ref={categoriesTableRef}>
             {loading ? (
-              <div className="p-4 text-center text-gray-500 text-xs">
-                Loading...
-              </div>
+              <div className="p-4 text-center text-gray-500 text-xs">Loading...</div>
             ) : (
               <table className="w-full border-collapse border border-gray-300 text-xs">
                 <thead className="bg-gray-100">
@@ -1053,29 +1132,22 @@ export default function ChartOfAccountsPage() {
                       className="border p-1 text-center font-semibold cursor-pointer hover:bg-gray-200"
                       onClick={() => handleCategorySort("name")}
                     >
-                      Name{" "}
-                      {categorySortConfig.key === "name" &&
-                        (categorySortConfig.direction === "asc" ? "↑" : "↓")}
+                      Name {categorySortConfig.key === "name" && (categorySortConfig.direction === "asc" ? "↑" : "↓")}
                     </th>
                     <th
                       className="border p-1 text-center font-semibold cursor-pointer hover:bg-gray-200"
                       onClick={() => handleCategorySort("type")}
                     >
-                      Type{" "}
-                      {categorySortConfig.key === "type" &&
-                        (categorySortConfig.direction === "asc" ? "↑" : "↓")}
+                      Type {categorySortConfig.key === "type" && (categorySortConfig.direction === "asc" ? "↑" : "↓")}
                     </th>
                     <th
                       className="border p-1 text-center font-semibold cursor-pointer hover:bg-gray-200"
                       onClick={() => handleCategorySort("parent")}
                     >
                       Parent Category{" "}
-                      {categorySortConfig.key === "parent" &&
-                        (categorySortConfig.direction === "asc" ? "↑" : "↓")}
+                      {categorySortConfig.key === "parent" && (categorySortConfig.direction === "asc" ? "↑" : "↓")}
                     </th>
-                    <th className="border p-1 text-center font-semibold">
-                      Actions
-                    </th>
+                    <th className="border p-1 text-center font-semibold">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1083,10 +1155,7 @@ export default function ChartOfAccountsPage() {
                     renderAccounts(filteredAccounts)
                   ) : (
                     <tr>
-                      <td
-                        colSpan={4}
-                        className="text-center p-2 text-gray-500 text-xs"
-                      >
+                      <td colSpan={4} className="text-center p-2 text-gray-500 text-xs">
                         No categories found.
                       </td>
                     </tr>
@@ -1156,13 +1225,9 @@ export default function ChartOfAccountsPage() {
                     className="border p-1 text-center font-semibold cursor-pointer hover:bg-gray-200"
                     onClick={() => handlePayeeSort("name")}
                   >
-                    Name{" "}
-                    {payeeSortConfig.key === "name" &&
-                      (payeeSortConfig.direction === "asc" ? "↑" : "↓")}
+                    Name {payeeSortConfig.key === "name" && (payeeSortConfig.direction === "asc" ? "↑" : "↓")}
                   </th>
-                  <th className="border p-1 text-center font-semibold">
-                    Actions
-                  </th>
+                  <th className="border p-1 text-center font-semibold">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -1177,9 +1242,7 @@ export default function ChartOfAccountsPage() {
                             onChange={(e) => setEditPayeeName(e.target.value)}
                             className="w-full border-none outline-none bg-transparent text-xs"
                             onBlur={handleUpdatePayee}
-                            onKeyDown={(e) =>
-                              e.key === "Enter" && handleUpdatePayee()
-                            }
+                            onKeyDown={(e) => e.key === "Enter" && handleUpdatePayee()}
                             autoFocus
                           />
                         ) : (
@@ -1206,10 +1269,7 @@ export default function ChartOfAccountsPage() {
                   ))
                 ) : (
                   <tr>
-                    <td
-                      colSpan={2}
-                      className="text-center p-2 text-gray-500 text-xs"
-                    >
+                    <td colSpan={2} className="text-center p-2 text-gray-500 text-xs">
                       No payees found.
                     </td>
                   </tr>
@@ -1256,9 +1316,7 @@ export default function ChartOfAccountsPage() {
                     <div className="space-y-4">
                       <div className="space-y-3">
                         <div className="flex justify-between items-center">
-                          <h3 className="text-sm font-medium text-gray-700">
-                            Upload CSV File
-                          </h3>
+                          <h3 className="text-sm font-medium text-gray-700">Upload CSV File</h3>
                           <button
                             onClick={downloadCategoriesTemplate}
                             className="text-sm text-gray-600 hover:text-gray-800"
@@ -1268,20 +1326,16 @@ export default function ChartOfAccountsPage() {
                         </div>
 
                         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                          <h4 className="text-sm font-medium text-blue-800 mb-2">
-                            CSV Format Instructions:
-                          </h4>
+                          <h4 className="text-sm font-medium text-blue-800 mb-2">CSV Format Instructions:</h4>
                           <ul className="text-sm text-blue-700 space-y-1">
                             <li>
                               • <strong>Name:</strong> Category name (required)
                             </li>
                             <li>
-                              • <strong>Type:</strong> One of:{" "}
-                              {ACCOUNT_TYPES.join(", ")}
+                              • <strong>Type:</strong> One of: {ACCOUNT_TYPES.join(", ")}
                             </li>
                             <li>
-                              • <strong>Parent Category:</strong> Name of parent
-                              category (optional)
+                              • <strong>Parent Category:</strong> Name of parent category (optional)
                             </li>
                           </ul>
                         </div>
@@ -1328,9 +1382,7 @@ export default function ChartOfAccountsPage() {
                   <>
                     <div className="space-y-4">
                       <div className="flex justify-between items-center">
-                        <h3 className="text-sm font-medium text-gray-700">
-                          Review Categories
-                        </h3>
+                        <h3 className="text-sm font-medium text-gray-700">Review Categories</h3>
                       </div>
                       <div className="border rounded-lg overflow-hidden">
                         <table className="min-w-full divide-y divide-gray-200">
@@ -1341,19 +1393,13 @@ export default function ChartOfAccountsPage() {
                                   type="checkbox"
                                   checked={
                                     categoryImportModal.csvData.length > 0 &&
-                                    categoryImportModal.selectedCategories
-                                      .size ===
-                                      categoryImportModal.csvData.length
+                                    categoryImportModal.selectedCategories.size === categoryImportModal.csvData.length
                                   }
                                   onChange={(e) => {
                                     if (e.target.checked) {
                                       setCategoryImportModal((prev) => ({
                                         ...prev,
-                                        selectedCategories: new Set(
-                                          categoryImportModal.csvData.map(
-                                            (cat) => cat.id
-                                          )
-                                        ),
+                                        selectedCategories: new Set(categoryImportModal.csvData.map((cat) => cat.id)),
                                       }));
                                     } else {
                                       setCategoryImportModal((prev) => ({
@@ -1382,13 +1428,9 @@ export default function ChartOfAccountsPage() {
                                 <td className="px-4 py-2 whitespace-nowrap w-8 text-left">
                                   <input
                                     type="checkbox"
-                                    checked={categoryImportModal.selectedCategories.has(
-                                      category.id
-                                    )}
+                                    checked={categoryImportModal.selectedCategories.has(category.id)}
                                     onChange={(e) => {
-                                      const newSelected = new Set(
-                                        categoryImportModal.selectedCategories
-                                      );
+                                      const newSelected = new Set(categoryImportModal.selectedCategories);
                                       if (e.target.checked) {
                                         newSelected.add(category.id);
                                       } else {
@@ -1402,17 +1444,11 @@ export default function ChartOfAccountsPage() {
                                     className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
                                   />
                                 </td>
-                                <td className="px-4 py-2 text-sm text-gray-900">
-                                  {category.name}
-                                </td>
-                                <td className="px-4 py-2 text-sm text-gray-900">
-                                  {category.type}
-                                </td>
+                                <td className="px-4 py-2 text-sm text-gray-900">{category.name}</td>
+                                <td className="px-4 py-2 text-sm text-gray-900">{category.type}</td>
                                 <td className="px-4 py-2 text-sm text-gray-900">
                                   {category.parent_id
-                                    ? accounts.find(
-                                        (acc) => acc.id === category.parent_id
-                                      )?.name || "Unknown"
+                                    ? accounts.find((acc) => acc.id === category.parent_id)?.name || "Unknown"
                                     : "-"}
                                 </td>
                               </tr>
@@ -1424,10 +1460,7 @@ export default function ChartOfAccountsPage() {
                     <div className="flex justify-between items-center">
                       <div className="text-sm font-medium">
                         {categoryImportModal.selectedCategories.size > 0 && (
-                          <span className="text-gray-600">
-                            {categoryImportModal.selectedCategories.size}{" "}
-                            selected
-                          </span>
+                          <span className="text-gray-600">{categoryImportModal.selectedCategories.size} selected</span>
                         )}
                       </div>
                       <div className="flex justify-end space-x-2 mt-4">
@@ -1451,36 +1484,25 @@ export default function ChartOfAccountsPage() {
                             }));
                             try {
                               if (!currentCompany) {
-                                throw new Error(
-                                  "No company selected. Please select a company first."
-                                );
+                                throw new Error("No company selected. Please select a company first.");
                               }
 
-                              const selectedCategories =
-                                categoryImportModal.csvData.filter((cat) =>
-                                  categoryImportModal.selectedCategories.has(
-                                    cat.id
-                                  )
-                                );
-
-                              if (selectedCategories.length === 0) {
-                                throw new Error(
-                                  "No categories selected for import."
-                                );
-                              }
-
-                              const categoriesToInsert = selectedCategories.map(
-                                (cat) => ({
-                                  name: cat.name,
-                                  type: cat.type,
-                                  parent_id: cat.parent_id,
-                                  company_id: currentCompany.id,
-                                })
+                              const selectedCategories = categoryImportModal.csvData.filter((cat) =>
+                                categoryImportModal.selectedCategories.has(cat.id)
                               );
 
-                              const { error } = await supabase
-                                .from("chart_of_accounts")
-                                .insert(categoriesToInsert);
+                              if (selectedCategories.length === 0) {
+                                throw new Error("No categories selected for import.");
+                              }
+
+                              const categoriesToInsert = selectedCategories.map((cat) => ({
+                                name: cat.name,
+                                type: cat.type,
+                                parent_id: cat.parent_id,
+                                company_id: currentCompany.id,
+                              }));
+
+                              const { error } = await supabase.from("chart_of_accounts").insert(categoriesToInsert);
 
                               if (error) {
                                 throw new Error(error.message);
@@ -1557,9 +1579,7 @@ export default function ChartOfAccountsPage() {
                     <div className="space-y-4">
                       <div className="space-y-3">
                         <div className="flex justify-between items-center">
-                          <h3 className="text-sm font-medium text-gray-700">
-                            Upload CSV File
-                          </h3>
+                          <h3 className="text-sm font-medium text-gray-700">Upload CSV File</h3>
                           <button
                             onClick={downloadPayeesTemplate}
                             className="text-sm text-gray-600 hover:text-gray-800"
@@ -1569,9 +1589,7 @@ export default function ChartOfAccountsPage() {
                         </div>
 
                         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                          <h4 className="text-sm font-medium text-blue-800 mb-2">
-                            CSV Format Instructions:
-                          </h4>
+                          <h4 className="text-sm font-medium text-blue-800 mb-2">CSV Format Instructions:</h4>
                           <ul className="text-sm text-blue-700 space-y-1">
                             <li>
                               • <strong>Name:</strong> Payee name (required)
@@ -1621,9 +1639,7 @@ export default function ChartOfAccountsPage() {
                   <>
                     <div className="space-y-4">
                       <div className="flex justify-between items-center">
-                        <h3 className="text-sm font-medium text-gray-700">
-                          Review Payees
-                        </h3>
+                        <h3 className="text-sm font-medium text-gray-700">Review Payees</h3>
                       </div>
                       <div className="border rounded-lg overflow-hidden">
                         <table className="min-w-full divide-y divide-gray-200">
@@ -1634,18 +1650,13 @@ export default function ChartOfAccountsPage() {
                                   type="checkbox"
                                   checked={
                                     payeeImportModal.csvData.length > 0 &&
-                                    payeeImportModal.selectedPayees.size ===
-                                      payeeImportModal.csvData.length
+                                    payeeImportModal.selectedPayees.size === payeeImportModal.csvData.length
                                   }
                                   onChange={(e) => {
                                     if (e.target.checked) {
                                       setPayeeImportModal((prev) => ({
                                         ...prev,
-                                        selectedPayees: new Set(
-                                          payeeImportModal.csvData.map(
-                                            (payee) => payee.id
-                                          )
-                                        ),
+                                        selectedPayees: new Set(payeeImportModal.csvData.map((payee) => payee.id)),
                                       }));
                                     } else {
                                       setPayeeImportModal((prev) => ({
@@ -1668,13 +1679,9 @@ export default function ChartOfAccountsPage() {
                                 <td className="px-4 py-2 whitespace-nowrap w-8 text-left">
                                   <input
                                     type="checkbox"
-                                    checked={payeeImportModal.selectedPayees.has(
-                                      payee.id
-                                    )}
+                                    checked={payeeImportModal.selectedPayees.has(payee.id)}
                                     onChange={(e) => {
-                                      const newSelected = new Set(
-                                        payeeImportModal.selectedPayees
-                                      );
+                                      const newSelected = new Set(payeeImportModal.selectedPayees);
                                       if (e.target.checked) {
                                         newSelected.add(payee.id);
                                       } else {
@@ -1688,9 +1695,7 @@ export default function ChartOfAccountsPage() {
                                     className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
                                   />
                                 </td>
-                                <td className="px-4 py-2 text-sm text-gray-900">
-                                  {payee.name}
-                                </td>
+                                <td className="px-4 py-2 text-sm text-gray-900">{payee.name}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -1700,9 +1705,7 @@ export default function ChartOfAccountsPage() {
                     <div className="flex justify-between items-center">
                       <div className="text-sm font-medium">
                         {payeeImportModal.selectedPayees.size > 0 && (
-                          <span className="text-gray-600">
-                            {payeeImportModal.selectedPayees.size} selected
-                          </span>
+                          <span className="text-gray-600">{payeeImportModal.selectedPayees.size} selected</span>
                         )}
                       </div>
                       <div className="flex justify-end space-x-2 mt-4">
@@ -1726,32 +1729,23 @@ export default function ChartOfAccountsPage() {
                             }));
                             try {
                               if (!currentCompany) {
-                                throw new Error(
-                                  "No company selected. Please select a company first."
-                                );
+                                throw new Error("No company selected. Please select a company first.");
                               }
 
-                              const selectedPayees =
-                                payeeImportModal.csvData.filter((payee) =>
-                                  payeeImportModal.selectedPayees.has(payee.id)
-                                );
-
-                              if (selectedPayees.length === 0) {
-                                throw new Error(
-                                  "No payees selected for import."
-                                );
-                              }
-
-                              const payeesToInsert = selectedPayees.map(
-                                (payee) => ({
-                                  name: payee.name,
-                                  company_id: currentCompany.id,
-                                })
+                              const selectedPayees = payeeImportModal.csvData.filter((payee) =>
+                                payeeImportModal.selectedPayees.has(payee.id)
                               );
 
-                              const { error } = await supabase
-                                .from("payees")
-                                .insert(payeesToInsert);
+                              if (selectedPayees.length === 0) {
+                                throw new Error("No payees selected for import.");
+                              }
+
+                              const payeesToInsert = selectedPayees.map((payee) => ({
+                                name: payee.name,
+                                company_id: currentCompany.id,
+                              }));
+
+                              const { error } = await supabase.from("payees").insert(payeesToInsert);
 
                               if (error) {
                                 throw new Error(error.message);
@@ -1772,9 +1766,7 @@ export default function ChartOfAccountsPage() {
                                 ...prev,
                                 isLoading: false,
                                 error:
-                                  error instanceof Error
-                                    ? error.message
-                                    : "Failed to import payees. Please try again.",
+                                  error instanceof Error ? error.message : "Failed to import payees. Please try again.",
                               }));
                             }
                           }}
