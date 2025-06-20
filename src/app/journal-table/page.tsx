@@ -397,13 +397,14 @@ export default function JournalTablePage() {
             className="border px-2 py-1 w-full text-xs mb-2"
           />
 
-          <table className="w-full border-collapse border border-gray-300">
-              <thead className="bg-gray-100">
+          <div className="overflow-auto max-h-[calc(100vh-170px)] border border-gray-300 rounded">
+            <table className="w-full border-collapse">
+              <thead className="bg-gray-100 sticky top-0 z-10">
                 <tr>
                   {finalColumns.map((col) => (
                     <th 
                       key={col.key} 
-                      className={`border p-2 text-center text-xs font-medium tracking-wider ${
+                      className={`border p-2 text-center text-xs font-medium tracking-wider whitespace-nowrap ${
                         col.sortable ? 'cursor-pointer hover:bg-gray-200' : ''
                       }`}
                       onClick={col.sortable ? () => handleSort(col.key as 'date' | 'description' | 'payee' | 'debit' | 'credit' | 'category') : undefined}
@@ -422,7 +423,7 @@ export default function JournalTablePage() {
                 {displayedEntries.map((entry) => (
                   <tr key={String(entry.id)} className="hover:bg-gray-50">
                     {finalColumns.map((col) => (
-                      <td key={col.key} className="border p-2 text-center text-xs">
+                      <td key={col.key} className="border p-2 text-center text-xs whitespace-nowrap">
                         {col.key === 'date' ? (
                           formatDate(entry.date)
                         ) : col.key === 'debit' ? (
@@ -442,6 +443,7 @@ export default function JournalTablePage() {
                 ))}
               </tbody>
             </table>
+          </div>
 
           <div className="flex justify-between items-center">
             {/* Pagination for Journal table */}
