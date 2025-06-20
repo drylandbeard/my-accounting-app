@@ -6,7 +6,7 @@ import { supabase } from '../../lib/supabase'
 
 import Papa from 'papaparse'
 import { v4 as uuidv4 } from 'uuid'
-import { X } from 'lucide-react'
+import { X, Loader2 } from 'lucide-react'
 import { useApiWithCompany } from '@/hooks/useApiWithCompany'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Select } from '@/components/ui/select'
@@ -207,7 +207,7 @@ function SortableAccountItem({ account, onNameChange, onDelete, deleteConfirmati
   );
 }
 
-export default function Page() {
+export default function TransactionsPage() {
   const { getWithCompany, postWithCompany, hasCompanyContext, currentCompany } = useApiWithCompany()
   const [linkToken, setLinkToken] = useState<string | null>(null)
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null)
@@ -248,6 +248,11 @@ export default function Page() {
   // Add missing state for multi-select checkboxes
   const [selectedToAdd, setSelectedToAdd] = useState<Set<string>>(new Set());
   const [selectedAdded, setSelectedAdded] = useState<Set<string>>(new Set());
+
+  // Add loading states for bulk operations
+  const [isAddingTransactions, setIsAddingTransactions] = useState(false);
+  const [isUndoingTransactions, setIsUndoingTransactions] = useState(false);
+  const [processingTransactions, setProcessingTransactions] = useState<Set<string>>(new Set());
 
   // Add sorting state
   const [toAddSortConfig, setToAddSortConfig] = useState<SortConfig>({ key: null, direction: 'asc' });
@@ -1019,39 +1024,52 @@ export default function Page() {
           return newSet;
         });
 
-        // Process auto-add transactions sequentially to prevent race conditions
+        // Process auto-add transactions in bulk to improve performance
         const processAutoAddTransactions = async () => {
-          for (const transactionId of transactionsToActuallyAutoAdd) {
-            const transaction = transactionsToProcess.find(tx => tx.id === transactionId);
-            if (transaction && newSelectedCategories[transactionId]) {
-              try {
-                await addTransaction(
-                  transaction, 
-                  newSelectedCategories[transactionId], 
-                  newSelectedPayees[transactionId]
-                );
-                
-                // Clean up state for auto-added transactions
-                setSelectedCategories(prev => {
-                  const copy = { ...prev };
-                  delete copy[transactionId];
-                  return copy;
-                });
-                setSelectedPayees(prev => {
-                  const copy = { ...prev };
-                  delete copy[transactionId];
-                  return copy;
-                });
-              } catch (error) {
-                console.error('Error auto-adding transaction:', error);
-                // Remove from auto-added set if there was an error so it can be retried
-                setAutoAddedTransactions(prev => {
-                  const newSet = new Set(prev);
-                  const contentHash = getTransactionContentHash(transaction);
-                  newSet.delete(contentHash);
-                  return newSet;
-                });
+          const transactionRequests = transactionsToActuallyAutoAdd
+            .map(transactionId => {
+              const transaction = transactionsToProcess.find(tx => tx.id === transactionId);
+              if (transaction && newSelectedCategories[transactionId]) {
+                return {
+                  transaction,
+                  selectedCategoryId: newSelectedCategories[transactionId],
+                  selectedPayeeId: newSelectedPayees[transactionId]
+                };
               }
+              return null;
+            })
+            .filter(req => req !== null) as {
+              transaction: Transaction;
+              selectedCategoryId: string;
+              selectedPayeeId?: string;
+            }[];
+
+          if (transactionRequests.length > 0) {
+            try {
+              await addTransactions(transactionRequests);
+              
+              // Clean up state for auto-added transactions
+              setSelectedCategories(prev => {
+                const copy = { ...prev };
+                transactionRequests.forEach(req => delete copy[req.transaction.id]);
+                return copy;
+              });
+              setSelectedPayees(prev => {
+                const copy = { ...prev };
+                transactionRequests.forEach(req => delete copy[req.transaction.id]);
+                return copy;
+              });
+            } catch (error) {
+              console.error('Error auto-adding transactions:', error);
+              // Remove from auto-added set if there was an error so they can be retried
+              setAutoAddedTransactions(prev => {
+                const newSet = new Set(prev);
+                transactionRequests.forEach(req => {
+                  const contentHash = getTransactionContentHash(req.transaction);
+                  newSet.delete(contentHash);
+                });
+                return newSet;
+              });
             }
           }
         };
@@ -1102,18 +1120,36 @@ export default function Page() {
 
   // 3️⃣ Actions
   const addTransaction = async (tx: Transaction, selectedCategoryId: string, selectedPayeeId?: string) => {
-    const category = categories.find(c => c.id === selectedCategoryId);
-    if (!category) {
-      alert('Selected category not found. Please try again.');
-      return;
-    }
+    // For single transactions, use bulk operation with array of one
+    await addTransactions([{
+      transaction: tx,
+      selectedCategoryId,
+      selectedPayeeId
+    }]);
+  };
 
-    // Payee is optional - only validate if provided
-    if (selectedPayeeId) {
-      const payee = payees.find(p => p.id === selectedPayeeId);
-      if (!payee) {
-        alert('Selected payee not found. Please try again.');
+  const addTransactions = async (transactionRequests: {
+    transaction: Transaction;
+    selectedCategoryId: string;
+    selectedPayeeId?: string;
+  }[]) => {
+    if (transactionRequests.length === 0) return;
+
+    // Validate all transactions
+    for (const req of transactionRequests) {
+      const category = categories.find(c => c.id === req.selectedCategoryId);
+      if (!category) {
+        alert('Selected category not found. Please try again.');
         return;
+      }
+
+      // Payee is optional - only validate if provided
+      if (req.selectedPayeeId) {
+        const payee = payees.find(p => p.id === req.selectedPayeeId);
+        if (!payee) {
+          alert('Selected payee not found. Please try again.');
+          return;
+        }
       }
     }
 
@@ -1138,83 +1174,97 @@ export default function Page() {
     const selectedAccountIdInCOA = selectedAccount.id;
 
     try {
-      // Use the 6-move-to-transactions API endpoint with company context
-      const response = await postWithCompany('/api/6-move-to-transactions', {
-        imported_transaction_id: tx.id,
-        selected_category_id: selectedCategoryId,
-        corresponding_category_id: selectedAccountIdInCOA,
-        payee_id: selectedPayeeId
+      setIsAddingTransactions(true);
+      
+      // Mark transactions as processing
+      const processingIds = new Set(transactionRequests.map(req => req.transaction.id));
+      setProcessingTransactions(prev => new Set([...prev, ...processingIds]));
+
+      // Prepare bulk request
+      const bulkRequest = {
+        transactions: transactionRequests.map(req => ({
+          imported_transaction_id: req.transaction.id,
+          selected_category_id: req.selectedCategoryId,
+          corresponding_category_id: selectedAccountIdInCOA,
+          payee_id: req.selectedPayeeId
+        }))
+      };
+
+      // Use the bulk API endpoint
+      const response = await postWithCompany('/api/move-transactions', bulkRequest);
+
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to move transactions');
+      }
+
+      // No need to call sync-journal separately - it's included in the bulk operation
+      refreshAll();
+    } catch (error) {
+      console.error('Error moving transactions:', error);
+      alert(error instanceof Error ? error.message : 'Failed to move transactions. Please try again.');
+    } finally {
+      setIsAddingTransactions(false);
+      
+      // Remove transactions from processing set
+      const processingIds = new Set(transactionRequests.map(req => req.transaction.id));
+      setProcessingTransactions(prev => {
+        const newSet = new Set(prev);
+        processingIds.forEach(id => newSet.delete(id));
+        return newSet;
+      });
+    }
+  };
+
+  const undoTransaction = async (tx: Transaction) => {
+    // For single transactions, use bulk operation with array of one
+    await undoTransactions([tx]);
+  };
+
+  const undoTransactions = async (transactions: Transaction[]) => {
+    if (transactions.length === 0) return;
+
+    try {
+      setIsUndoingTransactions(true);
+      
+      // Mark transactions as processing
+      const processingIds = new Set(transactions.map(tx => tx.id));
+      setProcessingTransactions(prev => new Set([...prev, ...processingIds]));
+
+      // Validate all transactions have IDs
+      for (const tx of transactions) {
+        if (!tx || !tx.id) {
+          throw new Error('Invalid transaction: missing ID');
+        }
+      }
+
+      // Use the bulk undo API endpoint
+      const response = await postWithCompany('/api/undo-transactions', {
+        transaction_ids: transactions.map(tx => tx.id)
       });
 
       const data = await response.json();
       
       if (!response.ok) {
-        // If the transaction was already processed, don't throw an error - just log it
-        if (response.status === 409 && data.code === 'ALREADY_PROCESSED') {
-          console.log(`Transaction ${tx.id} was already processed, skipping...`);
-          return; // Exit gracefully without throwing an error
-        }
-        throw new Error(data.error || 'Failed to move transaction');
+        throw new Error(data.error || 'Failed to undo transactions');
       }
 
-      await postWithCompany('/api/sync-journal', {});
+      console.log(`Successfully undid ${transactions.length} transactions`);
       refreshAll();
     } catch (error) {
-      console.error('Error moving transaction:', error);
-      alert(error instanceof Error ? error.message : 'Failed to move transaction. Please try again.');
-    }
-  };
-
-  const undoTransaction = async (tx: Transaction) => {
-    try {
-      if (!tx || !tx.id) {
-        throw new Error('Invalid transaction: missing ID');
-      }
-
-      // 1. Delete journal entries for this transaction
-      const { error: journalDeleteError } = await supabase
-        .from('journal')
-        .delete()
-        .eq('transaction_id', tx.id);
-
-      if (journalDeleteError) {
-        console.error('Error deleting journal entries:', journalDeleteError);
-        throw new Error(`Failed to delete journal entries: ${journalDeleteError.message}`);
-      }
-
-      // 2. Delete the transaction
-      const { error: deleteError } = await supabase.from('transactions').delete().eq('id', tx.id);
+      console.error('Error in undoTransactions:', error);
+      alert(error instanceof Error ? error.message : 'Failed to undo transactions. Please try again.');
+    } finally {
+      setIsUndoingTransactions(false);
       
-      if (deleteError) {
-        console.error('Error deleting from transactions:', deleteError);
-        throw new Error(`Failed to delete from transactions: ${deleteError.message}`);
-      }
-      
-      // 3. Insert back into imported_transactions
-      const { error: insertError } = await supabase.from('imported_transactions').insert([{
-        date: tx.date,
-        description: tx.description,
-        spent: tx.spent,
-        received: tx.received,
-        plaid_account_id: tx.plaid_account_id,
-        plaid_account_name: tx.plaid_account_name,
-        selected_category_id: tx.selected_category_id,
-        payee_id: tx.payee_id,
-        company_id: currentCompany?.id
-      }]);
-
-      if (insertError) {
-        console.error('Error inserting into imported_transactions:', insertError);
-        throw new Error(`Failed to insert into imported_transactions: ${insertError.message}`);
-      }
-
-              await postWithCompany('/api/sync-journal', {});
-        console.log('Successfully deleted transaction and related journal entries:', tx.id);
-
-      refreshAll();
-    } catch (error) {
-      console.error('Error in undoTransaction:', error);
-      alert(error instanceof Error ? error.message : 'Failed to undo transaction. Please try again.');
+      // Remove transactions from processing set
+      const processingIds = new Set(transactions.map(tx => tx.id));
+      setProcessingTransactions(prev => {
+        const newSet = new Set(prev);
+        processingIds.forEach(id => newSet.delete(id));
+        return newSet;
+      });
     }
   };
 
@@ -3942,10 +3992,18 @@ export default function Page() {
                               });
                             }
                           }}
-                          className="border px-2 py-1 rounded bg-gray-100 hover:bg-gray-200"
-                          disabled={!selectedCategories[tx.id]}
+                          className={`border px-2 py-1 rounded w-12 flex items-center justify-center mx-auto ${
+                            processingTransactions.has(tx.id) 
+                              ? 'bg-gray-50 text-gray-400 cursor-not-allowed' 
+                              : 'bg-gray-100 hover:bg-gray-200'
+                          }`}
+                          disabled={!selectedCategories[tx.id] || processingTransactions.has(tx.id)}
                         >
-                          Add
+                          {processingTransactions.has(tx.id) ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            'Add'
+                          )}
                         </button>
                       </td>
                     </tr>
@@ -3955,15 +4013,23 @@ export default function Page() {
             </table>
             {selectedToAdd.size > 0 && (() => {
               const selectedTransactions = imported.filter(tx => selectedToAdd.has(tx.id));
+              const hasValidCategories = selectedTransactions.every(tx => selectedCategories[tx.id]);
+              const isProcessing = isAddingTransactions || selectedTransactions.some(tx => processingTransactions.has(tx.id));
+              
               return (
                 <div className="mt-2 flex justify-end">
                   <button
                     onClick={async () => {
-                      for (const tx of selectedTransactions) {
-                        if (selectedCategories[tx.id]) {
-                          await addTransaction(tx, selectedCategories[tx.id], selectedPayees[tx.id]);
-                        }
-                      }
+                      const transactionRequests = selectedTransactions
+                        .filter(tx => selectedCategories[tx.id])
+                        .map(tx => ({
+                          transaction: tx,
+                          selectedCategoryId: selectedCategories[tx.id],
+                          selectedPayeeId: selectedPayees[tx.id]
+                        }));
+
+                      await addTransactions(transactionRequests);
+                      
                       setSelectedCategories(prev => {
                         const copy = { ...prev };
                         selectedTransactions.forEach(tx => delete copy[tx.id]);
@@ -3985,10 +4051,21 @@ export default function Page() {
                       });
                       setSelectedToAdd(new Set());
                     }}
-                    className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200"
-                    disabled={!selectedTransactions.every(tx => selectedCategories[tx.id])}
+                    className={`border px-3 py-1 rounded ${
+                      isProcessing 
+                        ? 'bg-gray-50 text-gray-400 cursor-not-allowed' 
+                        : 'bg-gray-100 hover:bg-gray-200'
+                    }`}
+                    disabled={!hasValidCategories || isProcessing}
                   >
-                    Add Selected ({selectedToAdd.size})
+                    {isProcessing ? (
+                      <div className="flex items-center space-x-1">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        <span>Adding...</span>
+                      </div>
+                    ) : (
+                      `Add Selected (${selectedToAdd.size})`
+                    )}
                   </button>
                 </div>
               );
@@ -4048,7 +4125,7 @@ export default function Page() {
                   </th>
                   <th className="border p-1 w-8 text-center">Payee</th>
                   <th className="border p-1 w-8 text-center">Category</th>
-                  <th className="border p-1 w-8 text-center">Undo</th>
+                  <th className="border p-1 w-8 text-center">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -4094,9 +4171,18 @@ export default function Page() {
                       <td className="border p-1 w-8 text-center">
                         <button
                           onClick={e => { e.stopPropagation(); undoTransaction(tx); }}
-                          className="border px-2 py-1 rounded bg-gray-100 hover:bg-gray-200"
+                          className={`border px-2 py-1 rounded w-14 flex items-center justify-center mx-auto ${
+                            processingTransactions.has(tx.id) 
+                              ? 'bg-gray-50 text-gray-400 cursor-not-allowed' 
+                              : 'bg-gray-100 hover:bg-gray-200'
+                          }`}
+                          disabled={processingTransactions.has(tx.id)}
                         >
-                          Undo
+                          {processingTransactions.has(tx.id) ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            'Undo'
+                          )}
                         </button>
                       </td>
                     </tr>
@@ -4106,18 +4192,30 @@ export default function Page() {
             </table>
             {selectedAdded.size > 0 && (() => {
               const selectedConfirmed = confirmed.filter(tx => selectedAdded.has(tx.id));
+              const isProcessing = isUndoingTransactions || selectedConfirmed.some(tx => processingTransactions.has(tx.id));
+              
               return (
                 <div className="mt-2 flex justify-end">
                   <button
                     onClick={async () => {
-                      for (const tx of selectedConfirmed) {
-                        await undoTransaction(tx);
-                      }
+                      await undoTransactions(selectedConfirmed);
                       setSelectedAdded(new Set());
                     }}
-                    className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200"
+                    className={`border px-3 py-1 rounded ${
+                      isProcessing 
+                        ? 'bg-gray-50 text-gray-400 cursor-not-allowed' 
+                        : 'bg-gray-100 hover:bg-gray-200'
+                    }`}
+                    disabled={isProcessing}
                   >
-                    Undo Selected ({selectedAdded.size})
+                    {isProcessing ? (
+                      <div className="flex items-center space-x-1">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        <span>Undoing...</span>
+                      </div>
+                    ) : (
+                      `Undo Selected (${selectedAdded.size})`
+                    )}
                   </button>
                 </div>
               );

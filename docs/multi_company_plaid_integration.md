@@ -58,7 +58,8 @@ All API endpoints now require company context via headers:
 3. **`/api/3-store-plaid-accounts-as-accounts`** - Creates accounts scoped to company
 4. **`/api/4-store-plaid-accounts-as-categories`** - Creates chart entries scoped to company
 5. **`/api/5-import-transactions-to-categorize`** - Imports transactions scoped to company
-6. **`/api/6-move-to-transactions`** - Moves transactions within company scope
+6. **`/api/move-transactions`** - Moves transactions within company scope
+7. **`/api/undo-transactions`** - Undo transactions within company scope
 
 ### Error Handling
 
