@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { usePlaidLink } from 'react-plaid-link'
 import { supabase } from '../../lib/supabase'
 
@@ -229,6 +229,21 @@ export default function Page() {
   // Add state for tracking react-select input values
   const [payeeInputValues, setPayeeInputValues] = useState<{ [txId: string]: string }>({});
   const [categoryInputValues, setCategoryInputValues] = useState<{ [txId: string]: string }>({});
+
+  // Add state to track which transactions have been auto-added to prevent duplicates
+  // Track by content hash instead of ID to handle undo scenarios
+  const [autoAddedTransactions, setAutoAddedTransactions] = useState<Set<string>>(new Set());
+
+  // Add ref to prevent concurrent automation executions
+  const isAutomationRunning = useRef(false);
+  
+  // Add state for UI indicator
+  const [isAutoAddRunning, setIsAutoAddRunning] = useState(false);
+
+  // Helper function to create a unique content hash for a transaction
+  const getTransactionContentHash = (tx: Transaction) => {
+    return `${tx.date}_${tx.description}_${tx.spent || '0'}_${tx.received || '0'}_${tx.plaid_account_id}`;
+  };
 
   // Add missing state for multi-select checkboxes
   const [selectedToAdd, setSelectedToAdd] = useState<Set<string>>(new Set());
@@ -776,7 +791,26 @@ export default function Page() {
       .select('*')
       .eq('company_id', currentCompany?.id)
       .neq('plaid_account_name', null)
-    setImportedTransactions(data || [])
+    
+    if (data) {
+      setImportedTransactions(data);
+      // Clear auto-added tracking when imported transactions change
+      // Only keep content hashes that still exist in the imported list
+      setAutoAddedTransactions(prev => {
+        const importedContentHashes = new Set(data.map(tx => getTransactionContentHash(tx)));
+        const newSet = new Set<string>();
+        prev.forEach(contentHash => {
+          if (importedContentHashes.has(contentHash)) {
+            newSet.add(contentHash);
+          }
+        });
+        return newSet;
+      });
+      // Don't initialize from database values - automations will apply temporarily in UI only
+    } else {
+      setImportedTransactions([]);
+      setAutoAddedTransactions(new Set());
+    }
   }
 
   const fetchConfirmedTransactions = async () => {
@@ -834,9 +868,237 @@ export default function Page() {
     fetchAccounts()
   }
 
+  // Function to apply automations to transactions (temporary state only)
+  const applyAutomationsToTransactions = async () => {
+    if (!hasCompanyContext) return;
+    
+    // Prevent concurrent executions
+    if (isAutomationRunning.current) {
+      return;
+    }
+    
+    isAutomationRunning.current = true;
+    setIsAutoAddRunning(true);
+
+    try {
+      // Fetch automations
+      const { data: automations, error: automationsError } = await supabase
+        .from('automations')
+        .select('*')
+        .eq('company_id', currentCompany!.id)
+        .eq('enabled', true)
+        .order('name');
+
+      if (automationsError || !automations) {
+        console.error('Error fetching automations:', automationsError);
+        return;
+      }
+
+      // Separate automations by type
+      const payeeAutomations = automations.filter(a => a.automation_type === 'payee');
+      const categoryAutomations = automations.filter(a => a.automation_type === 'category');
+
+      if (payeeAutomations.length === 0 && categoryAutomations.length === 0) {
+        return; // No automations to apply
+      }
+
+      // Helper function to check if description matches automation condition
+      const doesDescriptionMatch = (description: string, conditionType: string, conditionValue: string): boolean => {
+        const desc = description.toLowerCase();
+        const condition = conditionValue.toLowerCase();
+
+        switch (conditionType) {
+          case 'contains':
+            return desc.includes(condition);
+          case 'equals':
+            return desc === condition;
+          case 'starts_with':
+            return desc.startsWith(condition);
+          case 'ends_with':
+            return desc.endsWith(condition);
+          default:
+            return false;
+        }
+      };
+
+      const newSelectedCategories: { [txId: string]: string } = {};
+      const newSelectedPayees: { [txId: string]: string } = {};
+      const transactionsToAutoAdd: string[] = [];
+
+      // Apply automations to each imported transaction
+      const transactionsToProcess = importedTransactions
+        .filter(tx => tx.plaid_account_id === selectedAccountId);
+
+      for (const transaction of transactionsToProcess) {
+        // Skip if already has manual selections
+        if (selectedCategories[transaction.id] || selectedPayees[transaction.id]) {
+          continue;
+        }
+
+        let appliedCategoryAutomation: { auto_add?: boolean } | null = null;
+
+        // Check payee automations first
+        for (const payeeAutomation of payeeAutomations) {
+          if (doesDescriptionMatch(
+            transaction.description,
+            payeeAutomation.condition_type,
+            payeeAutomation.condition_value
+          )) {
+            // Find the payee ID by name
+            const payee = payees.find(p => 
+              p.name.toLowerCase() === payeeAutomation.action_value.toLowerCase()
+            );
+            if (payee) {
+              newSelectedPayees[transaction.id] = payee.id;
+              break; // Take first matching automation
+            }
+          }
+        }
+
+        // Check category automations
+        for (const categoryAutomation of categoryAutomations) {
+          if (doesDescriptionMatch(
+            transaction.description,
+            categoryAutomation.condition_type,
+            categoryAutomation.condition_value
+          )) {
+            // Find the category ID by name
+            const category = categories.find(c => 
+              c.name.toLowerCase() === categoryAutomation.action_value.toLowerCase()
+            );
+            if (category) {
+              newSelectedCategories[transaction.id] = category.id;
+              appliedCategoryAutomation = categoryAutomation;
+              break; // Take first matching automation
+            }
+          }
+        }
+
+        // Check if category is set and category automation has auto_add enabled
+        // Note: auto_add column might not exist in remote database yet, so we handle this gracefully
+        if (newSelectedCategories[transaction.id] && appliedCategoryAutomation?.auto_add === true) {
+          transactionsToAutoAdd.push(transaction.id);
+        }
+      }
+
+      // Update state with automation-applied values
+      if (Object.keys(newSelectedCategories).length > 0) {
+        setSelectedCategories(prev => ({
+          ...prev,
+          ...newSelectedCategories
+        }));
+      }
+
+      if (Object.keys(newSelectedPayees).length > 0) {
+        setSelectedPayees(prev => ({
+          ...prev,
+          ...newSelectedPayees
+        }));
+      }
+
+      // Auto-add transactions that meet the criteria (only if not already auto-added)
+      // Filter by content hash instead of transaction ID to handle undo scenarios
+      const transactionsToActuallyAutoAdd = transactionsToAutoAdd.filter(txId => {
+        const transaction = transactionsToProcess.find(tx => tx.id === txId);
+        if (!transaction) return false;
+        const contentHash = getTransactionContentHash(transaction);
+        return !autoAddedTransactions.has(contentHash);
+      });
+      
+      if (transactionsToActuallyAutoAdd.length > 0) {
+        // Mark these transactions as being auto-added to prevent duplicates
+        setAutoAddedTransactions(prev => {
+          const newSet = new Set(prev);
+          transactionsToActuallyAutoAdd.forEach(txId => {
+            const transaction = transactionsToProcess.find(tx => tx.id === txId);
+            if (transaction) {
+              const contentHash = getTransactionContentHash(transaction);
+              newSet.add(contentHash);
+            }
+          });
+          return newSet;
+        });
+
+        // Process auto-add transactions sequentially to prevent race conditions
+        const processAutoAddTransactions = async () => {
+          for (const transactionId of transactionsToActuallyAutoAdd) {
+            const transaction = transactionsToProcess.find(tx => tx.id === transactionId);
+            if (transaction && newSelectedCategories[transactionId]) {
+              try {
+                await addTransaction(
+                  transaction, 
+                  newSelectedCategories[transactionId], 
+                  newSelectedPayees[transactionId]
+                );
+                
+                // Clean up state for auto-added transactions
+                setSelectedCategories(prev => {
+                  const copy = { ...prev };
+                  delete copy[transactionId];
+                  return copy;
+                });
+                setSelectedPayees(prev => {
+                  const copy = { ...prev };
+                  delete copy[transactionId];
+                  return copy;
+                });
+              } catch (error) {
+                console.error('Error auto-adding transaction:', error);
+                // Remove from auto-added set if there was an error so it can be retried
+                setAutoAddedTransactions(prev => {
+                  const newSet = new Set(prev);
+                  const contentHash = getTransactionContentHash(transaction);
+                  newSet.delete(contentHash);
+                  return newSet;
+                });
+              }
+            }
+          }
+        };
+
+        // Use a small delay to ensure state updates are processed, then run sequentially
+        setTimeout(async () => {
+          try {
+            await processAutoAddTransactions();
+          } finally {
+            // Reset the flag after auto-add completes
+            isAutomationRunning.current = false;
+            setIsAutoAddRunning(false);
+          }
+        }, 100);
+        
+        // Don't reset the flag here since the setTimeout will handle it
+        return;
+      }
+
+    } catch (error) {
+      console.error('Error applying automations to transactions:', error);
+    } finally {
+      // Reset the flag when automation completes (only if not auto-adding)
+      isAutomationRunning.current = false;
+      setIsAutoAddRunning(false);
+    }
+  };
+
   useEffect(() => {
     refreshAll()
   }, [currentCompany?.id]) // Refresh when company changes
+
+  // Apply automations automatically when transactions or related data changes (UI state only)
+  useEffect(() => {
+    if (importedTransactions.length > 0 && categories.length > 0 && payees.length > 0 && hasCompanyContext) {
+      // Apply automations immediately when data is available
+      applyAutomationsToTransactions();
+    }
+  }, [importedTransactions, categories, payees, hasCompanyContext]);
+
+  // Also apply automations when switching to the selected account
+  useEffect(() => {
+    if (selectedAccountId && importedTransactions.length > 0 && categories.length > 0 && payees.length > 0 && hasCompanyContext) {
+      // Apply automations when account selection changes
+      applyAutomationsToTransactions();
+    }
+  }, [selectedAccountId, importedTransactions, categories, payees, hasCompanyContext]);
 
   // 3️⃣ Actions
   const addTransaction = async (tx: Transaction, selectedCategoryId: string, selectedPayeeId?: string) => {
@@ -887,6 +1149,11 @@ export default function Page() {
       const data = await response.json();
       
       if (!response.ok) {
+        // If the transaction was already processed, don't throw an error - just log it
+        if (response.status === 409 && data.code === 'ALREADY_PROCESSED') {
+          console.log(`Transaction ${tx.id} was already processed, skipping...`);
+          return; // Exit gracefully without throwing an error
+        }
         throw new Error(data.error || 'Failed to move transaction');
       }
 
@@ -931,6 +1198,8 @@ export default function Page() {
         received: tx.received,
         plaid_account_id: tx.plaid_account_id,
         plaid_account_name: tx.plaid_account_name,
+        selected_category_id: tx.selected_category_id,
+        payee_id: tx.payee_id,
         company_id: currentCompany?.id
       }]);
 
@@ -3401,6 +3670,14 @@ export default function Page() {
         </div>
       )}
 
+      {/* Auto-add indicator */}
+      {isAutoAddRunning && (
+        <div className="fixed top-6 right-6 z-50 px-4 py-2 bg-blue-100 text-blue-800 border border-blue-300 rounded-lg shadow-lg flex items-center space-x-2">
+          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600" />
+          <span className="text-sm font-medium">Auto-adding transactions...</span>
+        </div>
+      )}
+
       {/* Tab Navigation */}
       <div className="border-b border-gray-200">
         <nav className="-mb-px flex space-x-8">
@@ -3655,7 +3932,14 @@ export default function Page() {
                                 const next = new Set(prev)
                                 next.delete(tx.id)
                                 return next
-                              })
+                              });
+                              // Remove from auto-added tracking since it was manually added
+                              setAutoAddedTransactions(prev => {
+                                const newSet = new Set(prev);
+                                const contentHash = getTransactionContentHash(tx);
+                                newSet.delete(contentHash);
+                                return newSet;
+                              });
                             }
                           }}
                           className="border px-2 py-1 rounded bg-gray-100 hover:bg-gray-200"
@@ -3689,6 +3973,15 @@ export default function Page() {
                         const copy = { ...prev };
                         selectedTransactions.forEach(tx => delete copy[tx.id]);
                         return copy;
+                      });
+                      // Remove from auto-added tracking since they were manually added
+                      setAutoAddedTransactions(prev => {
+                        const newSet = new Set(prev);
+                        selectedTransactions.forEach(tx => {
+                          const contentHash = getTransactionContentHash(tx);
+                          newSet.delete(contentHash);
+                        });
+                        return newSet;
                       });
                       setSelectedToAdd(new Set());
                     }}
