@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '../../../lib/supabase'
+import { isPositiveAmount, isZeroAmount, toFinancialAmount } from '@/lib/financial'
 
 export async function POST(request: NextRequest) {
   try {
@@ -46,17 +47,17 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate that only spent OR received has a value, not both
-    const spentValue = spent ?? 0;
-    const receivedValue = received ?? 0;
+    const spentValue = spent ?? '0.00';
+    const receivedValue = received ?? '0.00';
     
-    if (spentValue > 0 && receivedValue > 0) {
+    if (isPositiveAmount(spentValue) && isPositiveAmount(receivedValue)) {
       return NextResponse.json(
         { error: 'A transaction cannot have both spent and received amounts' },
         { status: 400 }
       )
     }
 
-    if (spentValue === 0 && receivedValue === 0) {
+    if (isZeroAmount(spentValue) && isZeroAmount(receivedValue)) {
       return NextResponse.json(
         { error: 'A transaction must have either a spent or received amount' },
         { status: 400 }
@@ -114,8 +115,8 @@ export async function POST(request: NextRequest) {
     const updateData = {
       date,
       description,
-      spent: spent || 0,
-      received: received || 0,
+      spent: toFinancialAmount(spent || '0.00'),
+      received: toFinancialAmount(received || '0.00'),
       selected_category_id: selectedCategoryId,
       corresponding_category_id: correspondingCategoryId,
       payee_id: payeeId || null

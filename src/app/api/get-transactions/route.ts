@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { plaidClient } from '@/lib/plaid'
 import { supabase } from '@/lib/supabase'
 import { validateCompanyContext } from '@/lib/auth-utils'
+import { toFinancialAmount } from '@/lib/financial'
 
 export async function POST(req: NextRequest) {
   try {
@@ -56,8 +57,8 @@ export async function POST(req: NextRequest) {
       const { error: upsertError } = await supabase.from('accounts').upsert({
         plaid_account_id: account_id,
         name: name,
-        current_balance: balances.current ?? 0,
-        starting_balance: balances.current ?? 0,
+        current_balance: toFinancialAmount(balances.current ?? 0),
+        starting_balance: toFinancialAmount(balances.current ?? 0),
         last_synced: new Date().toISOString(),
         plaid_item_id: item_id,
         type: type,
@@ -131,9 +132,9 @@ export async function POST(req: NextRequest) {
         acc => acc.account_id === account_id
       )?.name || null;
 
-      // Use amount sign to determine spent/received
-      const spent = amount > 0 ? amount : 0;
-      const received = amount < 0 ? Math.abs(amount) : 0;
+      // Use amount sign to determine spent/received with precise financial amounts
+      const spentAmount = amount > 0 ? toFinancialAmount(amount) : toFinancialAmount(0);
+      const receivedAmount = amount < 0 ? toFinancialAmount(Math.abs(amount)) : toFinancialAmount(0);
 
       // Check for duplicates (using spent/received and company_id)
       const { data: existing } = await supabase
@@ -142,16 +143,16 @@ export async function POST(req: NextRequest) {
         .eq('plaid_account_id', account_id)
         .eq('description', name)
         .eq('date', date)
-        .eq('spent', spent)
-        .eq('received', received)
+        .eq('spent', spentAmount)
+        .eq('received', receivedAmount)
         .eq('company_id', companyId);
 
       if (!existing || existing.length === 0) {
         const { error: insertError } = await supabase.from('imported_transactions').insert([{
           date,
           description: name,
-          spent,
-          received,
+          spent: spentAmount,
+          received: receivedAmount,
           plaid_account_id: account_id,
           item_id, // Link to plaid_items
           plaid_account_name: accountName,

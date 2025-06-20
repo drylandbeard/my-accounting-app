@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { usePlaidLink } from 'react-plaid-link'
 import { supabase } from '../../lib/supabase'
 
@@ -10,6 +10,16 @@ import { X } from 'lucide-react'
 import { useApiWithCompany } from '@/hooks/useApiWithCompany'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Select } from '@/components/ui/select'
+import { 
+  FinancialAmount, 
+  formatAmount, 
+  toFinancialAmount, 
+  calculateNetAmount, 
+  sumAmounts, 
+  isZeroAmount,
+  isPositiveAmount,
+  compareAmounts 
+} from '@/lib/financial'
 
 // @dnd-kit imports
 import {
@@ -36,13 +46,13 @@ type Transaction = {
   id: string
   date: string
   description: string
-  amount?: number
+  amount?: FinancialAmount
   plaid_account_id: string | null
   plaid_account_name: string | null
   selected_category_id?: string
   corresponding_category_id?: string
-  spent?: number
-  received?: number
+  spent?: FinancialAmount
+  received?: FinancialAmount
   payee_id?: string
   company_id?: string
 }
@@ -64,8 +74,8 @@ type Payee = {
 type Account = {
   plaid_account_id: string | null
   name: string // Database column is 'name'
-  starting_balance: number | null
-  current_balance: number | null
+  starting_balance: FinancialAmount | null
+  current_balance: FinancialAmount | null
   last_synced: string | null
   is_manual?: boolean
   plaid_account_name?: string // Add missing property
@@ -219,6 +229,21 @@ export default function Page() {
   // Add state for tracking react-select input values
   const [payeeInputValues, setPayeeInputValues] = useState<{ [txId: string]: string }>({});
   const [categoryInputValues, setCategoryInputValues] = useState<{ [txId: string]: string }>({});
+
+  // Add state to track which transactions have been auto-added to prevent duplicates
+  // Track by content hash instead of ID to handle undo scenarios
+  const [autoAddedTransactions, setAutoAddedTransactions] = useState<Set<string>>(new Set());
+
+  // Add ref to prevent concurrent automation executions
+  const isAutomationRunning = useRef(false);
+  
+  // Add state for UI indicator
+  const [isAutoAddRunning, setIsAutoAddRunning] = useState(false);
+
+  // Helper function to create a unique content hash for a transaction
+  const getTransactionContentHash = (tx: Transaction) => {
+    return `${tx.date}_${tx.description}_${tx.spent || '0'}_${tx.received || '0'}_${tx.plaid_account_id}`;
+  };
 
   // Add missing state for multi-select checkboxes
   const [selectedToAdd, setSelectedToAdd] = useState<Set<string>>(new Set());
@@ -766,7 +791,26 @@ export default function Page() {
       .select('*')
       .eq('company_id', currentCompany?.id)
       .neq('plaid_account_name', null)
-    setImportedTransactions(data || [])
+    
+    if (data) {
+      setImportedTransactions(data);
+      // Clear auto-added tracking when imported transactions change
+      // Only keep content hashes that still exist in the imported list
+      setAutoAddedTransactions(prev => {
+        const importedContentHashes = new Set(data.map(tx => getTransactionContentHash(tx)));
+        const newSet = new Set<string>();
+        prev.forEach(contentHash => {
+          if (importedContentHashes.has(contentHash)) {
+            newSet.add(contentHash);
+          }
+        });
+        return newSet;
+      });
+      // Don't initialize from database values - automations will apply temporarily in UI only
+    } else {
+      setImportedTransactions([]);
+      setAutoAddedTransactions(new Set());
+    }
   }
 
   const fetchConfirmedTransactions = async () => {
@@ -824,9 +868,237 @@ export default function Page() {
     fetchAccounts()
   }
 
+  // Function to apply automations to transactions (temporary state only)
+  const applyAutomationsToTransactions = async () => {
+    if (!hasCompanyContext) return;
+    
+    // Prevent concurrent executions
+    if (isAutomationRunning.current) {
+      return;
+    }
+    
+    isAutomationRunning.current = true;
+    setIsAutoAddRunning(true);
+
+    try {
+      // Fetch automations
+      const { data: automations, error: automationsError } = await supabase
+        .from('automations')
+        .select('*')
+        .eq('company_id', currentCompany!.id)
+        .eq('enabled', true)
+        .order('name');
+
+      if (automationsError || !automations) {
+        console.error('Error fetching automations:', automationsError);
+        return;
+      }
+
+      // Separate automations by type
+      const payeeAutomations = automations.filter(a => a.automation_type === 'payee');
+      const categoryAutomations = automations.filter(a => a.automation_type === 'category');
+
+      if (payeeAutomations.length === 0 && categoryAutomations.length === 0) {
+        return; // No automations to apply
+      }
+
+      // Helper function to check if description matches automation condition
+      const doesDescriptionMatch = (description: string, conditionType: string, conditionValue: string): boolean => {
+        const desc = description.toLowerCase();
+        const condition = conditionValue.toLowerCase();
+
+        switch (conditionType) {
+          case 'contains':
+            return desc.includes(condition);
+          case 'equals':
+            return desc === condition;
+          case 'starts_with':
+            return desc.startsWith(condition);
+          case 'ends_with':
+            return desc.endsWith(condition);
+          default:
+            return false;
+        }
+      };
+
+      const newSelectedCategories: { [txId: string]: string } = {};
+      const newSelectedPayees: { [txId: string]: string } = {};
+      const transactionsToAutoAdd: string[] = [];
+
+      // Apply automations to each imported transaction
+      const transactionsToProcess = importedTransactions
+        .filter(tx => tx.plaid_account_id === selectedAccountId);
+
+      for (const transaction of transactionsToProcess) {
+        // Skip if already has manual selections
+        if (selectedCategories[transaction.id] || selectedPayees[transaction.id]) {
+          continue;
+        }
+
+        let appliedCategoryAutomation: { auto_add?: boolean } | null = null;
+
+        // Check payee automations first
+        for (const payeeAutomation of payeeAutomations) {
+          if (doesDescriptionMatch(
+            transaction.description,
+            payeeAutomation.condition_type,
+            payeeAutomation.condition_value
+          )) {
+            // Find the payee ID by name
+            const payee = payees.find(p => 
+              p.name.toLowerCase() === payeeAutomation.action_value.toLowerCase()
+            );
+            if (payee) {
+              newSelectedPayees[transaction.id] = payee.id;
+              break; // Take first matching automation
+            }
+          }
+        }
+
+        // Check category automations
+        for (const categoryAutomation of categoryAutomations) {
+          if (doesDescriptionMatch(
+            transaction.description,
+            categoryAutomation.condition_type,
+            categoryAutomation.condition_value
+          )) {
+            // Find the category ID by name
+            const category = categories.find(c => 
+              c.name.toLowerCase() === categoryAutomation.action_value.toLowerCase()
+            );
+            if (category) {
+              newSelectedCategories[transaction.id] = category.id;
+              appliedCategoryAutomation = categoryAutomation;
+              break; // Take first matching automation
+            }
+          }
+        }
+
+        // Check if category is set and category automation has auto_add enabled
+        // Note: auto_add column might not exist in remote database yet, so we handle this gracefully
+        if (newSelectedCategories[transaction.id] && appliedCategoryAutomation?.auto_add === true) {
+          transactionsToAutoAdd.push(transaction.id);
+        }
+      }
+
+      // Update state with automation-applied values
+      if (Object.keys(newSelectedCategories).length > 0) {
+        setSelectedCategories(prev => ({
+          ...prev,
+          ...newSelectedCategories
+        }));
+      }
+
+      if (Object.keys(newSelectedPayees).length > 0) {
+        setSelectedPayees(prev => ({
+          ...prev,
+          ...newSelectedPayees
+        }));
+      }
+
+      // Auto-add transactions that meet the criteria (only if not already auto-added)
+      // Filter by content hash instead of transaction ID to handle undo scenarios
+      const transactionsToActuallyAutoAdd = transactionsToAutoAdd.filter(txId => {
+        const transaction = transactionsToProcess.find(tx => tx.id === txId);
+        if (!transaction) return false;
+        const contentHash = getTransactionContentHash(transaction);
+        return !autoAddedTransactions.has(contentHash);
+      });
+      
+      if (transactionsToActuallyAutoAdd.length > 0) {
+        // Mark these transactions as being auto-added to prevent duplicates
+        setAutoAddedTransactions(prev => {
+          const newSet = new Set(prev);
+          transactionsToActuallyAutoAdd.forEach(txId => {
+            const transaction = transactionsToProcess.find(tx => tx.id === txId);
+            if (transaction) {
+              const contentHash = getTransactionContentHash(transaction);
+              newSet.add(contentHash);
+            }
+          });
+          return newSet;
+        });
+
+        // Process auto-add transactions sequentially to prevent race conditions
+        const processAutoAddTransactions = async () => {
+          for (const transactionId of transactionsToActuallyAutoAdd) {
+            const transaction = transactionsToProcess.find(tx => tx.id === transactionId);
+            if (transaction && newSelectedCategories[transactionId]) {
+              try {
+                await addTransaction(
+                  transaction, 
+                  newSelectedCategories[transactionId], 
+                  newSelectedPayees[transactionId]
+                );
+                
+                // Clean up state for auto-added transactions
+                setSelectedCategories(prev => {
+                  const copy = { ...prev };
+                  delete copy[transactionId];
+                  return copy;
+                });
+                setSelectedPayees(prev => {
+                  const copy = { ...prev };
+                  delete copy[transactionId];
+                  return copy;
+                });
+              } catch (error) {
+                console.error('Error auto-adding transaction:', error);
+                // Remove from auto-added set if there was an error so it can be retried
+                setAutoAddedTransactions(prev => {
+                  const newSet = new Set(prev);
+                  const contentHash = getTransactionContentHash(transaction);
+                  newSet.delete(contentHash);
+                  return newSet;
+                });
+              }
+            }
+          }
+        };
+
+        // Use a small delay to ensure state updates are processed, then run sequentially
+        setTimeout(async () => {
+          try {
+            await processAutoAddTransactions();
+          } finally {
+            // Reset the flag after auto-add completes
+            isAutomationRunning.current = false;
+            setIsAutoAddRunning(false);
+          }
+        }, 100);
+        
+        // Don't reset the flag here since the setTimeout will handle it
+        return;
+      }
+
+    } catch (error) {
+      console.error('Error applying automations to transactions:', error);
+    } finally {
+      // Reset the flag when automation completes (only if not auto-adding)
+      isAutomationRunning.current = false;
+      setIsAutoAddRunning(false);
+    }
+  };
+
   useEffect(() => {
     refreshAll()
   }, [currentCompany?.id]) // Refresh when company changes
+
+  // Apply automations automatically when transactions or related data changes (UI state only)
+  useEffect(() => {
+    if (importedTransactions.length > 0 && categories.length > 0 && payees.length > 0 && hasCompanyContext) {
+      // Apply automations immediately when data is available
+      applyAutomationsToTransactions();
+    }
+  }, [importedTransactions, categories, payees, hasCompanyContext]);
+
+  // Also apply automations when switching to the selected account
+  useEffect(() => {
+    if (selectedAccountId && importedTransactions.length > 0 && categories.length > 0 && payees.length > 0 && hasCompanyContext) {
+      // Apply automations when account selection changes
+      applyAutomationsToTransactions();
+    }
+  }, [selectedAccountId, importedTransactions, categories, payees, hasCompanyContext]);
 
   // 3️⃣ Actions
   const addTransaction = async (tx: Transaction, selectedCategoryId: string, selectedPayeeId?: string) => {
@@ -877,6 +1149,11 @@ export default function Page() {
       const data = await response.json();
       
       if (!response.ok) {
+        // If the transaction was already processed, don't throw an error - just log it
+        if (response.status === 409 && data.code === 'ALREADY_PROCESSED') {
+          console.log(`Transaction ${tx.id} was already processed, skipping...`);
+          return; // Exit gracefully without throwing an error
+        }
         throw new Error(data.error || 'Failed to move transaction');
       }
 
@@ -921,6 +1198,8 @@ export default function Page() {
         received: tx.received,
         plaid_account_id: tx.plaid_account_id,
         plaid_account_name: tx.plaid_account_name,
+        selected_category_id: tx.selected_category_id,
+        payee_id: tx.payee_id,
         company_id: currentCompany?.id
       }]);
 
@@ -978,25 +1257,22 @@ export default function Page() {
           : b.description.localeCompare(a.description);
       }
       if (sortConfig.key === 'amount') {
-        const aAmount = a.amount ?? ((a.received ?? 0) - (a.spent ?? 0));
-        const bAmount = b.amount ?? ((b.received ?? 0) - (b.spent ?? 0));
-        return sortConfig.direction === 'asc'
-          ? aAmount - bAmount
-          : bAmount - aAmount;
+        const aAmount = a.amount ?? calculateNetAmount(a.spent, a.received);
+        const bAmount = b.amount ?? calculateNetAmount(b.spent, b.received);
+        const comparison = compareAmounts(aAmount, bAmount);
+        return sortConfig.direction === 'asc' ? comparison : -comparison;
       }
       if (sortConfig.key === 'spent') {
-        const aSpent = a.spent ?? 0;
-        const bSpent = b.spent ?? 0;
-        return sortConfig.direction === 'asc'
-          ? aSpent - bSpent
-          : bSpent - aSpent;
+        const aSpent = a.spent ?? '0.00';
+        const bSpent = b.spent ?? '0.00';
+        const comparison = compareAmounts(aSpent, bSpent);
+        return sortConfig.direction === 'asc' ? comparison : -comparison;
       }
       if (sortConfig.key === 'received') {
-        const aReceived = a.received ?? 0;
-        const bReceived = b.received ?? 0;
-        return sortConfig.direction === 'asc'
-          ? aReceived - bReceived
-          : bReceived - aReceived;
+        const aReceived = a.received ?? '0.00';
+        const bReceived = b.received ?? '0.00';
+        const comparison = compareAmounts(aReceived, bReceived);
+        return sortConfig.direction === 'asc' ? comparison : -comparison;
       }
       return 0;
     });
@@ -1031,13 +1307,13 @@ export default function Page() {
         const q = toAddSearchQuery.toLowerCase();
         const desc = tx.description?.toLowerCase() || '';
         const date = formatDate(tx.date).toLowerCase();
-        const spent = tx.spent !== undefined ? tx.spent.toString() : '';
-        const received = tx.received !== undefined ? tx.received.toString() : '';
-        const amount = tx.amount !== undefined ? tx.amount.toString() : '';
+        const spent = tx.spent || '';
+        const received = tx.received || '';
+        const amount = tx.amount || '';
         // Also search formatted amounts (what user sees in display)
-        const spentFormatted = tx.spent ? tx.spent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
-        const receivedFormatted = tx.received ? tx.received.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
-        const amountFormatted = tx.amount !== undefined ? tx.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
+        const spentFormatted = tx.spent ? formatAmount(tx.spent, { showCurrency: false }) : '';
+        const receivedFormatted = tx.received ? formatAmount(tx.received, { showCurrency: false }) : '';
+        const amountFormatted = tx.amount ? formatAmount(tx.amount, { showCurrency: false }) : '';
         return (
           desc.includes(q) ||
           date.includes(q) ||
@@ -1067,13 +1343,13 @@ export default function Page() {
         const q = addedSearchQuery.toLowerCase();
         const desc = tx.description?.toLowerCase() || '';
         const date = formatDate(tx.date).toLowerCase();
-        const spent = tx.spent !== undefined ? tx.spent.toString() : '';
-        const received = tx.received !== undefined ? tx.received.toString() : '';
-        const amount = tx.amount !== undefined ? tx.amount.toString() : '';
+        const spent = tx.spent || '';
+        const received = tx.received || '';
+        const amount = tx.amount || '';
         // Also search formatted amounts (what user sees in display)
-        const spentFormatted = tx.spent ? tx.spent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
-        const receivedFormatted = tx.received ? tx.received.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
-        const amountFormatted = tx.amount !== undefined ? tx.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
+        const spentFormatted = tx.spent ? formatAmount(tx.spent, { showCurrency: false }) : '';
+        const receivedFormatted = tx.received ? formatAmount(tx.received, { showCurrency: false }) : '';
+        const amountFormatted = tx.amount ? formatAmount(tx.amount, { showCurrency: false }) : '';
         // Get the category name for this transaction
         const isAccountDebit = tx.selected_category_id === selectedAccountIdInCOA;
         const categoryId = isAccountDebit ? tx.corresponding_category_id : tx.selected_category_id;
@@ -1094,15 +1370,15 @@ export default function Page() {
     addedSortConfig
   );
 
-  const currentBalance = accounts.find(a => a.plaid_account_id === selectedAccountId)?.current_balance || 0
+  const currentBalance = toFinancialAmount(accounts.find(a => a.plaid_account_id === selectedAccountId)?.current_balance || '0.00')
 
   // Calculate the Switch Balance for the selected account (only for Added tab)
   // Only sum confirmed transactions - starting balance is included as a "Starting Balance" transaction
   const confirmedAccountTransactions = confirmed.filter(tx => tx.plaid_account_id === selectedAccountId);
   
-  const switchBalance = confirmedAccountTransactions.reduce((sum, tx) => {
-    return sum + (tx.received ?? 0) - (tx.spent ?? 0);
-  }, 0);
+  const switchBalance = sumAmounts(
+    confirmedAccountTransactions.map(tx => calculateNetAmount(tx.spent, tx.received))
+  );
 
   const downloadTemplate = () => {
     const headers = ['Date', 'Description', 'Amount']
@@ -1264,9 +1540,9 @@ export default function Page() {
               id: uuidv4(),
               date: parsedDate.toISOString().split('T')[0], // Store as YYYY-MM-DD
               description: row.Description.trim(),
-              amount: amount, // Keep original amount for display
-              spent: amount < 0 ? Math.abs(amount) : 0, // Negative amounts become spent
-              received: amount > 0 ? amount : 0, // Positive amounts become received
+              amount: toFinancialAmount(amount), // Convert to FinancialAmount string
+              spent: amount < 0 ? toFinancialAmount(Math.abs(amount)) : toFinancialAmount(0), // Negative amounts become spent
+              received: amount > 0 ? toFinancialAmount(amount) : toFinancialAmount(0), // Positive amounts become received
               plaid_account_id: importModal.selectedAccount?.plaid_account_id || null,
               plaid_account_name: importModal.selectedAccount?.name || null,
               company_id: currentCompany?.id
@@ -1312,15 +1588,15 @@ export default function Page() {
 
     try {
       // Validate that only spent OR received has a value, not both
-      const spent = updatedTransaction.spent ?? 0;
-      const received = updatedTransaction.received ?? 0;
+      const spent = updatedTransaction.spent ?? '0.00';
+      const received = updatedTransaction.received ?? '0.00';
       
-      if (spent > 0 && received > 0) {
+      if (isPositiveAmount(spent) && isPositiveAmount(received)) {
         setNotification({ type: 'error', message: 'A transaction cannot have both spent and received amounts. Please enter only one.' });
         return;
       }
 
-      if (spent === 0 && received === 0) {
+      if (isZeroAmount(spent) && isZeroAmount(received)) {
         setNotification({ type: 'error', message: 'A transaction must have either a spent or received amount.' });
         return;
       }
@@ -1509,7 +1785,7 @@ export default function Page() {
 
     try {
       const manualAccountId = uuidv4();
-      const startingBalance = parseFloat(manualAccountModal.startingBalance) || 0;
+      const startingBalance = toFinancialAmount(manualAccountModal.startingBalance || '0');
 
       // Insert into accounts table
       const { error: accountError } = await supabase.from('accounts').insert({
@@ -1946,7 +2222,7 @@ export default function Page() {
     } else {
       // Find the transaction to determine default category type
       const transaction = imported.find(tx => tx.id === txId);
-      const defaultType = transaction?.received && transaction.received > 0 ? 'Revenue' : 'Expense';
+      const defaultType = transaction?.received && isPositiveAmount(transaction.received) ? 'Revenue' : 'Expense';
       
       // Open modal with pre-populated name and appropriate type
       setNewCategoryModal({
@@ -2252,7 +2528,7 @@ export default function Page() {
                                   {tx.description}
                                 </td>
                                 <td className="px-4 py-2 text-sm text-gray-900 text-right w-8">
-                                  ${(tx.amount ?? ((tx.received ?? 0) - (tx.spent ?? 0))).toFixed(2)}
+                                  {formatAmount(tx.amount ?? calculateNetAmount(tx.spent, tx.received))}
                                 </td>
                               </tr>
                             ))}
@@ -2260,7 +2536,7 @@ export default function Page() {
                           <tfoot className="bg-gray-50">
                             <tr>
                               <td colSpan={4} className="px-4 py-2 text-sm font-medium text-gray-900 text-right w-8">
-                                ${importModal.csvData.reduce((sum, tx) => sum + (tx.amount ?? ((tx.received ?? 0) - (tx.spent ?? 0))), 0).toFixed(2)}
+                                {formatAmount(sumAmounts(importModal.csvData.map(tx => tx.amount ?? calculateNetAmount(tx.spent, tx.received))))}
                               </td>
                             </tr>
                           </tfoot>
@@ -2428,21 +2704,30 @@ export default function Page() {
                   Spent
                 </label>
                 <input
-                  type="number"
-                  value={editModal.transaction.spent ?? 0}
+                  type="text"
+                  value={(() => {
+                    const spent = editModal.transaction.spent;
+                    return (spent && !isZeroAmount(spent)) ? spent : '';
+                  })()}
                   onChange={(e) => {
-                    const spentValue = parseFloat(e.target.value) || 0;
+                    const inputValue = e.target.value;
                     setEditModal(prev => ({
                       ...prev,
                       transaction: prev.transaction ? {
                         ...prev.transaction,
-                        spent: spentValue,
-                        // Clear received when spent has a value
-                        received: spentValue > 0 ? 0 : prev.transaction.received
+                        spent: inputValue || '0.00',
+                        // Clear received when spent has a positive value
+                        received: inputValue && isPositiveAmount(inputValue) ? '0.00' : prev.transaction.received
                       } : null
                     }));
                   }}
-                  className="w-full border px-2 py-1 rounded text-xs"
+                  placeholder="0.00"
+                  disabled={!!(editModal.transaction.received && isPositiveAmount(editModal.transaction.received))}
+                  className={`w-full border px-2 py-1 rounded text-xs ${
+                    editModal.transaction.received && isPositiveAmount(editModal.transaction.received)
+                      ? 'bg-gray-100 text-gray-500'
+                      : ''
+                  }`}
                 />
               </div>
 
@@ -2451,21 +2736,30 @@ export default function Page() {
                   Received
                 </label>
                 <input
-                  type="number"
-                  value={editModal.transaction.received ?? 0}
+                  type="text"
+                  value={(() => {
+                    const received = editModal.transaction.received;
+                    return (received && !isZeroAmount(received)) ? received : '';
+                  })()}
                   onChange={(e) => {
-                    const receivedValue = parseFloat(e.target.value) || 0;
+                    const inputValue = e.target.value;
                     setEditModal(prev => ({
                       ...prev,
                       transaction: prev.transaction ? {
                         ...prev.transaction,
-                        received: receivedValue,
-                        // Clear spent when received has a value
-                        spent: receivedValue > 0 ? 0 : prev.transaction.spent
+                        received: inputValue || '0.00',
+                        // Clear spent when received has a positive value
+                        spent: inputValue && isPositiveAmount(inputValue) ? '0.00' : prev.transaction.spent
                       } : null
                     }));
                   }}
-                  className="w-full border px-2 py-1 rounded text-xs"
+                  placeholder="0.00"
+                  disabled={!!(editModal.transaction.spent && isPositiveAmount(editModal.transaction.spent))}
+                  className={`w-full border px-2 py-1 rounded text-xs ${
+                    editModal.transaction.spent && isPositiveAmount(editModal.transaction.spent)
+                      ? 'bg-gray-100 text-gray-500'
+                      : ''
+                  }`}
                 />
               </div>
 
@@ -2513,7 +2807,7 @@ export default function Page() {
                     const option = selectedOption as SelectOption | null;
                     if (option?.value === 'add_new') {
                       // Determine default category type based on transaction
-                      const defaultType = editModal.transaction?.received && editModal.transaction.received > 0 ? 'Revenue' : 'Expense';
+                      const defaultType = editModal.transaction?.received && isPositiveAmount(editModal.transaction.received) ? 'Revenue' : 'Expense';
                       setNewCategoryModal({ 
                         isOpen: true, 
                         name: '', 
@@ -3027,7 +3321,7 @@ export default function Page() {
                               value={entry.amount}
                               onChange={(e) => {
                                 const newEntries = [...journalEntryModal.entries];
-                                newEntries[index].amount = parseFloat(e.target.value) || 0;
+                                newEntries[index].amount = e.target.value ? parseFloat(e.target.value) : 0;
                                 setJournalEntryModal(prev => ({
                                   ...prev,
                                   entries: newEntries
@@ -3376,6 +3670,14 @@ export default function Page() {
         </div>
       )}
 
+      {/* Auto-add indicator */}
+      {isAutoAddRunning && (
+        <div className="fixed top-6 right-6 z-50 px-4 py-2 bg-blue-100 text-blue-800 border border-blue-300 rounded-lg shadow-lg flex items-center space-x-2">
+          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600" />
+          <span className="text-sm font-medium">Auto-adding transactions...</span>
+        </div>
+      )}
+
       {/* Tab Navigation */}
       <div className="border-b border-gray-200">
         <nav className="-mb-px flex space-x-8">
@@ -3416,12 +3718,12 @@ export default function Page() {
               <div className="ml-4 flex items-center gap-3 my-auto">
                 <div className="flex items-center gap-1 px-2 py-1 bg-gray-50 border border-gray-200 rounded-md">
                   <span className="text-gray-700 text-xs font-medium">Current Balance:</span>
-                  <span className="text-gray-900 text-xs font-semibold">${currentBalance.toFixed(2)}</span>
+                  <span className="text-gray-900 text-xs font-semibold">{formatAmount(currentBalance)}</span>
                 </div>
                 {activeTab === 'added' && (
                   <div className="flex items-center gap-1 px-2 py-1 bg-gray-50 border border-gray-200 rounded-md">
                     <span className="text-gray-700 text-xs font-medium">Switch Balance:</span>
-                    <span className="text-gray-900 text-xs font-semibold">${switchBalance.toFixed(2)}</span>
+                    <span className="text-gray-900 text-xs font-semibold">{formatAmount(switchBalance)}</span>
                   </div>
                 )}
               </div>
@@ -3509,8 +3811,8 @@ export default function Page() {
                       </td>
                       <td className="border p-1 w-8 text-center text-xs">{formatDate(tx.date)}</td>
                       <td className="border p-1 w-8 text-center text-xs" style={{ minWidth: 250 }}>{tx.description}</td>
-                      <td className="border p-1 w-8 text-center">{tx.spent ? `$${tx.spent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td>
-                      <td className="border p-1 w-8 text-center">{tx.received ? `$${tx.received.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td>
+                      <td className="border p-1 w-8 text-center">{tx.spent ? formatAmount(tx.spent) : ''}</td>
+                      <td className="border p-1 w-8 text-center">{tx.received ? formatAmount(tx.received) : ''}</td>
                       <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
                         <Select
                           options={payeeOptions}
@@ -3567,7 +3869,7 @@ export default function Page() {
                             const option = selectedOption as SelectOption | null;
                             if (option?.value === 'add_new') {
                               // Determine default category type based on transaction
-                              const defaultType = tx.received && tx.received > 0 ? 'Revenue' : 'Expense';
+                              const defaultType = tx.received && isPositiveAmount(tx.received) ? 'Revenue' : 'Expense';
                               setNewCategoryModal({ 
                                 isOpen: true, 
                                 name: '', 
@@ -3630,7 +3932,14 @@ export default function Page() {
                                 const next = new Set(prev)
                                 next.delete(tx.id)
                                 return next
-                              })
+                              });
+                              // Remove from auto-added tracking since it was manually added
+                              setAutoAddedTransactions(prev => {
+                                const newSet = new Set(prev);
+                                const contentHash = getTransactionContentHash(tx);
+                                newSet.delete(contentHash);
+                                return newSet;
+                              });
                             }
                           }}
                           className="border px-2 py-1 rounded bg-gray-100 hover:bg-gray-200"
@@ -3664,6 +3973,15 @@ export default function Page() {
                         const copy = { ...prev };
                         selectedTransactions.forEach(tx => delete copy[tx.id]);
                         return copy;
+                      });
+                      // Remove from auto-added tracking since they were manually added
+                      setAutoAddedTransactions(prev => {
+                        const newSet = new Set(prev);
+                        selectedTransactions.forEach(tx => {
+                          const contentHash = getTransactionContentHash(tx);
+                          newSet.delete(contentHash);
+                        });
+                        return newSet;
                       });
                       setSelectedToAdd(new Set());
                     }}
@@ -3764,8 +4082,8 @@ export default function Page() {
                       </td>
                       <td className="border p-1 w-8 text-center text-xs">{formatDate(tx.date)}</td>
                       <td className="border p-1 w-8 text-center text-xs" style={{ minWidth: 250 }}>{tx.description}</td>
-                      <td className="border p-1 w-8 text-center">{tx.spent ? `$${tx.spent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td>
-                      <td className="border p-1 w-8 text-center">{tx.received ? `$${tx.received.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td>
+                      <td className="border p-1 w-8 text-center">{tx.spent ? formatAmount(tx.spent) : ''}</td>
+                      <td className="border p-1 w-8 text-center">{tx.received ? formatAmount(tx.received) : ''}</td>
                       <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
                         {(() => {
                           const payee = payees.find(p => p.id === tx.payee_id);
