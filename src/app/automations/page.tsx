@@ -305,7 +305,7 @@ export default function AutomationsPage() {
         return;
       }
 
-            // Update local state
+      // Update local state
       setPayeeAutomations((prev) => prev.filter((automation) => automation.id !== id));
     } catch (error) {
       console.error("Error deleting payee automation:", error);
@@ -326,7 +326,7 @@ export default function AutomationsPage() {
         return;
       }
 
-            // Update local state
+      // Update local state
       setCategoryAutomations((prev) => prev.filter((automation) => automation.id !== id));
     } catch (error) {
       console.error("Error deleting category automation:", error);
@@ -478,7 +478,7 @@ export default function AutomationsPage() {
         transactionType: "All",
         autoAdd: false,
       });
-            // Clear errors when successfully created/updated
+      // Clear errors when successfully created/updated
       setPayeeModalErrors({
         name: false,
         condition: false,
@@ -595,7 +595,7 @@ export default function AutomationsPage() {
         transactionType: "All",
         autoAdd: false,
       });
-            // Clear errors when successfully created/updated
+      // Clear errors when successfully created/updated
       setCategoryModalErrors({
         name: false,
         condition: false,
@@ -932,12 +932,6 @@ export default function AutomationsPage() {
                           >
                             Edit
                           </button>
-                          <button
-                            onClick={() => handleDeletePayeeAutomation(automation.id)}
-                            className="text-xs hover:underline text-red-600"
-                          >
-                            Delete
-                          </button>
                         </div>
                       </td>
                     </tr>
@@ -1025,12 +1019,6 @@ export default function AutomationsPage() {
                             className="text-xs hover:underline text-blue-600"
                           >
                             Edit
-                          </button>
-                          <button
-                            onClick={() => handleDeleteCategoryAutomation(automation.id)}
-                            className="text-xs hover:underline text-red-600"
-                          >
-                            Delete
                           </button>
                         </div>
                       </td>
@@ -1195,8 +1183,6 @@ export default function AutomationsPage() {
                 {payeeModalErrors.condition && <p className="text-xs text-red-500 mt-1">Description is required</p>}
               </div>
 
-              
-
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Then Assign *</label>
                 <Select
@@ -1267,13 +1253,41 @@ export default function AutomationsPage() {
               </div>
             </div>
 
-            <div className="flex justify-end mt-6">
-              <button
-                onClick={createOrUpdatePayeeAutomation}
-                className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
-              >
-                {payeeAutomationModal.isEditing ? "Save" : "Create"}
-              </button>
+            <div className="flex justify-between items-center mt-6">
+              {payeeAutomationModal.isEditing && payeeAutomationModal.editingId && (
+                <button
+                  onClick={() => {
+                    if (
+                      payeeAutomationModal.editingId &&
+                      window.confirm("Are you sure you want to delete this automation? This action cannot be undone.")
+                    ) {
+                      handleDeletePayeeAutomation(payeeAutomationModal.editingId);
+                      setPayeeAutomationModal({
+                        isOpen: false,
+                        isEditing: false,
+                        editingId: null,
+                        name: "",
+                        condition: "",
+                        conditionType: "contains",
+                        action: "",
+                        transactionType: "All",
+                        autoAdd: false,
+                      });
+                    }
+                  }}
+                  className="px-4 py-2 text-sm bg-red-600 text-white rounded hover:bg-red-700"
+                >
+                  Delete
+                </button>
+              )}
+              <div className="flex gap-2">
+                <button
+                  onClick={createOrUpdatePayeeAutomation}
+                  className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
+                >
+                  {payeeAutomationModal.isEditing ? "Save" : "Create"}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1520,13 +1534,41 @@ export default function AutomationsPage() {
               </div>
             </div>
 
-            <div className="flex justify-end mt-6">
-              <button
-                onClick={createOrUpdateCategoryAutomation}
-                className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
-              >
-                {categoryAutomationModal.isEditing ? "Save" : "Create"}
-              </button>
+            <div className="flex justify-between items-center mt-6">
+              {categoryAutomationModal.isEditing && categoryAutomationModal.editingId && (
+                <button
+                  onClick={() => {
+                    if (
+                      categoryAutomationModal.editingId &&
+                      window.confirm("Are you sure you want to delete this automation? This action cannot be undone.")
+                    ) {
+                      handleDeleteCategoryAutomation(categoryAutomationModal.editingId);
+                      setCategoryAutomationModal({
+                        isOpen: false,
+                        isEditing: false,
+                        editingId: null,
+                        name: "",
+                        condition: "",
+                        conditionType: "contains",
+                        action: "",
+                        transactionType: "All",
+                        autoAdd: false,
+                      });
+                    }
+                  }}
+                  className="px-4 py-2 text-sm bg-red-600 text-white rounded hover:bg-red-700"
+                >
+                  Delete
+                </button>
+              )}
+              <div className="flex gap-2">
+                <button
+                  onClick={createOrUpdateCategoryAutomation}
+                  className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
+                >
+                  {categoryAutomationModal.isEditing ? "Save" : "Create"}
+                </button>
+              </div>
             </div>
           </div>
         </div>
