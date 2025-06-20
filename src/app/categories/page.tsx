@@ -492,18 +492,24 @@ export default function ChartOfAccountsPage() {
     };
 
     const currentValues = getCurrentValues();
+    const editingIdToUpdate = editingId;
 
+    // Immediately exit editing mode and refresh to show updated values optimistically
+    setEditingId(null);
+    
     try {
       // First get the current chart_of_accounts record to check if it has a plaid_account_id
       const { data: currentAccount, error: fetchError } = await supabase
         .from("chart_of_accounts")
         .select("plaid_account_id")
-        .eq("id", editingId)
+        .eq("id", editingIdToUpdate)
         .single();
 
       if (fetchError) {
         console.error("Error fetching current account:", fetchError);
         alert("Error fetching account data. Please try again.");
+        // Refresh to revert any optimistic changes
+        await refreshCategories();
         return;
       }
 
@@ -515,11 +521,13 @@ export default function ChartOfAccountsPage() {
           type: currentValues.type,
           parent_id: currentValues.parent_id === "" ? null : currentValues.parent_id,
         })
-        .eq("id", editingId);
+        .eq("id", editingIdToUpdate);
 
       if (error) {
         console.error("Error updating chart of accounts:", error);
         alert("Error saving changes. Please try again.");
+        // Refresh to revert any optimistic changes
+        await refreshCategories();
         return;
       }
 
@@ -542,13 +550,15 @@ export default function ChartOfAccountsPage() {
         }
       }
 
-      setEditingId(null);
-      // Categories will be refreshed automatically via real-time subscription
-      fetchParentOptions();
+      // Refresh categories to ensure consistency with database
+      await refreshCategories();
+      await fetchParentOptions();
       console.log("Update completed successfully");
     } catch (error) {
       console.error("Unexpected error during update:", error);
       alert("An unexpected error occurred. Please try again.");
+      // Refresh to revert any optimistic changes
+      await refreshCategories();
     }
   };
 
