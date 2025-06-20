@@ -2,14 +2,23 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { usePlaidLink } from 'react-plaid-link'
-import { supabase } from '../../lib/supabase'
+import { supabase } from '@/lib/supabase'
 
 import Papa from 'papaparse'
 import { v4 as uuidv4 } from 'uuid'
-import { X } from 'lucide-react'
+import { X, Loader2 } from 'lucide-react'
 import { useApiWithCompany } from '@/hooks/useApiWithCompany'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Select } from '@/components/ui/select'
+import { 
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+  PaginationEllipsis,
+} from '@/components/ui/pagination'
 import { 
   FinancialAmount, 
   formatAmount, 
@@ -207,7 +216,7 @@ function SortableAccountItem({ account, onNameChange, onDelete, deleteConfirmati
   );
 }
 
-export default function Page() {
+export default function TransactionsPage() {
   const { getWithCompany, postWithCompany, hasCompanyContext, currentCompany } = useApiWithCompany()
   const [linkToken, setLinkToken] = useState<string | null>(null)
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null)
@@ -249,9 +258,19 @@ export default function Page() {
   const [selectedToAdd, setSelectedToAdd] = useState<Set<string>>(new Set());
   const [selectedAdded, setSelectedAdded] = useState<Set<string>>(new Set());
 
+  // Add loading states for bulk operations
+  const [isAddingTransactions, setIsAddingTransactions] = useState(false);
+  const [isUndoingTransactions, setIsUndoingTransactions] = useState(false);
+  const [processingTransactions, setProcessingTransactions] = useState<Set<string>>(new Set());
+
   // Add sorting state
   const [toAddSortConfig, setToAddSortConfig] = useState<SortConfig>({ key: null, direction: 'asc' });
   const [addedSortConfig, setAddedSortConfig] = useState<SortConfig>({ key: null, direction: 'asc' });
+
+  // Add pagination state
+  const ITEMS_PER_PAGE = 100;
+  const [toAddCurrentPage, setToAddCurrentPage] = useState(1);
+  const [addedCurrentPage, setAddedCurrentPage] = useState(1);
 
   // Add import modal state
   const [importModal, setImportModal] = useState<ImportModalState>({
@@ -788,7 +807,7 @@ export default function Page() {
     
     const { data } = await supabase
       .from('imported_transactions')
-      .select('*')
+      .select('id, date, description, spent, received, plaid_account_id, plaid_account_name, selected_category_id, payee_id, company_id')
       .eq('company_id', currentCompany?.id)
       .neq('plaid_account_name', null)
     
@@ -818,7 +837,7 @@ export default function Page() {
     
     const { data } = await supabase
       .from('transactions')
-      .select('*')
+      .select('id, date, description, spent, received, plaid_account_id, plaid_account_name, selected_category_id, corresponding_category_id, payee_id, company_id')
       .eq('company_id', currentCompany?.id)
       .neq('plaid_account_name', null)
     setTransactions(data || [])
@@ -829,7 +848,7 @@ export default function Page() {
     
     const { data } = await supabase
       .from('chart_of_accounts')
-      .select('*')
+      .select('id, name, type, subtype, plaid_account_id')
       .eq('company_id', currentCompany?.id)
     setCategories(data || [])
   }
@@ -1019,39 +1038,52 @@ export default function Page() {
           return newSet;
         });
 
-        // Process auto-add transactions sequentially to prevent race conditions
+        // Process auto-add transactions in bulk to improve performance
         const processAutoAddTransactions = async () => {
-          for (const transactionId of transactionsToActuallyAutoAdd) {
-            const transaction = transactionsToProcess.find(tx => tx.id === transactionId);
-            if (transaction && newSelectedCategories[transactionId]) {
-              try {
-                await addTransaction(
-                  transaction, 
-                  newSelectedCategories[transactionId], 
-                  newSelectedPayees[transactionId]
-                );
-                
-                // Clean up state for auto-added transactions
-                setSelectedCategories(prev => {
-                  const copy = { ...prev };
-                  delete copy[transactionId];
-                  return copy;
-                });
-                setSelectedPayees(prev => {
-                  const copy = { ...prev };
-                  delete copy[transactionId];
-                  return copy;
-                });
-              } catch (error) {
-                console.error('Error auto-adding transaction:', error);
-                // Remove from auto-added set if there was an error so it can be retried
-                setAutoAddedTransactions(prev => {
-                  const newSet = new Set(prev);
-                  const contentHash = getTransactionContentHash(transaction);
-                  newSet.delete(contentHash);
-                  return newSet;
-                });
+          const transactionRequests = transactionsToActuallyAutoAdd
+            .map(transactionId => {
+              const transaction = transactionsToProcess.find(tx => tx.id === transactionId);
+              if (transaction && newSelectedCategories[transactionId]) {
+                return {
+                  transaction,
+                  selectedCategoryId: newSelectedCategories[transactionId],
+                  selectedPayeeId: newSelectedPayees[transactionId]
+                };
               }
+              return null;
+            })
+            .filter(req => req !== null) as {
+              transaction: Transaction;
+              selectedCategoryId: string;
+              selectedPayeeId?: string;
+            }[];
+
+          if (transactionRequests.length > 0) {
+            try {
+              await addTransactions(transactionRequests);
+              
+              // Clean up state for auto-added transactions
+              setSelectedCategories(prev => {
+                const copy = { ...prev };
+                transactionRequests.forEach(req => delete copy[req.transaction.id]);
+                return copy;
+              });
+              setSelectedPayees(prev => {
+                const copy = { ...prev };
+                transactionRequests.forEach(req => delete copy[req.transaction.id]);
+                return copy;
+              });
+            } catch (error) {
+              console.error('Error auto-adding transactions:', error);
+              // Remove from auto-added set if there was an error so they can be retried
+              setAutoAddedTransactions(prev => {
+                const newSet = new Set(prev);
+                transactionRequests.forEach(req => {
+                  const contentHash = getTransactionContentHash(req.transaction);
+                  newSet.delete(contentHash);
+                });
+                return newSet;
+              });
             }
           }
         };
@@ -1084,6 +1116,83 @@ export default function Page() {
     refreshAll()
   }, [currentCompany?.id]) // Refresh when company changes
 
+  // Add real-time subscriptions for live updates
+  useEffect(() => {
+    if (!hasCompanyContext || !currentCompany?.id) return;
+
+    const subscriptions: ReturnType<typeof supabase.channel>[] = [];
+
+    // Subscribe to imported transactions changes
+    const importedTxSubscription = supabase
+      .channel('imported_transactions_changes')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'imported_transactions',
+        filter: `company_id=eq.${currentCompany.id}`
+      }, (payload) => {
+        console.log('Imported transactions changed:', payload.eventType);
+        fetchImportedTransactions();
+      })
+      .subscribe();
+
+    // Subscribe to confirmed transactions changes
+    const confirmedTxSubscription = supabase
+      .channel('transactions_changes')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'transactions',
+        filter: `company_id=eq.${currentCompany.id}`
+      }, (payload) => {
+        console.log('Transactions changed:', payload.eventType);
+        fetchConfirmedTransactions();
+      })
+      .subscribe();
+
+    // Subscribe to categories changes
+    const categoriesSubscription = supabase
+      .channel('categories_changes')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'chart_of_accounts',
+        filter: `company_id=eq.${currentCompany.id}`
+      }, (payload) => {
+        console.log('Categories changed:', payload.eventType);
+        fetchCategories();
+      })
+      .subscribe();
+
+    // Subscribe to payees changes
+    const payeesSubscription = supabase
+      .channel('payees_changes')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'payees',
+        filter: `company_id=eq.${currentCompany.id}`
+      }, (payload) => {
+        console.log('Payees changed:', payload.eventType);
+        fetchPayees();
+      })
+      .subscribe();
+
+    subscriptions.push(
+      importedTxSubscription,
+      confirmedTxSubscription,
+      categoriesSubscription,
+      payeesSubscription
+    );
+
+    // Cleanup subscriptions on unmount or company change
+    return () => {
+      subscriptions.forEach(subscription => {
+        supabase.removeChannel(subscription);
+      });
+    };
+  }, [currentCompany?.id, hasCompanyContext]);
+
   // Apply automations automatically when transactions or related data changes (UI state only)
   useEffect(() => {
     if (importedTransactions.length > 0 && categories.length > 0 && payees.length > 0 && hasCompanyContext) {
@@ -1100,20 +1209,47 @@ export default function Page() {
     }
   }, [selectedAccountId, importedTransactions, categories, payees, hasCompanyContext]);
 
+  // Reset pagination when search queries change
+  useEffect(() => {
+    setToAddCurrentPage(1);
+  }, [toAddSearchQuery, selectedAccountId, toAddSortConfig]);
+
+  useEffect(() => {
+    setAddedCurrentPage(1);
+  }, [addedSearchQuery, selectedAccountId, addedSortConfig]);
+
   // 3️⃣ Actions
   const addTransaction = async (tx: Transaction, selectedCategoryId: string, selectedPayeeId?: string) => {
-    const category = categories.find(c => c.id === selectedCategoryId);
-    if (!category) {
-      alert('Selected category not found. Please try again.');
-      return;
-    }
+    // For single transactions, use bulk operation with array of one
+    await addTransactions([{
+      transaction: tx,
+      selectedCategoryId,
+      selectedPayeeId
+    }]);
+  };
 
-    // Payee is optional - only validate if provided
-    if (selectedPayeeId) {
-      const payee = payees.find(p => p.id === selectedPayeeId);
-      if (!payee) {
-        alert('Selected payee not found. Please try again.');
+  const addTransactions = async (transactionRequests: {
+    transaction: Transaction;
+    selectedCategoryId: string;
+    selectedPayeeId?: string;
+  }[]) => {
+    if (transactionRequests.length === 0) return;
+
+    // Validate all transactions
+    for (const req of transactionRequests) {
+      const category = categories.find(c => c.id === req.selectedCategoryId);
+      if (!category) {
+        alert('Selected category not found. Please try again.');
         return;
+      }
+
+      // Payee is optional - only validate if provided
+      if (req.selectedPayeeId) {
+        const payee = payees.find(p => p.id === req.selectedPayeeId);
+        if (!payee) {
+          alert('Selected payee not found. Please try again.');
+          return;
+        }
       }
     }
 
@@ -1138,83 +1274,97 @@ export default function Page() {
     const selectedAccountIdInCOA = selectedAccount.id;
 
     try {
-      // Use the 6-move-to-transactions API endpoint with company context
-      const response = await postWithCompany('/api/6-move-to-transactions', {
-        imported_transaction_id: tx.id,
-        selected_category_id: selectedCategoryId,
-        corresponding_category_id: selectedAccountIdInCOA,
-        payee_id: selectedPayeeId
+      setIsAddingTransactions(true);
+      
+      // Mark transactions as processing
+      const processingIds = new Set(transactionRequests.map(req => req.transaction.id));
+      setProcessingTransactions(prev => new Set([...prev, ...processingIds]));
+
+      // Prepare bulk request
+      const bulkRequest = {
+        transactions: transactionRequests.map(req => ({
+          imported_transaction_id: req.transaction.id,
+          selected_category_id: req.selectedCategoryId,
+          corresponding_category_id: selectedAccountIdInCOA,
+          payee_id: req.selectedPayeeId
+        }))
+      };
+
+      // Use the bulk API endpoint
+      const response = await postWithCompany('/api/move-transactions', bulkRequest);
+
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to move transactions');
+      }
+
+      // No need to call sync-journal separately - it's included in the bulk operation
+      refreshAll();
+    } catch (error) {
+      console.error('Error moving transactions:', error);
+      alert(error instanceof Error ? error.message : 'Failed to move transactions. Please try again.');
+    } finally {
+      setIsAddingTransactions(false);
+      
+      // Remove transactions from processing set
+      const processingIds = new Set(transactionRequests.map(req => req.transaction.id));
+      setProcessingTransactions(prev => {
+        const newSet = new Set(prev);
+        processingIds.forEach(id => newSet.delete(id));
+        return newSet;
+      });
+    }
+  };
+
+  const undoTransaction = async (tx: Transaction) => {
+    // For single transactions, use bulk operation with array of one
+    await undoTransactions([tx]);
+  };
+
+  const undoTransactions = async (transactions: Transaction[]) => {
+    if (transactions.length === 0) return;
+
+    try {
+      setIsUndoingTransactions(true);
+      
+      // Mark transactions as processing
+      const processingIds = new Set(transactions.map(tx => tx.id));
+      setProcessingTransactions(prev => new Set([...prev, ...processingIds]));
+
+      // Validate all transactions have IDs
+      for (const tx of transactions) {
+        if (!tx || !tx.id) {
+          throw new Error('Invalid transaction: missing ID');
+        }
+      }
+
+      // Use the bulk undo API endpoint
+      const response = await postWithCompany('/api/undo-transactions', {
+        transaction_ids: transactions.map(tx => tx.id)
       });
 
       const data = await response.json();
       
       if (!response.ok) {
-        // If the transaction was already processed, don't throw an error - just log it
-        if (response.status === 409 && data.code === 'ALREADY_PROCESSED') {
-          console.log(`Transaction ${tx.id} was already processed, skipping...`);
-          return; // Exit gracefully without throwing an error
-        }
-        throw new Error(data.error || 'Failed to move transaction');
+        throw new Error(data.error || 'Failed to undo transactions');
       }
 
-      await postWithCompany('/api/sync-journal', {});
+      console.log(`Successfully undid ${transactions.length} transactions`);
       refreshAll();
     } catch (error) {
-      console.error('Error moving transaction:', error);
-      alert(error instanceof Error ? error.message : 'Failed to move transaction. Please try again.');
-    }
-  };
-
-  const undoTransaction = async (tx: Transaction) => {
-    try {
-      if (!tx || !tx.id) {
-        throw new Error('Invalid transaction: missing ID');
-      }
-
-      // 1. Delete journal entries for this transaction
-      const { error: journalDeleteError } = await supabase
-        .from('journal')
-        .delete()
-        .eq('transaction_id', tx.id);
-
-      if (journalDeleteError) {
-        console.error('Error deleting journal entries:', journalDeleteError);
-        throw new Error(`Failed to delete journal entries: ${journalDeleteError.message}`);
-      }
-
-      // 2. Delete the transaction
-      const { error: deleteError } = await supabase.from('transactions').delete().eq('id', tx.id);
+      console.error('Error in undoTransactions:', error);
+      alert(error instanceof Error ? error.message : 'Failed to undo transactions. Please try again.');
+    } finally {
+      setIsUndoingTransactions(false);
       
-      if (deleteError) {
-        console.error('Error deleting from transactions:', deleteError);
-        throw new Error(`Failed to delete from transactions: ${deleteError.message}`);
-      }
-      
-      // 3. Insert back into imported_transactions
-      const { error: insertError } = await supabase.from('imported_transactions').insert([{
-        date: tx.date,
-        description: tx.description,
-        spent: tx.spent,
-        received: tx.received,
-        plaid_account_id: tx.plaid_account_id,
-        plaid_account_name: tx.plaid_account_name,
-        selected_category_id: tx.selected_category_id,
-        payee_id: tx.payee_id,
-        company_id: currentCompany?.id
-      }]);
-
-      if (insertError) {
-        console.error('Error inserting into imported_transactions:', insertError);
-        throw new Error(`Failed to insert into imported_transactions: ${insertError.message}`);
-      }
-
-              await postWithCompany('/api/sync-journal', {});
-        console.log('Successfully deleted transaction and related journal entries:', tx.id);
-
-      refreshAll();
-    } catch (error) {
-      console.error('Error in undoTransaction:', error);
-      alert(error instanceof Error ? error.message : 'Failed to undo transaction. Please try again.');
+      // Remove transactions from processing set
+      const processingIds = new Set(transactions.map(tx => tx.id));
+      setProcessingTransactions(prev => {
+        const newSet = new Set(prev);
+        processingIds.forEach(id => newSet.delete(id));
+        return newSet;
+      });
     }
   };
 
@@ -1298,8 +1448,19 @@ export default function Page() {
   );
   const selectedAccountIdInCOA = selectedAccount?.id;
 
-  // Update the imported transactions to use sorting
-  const imported = sortTransactions(
+  // Helper function for pagination
+  const getPaginatedData = <T,>(data: T[], currentPage: number, itemsPerPage: number) => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    return {
+      paginatedData: data.slice(startIndex, endIndex),
+      totalPages: Math.ceil(data.length / itemsPerPage),
+      totalItems: data.length
+    };
+  };
+
+  // Update the imported transactions to use sorting and pagination
+  const importedFiltered = sortTransactions(
     importedTransactions
       .filter(tx => tx.plaid_account_id === selectedAccountId)
       .filter(tx => {
@@ -1328,8 +1489,14 @@ export default function Page() {
     toAddSortConfig
   );
 
-  // Update the confirmed transactions to use sorting
-  const confirmed = sortTransactions(
+  const { paginatedData: imported, totalPages: toAddTotalPages } = getPaginatedData(
+    importedFiltered,
+    toAddCurrentPage,
+    ITEMS_PER_PAGE
+  );
+
+  // Update the confirmed transactions to use sorting and pagination
+  const confirmedFiltered = sortTransactions(
     transactions
       .filter(tx => {
         if (tx.plaid_account_id === selectedAccountId) return true;
@@ -1370,6 +1537,12 @@ export default function Page() {
     addedSortConfig
   );
 
+  const { paginatedData: confirmed, totalPages: addedTotalPages } = getPaginatedData(
+    confirmedFiltered,
+    addedCurrentPage,
+    ITEMS_PER_PAGE
+  );
+
   const currentBalance = toFinancialAmount(accounts.find(a => a.plaid_account_id === selectedAccountId)?.current_balance || '0.00')
 
   // Calculate the Switch Balance for the selected account (only for Added tab)
@@ -1384,10 +1557,10 @@ export default function Page() {
     const headers = ['Date', 'Description', 'Amount']
     const exampleData = [
       ['01-15-2025', 'Client Payment - Invoice #1001', '1000.00'],
-      ['01-16-2025', 'Office Supplies - Staples', '-150.75'],
+      ['01-16-2025', 'Office Supplies - Staples', '150.75'],
       ['01-17-2025', 'Bank Interest Received', '25.50'],
-      ['01-18-2025', 'Monthly Software Subscription', '-99.99'],
-      ['01-19-2025', 'Customer Refund', '-200.00']
+      ['01-18-2025', 'Monthly Software Subscription', '99.99'],
+      ['01-19-2025', 'Customer Refund', '200.00']
     ]
     
     const csvContent = [
@@ -2123,6 +2296,89 @@ export default function Page() {
     }));
   };
 
+  // Custom Pagination Component matching button styling
+  const CustomPagination = ({ 
+    currentPage, 
+    totalPages, 
+    onPageChange 
+  }: { 
+    currentPage: number; 
+    totalPages: number; 
+    onPageChange: (page: number) => void;
+  }) => {
+    if (totalPages <= 1) return null;
+
+    const getVisiblePages = () => {
+      const delta = 2;
+      const range = [];
+      const rangeWithDots = [];
+
+      for (let i = Math.max(2, currentPage - delta); i <= Math.min(totalPages - 1, currentPage + delta); i++) {
+        range.push(i);
+      }
+
+      if (currentPage - delta > 2) {
+        rangeWithDots.push(1, '...');
+      } else {
+        rangeWithDots.push(1);
+      }
+
+      rangeWithDots.push(...range);
+
+      if (currentPage + delta < totalPages - 1) {
+        rangeWithDots.push('...', totalPages);
+      } else {
+        rangeWithDots.push(totalPages);
+      }
+
+      return rangeWithDots;
+    };
+
+    return (
+      <Pagination className="justify-start">
+        <PaginationContent className="gap-1">
+          {currentPage > 1 && (
+            <PaginationItem>
+              <PaginationPrevious 
+                onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+                className="border px-3 py-1 rounded text-xs h-auto bg-gray-100 hover:bg-gray-200 cursor-pointer"
+              />
+            </PaginationItem>
+          )}
+          
+          {getVisiblePages().map((page, index) => (
+            <PaginationItem key={index}>
+              {page === '...' ? (
+                <PaginationEllipsis className="border px-3 py-1 rounded text-xs h-auto bg-gray-100" />
+              ) : (
+                <PaginationLink
+                  onClick={() => onPageChange(page as number)}
+                  isActive={page === currentPage}
+                  className={`border px-3 py-1 rounded text-xs h-auto cursor-pointer ${
+                    page === currentPage
+                      ? 'bg-gray-200 text-gray-900 font-semibold'
+                      : 'bg-gray-100 hover:bg-gray-200'
+                  }`}
+                >
+                  {page}
+                </PaginationLink>
+              )}
+            </PaginationItem>
+          ))}
+          
+          {currentPage < totalPages && (
+            <PaginationItem>
+              <PaginationNext 
+                onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
+                className="border px-3 py-1 rounded text-xs h-auto bg-gray-100 hover:bg-gray-200 cursor-pointer"
+              />
+            </PaginationItem>
+          )}
+        </PaginationContent>
+      </Pagination>
+    );
+  };
+
   // Add helper functions for handling Enter key on react-select
   const handlePayeeEnterKey = (inputValue: string, txId: string) => {
     if (!inputValue.trim()) return;
@@ -2348,8 +2604,8 @@ export default function Page() {
 
       {/* Import Modal */}
       {importModal.isOpen && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50">
-          <div className="bg-white rounded-lg p-6 w-[600px] overflow-y-auto shadow-xl">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-[600px] max-h-[90vh] shadow-xl flex flex-col">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold">Import Transactions</h2>
               <button
@@ -2421,7 +2677,7 @@ export default function Page() {
                           <ul className="text-sm text-blue-700 space-y-1">
                             <li>• <strong>Date:</strong> Use MM-DD-YYYY format (e.g., 01-15-2024)</li>
                             <li>• <strong>Description:</strong> Any text describing the transaction</li>
-                            <li>• <strong>Amount:</strong> Positive for money received, negative for money spent</li>
+                            <li>• <strong>Amount:</strong> Enter positive amounts only. Use categories to determine if it&apos;s income or expense.</li>
                           </ul>
                           <p className="text-xs text-blue-600 mt-2">
                             Download the template above to see examples of proper formatting.
@@ -2470,7 +2726,7 @@ export default function Page() {
                       <div className="flex justify-between items-center">
                         <h3 className="text-sm font-medium text-gray-700">Review Transactions</h3>
                       </div>
-                      <div className="border rounded-lg overflow-hidden">
+                      <div className="border rounded-lg overflow-hidden max-h-96 overflow-y-auto">
                         <table className="min-w-full divide-y divide-gray-200">
                           <thead className="bg-gray-50">
                             <tr>
@@ -3690,9 +3946,9 @@ export default function Page() {
             }`}
           >
             To Add
-            {imported.length > 0 && (
+            {importedFiltered.length > 0 && (
               <span className="ml-2 bg-gray-100 text-gray-900 py-0.5 px-2 rounded-full text-xs">
-                {imported.length}
+                {importedFiltered.length}
               </span>
             )}
           </button>
@@ -3705,9 +3961,9 @@ export default function Page() {
             }`}
           >
             Added
-            {confirmed.length > 0 && (
+            {confirmedFiltered.length > 0 && (
               <span className="ml-2 bg-gray-100 text-gray-900 py-0.5 px-2 rounded-full text-xs">
-                {confirmed.length}
+                {confirmedFiltered.length}
               </span>
             )}
           </button>
@@ -3942,10 +4198,18 @@ export default function Page() {
                               });
                             }
                           }}
-                          className="border px-2 py-1 rounded bg-gray-100 hover:bg-gray-200"
-                          disabled={!selectedCategories[tx.id]}
+                          className={`border px-2 py-1 rounded w-12 flex items-center justify-center mx-auto ${
+                            processingTransactions.has(tx.id) 
+                              ? 'bg-gray-50 text-gray-400 cursor-not-allowed' 
+                              : 'bg-gray-100 hover:bg-gray-200'
+                          }`}
+                          disabled={!selectedCategories[tx.id] || processingTransactions.has(tx.id)}
                         >
-                          Add
+                          {processingTransactions.has(tx.id) ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            'Add'
+                          )}
                         </button>
                       </td>
                     </tr>
@@ -3953,46 +4217,80 @@ export default function Page() {
                 })}
               </tbody>
             </table>
-            {selectedToAdd.size > 0 && (() => {
-              const selectedTransactions = imported.filter(tx => selectedToAdd.has(tx.id));
-              return (
-                <div className="mt-2 flex justify-end">
-                  <button
-                    onClick={async () => {
-                      for (const tx of selectedTransactions) {
-                        if (selectedCategories[tx.id]) {
-                          await addTransaction(tx, selectedCategories[tx.id], selectedPayees[tx.id]);
-                        }
-                      }
-                      setSelectedCategories(prev => {
-                        const copy = { ...prev };
-                        selectedTransactions.forEach(tx => delete copy[tx.id]);
-                        return copy;
-                      });
-                      setSelectedPayees(prev => {
-                        const copy = { ...prev };
-                        selectedTransactions.forEach(tx => delete copy[tx.id]);
-                        return copy;
-                      });
-                      // Remove from auto-added tracking since they were manually added
-                      setAutoAddedTransactions(prev => {
-                        const newSet = new Set(prev);
-                        selectedTransactions.forEach(tx => {
-                          const contentHash = getTransactionContentHash(tx);
-                          newSet.delete(contentHash);
+            
+            <div className="flex justify-between items-center">
+              {/* Pagination for To Add table */}
+              <div className="mt-2 flex items-center justify-start gap-3">
+                <span className="text-xs text-gray-600 whitespace-nowrap">
+                  {`${imported.length} of ${importedFiltered.length}`}
+                </span>
+                <CustomPagination 
+                  currentPage={toAddCurrentPage}
+                  totalPages={toAddTotalPages}
+                  onPageChange={setToAddCurrentPage}
+                />
+              </div>
+
+              {selectedToAdd.size > 0 && (() => {
+                const selectedTransactions = imported.filter(tx => selectedToAdd.has(tx.id));
+                const hasValidCategories = selectedTransactions.every(tx => selectedCategories[tx.id]);
+                const isProcessing = isAddingTransactions || selectedTransactions.some(tx => processingTransactions.has(tx.id));
+                
+                return (
+                  <div className="mt-2 flex justify-end">
+                    <button
+                      onClick={async () => {
+                        const transactionRequests = selectedTransactions
+                          .filter(tx => selectedCategories[tx.id])
+                          .map(tx => ({
+                            transaction: tx,
+                            selectedCategoryId: selectedCategories[tx.id],
+                            selectedPayeeId: selectedPayees[tx.id]
+                          }));
+
+                        await addTransactions(transactionRequests);
+                        
+                        setSelectedCategories(prev => {
+                          const copy = { ...prev };
+                          selectedTransactions.forEach(tx => delete copy[tx.id]);
+                          return copy;
                         });
-                        return newSet;
-                      });
-                      setSelectedToAdd(new Set());
-                    }}
-                    className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200"
-                    disabled={!selectedTransactions.every(tx => selectedCategories[tx.id])}
-                  >
-                    Add Selected ({selectedToAdd.size})
-                  </button>
-                </div>
-              );
-            })()}
+                        setSelectedPayees(prev => {
+                          const copy = { ...prev };
+                          selectedTransactions.forEach(tx => delete copy[tx.id]);
+                          return copy;
+                        });
+                        // Remove from auto-added tracking since they were manually added
+                        setAutoAddedTransactions(prev => {
+                          const newSet = new Set(prev);
+                          selectedTransactions.forEach(tx => {
+                            const contentHash = getTransactionContentHash(tx);
+                            newSet.delete(contentHash);
+                          });
+                          return newSet;
+                        });
+                        setSelectedToAdd(new Set());
+                      }}
+                      className={`border px-3 py-1 rounded ${
+                        isProcessing 
+                          ? 'bg-gray-50 text-gray-400 cursor-not-allowed' 
+                          : 'bg-gray-100 hover:bg-gray-200'
+                      }`}
+                      disabled={!hasValidCategories || isProcessing}
+                    >
+                      {isProcessing ? (
+                        <div className="flex items-center space-x-1">
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                          <span>Adding...</span>
+                        </div>
+                      ) : (
+                        `Add Selected (${selectedToAdd.size})`
+                      )}
+                    </button>
+                  </div>
+                );
+              })()}
+            </div>
           </div>
         )}
 
@@ -4048,7 +4346,7 @@ export default function Page() {
                   </th>
                   <th className="border p-1 w-8 text-center">Payee</th>
                   <th className="border p-1 w-8 text-center">Category</th>
-                  <th className="border p-1 w-8 text-center">Undo</th>
+                  <th className="border p-1 w-8 text-center">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -4094,9 +4392,18 @@ export default function Page() {
                       <td className="border p-1 w-8 text-center">
                         <button
                           onClick={e => { e.stopPropagation(); undoTransaction(tx); }}
-                          className="border px-2 py-1 rounded bg-gray-100 hover:bg-gray-200"
+                          className={`border px-2 py-1 rounded w-14 flex items-center justify-center mx-auto ${
+                            processingTransactions.has(tx.id) 
+                              ? 'bg-gray-50 text-gray-400 cursor-not-allowed' 
+                              : 'bg-gray-100 hover:bg-gray-200'
+                          }`}
+                          disabled={processingTransactions.has(tx.id)}
                         >
-                          Undo
+                          {processingTransactions.has(tx.id) ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            'Undo'
+                          )}
                         </button>
                       </td>
                     </tr>
@@ -4104,24 +4411,51 @@ export default function Page() {
                 })}
               </tbody>
             </table>
-            {selectedAdded.size > 0 && (() => {
-              const selectedConfirmed = confirmed.filter(tx => selectedAdded.has(tx.id));
-              return (
-                <div className="mt-2 flex justify-end">
-                  <button
-                    onClick={async () => {
-                      for (const tx of selectedConfirmed) {
-                        await undoTransaction(tx);
-                      }
-                      setSelectedAdded(new Set());
-                    }}
-                    className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200"
-                  >
-                    Undo Selected ({selectedAdded.size})
-                  </button>
-                </div>
-              );
-            })()}
+            
+            <div className="flex justify-between items-center">
+              {/* Pagination for Added table */}
+              <div className="mt-2 flex items-center justify-start gap-3">
+                <span className="text-xs text-gray-600 whitespace-nowrap">
+                  {`${confirmed.length} of ${confirmedFiltered.length}`}
+                </span>
+                <CustomPagination 
+                  currentPage={addedCurrentPage}
+                  totalPages={addedTotalPages}
+                  onPageChange={setAddedCurrentPage}
+                />
+              </div>
+
+              {selectedAdded.size > 0 && (() => {
+                const selectedConfirmed = confirmed.filter(tx => selectedAdded.has(tx.id));
+                const isProcessing = isUndoingTransactions || selectedConfirmed.some(tx => processingTransactions.has(tx.id));
+                
+                return (
+                  <div className="mt-2 flex justify-end">
+                    <button
+                      onClick={async () => {
+                        await undoTransactions(selectedConfirmed);
+                        setSelectedAdded(new Set());
+                      }}
+                      className={`border px-3 py-1 rounded ${
+                        isProcessing 
+                          ? 'bg-gray-50 text-gray-400 cursor-not-allowed' 
+                          : 'bg-gray-100 hover:bg-gray-200'
+                      }`}
+                      disabled={isProcessing}
+                    >
+                      {isProcessing ? (
+                        <div className="flex items-center space-x-1">
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                          <span>Undoing...</span>
+                        </div>
+                      ) : (
+                        `Undo Selected (${selectedAdded.size})`
+                      )}
+                    </button>
+                  </div>
+                );
+              })()}
+            </div>
           </div>
         )}
       </div>
