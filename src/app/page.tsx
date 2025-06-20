@@ -481,16 +481,16 @@ export default function GatewayPage() {
                           )
                           .map((userCompany) => (
                           <tr key={userCompany.company_id} className="hover:bg-gray-50">
-                            <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                            <td className="px-4 py-3 text-left text-sm font-medium text-gray-900">
                               {userCompany.companies.name}
                             </td>
-                            <td className="px-4 py-3 text-sm text-gray-600">
+                            <td className="px-4 py-3 text-left text-sm text-gray-600">
                               {userCompany.companies.description || "-"}
                             </td>
-                            <td className="px-4 py-3 text-sm text-gray-600">
+                            <td className="px-4 py-3 text-left text-sm text-gray-600">
                               {userCompany.role}
                             </td>
-                            <td className="px-4 py-3 text-right">
+                            <td className="px-4 py-3 text-left">
                               <button
                                 onClick={() => handleCompanySelect(userCompany.companies)}
                                 className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 transition-colors ml-auto"

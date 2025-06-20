@@ -10,6 +10,16 @@ import { X } from 'lucide-react'
 import { useApiWithCompany } from '@/hooks/useApiWithCompany'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Select } from '@/components/ui/select'
+import { 
+  FinancialAmount, 
+  formatAmount, 
+  toFinancialAmount, 
+  calculateNetAmount, 
+  sumAmounts, 
+  isZeroAmount,
+  isPositiveAmount,
+  compareAmounts 
+} from '@/lib/financial'
 
 // @dnd-kit imports
 import {
@@ -36,13 +46,13 @@ type Transaction = {
   id: string
   date: string
   description: string
-  amount?: number
+  amount?: FinancialAmount
   plaid_account_id: string | null
   plaid_account_name: string | null
   selected_category_id?: string
   corresponding_category_id?: string
-  spent?: number
-  received?: number
+  spent?: FinancialAmount
+  received?: FinancialAmount
   payee_id?: string
   company_id?: string
 }
@@ -64,8 +74,8 @@ type Payee = {
 type Account = {
   plaid_account_id: string | null
   name: string // Database column is 'name'
-  starting_balance: number | null
-  current_balance: number | null
+  starting_balance: FinancialAmount | null
+  current_balance: FinancialAmount | null
   last_synced: string | null
   is_manual?: boolean
   plaid_account_name?: string // Add missing property
@@ -978,25 +988,22 @@ export default function Page() {
           : b.description.localeCompare(a.description);
       }
       if (sortConfig.key === 'amount') {
-        const aAmount = a.amount ?? ((a.received ?? 0) - (a.spent ?? 0));
-        const bAmount = b.amount ?? ((b.received ?? 0) - (b.spent ?? 0));
-        return sortConfig.direction === 'asc'
-          ? aAmount - bAmount
-          : bAmount - aAmount;
+        const aAmount = a.amount ?? calculateNetAmount(a.spent, a.received);
+        const bAmount = b.amount ?? calculateNetAmount(b.spent, b.received);
+        const comparison = compareAmounts(aAmount, bAmount);
+        return sortConfig.direction === 'asc' ? comparison : -comparison;
       }
       if (sortConfig.key === 'spent') {
-        const aSpent = a.spent ?? 0;
-        const bSpent = b.spent ?? 0;
-        return sortConfig.direction === 'asc'
-          ? aSpent - bSpent
-          : bSpent - aSpent;
+        const aSpent = a.spent ?? '0.00';
+        const bSpent = b.spent ?? '0.00';
+        const comparison = compareAmounts(aSpent, bSpent);
+        return sortConfig.direction === 'asc' ? comparison : -comparison;
       }
       if (sortConfig.key === 'received') {
-        const aReceived = a.received ?? 0;
-        const bReceived = b.received ?? 0;
-        return sortConfig.direction === 'asc'
-          ? aReceived - bReceived
-          : bReceived - aReceived;
+        const aReceived = a.received ?? '0.00';
+        const bReceived = b.received ?? '0.00';
+        const comparison = compareAmounts(aReceived, bReceived);
+        return sortConfig.direction === 'asc' ? comparison : -comparison;
       }
       return 0;
     });
@@ -1031,13 +1038,13 @@ export default function Page() {
         const q = toAddSearchQuery.toLowerCase();
         const desc = tx.description?.toLowerCase() || '';
         const date = formatDate(tx.date).toLowerCase();
-        const spent = tx.spent !== undefined ? tx.spent.toString() : '';
-        const received = tx.received !== undefined ? tx.received.toString() : '';
-        const amount = tx.amount !== undefined ? tx.amount.toString() : '';
+        const spent = tx.spent || '';
+        const received = tx.received || '';
+        const amount = tx.amount || '';
         // Also search formatted amounts (what user sees in display)
-        const spentFormatted = tx.spent ? tx.spent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
-        const receivedFormatted = tx.received ? tx.received.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
-        const amountFormatted = tx.amount !== undefined ? tx.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
+        const spentFormatted = tx.spent ? formatAmount(tx.spent, { showCurrency: false }) : '';
+        const receivedFormatted = tx.received ? formatAmount(tx.received, { showCurrency: false }) : '';
+        const amountFormatted = tx.amount ? formatAmount(tx.amount, { showCurrency: false }) : '';
         return (
           desc.includes(q) ||
           date.includes(q) ||
@@ -1067,13 +1074,13 @@ export default function Page() {
         const q = addedSearchQuery.toLowerCase();
         const desc = tx.description?.toLowerCase() || '';
         const date = formatDate(tx.date).toLowerCase();
-        const spent = tx.spent !== undefined ? tx.spent.toString() : '';
-        const received = tx.received !== undefined ? tx.received.toString() : '';
-        const amount = tx.amount !== undefined ? tx.amount.toString() : '';
+        const spent = tx.spent || '';
+        const received = tx.received || '';
+        const amount = tx.amount || '';
         // Also search formatted amounts (what user sees in display)
-        const spentFormatted = tx.spent ? tx.spent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
-        const receivedFormatted = tx.received ? tx.received.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
-        const amountFormatted = tx.amount !== undefined ? tx.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
+        const spentFormatted = tx.spent ? formatAmount(tx.spent, { showCurrency: false }) : '';
+        const receivedFormatted = tx.received ? formatAmount(tx.received, { showCurrency: false }) : '';
+        const amountFormatted = tx.amount ? formatAmount(tx.amount, { showCurrency: false }) : '';
         // Get the category name for this transaction
         const isAccountDebit = tx.selected_category_id === selectedAccountIdInCOA;
         const categoryId = isAccountDebit ? tx.corresponding_category_id : tx.selected_category_id;
@@ -1094,15 +1101,15 @@ export default function Page() {
     addedSortConfig
   );
 
-  const currentBalance = accounts.find(a => a.plaid_account_id === selectedAccountId)?.current_balance || 0
+  const currentBalance = toFinancialAmount(accounts.find(a => a.plaid_account_id === selectedAccountId)?.current_balance || '0.00')
 
   // Calculate the Switch Balance for the selected account (only for Added tab)
   // Only sum confirmed transactions - starting balance is included as a "Starting Balance" transaction
   const confirmedAccountTransactions = confirmed.filter(tx => tx.plaid_account_id === selectedAccountId);
   
-  const switchBalance = confirmedAccountTransactions.reduce((sum, tx) => {
-    return sum + (tx.received ?? 0) - (tx.spent ?? 0);
-  }, 0);
+  const switchBalance = sumAmounts(
+    confirmedAccountTransactions.map(tx => calculateNetAmount(tx.spent, tx.received))
+  );
 
   const downloadTemplate = () => {
     const headers = ['Date', 'Description', 'Amount']
@@ -1264,9 +1271,9 @@ export default function Page() {
               id: uuidv4(),
               date: parsedDate.toISOString().split('T')[0], // Store as YYYY-MM-DD
               description: row.Description.trim(),
-              amount: amount, // Keep original amount for display
-              spent: amount < 0 ? Math.abs(amount) : 0, // Negative amounts become spent
-              received: amount > 0 ? amount : 0, // Positive amounts become received
+              amount: toFinancialAmount(amount), // Convert to FinancialAmount string
+              spent: amount < 0 ? toFinancialAmount(Math.abs(amount)) : toFinancialAmount(0), // Negative amounts become spent
+              received: amount > 0 ? toFinancialAmount(amount) : toFinancialAmount(0), // Positive amounts become received
               plaid_account_id: importModal.selectedAccount?.plaid_account_id || null,
               plaid_account_name: importModal.selectedAccount?.name || null,
               company_id: currentCompany?.id
@@ -1312,15 +1319,15 @@ export default function Page() {
 
     try {
       // Validate that only spent OR received has a value, not both
-      const spent = updatedTransaction.spent ?? 0;
-      const received = updatedTransaction.received ?? 0;
+      const spent = updatedTransaction.spent ?? '0.00';
+      const received = updatedTransaction.received ?? '0.00';
       
-      if (spent > 0 && received > 0) {
+      if (isPositiveAmount(spent) && isPositiveAmount(received)) {
         setNotification({ type: 'error', message: 'A transaction cannot have both spent and received amounts. Please enter only one.' });
         return;
       }
 
-      if (spent === 0 && received === 0) {
+      if (isZeroAmount(spent) && isZeroAmount(received)) {
         setNotification({ type: 'error', message: 'A transaction must have either a spent or received amount.' });
         return;
       }
@@ -1509,7 +1516,7 @@ export default function Page() {
 
     try {
       const manualAccountId = uuidv4();
-      const startingBalance = parseFloat(manualAccountModal.startingBalance) || 0;
+      const startingBalance = toFinancialAmount(manualAccountModal.startingBalance || '0');
 
       // Insert into accounts table
       const { error: accountError } = await supabase.from('accounts').insert({
@@ -1946,7 +1953,7 @@ export default function Page() {
     } else {
       // Find the transaction to determine default category type
       const transaction = imported.find(tx => tx.id === txId);
-      const defaultType = transaction?.received && transaction.received > 0 ? 'Revenue' : 'Expense';
+      const defaultType = transaction?.received && isPositiveAmount(transaction.received) ? 'Revenue' : 'Expense';
       
       // Open modal with pre-populated name and appropriate type
       setNewCategoryModal({
@@ -2252,7 +2259,7 @@ export default function Page() {
                                   {tx.description}
                                 </td>
                                 <td className="px-4 py-2 text-sm text-gray-900 text-right w-8">
-                                  ${(tx.amount ?? ((tx.received ?? 0) - (tx.spent ?? 0))).toFixed(2)}
+                                  {formatAmount(tx.amount ?? calculateNetAmount(tx.spent, tx.received))}
                                 </td>
                               </tr>
                             ))}
@@ -2260,7 +2267,7 @@ export default function Page() {
                           <tfoot className="bg-gray-50">
                             <tr>
                               <td colSpan={4} className="px-4 py-2 text-sm font-medium text-gray-900 text-right w-8">
-                                ${importModal.csvData.reduce((sum, tx) => sum + (tx.amount ?? ((tx.received ?? 0) - (tx.spent ?? 0))), 0).toFixed(2)}
+                                {formatAmount(sumAmounts(importModal.csvData.map(tx => tx.amount ?? calculateNetAmount(tx.spent, tx.received))))}
                               </td>
                             </tr>
                           </tfoot>
@@ -2428,20 +2435,21 @@ export default function Page() {
                   Spent
                 </label>
                 <input
-                  type="number"
-                  value={editModal.transaction.spent ?? 0}
+                  type="text"
+                  value={editModal.transaction.spent ?? '0.00'}
                   onChange={(e) => {
-                    const spentValue = parseFloat(e.target.value) || 0;
+                    const inputValue = e.target.value;
                     setEditModal(prev => ({
                       ...prev,
                       transaction: prev.transaction ? {
                         ...prev.transaction,
-                        spent: spentValue,
-                        // Clear received when spent has a value
-                        received: spentValue > 0 ? 0 : prev.transaction.received
+                        spent: inputValue,
+                        // Clear received when spent has a positive value
+                        received: inputValue && isPositiveAmount(inputValue) ? '0.00' : prev.transaction.received
                       } : null
                     }));
                   }}
+                  placeholder="0.00"
                   className="w-full border px-2 py-1 rounded text-xs"
                 />
               </div>
@@ -2451,20 +2459,21 @@ export default function Page() {
                   Received
                 </label>
                 <input
-                  type="number"
-                  value={editModal.transaction.received ?? 0}
+                  type="text"
+                  value={editModal.transaction.received ?? '0.00'}
                   onChange={(e) => {
-                    const receivedValue = parseFloat(e.target.value) || 0;
+                    const inputValue = e.target.value;
                     setEditModal(prev => ({
                       ...prev,
                       transaction: prev.transaction ? {
                         ...prev.transaction,
-                        received: receivedValue,
-                        // Clear spent when received has a value
-                        spent: receivedValue > 0 ? 0 : prev.transaction.spent
+                        received: inputValue,
+                        // Clear spent when received has a positive value
+                        spent: inputValue && isPositiveAmount(inputValue) ? '0.00' : prev.transaction.spent
                       } : null
                     }));
                   }}
+                  placeholder="0.00"
                   className="w-full border px-2 py-1 rounded text-xs"
                 />
               </div>
@@ -2513,7 +2522,7 @@ export default function Page() {
                     const option = selectedOption as SelectOption | null;
                     if (option?.value === 'add_new') {
                       // Determine default category type based on transaction
-                      const defaultType = editModal.transaction?.received && editModal.transaction.received > 0 ? 'Revenue' : 'Expense';
+                      const defaultType = editModal.transaction?.received && isPositiveAmount(editModal.transaction.received) ? 'Revenue' : 'Expense';
                       setNewCategoryModal({ 
                         isOpen: true, 
                         name: '', 
@@ -3027,7 +3036,7 @@ export default function Page() {
                               value={entry.amount}
                               onChange={(e) => {
                                 const newEntries = [...journalEntryModal.entries];
-                                newEntries[index].amount = parseFloat(e.target.value) || 0;
+                                newEntries[index].amount = e.target.value ? parseFloat(e.target.value) : 0;
                                 setJournalEntryModal(prev => ({
                                   ...prev,
                                   entries: newEntries
@@ -3416,12 +3425,12 @@ export default function Page() {
               <div className="ml-4 flex items-center gap-3 my-auto">
                 <div className="flex items-center gap-1 px-2 py-1 bg-gray-50 border border-gray-200 rounded-md">
                   <span className="text-gray-700 text-xs font-medium">Current Balance:</span>
-                  <span className="text-gray-900 text-xs font-semibold">${currentBalance.toFixed(2)}</span>
+                  <span className="text-gray-900 text-xs font-semibold">{formatAmount(currentBalance)}</span>
                 </div>
                 {activeTab === 'added' && (
                   <div className="flex items-center gap-1 px-2 py-1 bg-gray-50 border border-gray-200 rounded-md">
                     <span className="text-gray-700 text-xs font-medium">Switch Balance:</span>
-                    <span className="text-gray-900 text-xs font-semibold">${switchBalance.toFixed(2)}</span>
+                    <span className="text-gray-900 text-xs font-semibold">{formatAmount(switchBalance)}</span>
                   </div>
                 )}
               </div>
@@ -3509,8 +3518,8 @@ export default function Page() {
                       </td>
                       <td className="border p-1 w-8 text-center text-xs">{formatDate(tx.date)}</td>
                       <td className="border p-1 w-8 text-center text-xs" style={{ minWidth: 250 }}>{tx.description}</td>
-                      <td className="border p-1 w-8 text-center">{tx.spent ? `$${tx.spent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td>
-                      <td className="border p-1 w-8 text-center">{tx.received ? `$${tx.received.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td>
+                      <td className="border p-1 w-8 text-center">{tx.spent ? formatAmount(tx.spent) : ''}</td>
+                      <td className="border p-1 w-8 text-center">{tx.received ? formatAmount(tx.received) : ''}</td>
                       <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
                         <Select
                           options={payeeOptions}
@@ -3567,7 +3576,7 @@ export default function Page() {
                             const option = selectedOption as SelectOption | null;
                             if (option?.value === 'add_new') {
                               // Determine default category type based on transaction
-                              const defaultType = tx.received && tx.received > 0 ? 'Revenue' : 'Expense';
+                              const defaultType = tx.received && isPositiveAmount(tx.received) ? 'Revenue' : 'Expense';
                               setNewCategoryModal({ 
                                 isOpen: true, 
                                 name: '', 
@@ -3764,8 +3773,8 @@ export default function Page() {
                       </td>
                       <td className="border p-1 w-8 text-center text-xs">{formatDate(tx.date)}</td>
                       <td className="border p-1 w-8 text-center text-xs" style={{ minWidth: 250 }}>{tx.description}</td>
-                      <td className="border p-1 w-8 text-center">{tx.spent ? `$${tx.spent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td>
-                      <td className="border p-1 w-8 text-center">{tx.received ? `$${tx.received.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}</td>
+                      <td className="border p-1 w-8 text-center">{tx.spent ? formatAmount(tx.spent) : ''}</td>
+                      <td className="border p-1 w-8 text-center">{tx.received ? formatAmount(tx.received) : ''}</td>
                       <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
                         {(() => {
                           const payee = payees.find(p => p.id === tx.payee_id);
