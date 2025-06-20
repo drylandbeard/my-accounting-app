@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
 import { useState, useEffect, useRef, useContext } from 'react';
@@ -277,19 +278,7 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
   }, [isResizing]);
 
   // Function to execute confirmed actions
-  async function executeAction(action: { 
-    action: string; 
-    date?: string; 
-    amount?: number; 
-    description?: string; 
-    categoryName?: string; 
-    parentCategoryName?: string;
-    name?: string;
-    type?: string;
-    oldName?: string;
-    newName?: string;
-    newType?: string;
-  }, skipRefresh: boolean = false, customCategories?: any[]): Promise<string> {
+  async function executeAction(action: any, skipRefresh: boolean = false, customCategories?: any[]): Promise<string> {
     const categoriesToUse = customCategories || categories;
     if (action.action === 'categorize') {
       // Find the transaction and category by human-friendly fields
@@ -454,7 +443,7 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
             
             // For actions that depend on recently created categories, get fresh data
             let freshCategories = categories;
-            if (action.action === 'assign_parent_category' && i > 0) {
+                          if (action.action === 'assign_parent_category' && i > 0) {
               // Refresh categories and wait for the update
               await refreshCategories();
               await new Promise(resolve => setTimeout(resolve, 1000));
