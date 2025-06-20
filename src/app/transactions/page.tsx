@@ -1557,10 +1557,10 @@ export default function TransactionsPage() {
     const headers = ['Date', 'Description', 'Amount']
     const exampleData = [
       ['01-15-2025', 'Client Payment - Invoice #1001', '1000.00'],
-      ['01-16-2025', 'Office Supplies - Staples', '-150.75'],
+      ['01-16-2025', 'Office Supplies - Staples', '150.75'],
       ['01-17-2025', 'Bank Interest Received', '25.50'],
-      ['01-18-2025', 'Monthly Software Subscription', '-99.99'],
-      ['01-19-2025', 'Customer Refund', '-200.00']
+      ['01-18-2025', 'Monthly Software Subscription', '99.99'],
+      ['01-19-2025', 'Customer Refund', '200.00']
     ]
     
     const csvContent = [
@@ -2608,8 +2608,8 @@ export default function TransactionsPage() {
 
       {/* Import Modal */}
       {importModal.isOpen && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50">
-          <div className="bg-white rounded-lg p-6 w-[600px] overflow-y-auto shadow-xl">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-[600px] max-h-[90vh] shadow-xl flex flex-col">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold">Import Transactions</h2>
               <button
@@ -2681,7 +2681,7 @@ export default function TransactionsPage() {
                           <ul className="text-sm text-blue-700 space-y-1">
                             <li>• <strong>Date:</strong> Use MM-DD-YYYY format (e.g., 01-15-2024)</li>
                             <li>• <strong>Description:</strong> Any text describing the transaction</li>
-                            <li>• <strong>Amount:</strong> Positive for money received, negative for money spent</li>
+                            <li>• <strong>Amount:</strong> Enter positive amounts only. Use categories to determine if it&apos;s income or expense.</li>
                           </ul>
                           <p className="text-xs text-blue-600 mt-2">
                             Download the template above to see examples of proper formatting.
@@ -2730,7 +2730,7 @@ export default function TransactionsPage() {
                       <div className="flex justify-between items-center">
                         <h3 className="text-sm font-medium text-gray-700">Review Transactions</h3>
                       </div>
-                      <div className="border rounded-lg overflow-hidden">
+                      <div className="border rounded-lg overflow-hidden max-h-96 overflow-y-auto">
                         <table className="min-w-full divide-y divide-gray-200">
                           <thead className="bg-gray-50">
                             <tr>
