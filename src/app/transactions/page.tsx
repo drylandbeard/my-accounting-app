@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { usePlaidLink } from 'react-plaid-link'
-import { supabase } from '../../lib/supabase'
+import { supabase } from '@/lib/supabase'
 
 import Papa from 'papaparse'
 import { v4 as uuidv4 } from 'uuid'
@@ -4217,77 +4217,80 @@ export default function TransactionsPage() {
                 })}
               </tbody>
             </table>
-            {/* Pagination for To Add table */}
-            <div className="mt-4 flex items-center justify-end gap-3">
-              <span className="text-xs text-gray-600 whitespace-nowrap">
-                {`${imported.length} of ${importedFiltered.length}`}
-              </span>
-              <CustomPagination 
-                currentPage={toAddCurrentPage}
-                totalPages={toAddTotalPages}
-                onPageChange={setToAddCurrentPage}
-              />
-            </div>
+            
+            <div className="flex justify-between items-center">
+              {/* Pagination for To Add table */}
+              <div className="mt-2 flex items-center justify-start gap-3">
+                <span className="text-xs text-gray-600 whitespace-nowrap">
+                  {`${imported.length} of ${importedFiltered.length}`}
+                </span>
+                <CustomPagination 
+                  currentPage={toAddCurrentPage}
+                  totalPages={toAddTotalPages}
+                  onPageChange={setToAddCurrentPage}
+                />
+              </div>
 
-            {selectedToAdd.size > 0 && (() => {
-              const selectedTransactions = imported.filter(tx => selectedToAdd.has(tx.id));
-              const hasValidCategories = selectedTransactions.every(tx => selectedCategories[tx.id]);
-              const isProcessing = isAddingTransactions || selectedTransactions.some(tx => processingTransactions.has(tx.id));
-              
-              return (
-                <div className="mt-2 flex justify-end">
-                  <button
-                    onClick={async () => {
-                      const transactionRequests = selectedTransactions
-                        .filter(tx => selectedCategories[tx.id])
-                        .map(tx => ({
-                          transaction: tx,
-                          selectedCategoryId: selectedCategories[tx.id],
-                          selectedPayeeId: selectedPayees[tx.id]
-                        }));
+              {selectedToAdd.size > 0 && (() => {
+                const selectedTransactions = imported.filter(tx => selectedToAdd.has(tx.id));
+                const hasValidCategories = selectedTransactions.every(tx => selectedCategories[tx.id]);
+                const isProcessing = isAddingTransactions || selectedTransactions.some(tx => processingTransactions.has(tx.id));
+                
+                return (
+                  <div className="mt-2 flex justify-end">
+                    <button
+                      onClick={async () => {
+                        const transactionRequests = selectedTransactions
+                          .filter(tx => selectedCategories[tx.id])
+                          .map(tx => ({
+                            transaction: tx,
+                            selectedCategoryId: selectedCategories[tx.id],
+                            selectedPayeeId: selectedPayees[tx.id]
+                          }));
 
-                      await addTransactions(transactionRequests);
-                      
-                      setSelectedCategories(prev => {
-                        const copy = { ...prev };
-                        selectedTransactions.forEach(tx => delete copy[tx.id]);
-                        return copy;
-                      });
-                      setSelectedPayees(prev => {
-                        const copy = { ...prev };
-                        selectedTransactions.forEach(tx => delete copy[tx.id]);
-                        return copy;
-                      });
-                      // Remove from auto-added tracking since they were manually added
-                      setAutoAddedTransactions(prev => {
-                        const newSet = new Set(prev);
-                        selectedTransactions.forEach(tx => {
-                          const contentHash = getTransactionContentHash(tx);
-                          newSet.delete(contentHash);
+                        await addTransactions(transactionRequests);
+                        
+                        setSelectedCategories(prev => {
+                          const copy = { ...prev };
+                          selectedTransactions.forEach(tx => delete copy[tx.id]);
+                          return copy;
                         });
-                        return newSet;
-                      });
-                      setSelectedToAdd(new Set());
-                    }}
-                    className={`border px-3 py-1 rounded ${
-                      isProcessing 
-                        ? 'bg-gray-50 text-gray-400 cursor-not-allowed' 
-                        : 'bg-gray-100 hover:bg-gray-200'
-                    }`}
-                    disabled={!hasValidCategories || isProcessing}
-                  >
-                    {isProcessing ? (
-                      <div className="flex items-center space-x-1">
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                        <span>Adding...</span>
-                      </div>
-                    ) : (
-                      `Add Selected (${selectedToAdd.size})`
-                    )}
-                  </button>
-                </div>
-              );
-            })()}
+                        setSelectedPayees(prev => {
+                          const copy = { ...prev };
+                          selectedTransactions.forEach(tx => delete copy[tx.id]);
+                          return copy;
+                        });
+                        // Remove from auto-added tracking since they were manually added
+                        setAutoAddedTransactions(prev => {
+                          const newSet = new Set(prev);
+                          selectedTransactions.forEach(tx => {
+                            const contentHash = getTransactionContentHash(tx);
+                            newSet.delete(contentHash);
+                          });
+                          return newSet;
+                        });
+                        setSelectedToAdd(new Set());
+                      }}
+                      className={`border px-3 py-1 rounded ${
+                        isProcessing 
+                          ? 'bg-gray-50 text-gray-400 cursor-not-allowed' 
+                          : 'bg-gray-100 hover:bg-gray-200'
+                      }`}
+                      disabled={!hasValidCategories || isProcessing}
+                    >
+                      {isProcessing ? (
+                        <div className="flex items-center space-x-1">
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                          <span>Adding...</span>
+                        </div>
+                      ) : (
+                        `Add Selected (${selectedToAdd.size})`
+                      )}
+                    </button>
+                  </div>
+                );
+              })()}
+            </div>
           </div>
         )}
 
@@ -4408,48 +4411,51 @@ export default function TransactionsPage() {
                 })}
               </tbody>
             </table>
-            {/* Pagination for Added table */}
-            <div className="mt-4 flex items-center justify-end gap-3">
-              <span className="text-xs text-gray-600 whitespace-nowrap">
-                {`${confirmed.length} of ${confirmedFiltered.length}`}
-              </span>
-              <CustomPagination 
-                currentPage={addedCurrentPage}
-                totalPages={addedTotalPages}
-                onPageChange={setAddedCurrentPage}
-              />
-            </div>
+            
+            <div className="flex justify-between items-center">
+              {/* Pagination for Added table */}
+              <div className="mt-2 flex items-center justify-start gap-3">
+                <span className="text-xs text-gray-600 whitespace-nowrap">
+                  {`${confirmed.length} of ${confirmedFiltered.length}`}
+                </span>
+                <CustomPagination 
+                  currentPage={addedCurrentPage}
+                  totalPages={addedTotalPages}
+                  onPageChange={setAddedCurrentPage}
+                />
+              </div>
 
-            {selectedAdded.size > 0 && (() => {
-              const selectedConfirmed = confirmed.filter(tx => selectedAdded.has(tx.id));
-              const isProcessing = isUndoingTransactions || selectedConfirmed.some(tx => processingTransactions.has(tx.id));
-              
-              return (
-                <div className="mt-2 flex justify-end">
-                  <button
-                    onClick={async () => {
-                      await undoTransactions(selectedConfirmed);
-                      setSelectedAdded(new Set());
-                    }}
-                    className={`border px-3 py-1 rounded ${
-                      isProcessing 
-                        ? 'bg-gray-50 text-gray-400 cursor-not-allowed' 
-                        : 'bg-gray-100 hover:bg-gray-200'
-                    }`}
-                    disabled={isProcessing}
-                  >
-                    {isProcessing ? (
-                      <div className="flex items-center space-x-1">
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                        <span>Undoing...</span>
-                      </div>
-                    ) : (
-                      `Undo Selected (${selectedAdded.size})`
-                    )}
-                  </button>
-                </div>
-              );
-            })()}
+              {selectedAdded.size > 0 && (() => {
+                const selectedConfirmed = confirmed.filter(tx => selectedAdded.has(tx.id));
+                const isProcessing = isUndoingTransactions || selectedConfirmed.some(tx => processingTransactions.has(tx.id));
+                
+                return (
+                  <div className="mt-2 flex justify-end">
+                    <button
+                      onClick={async () => {
+                        await undoTransactions(selectedConfirmed);
+                        setSelectedAdded(new Set());
+                      }}
+                      className={`border px-3 py-1 rounded ${
+                        isProcessing 
+                          ? 'bg-gray-50 text-gray-400 cursor-not-allowed' 
+                          : 'bg-gray-100 hover:bg-gray-200'
+                      }`}
+                      disabled={isProcessing}
+                    >
+                      {isProcessing ? (
+                        <div className="flex items-center space-x-1">
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                          <span>Undoing...</span>
+                        </div>
+                      ) : (
+                        `Undo Selected (${selectedAdded.size})`
+                      )}
+                    </button>
+                  </div>
+                );
+              })()}
+            </div>
           </div>
         )}
       </div>

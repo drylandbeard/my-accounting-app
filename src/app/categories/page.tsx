@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useContext, useCallback, useRef } from "react";
-import { supabase } from "../../lib/supabase";
+import { supabase } from "@/lib/supabase";
 import { useApiWithCompany } from "@/hooks/useApiWithCompany";
 import { AISharedContext } from "@/components/AISharedContext";
 import Papa from "papaparse";
