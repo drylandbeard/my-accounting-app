@@ -7,6 +7,15 @@ import { AISharedContext } from "@/components/AISharedContext";
 import Papa from "papaparse";
 import { v4 as uuidv4 } from "uuid";
 import { X } from "lucide-react";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+  PaginationEllipsis,
+} from "@/components/ui/pagination";
 
 const ACCOUNT_TYPES = ["Asset", "Liability", "Equity", "Revenue", "COGS", "Expense"];
 
@@ -45,7 +54,7 @@ type PayeeImportModalState = {
 type CategoryCSVRow = {
   Name: string;
   Type: string;
-  "Parent Category"?: string;
+  Parent?: string;
 };
 
 type PayeeCSVRow = {
@@ -122,6 +131,114 @@ export default function ChartOfAccountsPage() {
     key: null,
     direction: "asc",
   });
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [payeeCurrentPage, setPayeeCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(50); // Fixed items per page
+
+  // Reset to first page when search term changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search]);
+
+  useEffect(() => {
+    setPayeeCurrentPage(1);
+  }, [payeeSearch]);
+
+  // Pagination utility function
+  const getPaginatedData = <T,>(data: T[], currentPage: number, itemsPerPage: number) => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    return {
+      paginatedData: data.slice(startIndex, endIndex),
+      totalPages: Math.ceil(data.length / itemsPerPage),
+      totalItems: data.length,
+      startIndex: startIndex + 1,
+      endIndex: Math.min(endIndex, data.length),
+    };
+  };
+
+  // Custom Pagination Component
+  const CustomPagination = ({
+    currentPage,
+    totalPages,
+    onPageChange,
+  }: {
+    currentPage: number;
+    totalPages: number;
+    onPageChange: (page: number) => void;
+  }) => {
+    if (totalPages <= 1) return null;
+
+    const getVisiblePages = () => {
+      const delta = 2;
+      const range = [];
+      const rangeWithDots = [];
+
+      for (let i = Math.max(2, currentPage - delta); i <= Math.min(totalPages - 1, currentPage + delta); i++) {
+        range.push(i);
+      }
+
+      if (currentPage - delta > 2) {
+        rangeWithDots.push(1, "...");
+      } else {
+        rangeWithDots.push(1);
+      }
+
+      rangeWithDots.push(...range);
+
+      if (currentPage + delta < totalPages - 1) {
+        rangeWithDots.push("...", totalPages);
+      } else {
+        rangeWithDots.push(totalPages);
+      }
+
+      return rangeWithDots;
+    };
+
+    return (
+      <Pagination className="justify-start">
+        <PaginationContent className="gap-1">
+          {currentPage > 1 && (
+            <PaginationItem>
+              <PaginationPrevious
+                onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+                className="border px-3 py-1 rounded text-xs h-auto bg-gray-100 hover:bg-gray-200 cursor-pointer"
+              />
+            </PaginationItem>
+          )}
+
+          {getVisiblePages().map((page, index) => (
+            <PaginationItem key={index}>
+              {page === "..." ? (
+                <PaginationEllipsis className="border px-3 py-1 rounded text-xs h-auto bg-gray-100" />
+              ) : (
+                <PaginationLink
+                  onClick={() => onPageChange(page as number)}
+                  isActive={page === currentPage}
+                  className={`border px-3 py-1 rounded text-xs h-auto cursor-pointer ${
+                    page === currentPage ? "bg-gray-200 text-gray-900 font-semibold" : "bg-gray-100 hover:bg-gray-200"
+                  }`}
+                >
+                  {page}
+                </PaginationLink>
+              )}
+            </PaginationItem>
+          ))}
+
+          {currentPage < totalPages && (
+            <PaginationItem>
+              <PaginationNext
+                onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
+                className="border px-3 py-1 rounded text-xs h-auto bg-gray-100 hover:bg-gray-200 cursor-pointer"
+              />
+            </PaginationItem>
+          )}
+        </PaginationContent>
+      </Pagination>
+    );
+  };
 
   // AI Integration - Highlight a category and scroll to it
   const highlightCategory = useCallback((categoryId: string) => {
@@ -279,8 +396,17 @@ export default function ChartOfAccountsPage() {
       const matchesName = account.name.toLowerCase().includes(searchLower);
       const matchesType = account.type.toLowerCase().includes(searchLower);
 
+      // Check if parent name matches (for subaccounts)
+      let matchesParent = false;
+      if (account.parent_id) {
+        const parentAccount = accounts.find((acc) => acc.id === account.parent_id);
+        if (parentAccount) {
+          matchesParent = parentAccount.name.toLowerCase().includes(searchLower);
+        }
+      }
+
       // If this account matches the search, include it
-      if (matchesName || matchesType) return true;
+      if (matchesName || matchesType || matchesParent) return true;
 
       // If this is a parent account, check if any of its children match
       if (account.parent_id === null) {
@@ -301,6 +427,13 @@ export default function ChartOfAccountsPage() {
     payees.filter((payee) => payee.name.toLowerCase().includes(payeeSearch.toLowerCase())),
     payeeSortConfig
   );
+
+  // Get paginated data for categories and payees
+  const categoryPaginationData = getPaginatedData(filteredAccounts, currentPage, itemsPerPage);
+  const payeePaginationData = getPaginatedData(filteredPayees, payeeCurrentPage, itemsPerPage);
+
+  const displayedCategories = categoryPaginationData.paginatedData;
+  const displayedPayees = payeePaginationData.paginatedData;
 
   const handleAddAccount = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -496,7 +629,7 @@ export default function ChartOfAccountsPage() {
 
     // Immediately exit editing mode and refresh to show updated values optimistically
     setEditingId(null);
-    
+
     try {
       // First get the current chart_of_accounts record to check if it has a plaid_account_id
       const { data: currentAccount, error: fetchError } = await supabase
@@ -617,7 +750,7 @@ export default function ChartOfAccountsPage() {
 
   const downloadCategoriesTemplate = () => {
     const csvContent =
-      "Name,Type,Parent Category\nOffice Supplies,Expense,\nBank Fees,Expense,\nAdvertising,Expense,\nCash,Asset,\nAccounts Receivable,Asset,\nSales Revenue,Revenue,\nService Revenue,Revenue,";
+      "Name,Type,Parent\nOffice Supplies,Expense,\nBank Fees,Expense,\nAdvertising,Expense,\nCash,Asset,\nAccounts Receivable,Asset,\nSales Revenue,Revenue,\nService Revenue,Revenue,";
     const blob = new Blob([csvContent], { type: "text/csv" });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -638,6 +771,45 @@ export default function ChartOfAccountsPage() {
     window.URL.revokeObjectURL(url);
   };
 
+  const exportCategories = () => {
+    if (!accounts.length) return;
+
+    const csvData = accounts.map((account) => {
+      const parentAccount = account.parent_id ? accounts.find((acc) => acc.id === account.parent_id) : null;
+      return {
+        Name: account.name,
+        Type: account.type,
+        Parent: parentAccount?.name || "",
+      };
+    });
+
+    const csvContent = Papa.unparse(csvData);
+    const blob = new Blob([csvContent], { type: "text/csv" });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `categories_export_${new Date().toISOString().split("T")[0]}.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const exportPayees = () => {
+    if (!payees.length) return;
+
+    const csvData = payees.map((payee) => ({
+      Name: payee.name,
+    }));
+
+    const csvContent = Papa.unparse(csvData);
+    const blob = new Blob([csvContent], { type: "text/csv" });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `payees_export_${new Date().toISOString().split("T")[0]}.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
   // Import validation functions
   const validateCategoryCSV = (data: Papa.ParseResult<CategoryCSVRow>) => {
     if (!data.data || data.data.length === 0) {
@@ -649,7 +821,7 @@ export default function ChartOfAccountsPage() {
 
     const missingColumns = requiredColumns.filter((col) => !headers.includes(col));
     if (missingColumns.length > 0) {
-      return `Missing required columns: ${missingColumns.join(", ")}. Expected: Name, Type, Parent Category (optional)`;
+      return `Missing required columns: ${missingColumns.join(", ")}. Expected: Name, Type, Parent (optional)`;
     }
 
     const nonEmptyRows = data.data.filter((row) => row.Name && row.Type);
@@ -732,9 +904,7 @@ export default function ChartOfAccountsPage() {
         const categories = results.data
           .filter((row: CategoryCSVRow) => row.Name && row.Type)
           .map((row: CategoryCSVRow) => {
-            const parentCategory = row["Parent Category"]
-              ? accounts.find((acc) => acc.name === row["Parent Category"])
-              : null;
+            const parentCategory = row["Parent"] ? accounts.find((acc) => acc.name === row["Parent"]) : null;
 
             return {
               id: uuidv4(),
@@ -932,12 +1102,20 @@ export default function ChartOfAccountsPage() {
             </td>
             <td className="border p-1 text-xs">
               <div className="flex gap-2 justify-center">
-                <button onClick={() => handleEdit(parent)} className="text-xs hover:underline text-blue-600">
-                  Edit
-                </button>
-                <button onClick={() => handleDelete(parent.id)} className="text-xs hover:underline text-red-600">
-                  Delete
-                </button>
+                {editingId === parent.id ? (
+                  <>
+                    <button onClick={handleUpdate} className="text-xs hover:underline text-blue-600">
+                      Save
+                    </button>
+                    <button onClick={() => handleDelete(parent.id)} className="text-xs hover:underline text-red-600">
+                      Delete
+                    </button>
+                  </>
+                ) : (
+                  <button onClick={() => handleEdit(parent)} className="text-xs hover:underline text-blue-600">
+                    Edit
+                  </button>
+                )}
               </div>
             </td>
           </tr>,
@@ -1021,12 +1199,20 @@ export default function ChartOfAccountsPage() {
               </td>
               <td className="border p-1 text-xs">
                 <div className="flex gap-2 justify-center">
-                  <button onClick={() => handleEdit(subAcc)} className="text-xs hover:underline text-blue-600">
-                    Edit
-                  </button>
-                  <button onClick={() => handleDelete(subAcc.id)} className="text-xs hover:underline text-red-600">
-                    Delete
-                  </button>
+                  {editingId === subAcc.id ? (
+                    <>
+                      <button onClick={handleUpdate} className="text-xs hover:underline text-blue-600">
+                        Save
+                      </button>
+                      <button onClick={() => handleDelete(subAcc.id)} className="text-xs hover:underline text-red-600">
+                        Delete
+                      </button>
+                    </>
+                  ) : (
+                    <button onClick={() => handleEdit(subAcc)} className="text-xs hover:underline text-blue-600">
+                      Edit
+                    </button>
+                  )}
                 </div>
               </td>
             </tr>
@@ -1059,6 +1245,12 @@ export default function ChartOfAccountsPage() {
             <h2 className="text-lg font-semibold">Categories</h2>
             <div className="flex gap-2">
               <button
+                onClick={exportCategories}
+                className="px-3 py-1 text-xs border border-gray-300 rounded bg-gray-100 hover:bg-gray-200"
+              >
+                Export
+              </button>
+              <button
                 onClick={() =>
                   setCategoryImportModal((prev) => ({
                     ...prev,
@@ -1072,23 +1264,12 @@ export default function ChartOfAccountsPage() {
             </div>
           </div>
 
-          {/* Search Bar */}
-          <div className="mb-3">
-            <input
-              type="text"
-              placeholder="Search Categories..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
-            />
-          </div>
-
           {/* Add Category Form */}
-          <div className="mb-4">
+          <div className="mb-3">
             <form onSubmit={handleAddAccount} className="flex gap-2 items-center">
               <input
                 type="text"
-                placeholder="Category Name"
+                placeholder="Category Category Name"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 className="border border-gray-300 px-2 py-1 text-xs flex-1"
@@ -1097,7 +1278,7 @@ export default function ChartOfAccountsPage() {
               <select
                 value={newType}
                 onChange={(e) => setNewType(e.target.value)}
-                className="border border-gray-300 px-2 py-1 text-xs w-24"
+                className="border border-gray-300 px-2 py-1 text-xs w-32"
                 required
               >
                 <option value="">Type...</option>
@@ -1130,6 +1311,17 @@ export default function ChartOfAccountsPage() {
             </form>
           </div>
 
+          {/* Search Bar */}
+          <div className="mb-4">
+            <input
+              type="text"
+              placeholder="Search Categories..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
+            />
+          </div>
+
           {/* Categories Table */}
           <div className="bg-white rounded shadow-sm" ref={categoriesTableRef}>
             {loading ? (
@@ -1154,15 +1346,15 @@ export default function ChartOfAccountsPage() {
                       className="border p-1 text-center font-semibold cursor-pointer hover:bg-gray-200"
                       onClick={() => handleCategorySort("parent")}
                     >
-                      Parent Category{" "}
+                      Parent{" "}
                       {categorySortConfig.key === "parent" && (categorySortConfig.direction === "asc" ? "↑" : "↓")}
                     </th>
                     <th className="border p-1 text-center font-semibold">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredAccounts.length > 0 ? (
-                    renderAccounts(filteredAccounts)
+                  {displayedCategories.length > 0 ? (
+                    renderAccounts(displayedCategories)
                   ) : (
                     <tr>
                       <td colSpan={4} className="text-center p-2 text-gray-500 text-xs">
@@ -1174,6 +1366,18 @@ export default function ChartOfAccountsPage() {
               </table>
             )}
           </div>
+
+          {/* Categories Pagination */}
+          <div className="flex justify-between items-center mt-2">
+            <span className="text-xs text-gray-600 whitespace-nowrap">
+              {`${displayedCategories.length} of ${categoryPaginationData.totalItems} categories`}
+            </span>
+            <CustomPagination
+              currentPage={currentPage}
+              totalPages={categoryPaginationData.totalPages}
+              onPageChange={setCurrentPage}
+            />
+          </div>
         </div>
 
         {/* Payees Section - Right Side */}
@@ -1181,6 +1385,12 @@ export default function ChartOfAccountsPage() {
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-semibold">Payees</h2>
             <div className="flex gap-2">
+              <button
+                onClick={exportPayees}
+                className="px-3 py-1 border border-gray-300 rounded bg-gray-100 hover:bg-gray-200 text-xs"
+              >
+                Export
+              </button>
               <button
                 onClick={() =>
                   setPayeeImportModal((prev) => ({
@@ -1195,23 +1405,12 @@ export default function ChartOfAccountsPage() {
             </div>
           </div>
 
-          {/* Payee Search Bar */}
-          <div className="mb-3">
-            <input
-              type="text"
-              placeholder="Search Payees..."
-              value={payeeSearch}
-              onChange={(e) => setPayeeSearch(e.target.value)}
-              className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
-            />
-          </div>
-
           {/* Add Payee Form */}
-          <div className="mb-4">
+          <div className="mb-3">
             <form onSubmit={handleAddPayee} className="flex gap-2 items-center">
               <input
                 type="text"
-                placeholder="Payee Name"
+                placeholder="Add Payee Name"
                 value={newPayeeName}
                 onChange={(e) => setNewPayeeName(e.target.value)}
                 className="border border-gray-300 px-2 py-1 text-xs flex-1"
@@ -1224,6 +1423,17 @@ export default function ChartOfAccountsPage() {
                 Add
               </button>
             </form>
+          </div>
+
+          {/* Payee Search Bar */}
+          <div className="mb-4">
+            <input
+              type="text"
+              placeholder="Search Payees..."
+              value={payeeSearch}
+              onChange={(e) => setPayeeSearch(e.target.value)}
+              className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
+            />
           </div>
 
           {/* Payees Table */}
@@ -1241,8 +1451,8 @@ export default function ChartOfAccountsPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredPayees.length > 0 ? (
-                  filteredPayees.map((payee) => (
+                {displayedPayees.length > 0 ? (
+                  displayedPayees.map((payee) => (
                     <tr key={payee.id}>
                       <td className="border p-1 text-xs">
                         {editingPayeeId === payee.id ? (
@@ -1261,18 +1471,26 @@ export default function ChartOfAccountsPage() {
                       </td>
                       <td className="border p-1 text-xs">
                         <div className="flex gap-2 justify-center">
-                          <button
-                            onClick={() => handleEditPayee(payee)}
-                            className="text-xs hover:underline text-blue-600"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => handleDeletePayee(payee.id)}
-                            className="text-xs hover:underline text-red-600"
-                          >
-                            Delete
-                          </button>
+                          {editingPayeeId === payee.id ? (
+                            <>
+                              <button onClick={handleUpdatePayee} className="text-xs hover:underline text-blue-600">
+                                Save
+                              </button>
+                              <button
+                                onClick={() => handleDeletePayee(payee.id)}
+                                className="text-xs hover:underline text-red-600"
+                              >
+                                Delete
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              onClick={() => handleEditPayee(payee)}
+                              className="text-xs hover:underline text-blue-600"
+                            >
+                              Edit
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1287,271 +1505,20 @@ export default function ChartOfAccountsPage() {
               </tbody>
             </table>
           </div>
-        </div>
-      </div>
 
-      {/* Category Import Modal */}
-      {categoryImportModal.isOpen && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50">
-          <div className="bg-white rounded-lg p-6 w-[600px] overflow-y-auto shadow-xl">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Import Categories</h2>
-              <button
-                onClick={() =>
-                  setCategoryImportModal((prev) => ({
-                    ...prev,
-                    isOpen: false,
-                  }))
-                }
-                className="text-gray-500 hover:text-gray-700"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {categoryImportModal.error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded mb-4">
-                {categoryImportModal.error}
-              </div>
-            )}
-
-            {categoryImportModal.isLoading ? (
-              <div className="flex items-center justify-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
-              </div>
-            ) : (
-              <div className="space-y-1">
-                {categoryImportModal.step === "upload" && (
-                  <>
-                    <div className="space-y-4">
-                      <div className="space-y-3">
-                        <div className="flex justify-between items-center">
-                          <h3 className="text-sm font-medium text-gray-700">Upload CSV File</h3>
-                          <button
-                            onClick={downloadCategoriesTemplate}
-                            className="text-sm text-gray-600 hover:text-gray-800"
-                          >
-                            Download Template
-                          </button>
-                        </div>
-
-                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                          <h4 className="text-sm font-medium text-blue-800 mb-2">CSV Format Instructions:</h4>
-                          <ul className="text-sm text-blue-700 space-y-1">
-                            <li>
-                              • <strong>Name:</strong> Category name (required)
-                            </li>
-                            <li>
-                              • <strong>Type:</strong> One of: {ACCOUNT_TYPES.join(", ")}
-                            </li>
-                            <li>
-                              • <strong>Parent Category:</strong> Name of parent category (optional)
-                            </li>
-                          </ul>
-                        </div>
-                      </div>
-                      <div
-                        className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center transition-colors duration-200 hover:border-gray-400"
-                        onDragOver={handleDragOver}
-                        onDrop={handleCategoryDrop}
-                      >
-                        <input
-                          type="file"
-                          accept=".csv"
-                          onChange={handleCategoryFileUpload}
-                          className="hidden"
-                          id="category-csv-upload"
-                        />
-                        <label
-                          htmlFor="category-csv-upload"
-                          className="cursor-pointer inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
-                        >
-                          Choose CSV File
-                        </label>
-                        <p className="mt-2 text-sm text-gray-500">
-                          Drag and drop your CSV file here, or click to browse
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex justify-end space-x-2 mt-4">
-                      <button
-                        onClick={() =>
-                          setCategoryImportModal((prev) => ({
-                            ...prev,
-                            isOpen: false,
-                          }))
-                        }
-                        className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </>
-                )}
-                {categoryImportModal.step === "review" && (
-                  <>
-                    <div className="space-y-4">
-                      <div className="flex justify-between items-center">
-                        <h3 className="text-sm font-medium text-gray-700">Review Categories</h3>
-                      </div>
-                      <div className="border rounded-lg overflow-hidden">
-                        <table className="min-w-full divide-y divide-gray-200">
-                          <thead className="bg-gray-50">
-                            <tr>
-                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-8">
-                                <input
-                                  type="checkbox"
-                                  checked={
-                                    categoryImportModal.csvData.length > 0 &&
-                                    categoryImportModal.selectedCategories.size === categoryImportModal.csvData.length
-                                  }
-                                  onChange={(e) => {
-                                    if (e.target.checked) {
-                                      setCategoryImportModal((prev) => ({
-                                        ...prev,
-                                        selectedCategories: new Set(categoryImportModal.csvData.map((cat) => cat.id)),
-                                      }));
-                                    } else {
-                                      setCategoryImportModal((prev) => ({
-                                        ...prev,
-                                        selectedCategories: new Set(),
-                                      }));
-                                    }
-                                  }}
-                                  className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
-                                />
-                              </th>
-                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Name
-                              </th>
-                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Type
-                              </th>
-                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Parent
-                              </th>
-                            </tr>
-                          </thead>
-                          <tbody className="bg-white divide-y divide-gray-200">
-                            {categoryImportModal.csvData.map((category) => (
-                              <tr key={category.id}>
-                                <td className="px-4 py-2 whitespace-nowrap w-8 text-left">
-                                  <input
-                                    type="checkbox"
-                                    checked={categoryImportModal.selectedCategories.has(category.id)}
-                                    onChange={(e) => {
-                                      const newSelected = new Set(categoryImportModal.selectedCategories);
-                                      if (e.target.checked) {
-                                        newSelected.add(category.id);
-                                      } else {
-                                        newSelected.delete(category.id);
-                                      }
-                                      setCategoryImportModal((prev) => ({
-                                        ...prev,
-                                        selectedCategories: newSelected,
-                                      }));
-                                    }}
-                                    className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
-                                  />
-                                </td>
-                                <td className="px-4 py-2 text-sm text-gray-900">{category.name}</td>
-                                <td className="px-4 py-2 text-sm text-gray-900">{category.type}</td>
-                                <td className="px-4 py-2 text-sm text-gray-900">
-                                  {category.parent_id
-                                    ? accounts.find((acc) => acc.id === category.parent_id)?.name || "Unknown"
-                                    : "-"}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <div className="text-sm font-medium">
-                        {categoryImportModal.selectedCategories.size > 0 && (
-                          <span className="text-gray-600">{categoryImportModal.selectedCategories.size} selected</span>
-                        )}
-                      </div>
-                      <div className="flex justify-end space-x-2 mt-4">
-                        <button
-                          onClick={() =>
-                            setCategoryImportModal((prev) => ({
-                              ...prev,
-                              step: "upload",
-                            }))
-                          }
-                          className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
-                        >
-                          Back
-                        </button>
-                        <button
-                          onClick={async () => {
-                            setCategoryImportModal((prev) => ({
-                              ...prev,
-                              isLoading: true,
-                              error: null,
-                            }));
-                            try {
-                              if (!currentCompany) {
-                                throw new Error("No company selected. Please select a company first.");
-                              }
-
-                              const selectedCategories = categoryImportModal.csvData.filter((cat) =>
-                                categoryImportModal.selectedCategories.has(cat.id)
-                              );
-
-                              if (selectedCategories.length === 0) {
-                                throw new Error("No categories selected for import.");
-                              }
-
-                              const categoriesToInsert = selectedCategories.map((cat) => ({
-                                name: cat.name,
-                                type: cat.type,
-                                parent_id: cat.parent_id,
-                                company_id: currentCompany.id,
-                              }));
-
-                              const { error } = await supabase.from("chart_of_accounts").insert(categoriesToInsert);
-
-                              if (error) {
-                                throw new Error(error.message);
-                              }
-
-                              setCategoryImportModal({
-                                isOpen: false,
-                                step: "upload",
-                                csvData: [],
-                                isLoading: false,
-                                error: null,
-                                selectedCategories: new Set(),
-                              });
-
-                              fetchParentOptions();
-                            } catch (error) {
-                              setCategoryImportModal((prev) => ({
-                                ...prev,
-                                isLoading: false,
-                                error:
-                                  error instanceof Error
-                                    ? error.message
-                                    : "Failed to import categories. Please try again.",
-                              }));
-                            }
-                          }}
-                          className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
-                        >
-                          Import Categories
-                        </button>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
+          {/* Payees Pagination */}
+          <div className="flex justify-between items-center mt-2">
+            <span className="text-xs text-gray-600 whitespace-nowrap">
+              {`${displayedPayees.length} of ${payeePaginationData.totalItems} payees`}
+            </span>
+            <CustomPagination
+              currentPage={payeeCurrentPage}
+              totalPages={payeePaginationData.totalPages}
+              onPageChange={setPayeeCurrentPage}
+            />
           </div>
         </div>
-      )}
+      </div>
 
       {/* Payee Import Modal */}
       {payeeImportModal.isOpen && (
@@ -1783,6 +1750,269 @@ export default function ChartOfAccountsPage() {
                           className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
                         >
                           Import Payees
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Category Import Modal */}
+      {categoryImportModal.isOpen && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50">
+          <div className="bg-white rounded-lg p-6 w-[600px] overflow-y-auto shadow-xl">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold">Import Categories</h2>
+              <button
+                onClick={() =>
+                  setCategoryImportModal((prev) => ({
+                    ...prev,
+                    isOpen: false,
+                  }))
+                }
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {categoryImportModal.error && (
+              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded mb-4">
+                {categoryImportModal.error}
+              </div>
+            )}
+
+            {categoryImportModal.isLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {categoryImportModal.step === "upload" && (
+                  <>
+                    <div className="space-y-4">
+                      <div className="space-y-3">
+                        <div className="flex justify-between items-center">
+                          <h3 className="text-sm font-medium text-gray-700">Upload CSV File</h3>
+                          <button
+                            onClick={downloadCategoriesTemplate}
+                            className="text-sm text-gray-600 hover:text-gray-800"
+                          >
+                            Download Template
+                          </button>
+                        </div>
+
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                          <h4 className="text-sm font-medium text-blue-800 mb-2">CSV Format Instructions:</h4>
+                          <ul className="text-sm text-blue-700 space-y-1">
+                            <li>
+                              • <strong>Name:</strong> Category name (required)
+                            </li>
+                            <li>
+                              • <strong>Type:</strong> One of: {ACCOUNT_TYPES.join(", ")}
+                            </li>
+                            <li>
+                              • <strong>Parent:</strong> Name of parent category (optional)
+                            </li>
+                          </ul>
+                        </div>
+                      </div>
+                      <div
+                        className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center transition-colors duration-200 hover:border-gray-400"
+                        onDragOver={handleDragOver}
+                        onDrop={handleCategoryDrop}
+                      >
+                        <input
+                          type="file"
+                          accept=".csv"
+                          onChange={handleCategoryFileUpload}
+                          className="hidden"
+                          id="category-csv-upload"
+                        />
+                        <label
+                          htmlFor="category-csv-upload"
+                          className="cursor-pointer inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                        >
+                          Choose CSV File
+                        </label>
+                        <p className="mt-2 text-sm text-gray-500">
+                          Drag and drop your CSV file here, or click to browse
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex justify-end space-x-2 mt-4">
+                      <button
+                        onClick={() =>
+                          setCategoryImportModal((prev) => ({
+                            ...prev,
+                            isOpen: false,
+                          }))
+                        }
+                        className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </>
+                )}
+                {categoryImportModal.step === "review" && (
+                  <>
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-center">
+                        <h3 className="text-sm font-medium text-gray-700">Review Categories</h3>
+                      </div>
+                      <div className="border rounded-lg overflow-hidden">
+                        <table className="min-w-full divide-y divide-gray-200">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-8">
+                                <input
+                                  type="checkbox"
+                                  checked={
+                                    categoryImportModal.csvData.length > 0 &&
+                                    categoryImportModal.selectedCategories.size === categoryImportModal.csvData.length
+                                  }
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setCategoryImportModal((prev) => ({
+                                        ...prev,
+                                        selectedCategories: new Set(categoryImportModal.csvData.map((cat) => cat.id)),
+                                      }));
+                                    } else {
+                                      setCategoryImportModal((prev) => ({
+                                        ...prev,
+                                        selectedCategories: new Set(),
+                                      }));
+                                    }
+                                  }}
+                                  className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                                />
+                              </th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Name
+                              </th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Type
+                              </th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Parent
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white divide-y divide-gray-200">
+                            {categoryImportModal.csvData.map((category) => (
+                              <tr key={category.id}>
+                                <td className="px-4 py-2 whitespace-nowrap w-8 text-left">
+                                  <input
+                                    type="checkbox"
+                                    checked={categoryImportModal.selectedCategories.has(category.id)}
+                                    onChange={(e) => {
+                                      const newSelected = new Set(categoryImportModal.selectedCategories);
+                                      if (e.target.checked) {
+                                        newSelected.add(category.id);
+                                      } else {
+                                        newSelected.delete(category.id);
+                                      }
+                                      setCategoryImportModal((prev) => ({
+                                        ...prev,
+                                        selectedCategories: newSelected,
+                                      }));
+                                    }}
+                                    className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                                  />
+                                </td>
+                                <td className="px-4 py-2 text-sm text-gray-900">{category.name}</td>
+                                <td className="px-4 py-2 text-sm text-gray-900">{category.type}</td>
+                                <td className="px-4 py-2 text-sm text-gray-900">
+                                  {category.parent_id
+                                    ? accounts.find((acc) => acc.id === category.parent_id)?.name || "Unknown"
+                                    : "-"}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <div className="text-sm font-medium">
+                        {categoryImportModal.selectedCategories.size > 0 && (
+                          <span className="text-gray-600">{categoryImportModal.selectedCategories.size} selected</span>
+                        )}
+                      </div>
+                      <div className="flex justify-end space-x-2 mt-4">
+                        <button
+                          onClick={() =>
+                            setCategoryImportModal((prev) => ({
+                              ...prev,
+                              step: "upload",
+                            }))
+                          }
+                          className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+                        >
+                          Back
+                        </button>
+                        <button
+                          onClick={async () => {
+                            setCategoryImportModal((prev) => ({
+                              ...prev,
+                              isLoading: true,
+                              error: null,
+                            }));
+                            try {
+                              if (!currentCompany) {
+                                throw new Error("No company selected. Please select a company first.");
+                              }
+
+                              const selectedCategories = categoryImportModal.csvData.filter((cat) =>
+                                categoryImportModal.selectedCategories.has(cat.id)
+                              );
+
+                              if (selectedCategories.length === 0) {
+                                throw new Error("No categories selected for import.");
+                              }
+
+                              const categoriesToInsert = selectedCategories.map((cat) => ({
+                                name: cat.name,
+                                type: cat.type,
+                                parent_id: cat.parent_id,
+                                company_id: currentCompany.id,
+                              }));
+
+                              const { error } = await supabase.from("chart_of_accounts").insert(categoriesToInsert);
+
+                              if (error) {
+                                throw new Error(error.message);
+                              }
+
+                              setCategoryImportModal({
+                                isOpen: false,
+                                step: "upload",
+                                csvData: [],
+                                isLoading: false,
+                                error: null,
+                                selectedCategories: new Set(),
+                              });
+
+                              fetchParentOptions();
+                            } catch (error) {
+                              setCategoryImportModal((prev) => ({
+                                ...prev,
+                                isLoading: false,
+                                error:
+                                  error instanceof Error
+                                    ? error.message
+                                    : "Failed to import categories. Please try again.",
+                              }));
+                            }
+                          }}
+                          className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
+                        >
+                          Import Categories
                         </button>
                       </div>
                     </div>
