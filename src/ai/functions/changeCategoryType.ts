@@ -7,7 +7,7 @@ export interface Category {
   type: string;
   parent_id?: string | null;
   company_id: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 // Helper: Changes the type of an existing category in chart_of_accounts
@@ -37,9 +37,10 @@ export async function changeCategoryTypeHelper(
     }
     
     return { success: true };
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Unexpected error changing category type:', err);
-    return { success: false, error: err.message || 'Unknown error' };
+    const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+    return { success: false, error: errorMessage };
   }
 }
 

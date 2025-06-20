@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useContext, useCallback } from "react";
 import { supabase } from "../../lib/supabase";
 import { useApiWithCompany } from "@/hooks/useApiWithCompany";
+import { AISharedContext } from "@/components/AISharedContext";
 import Papa from "papaparse";
 import { v4 as uuidv4 } from "uuid";
 import { X } from "lucide-react";
@@ -70,7 +71,7 @@ type PayeeSortConfig = {
 
 export default function ChartOfAccountsPage() {
   const { hasCompanyContext, currentCompany } = useApiWithCompany();
-  const [accounts, setAccounts] = useState<Category[]>([]);
+  const { categories: accounts, refreshCategories } = useContext(AISharedContext);
   const [payees, setPayees] = useState<Payee[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -94,6 +95,10 @@ export default function ChartOfAccountsPage() {
   // Payee edit state
   const [editingPayeeId, setEditingPayeeId] = useState<string | null>(null);
   const [editPayeeName, setEditPayeeName] = useState("");
+
+  // AI Integration - Real-time and focus states
+  const [highlightedIds, setHighlightedIds] = useState<Set<string>>(new Set());
+  const [lastActionId, setLastActionId] = useState<string | null>(null);
 
   // Import modal state
   const [categoryImportModal, setCategoryImportModal] =
@@ -126,11 +131,99 @@ export default function ChartOfAccountsPage() {
     direction: "asc",
   });
 
+  // AI Integration - Highlight a category and scroll to it
+  const highlightCategory = useCallback((categoryId: string) => {
+    setHighlightedIds(prev => new Set([...prev, categoryId]));
+    setLastActionId(categoryId);
+    
+    setTimeout(() => {
+      const element = document.getElementById(`category-${categoryId}`);
+      if (element) {
+        element.scrollIntoView({ 
+          behavior: 'smooth', 
+          block: 'center' 
+        });
+      }
+    }, 100);
+    
+    setTimeout(() => {
+      setHighlightedIds(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(categoryId);
+        return newSet;
+      });
+      setLastActionId(currentId => (currentId === categoryId ? null : currentId));
+    }, 3000);
+  }, []);
+
   useEffect(() => {
-    fetchAccounts();
+    if (accounts) {
+      setLoading(false);
+    }
+  }, [accounts]);
+
+  const fetchParentOptions = useCallback(async () => {
+    if (!hasCompanyContext || !currentCompany?.id) return;
+    
+    const { data, error } = await supabase
+      .from("chart_of_accounts")
+      .select("*")
+      .eq("company_id", currentCompany!.id)
+      .is("parent_id", null);
+    
+    if (error) {
+      console.error("Error fetching parent options:", error);
+    } else if (data) {
+      setParentOptions(data as Category[]);
+    }
+  }, [currentCompany?.id, hasCompanyContext]);
+
+  useEffect(() => {
     fetchParentOptions();
     fetchPayees();
-  }, [currentCompany?.id, hasCompanyContext]);
+  }, [currentCompany?.id, hasCompanyContext, fetchParentOptions]);
+
+  // AI Integration - Set up real-time subscription
+  useEffect(() => {
+    if (!hasCompanyContext || !currentCompany?.id) return;
+
+    console.log('Setting up real-time subscription for company:', currentCompany.id);
+
+    const channel = supabase
+      .channel(`chart_of_accounts_${currentCompany.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'chart_of_accounts',
+          filter: `company_id=eq.${currentCompany.id}`
+        },
+        (payload) => {
+          console.log('Real-time change detected:', payload);
+          refreshCategories();
+
+          let recordId: string | null = null;
+          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            recordId = payload.new.id;
+          }
+          
+          if (recordId) {
+            highlightCategory(recordId);
+          }
+          
+          fetchParentOptions();
+        }
+      )
+      .subscribe((status) => {
+        console.log('Subscription status:', status);
+      });
+
+    return () => {
+      console.log('Cleaning up real-time subscription');
+      supabase.removeChannel(channel);
+    };
+  }, [currentCompany?.id, hasCompanyContext, highlightCategory, fetchParentOptions, refreshCategories]);
 
   // Sorting functions
   const sortCategories = (categories: Category[], sortConfig: SortConfig) => {
@@ -191,32 +284,6 @@ export default function ChartOfAccountsPage() {
     }));
   };
 
-  const fetchAccounts = async () => {
-    if (!hasCompanyContext) return;
-
-    setLoading(true);
-    const { data, error } = await supabase
-      .from("chart_of_accounts")
-      .select("*")
-      .eq("company_id", currentCompany!.id)
-      .order("parent_id", { ascending: true, nullsFirst: true })
-      .order("type", { ascending: true })
-      .order("name", { ascending: true });
-    if (!error && data) setAccounts(data);
-    setLoading(false);
-  };
-
-  const fetchParentOptions = async () => {
-    if (!hasCompanyContext) return;
-
-    const { data } = await supabase
-      .from("chart_of_accounts")
-      .select("id, name, type")
-      .eq("company_id", currentCompany!.id)
-      .is("parent_id", null);
-    if (data) setParentOptions(data);
-  };
-
   const fetchPayees = async () => {
     if (!hasCompanyContext) return;
 
@@ -275,7 +342,7 @@ export default function ChartOfAccountsPage() {
       setNewName("");
       setNewType("");
       setParentId(null);
-      fetchAccounts();
+      // Categories will be refreshed automatically via real-time subscription
       fetchParentOptions();
     }
   };
@@ -353,7 +420,7 @@ export default function ChartOfAccountsPage() {
       .eq("id", id);
     if (!error) {
       setEditingId(null);
-      fetchAccounts();
+      // Categories will be refreshed automatically via real-time subscription
       fetchParentOptions();
     }
   };
@@ -431,7 +498,7 @@ export default function ChartOfAccountsPage() {
       }
 
       setEditingId(null);
-      fetchAccounts();
+      // Categories will be refreshed automatically via real-time subscription
       fetchParentOptions();
     }
   };
@@ -702,7 +769,7 @@ export default function ChartOfAccountsPage() {
     }
   };
 
-  // Helper to display subaccounts indented
+  // Helper to display subaccounts indented with AI highlighting
   const renderAccounts = (accounts: Category[], level = 0) => {
     // Get all parent accounts
     const parentAccounts = accounts.filter((acc) => acc.parent_id === null);
@@ -721,7 +788,15 @@ export default function ChartOfAccountsPage() {
 
         // Return an array of <tr> elements: parent row + subaccount rows
         return [
-          <tr key={parent.id}>
+          <tr 
+            key={parent.id}
+            id={`category-${parent.id}`}
+            className={`transition-colors duration-1000 ${
+              highlightedIds.has(parent.id) 
+                ? 'bg-green-100' 
+                : 'hover:bg-gray-50'
+            }`}
+          >
             <td
               style={{ paddingLeft: `${level * 16 + 4}px` }}
               className="border p-1 text-xs"
@@ -737,7 +812,14 @@ export default function ChartOfAccountsPage() {
                   autoFocus
                 />
               ) : (
-                parent.name
+                <span className={highlightedIds.has(parent.id) ? 'font-bold text-green-800' : ''}>
+                  {parent.name}
+                </span>
+              )}
+              {lastActionId === parent.id && (
+                <span className="ml-2 inline-block text-green-600">
+                  ✨
+                </span>
               )}
             </td>
             <td className="border p-1 text-xs">
@@ -778,7 +860,15 @@ export default function ChartOfAccountsPage() {
             </td>
           </tr>,
           ...subAccounts.map((subAcc) => (
-            <tr key={subAcc.id}>
+            <tr 
+              key={subAcc.id}
+              id={`category-${subAcc.id}`}
+              className={`transition-colors duration-1000 ${
+                highlightedIds.has(subAcc.id) 
+                  ? 'bg-green-100' 
+                  : 'hover:bg-gray-50'
+              }`}
+            >
               <td
                 style={{
                   paddingLeft: `${(level + 1) * 16 + 4}px`,
@@ -796,7 +886,14 @@ export default function ChartOfAccountsPage() {
                     autoFocus
                   />
                 ) : (
-                  subAcc.name
+                  <span className={highlightedIds.has(subAcc.id) ? 'font-bold text-green-800' : ''}>
+                    {subAcc.name}
+                  </span>
+                )}
+                {lastActionId === subAcc.id && (
+                  <span className="ml-2 inline-block text-green-600">
+                    ✨
+                  </span>
                 )}
               </td>
               <td className="border p-1 text-xs">
@@ -1398,7 +1495,6 @@ export default function ChartOfAccountsPage() {
                                 selectedCategories: new Set(),
                               });
 
-                              fetchAccounts();
                               fetchParentOptions();
                             } catch (error) {
                               setCategoryImportModal((prev) => ({
