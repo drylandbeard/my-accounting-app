@@ -1,8 +1,17 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../../lib/supabase';
+import { supabase } from '@/lib/supabase';
 import { useApiWithCompany } from '@/hooks/useApiWithCompany';
+import { 
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+  PaginationEllipsis,
+} from '@/components/ui/pagination';
 
 type Payee = {
   id: string;
@@ -47,12 +56,21 @@ export default function JournalTablePage() {
   const [error, setError] = useState<string | null>(null);
   const [sortConfig, setSortConfig] = useState<SortConfig>({ key: null, direction: 'asc' });
   const [searchTerm, setSearchTerm] = useState<string>('');
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(50); // Fixed items per page
 
   useEffect(() => {
     fetchJournalEntries();
     fetchAccounts();
     fetchPayees();
   }, [currentCompany?.id]);
+
+  // Reset to first page when search term changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
 
   const fetchJournalEntries = async () => {
     if (!hasCompanyContext) return;
@@ -243,9 +261,109 @@ export default function JournalTablePage() {
     });
   };
 
+  // Pagination utility function
+  const getPaginatedData = <T,>(data: T[], currentPage: number, itemsPerPage: number) => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    return {
+      paginatedData: data.slice(startIndex, endIndex),
+      totalPages: Math.ceil(data.length / itemsPerPage),
+      totalItems: data.length,
+      startIndex: startIndex + 1,
+      endIndex: Math.min(endIndex, data.length)
+    };
+  };
+
+  // Custom Pagination Component
+  const CustomPagination = ({ 
+    currentPage, 
+    totalPages, 
+    onPageChange 
+  }: { 
+    currentPage: number; 
+    totalPages: number; 
+    onPageChange: (page: number) => void;
+  }) => {
+    if (totalPages <= 1) return null;
+
+    const getVisiblePages = () => {
+      const delta = 2;
+      const range = [];
+      const rangeWithDots = [];
+
+      for (let i = Math.max(2, currentPage - delta); i <= Math.min(totalPages - 1, currentPage + delta); i++) {
+        range.push(i);
+      }
+
+      if (currentPage - delta > 2) {
+        rangeWithDots.push(1, '...');
+      } else {
+        rangeWithDots.push(1);
+      }
+
+      rangeWithDots.push(...range);
+
+      if (currentPage + delta < totalPages - 1) {
+        rangeWithDots.push('...', totalPages);
+      } else {
+        rangeWithDots.push(totalPages);
+      }
+
+      return rangeWithDots;
+    };
+
+    return (
+      <Pagination className="justify-start">
+        <PaginationContent className="gap-1">
+          {currentPage > 1 && (
+            <PaginationItem>
+              <PaginationPrevious 
+                onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+                className="border px-3 py-1 rounded text-xs h-auto bg-gray-100 hover:bg-gray-200 cursor-pointer"
+              />
+            </PaginationItem>
+          )}
+          
+          {getVisiblePages().map((page, index) => (
+            <PaginationItem key={index}>
+              {page === '...' ? (
+                <PaginationEllipsis className="border px-3 py-1 rounded text-xs h-auto bg-gray-100" />
+              ) : (
+                <PaginationLink
+                  onClick={() => onPageChange(page as number)}
+                  isActive={page === currentPage}
+                  className={`border px-3 py-1 rounded text-xs h-auto cursor-pointer ${
+                    page === currentPage
+                      ? 'bg-gray-200 text-gray-900 font-semibold'
+                      : 'bg-gray-100 hover:bg-gray-200'
+                  }`}
+                >
+                  {page}
+                </PaginationLink>
+              )}
+            </PaginationItem>
+          ))}
+          
+          {currentPage < totalPages && (
+            <PaginationItem>
+              <PaginationNext 
+                onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
+                className="border px-3 py-1 rounded text-xs h-auto bg-gray-100 hover:bg-gray-200 cursor-pointer"
+              />
+            </PaginationItem>
+          )}
+        </PaginationContent>
+      </Pagination>
+    );
+  };
+
   // Filter entries based on search term, then sort
   const filteredEntries = filterEntries(entries, searchTerm);
   const sortedAndFilteredEntries = sortEntries(filteredEntries, sortConfig);
+  
+  // Get paginated data
+  const paginationData = getPaginatedData(sortedAndFilteredEntries, currentPage, itemsPerPage);
+  const { paginatedData: displayedEntries, totalPages, totalItems } = paginationData;
 
   // Check if user has company context
   if (!hasCompanyContext) {
@@ -279,14 +397,13 @@ export default function JournalTablePage() {
             className="border px-2 py-1 w-full text-xs mb-2"
           />
 
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse border border-gray-300">
+          <table className="w-full border-collapse border border-gray-300">
               <thead className="bg-gray-100">
                 <tr>
                   {finalColumns.map((col) => (
                     <th 
                       key={col.key} 
-                      className={`border p-1 text-center text-xs font-medium tracking-wider ${
+                      className={`border p-2 text-center text-xs font-medium tracking-wider ${
                         col.sortable ? 'cursor-pointer hover:bg-gray-200' : ''
                       }`}
                       onClick={col.sortable ? () => handleSort(col.key as 'date' | 'description' | 'payee' | 'debit' | 'credit' | 'category') : undefined}
@@ -302,10 +419,10 @@ export default function JournalTablePage() {
                 </tr>
               </thead>
               <tbody>
-                {sortedAndFilteredEntries.map((entry) => (
-                  <tr key={String(entry.id)}>
+                {displayedEntries.map((entry) => (
+                  <tr key={String(entry.id)} className="hover:bg-gray-50">
                     {finalColumns.map((col) => (
-                      <td key={col.key} className="border p-1 text-center text-xs">
+                      <td key={col.key} className="border p-2 text-center text-xs">
                         {col.key === 'date' ? (
                           formatDate(entry.date)
                         ) : col.key === 'debit' ? (
@@ -325,6 +442,19 @@ export default function JournalTablePage() {
                 ))}
               </tbody>
             </table>
+
+          <div className="flex justify-between items-center">
+            {/* Pagination for Journal table */}
+            <div className="mt-2 flex items-center justify-start gap-3">
+              <span className="text-xs text-gray-600 whitespace-nowrap">
+                {`${displayedEntries.length} of ${totalItems}`}
+              </span>
+              <CustomPagination 
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={setCurrentPage}
+              />
+            </div>
           </div>
         </div>
       )}
