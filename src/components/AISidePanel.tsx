@@ -962,16 +962,16 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
   return (
     <div style={panelStyle} className={isResizing ? "select-none" : ""}>
       <div className="flex h-full flex-col bg-white shadow-xl text-xs">
-        <div className="px-4 py-6 sm:px-6">
+        <div className="px-4 py-6 sm:px-6 bg-gray-50 border-b border-gray-200">
           <div className="flex items-start justify-between">
             <div className="font-semibold leading-6 text-gray-900 text-xs">🤖 Agent</div>
             <div className="ml-3 flex h-7 items-center space-x-2">
               <button
                 onClick={() => setProactiveMode(!proactiveMode)}
-                className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                className={`px-2 py-1 rounded text-xs font-medium transition-colors border ${
                   proactiveMode
-                    ? "bg-green-100 text-green-800 hover:bg-green-200"
-                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                    ? "bg-gray-900 text-white border-gray-900 hover:bg-gray-800"
+                    : "bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200"
                 }`}
                 title={
                   proactiveMode
@@ -983,23 +983,25 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
               </button>
               <button
                 type="button"
-                className="rounded-md bg-white text-gray-400 hover:text-gray-500"
+                className="rounded-md bg-white text-gray-400 hover:text-gray-500 p-1"
                 onClick={() => setIsOpen(false)}
               >
                 <span className="sr-only">Close panel</span>
-                <X className="h-6 w-6" aria-hidden="true" />
+                <X className="h-4 w-4" aria-hidden="true" />
               </button>
             </div>
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 bg-gray-50">
+        <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 bg-white">
           <div className="space-y-4">
             {messages.map((message, index) => (
               <div key={index} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
                 <div
-                  className={`rounded-lg px-4 py-3 max-w-[85%] shadow-sm ${
-                    message.role === "user" ? "bg-blue-600 text-white" : "bg-white border border-gray-200 text-gray-800"
+                  className={`rounded-lg px-4 py-3 max-w-[85%] shadow-sm border ${
+                    message.role === "user" 
+                      ? "bg-gray-50 border-gray-200 text-gray-900" 
+                      : "bg-white border-gray-200 text-gray-800"
                   }`}
                 >
                   <div
@@ -1021,13 +1023,13 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
                     <div className="mt-4 flex gap-3 border-t border-gray-100 pt-3">
                       <button
                         onClick={() => handleConfirm(index)}
-                        className="px-4 py-2 bg-green-600 text-white rounded-md text-sm font-medium hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-1 transition-colors duration-200 shadow-sm"
+                        className="px-4 py-2 bg-gray-900 text-white rounded-md text-sm font-medium hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-1 transition-colors duration-200 shadow-sm"
                       >
                         ✓ Confirm
                       </button>
                       <button
                         onClick={() => handleCancel(index)}
-                        className="px-4 py-2 bg-gray-500 text-white rounded-md text-sm font-medium hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-1 transition-colors duration-200 shadow-sm"
+                        className="px-4 py-2 bg-gray-100 text-gray-700 border border-gray-300 rounded-md text-sm font-medium hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-1 transition-colors duration-200 shadow-sm"
                       >
                         ✕ Cancel
                       </button>
@@ -1041,12 +1043,12 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
           {pendingToolArgs && (
             <div className="flex flex-col items-center my-4">
               <button
-                className="bg-gray-300 text-gray-900 px-3 py-2 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-400 transition-all duration-100 flex items-center gap-2 text-xs font-medium animate-pulse"
+                className="bg-gray-900 text-white px-3 py-2 rounded-md hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-400 transition-all duration-100 flex items-center gap-2 text-xs font-medium animate-pulse"
                 style={{ animationDuration: "2s" }}
                 onClick={handleConfirmTool}
               >
                 Confirm
-                <span className="ml-2 inline-block bg-gray-200 text-gray-700 text-[10px] px-1.5 py-0.5 rounded font-mono border border-gray-300">
+                <span className="ml-2 inline-block bg-gray-100 text-gray-700 text-[10px] px-1.5 py-0.5 rounded font-mono border border-gray-300">
                   ⌘↵
                 </span>
               </button>
@@ -1054,7 +1056,7 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
           )}
         </div>
 
-        <div className="border-t border-gray-200 px-4 py-6 sm:px-6 text-xs">
+        <div className="border-t border-gray-200 px-4 py-6 sm:px-6 text-xs bg-gray-50">
           {/* Quick suggestions for new users */}
           {messages.length <= 1 && (
             <div className="mb-3 text-xs text-gray-600">
@@ -1065,7 +1067,7 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
                     setInputMessage("What categories should I create for my business?");
                     updateActivityTime();
                   }}
-                  className="block w-full text-left px-2 py-1 rounded text-blue-600 hover:bg-blue-50 transition-colors"
+                  className="block w-full text-left px-2 py-1 rounded text-gray-700 hover:bg-gray-100 transition-colors border border-gray-200 bg-white"
                 >
                   • What categories should I create for my business?
                 </button>
@@ -1074,7 +1076,7 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
                     setInputMessage("How can I organize my expense categories better?");
                     updateActivityTime();
                   }}
-                  className="block w-full text-left px-2 py-1 rounded text-blue-600 hover:bg-blue-50 transition-colors"
+                  className="block w-full text-left px-2 py-1 rounded text-gray-700 hover:bg-gray-100 transition-colors border border-gray-200 bg-white"
                 >
                   • How can I organize my expense categories better?
                 </button>
@@ -1083,7 +1085,7 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
                     setInputMessage("What's the best way to structure my chart of accounts?");
                     updateActivityTime();
                   }}
-                  className="block w-full text-left px-2 py-1 rounded text-blue-600 hover:bg-blue-50 transition-colors"
+                  className="block w-full text-left px-2 py-1 rounded text-gray-700 hover:bg-gray-100 transition-colors border border-gray-200 bg-white"
                 >
                   • What&apos;s the best way to structure my chart of accounts?
                 </button>
@@ -1104,14 +1106,14 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
             />
             <button
               onClick={handleRefreshContext}
-              className="rounded-md bg-orange-600 px-3 py-2 text-white hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 text-xs flex items-center"
+              className="rounded-md bg-gray-100 text-gray-700 border border-gray-300 px-3 py-2 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 text-xs flex items-center"
               title="Clear chat context"
             >
               <RefreshCcw className="h-4 w-4" />
             </button>
             <button
               onClick={handleSendMessage}
-              className="rounded-md bg-gray-700 px-4 py-2 text-white hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 text-xs"
+              className="rounded-md bg-gray-900 px-4 py-2 text-white hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 text-xs"
             >
               Send
             </button>
