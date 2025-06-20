@@ -32,8 +32,18 @@ export async function POST(req: NextRequest) {
 
     if (fetchError || !importedTransaction) {
       console.error("Error fetching imported transaction:", fetchError);
+      console.error("Query details:", { imported_transaction_id, companyId });
+      
+      // If the transaction was not found, it might have already been moved
+      if (fetchError?.code === 'PGRST116' || fetchError?.message?.includes('0 rows returned')) {
+        return NextResponse.json({ 
+          error: "Transaction has already been processed or does not exist",
+          code: "ALREADY_PROCESSED"
+        }, { status: 409 }); // 409 Conflict status for already processed
+      }
+      
       return NextResponse.json({ 
-        error: "Failed to fetch imported transaction" 
+        error: `Failed to fetch imported transaction: ${fetchError?.message || 'Transaction not found'}`
       }, { status: 500 });
     }
 
