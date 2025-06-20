@@ -2436,21 +2436,29 @@ export default function Page() {
                 </label>
                 <input
                   type="text"
-                  value={editModal.transaction.spent ?? '0.00'}
+                  value={(() => {
+                    const spent = editModal.transaction.spent;
+                    return (spent && !isZeroAmount(spent)) ? spent : '';
+                  })()}
                   onChange={(e) => {
                     const inputValue = e.target.value;
                     setEditModal(prev => ({
                       ...prev,
                       transaction: prev.transaction ? {
                         ...prev.transaction,
-                        spent: inputValue,
+                        spent: inputValue || '0.00',
                         // Clear received when spent has a positive value
                         received: inputValue && isPositiveAmount(inputValue) ? '0.00' : prev.transaction.received
                       } : null
                     }));
                   }}
                   placeholder="0.00"
-                  className="w-full border px-2 py-1 rounded text-xs"
+                  disabled={!!(editModal.transaction.received && isPositiveAmount(editModal.transaction.received))}
+                  className={`w-full border px-2 py-1 rounded text-xs ${
+                    editModal.transaction.received && isPositiveAmount(editModal.transaction.received)
+                      ? 'bg-gray-100 text-gray-500'
+                      : ''
+                  }`}
                 />
               </div>
 
@@ -2460,21 +2468,29 @@ export default function Page() {
                 </label>
                 <input
                   type="text"
-                  value={editModal.transaction.received ?? '0.00'}
+                  value={(() => {
+                    const received = editModal.transaction.received;
+                    return (received && !isZeroAmount(received)) ? received : '';
+                  })()}
                   onChange={(e) => {
                     const inputValue = e.target.value;
                     setEditModal(prev => ({
                       ...prev,
                       transaction: prev.transaction ? {
                         ...prev.transaction,
-                        received: inputValue,
+                        received: inputValue || '0.00',
                         // Clear spent when received has a positive value
                         spent: inputValue && isPositiveAmount(inputValue) ? '0.00' : prev.transaction.spent
                       } : null
                     }));
                   }}
                   placeholder="0.00"
-                  className="w-full border px-2 py-1 rounded text-xs"
+                  disabled={!!(editModal.transaction.spent && isPositiveAmount(editModal.transaction.spent))}
+                  className={`w-full border px-2 py-1 rounded text-xs ${
+                    editModal.transaction.spent && isPositiveAmount(editModal.transaction.spent)
+                      ? 'bg-gray-100 text-gray-500'
+                      : ''
+                  }`}
                 />
               </div>
 
