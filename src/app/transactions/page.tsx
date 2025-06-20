@@ -2337,16 +2337,14 @@ export default function TransactionsPage() {
     return (
       <Pagination className="justify-start">
         <PaginationContent className="gap-1">
-          <PaginationItem>
-            <PaginationPrevious 
-              onClick={() => onPageChange(Math.max(1, currentPage - 1))}
-              className={`border px-3 py-1 rounded text-xs h-auto ${
-                currentPage === 1 
-                  ? 'bg-gray-50 text-gray-400 cursor-not-allowed' 
-                  : 'bg-gray-100 hover:bg-gray-200 cursor-pointer'
-              }`}
-            />
-          </PaginationItem>
+          {currentPage > 1 && (
+            <PaginationItem>
+              <PaginationPrevious 
+                onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+                className="border px-3 py-1 rounded text-xs h-auto bg-gray-100 hover:bg-gray-200 cursor-pointer"
+              />
+            </PaginationItem>
+          )}
           
           {getVisiblePages().map((page, index) => (
             <PaginationItem key={index}>
@@ -2368,16 +2366,14 @@ export default function TransactionsPage() {
             </PaginationItem>
           ))}
           
-          <PaginationItem>
-            <PaginationNext 
-              onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
-              className={`border px-3 py-1 rounded text-xs h-auto ${
-                currentPage === totalPages 
-                  ? 'bg-gray-50 text-gray-400 cursor-not-allowed' 
-                  : 'bg-gray-100 hover:bg-gray-200 cursor-pointer'
-              }`}
-            />
-          </PaginationItem>
+          {currentPage < totalPages && (
+            <PaginationItem>
+              <PaginationNext 
+                onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
+                className="border px-3 py-1 rounded text-xs h-auto bg-gray-100 hover:bg-gray-200 cursor-pointer"
+              />
+            </PaginationItem>
+          )}
         </PaginationContent>
       </Pagination>
     );
@@ -4222,10 +4218,10 @@ export default function TransactionsPage() {
               </tbody>
             </table>
             {/* Pagination for To Add table */}
-            <div className="mt-4 flex items-center justify-between">
-              <div className="text-sm text-gray-600">
-                Showing {imported.length} of {importedFiltered.length} transactions
-              </div>
+            <div className="mt-4 flex items-center justify-end gap-3">
+              <span className="text-xs text-gray-600 whitespace-nowrap">
+                {`${imported.length} of ${importedFiltered.length}`}
+              </span>
               <CustomPagination 
                 currentPage={toAddCurrentPage}
                 totalPages={toAddTotalPages}
@@ -4413,10 +4409,10 @@ export default function TransactionsPage() {
               </tbody>
             </table>
             {/* Pagination for Added table */}
-            <div className="mt-4 flex items-center justify-between">
-              <div className="text-sm text-gray-600">
-                Showing {confirmed.length} of {confirmedFiltered.length} transactions
-              </div>
+            <div className="mt-4 flex items-center justify-end gap-3">
+              <span className="text-xs text-gray-600 whitespace-nowrap">
+                {`${confirmed.length} of ${confirmedFiltered.length}`}
+              </span>
               <CustomPagination 
                 currentPage={addedCurrentPage}
                 totalPages={addedTotalPages}
