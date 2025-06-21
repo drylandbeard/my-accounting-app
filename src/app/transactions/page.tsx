@@ -929,12 +929,8 @@ export default function TransactionsPage() {
         switch (conditionType) {
           case 'contains':
             return desc.includes(condition);
-          case 'equals':
+          case 'is_exactly':
             return desc === condition;
-          case 'starts_with':
-            return desc.startsWith(condition);
-          case 'ends_with':
-            return desc.endsWith(condition);
           default:
             return false;
         }
