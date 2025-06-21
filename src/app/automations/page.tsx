@@ -609,7 +609,7 @@ export default function AutomationsPage() {
   // Download automation template
   const downloadAutomationTemplate = () => {
     const csvContent =
-      "Name,Type,Condition Type,Condition Value,Action Value\nOffice Supplies Rule,payee,contains,Office Depot,Office Depot\nAdvertising Rule,category,starts_with,Google Ads,Advertising\nBank Fee Rule,category,equals,Monthly Maintenance Fee,Bank Fees";
+      "Name,Type,Condition Type,Condition Value,Action Value\nOffice Supplies Rule,payee,contains,Office Depot,Office Depot\nAdvertising Rule,category,contains,Google Ads,Advertising\nBank Fee Rule,category,is_exactly,Monthly Maintenance Fee,Bank Fees";
     const blob = new Blob([csvContent], { type: "text/csv" });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -642,7 +642,7 @@ export default function AutomationsPage() {
     }
 
     const validTypes = ["payee", "category"];
-    const validConditionTypes = ["contains", "equals", "starts_with", "ends_with"];
+    const validConditionTypes = ["contains", "is_exactly"];
 
     for (let i = 0; i < nonEmptyRows.length; i++) {
       const row = nonEmptyRows[i];
@@ -791,9 +791,7 @@ export default function AutomationsPage() {
   // Create condition type options for dropdown
   const conditionTypeOptions: SelectOption[] = [
     { value: "contains", label: "Contains" },
-    { value: "equals", label: "Equals" },
-    { value: "starts_with", label: "Starts with" },
-    { value: "ends_with", label: "Ends with" },
+    { value: "is_exactly", label: "Is exactly" },
   ];
 
   // Create payee options for dropdown
@@ -814,9 +812,7 @@ export default function AutomationsPage() {
   const formatConditionDisplay = (conditionType: string, conditionValue: string) => {
     const typeLabels: { [key: string]: string } = {
       contains: "Contains",
-      equals: "Equals",
-      starts_with: "Starts with",
-      ends_with: "Ends with",
+      is_exactly: "Is exactly",
     };
     return `${typeLabels[conditionType] || conditionType} "${conditionValue}"`;
   };
@@ -1629,8 +1625,7 @@ export default function AutomationsPage() {
                               • <strong>Type:</strong> Either &quot;payee&quot; or &quot;category&quot; (required)
                             </li>
                             <li>
-                              • <strong>Condition Type:</strong> One of: contains, equals, starts_with, ends_with
-                              (required)
+                              • <strong>Condition Type:</strong> One of: contains, is_exactly (required)
                             </li>
                             <li>
                               • <strong>Condition Value:</strong> Text to match in transaction description (required)
