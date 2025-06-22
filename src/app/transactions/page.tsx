@@ -3974,7 +3974,7 @@ export default function TransactionsPage() {
                 </div>
                 {activeTab === 'added' && (
                   <div className="flex items-center gap-1 px-2 py-1 bg-gray-50 border border-gray-200 rounded-md">
-                    <span className="text-gray-700 text-xs font-medium">Switch Balance:</span>
+                    <span className="text-gray-700 text-xs font-medium">switch Balance:</span>
                     <span className="text-gray-900 text-xs font-semibold">{formatAmount(switchBalance)}</span>
                   </div>
                 )}

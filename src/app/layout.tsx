@@ -3,7 +3,7 @@ import { AuthProvider } from "@/components/AuthProvider";
 import AuthenticatedApp from "@/components/AuthenticatedApp";
 
 export const metadata = {
-  title: 'Switch',
+  title: 'switch',
   description: 'Your comprehensive accounting solution for managing transactions, automations, and financial reporting.',
 }
 
