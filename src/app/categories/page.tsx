@@ -516,7 +516,27 @@ export default function ChartOfAccountsPage() {
   };
 
   const handleDelete = async (id: string) => {
-    // First check if this category has subcategories
+    // First check if this category is linked to a bank account
+    const { data: categoryData, error: categoryError } = await supabase
+      .from("chart_of_accounts")
+      .select("plaid_account_id, name")
+      .eq("id", id)
+      .single();
+
+    if (categoryError) {
+      console.error("Error checking category:", categoryError);
+      alert("Error checking category details. Please try again.");
+      return;
+    }
+
+    if (categoryData?.plaid_account_id) {
+      alert(
+        `This category "${categoryData.name}" cannot be deleted because it is linked to a bank account. Bank account categories are automatically managed by the system.`
+      );
+      return;
+    }
+
+    // Check if this category has subcategories
     const { data: subcategories } = await supabase
       .from("chart_of_accounts")
       .select("id, name")
