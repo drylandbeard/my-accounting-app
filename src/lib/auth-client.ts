@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import { supabase } from "./supabase";
+import { createPresetCategories } from "./preset-categories";
 
 /**
  * Hash a password using bcrypt
@@ -112,6 +113,13 @@ export async function createCompany(userId: string, name: string, description?: 
 
     if (associationError) {
       return { error: associationError.message };
+    }
+
+    // Create preset categories for the new company
+    const presetCategoriesResult = await createPresetCategories(company.id);
+    
+    if (presetCategoriesResult.error) {
+      console.error("Failed to create preset categories:", presetCategoriesResult.error);
     }
 
     return { company };
