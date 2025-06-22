@@ -1,0 +1,233 @@
+import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
+
+// Types based on your database schema
+export interface User {
+  id: string;
+  email: string;
+  role: "Owner" | "Member" | "Accountant";
+}
+
+export interface Company {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+export interface UserCompany {
+  company_id: string;
+  role: "Owner" | "Member" | "Accountant";
+  companies: Company;
+}
+
+interface AuthData {
+  user: User;
+  companies: UserCompany[];
+  currentCompany: Company | null;
+  accessToken: string;
+  refreshToken: string;
+}
+
+interface AuthState {
+  // Auth data
+  user: User | null;
+  companies: UserCompany[];
+  currentCompany: Company | null;
+  
+  // Auth status
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  
+  // Actions
+  setAuth: (auth: AuthData) => void;
+  setCurrentCompany: (company: Company | null) => void;
+  clearAuth: () => void;
+  logout: () => void;
+  refreshTokens: () => Promise<boolean>;
+}
+
+// Separate store for sensitive tokens (no persistence)
+interface TokenState {
+  accessToken: string | null;
+  refreshToken: string | null;
+  setTokens: (accessToken: string, refreshToken: string) => void;
+  clearTokens: () => void;
+}
+
+// Token store - not persisted for security
+export const useTokenStore = create<TokenState>((set) => ({
+  accessToken: null,
+  refreshToken: null,
+  setTokens: (accessToken, refreshToken) => set({ accessToken, refreshToken }),
+  clearTokens: () => set({ accessToken: null, refreshToken: null }),
+}));
+
+// Secure storage configuration - only use sessionStorage for security
+const secureStorage = createJSONStorage(() => ({
+  getItem: (name: string) => {
+    // Only use sessionStorage for better security
+    return sessionStorage.getItem(name);
+  },
+  setItem: (name: string, value: string) => {
+    // Only store in sessionStorage
+    sessionStorage.setItem(name, value);
+  },
+  removeItem: (name: string) => {
+    sessionStorage.removeItem(name);
+  },
+}));
+
+// Main auth store - persists user data but not tokens
+export const useAuthStore = create<AuthState>()(
+  persist(
+    (set, get) => ({
+      user: null,
+      companies: [],
+      currentCompany: null,
+      isAuthenticated: false,
+      isLoading: false,
+
+      setAuth: (auth) => {
+        // Store user data in persisted store
+        set({ 
+          user: auth.user,
+          companies: auth.companies,
+          currentCompany: auth.currentCompany,
+          isAuthenticated: true 
+        });
+        
+        // Store tokens in separate non-persisted store
+        useTokenStore.getState().setTokens(auth.accessToken, auth.refreshToken);
+      },
+
+      setCurrentCompany: (company) => set({ currentCompany: company }),
+
+      clearAuth: () => {
+        set({ 
+          user: null,
+          companies: [],
+          currentCompany: null,
+          isAuthenticated: false 
+        });
+        useTokenStore.getState().clearTokens();
+      },
+
+      logout: () => {
+        const { clearAuth } = get();
+        clearAuth();
+        // Redirect to login page
+        window.location.href = '/';
+      },
+
+      refreshTokens: async () => {
+        const { refreshToken } = useTokenStore.getState();
+        if (!refreshToken) return false;
+
+        try {
+          const response = await fetch('/api/auth/refresh', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ refreshToken }),
+          });
+
+          if (response.ok) {
+            const { accessToken: newAccessToken, refreshToken: newRefreshToken } = await response.json();
+            useTokenStore.getState().setTokens(newAccessToken, newRefreshToken);
+            return true;
+          }
+          
+          // If refresh fails, clear auth
+          get().clearAuth();
+          return false;
+        } catch {
+          get().clearAuth();
+          return false;
+        }
+      },
+    }),
+    {
+      name: 'auth-storage',
+      storage: secureStorage,
+      partialize: (state) => ({
+        // Only persist non-sensitive data
+        user: state.user,
+        companies: state.companies,
+        currentCompany: state.currentCompany,
+        isAuthenticated: state.isAuthenticated,
+        // Tokens are NOT persisted for security
+      }),
+    }
+  )
+);
+
+// HTTP client with automatic token handling
+export const createAuthenticatedFetch = () => {
+  return async (url: string, options: RequestInit = {}) => {
+    const { accessToken } = useTokenStore.getState();
+    const { refreshTokens, clearAuth } = useAuthStore.getState();
+    
+    // Build headers properly
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...(options.headers as Record<string, string> || {}),
+    };
+    
+    if (accessToken) {
+      headers['Authorization'] = `Bearer ${accessToken}`;
+    }
+
+    let response = await fetch(url, {
+      ...options,
+      headers,
+    });
+
+    // Auto-refresh on 401
+    if (response.status === 401 && accessToken) {
+      const refreshed = await refreshTokens();
+      if (refreshed) {
+        const { accessToken: newToken } = useTokenStore.getState();
+        headers['Authorization'] = `Bearer ${newToken}`;
+        response = await fetch(url, {
+          ...options,
+          headers,
+        });
+      } else {
+        // If refresh fails, redirect to login
+        clearAuth();
+        window.location.href = '/';
+      }
+    }
+
+    return response;
+  };
+};
+
+// Initialize auth state from tokens on app start
+export const initializeAuth = async () => {
+  const { isAuthenticated } = useAuthStore.getState();
+  const { accessToken, refreshToken } = useTokenStore.getState();
+  
+  // If we have stored auth state but no tokens in memory, try to refresh
+  if (isAuthenticated && !accessToken && refreshToken) {
+    await useAuthStore.getState().refreshTokens();
+  }
+  
+  // If we have an access token, validate it
+  if (accessToken) {
+    try {
+      const response = await fetch('/api/auth/validate', {
+        headers: { 'Authorization': `Bearer ${accessToken}` },
+      });
+      
+      if (!response.ok) {
+        // Token invalid, try refresh
+        const refreshed = await useAuthStore.getState().refreshTokens();
+        if (!refreshed) {
+          useAuthStore.getState().clearAuth();
+        }
+      }
+    } catch {
+      useAuthStore.getState().clearAuth();
+    }
+  }
+}; 
