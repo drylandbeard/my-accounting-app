@@ -7,6 +7,7 @@ import { AISharedContext } from "@/components/AISharedContext";
 import Papa from "papaparse";
 import { v4 as uuidv4 } from "uuid";
 import { X } from "lucide-react";
+import { Select } from "@/components/ui/select";
 import {
   Pagination,
   PaginationContent,
@@ -71,6 +72,11 @@ type PayeeSortConfig = {
   direction: "asc" | "desc";
 };
 
+type SelectOption = {
+  value: string;
+  label: string;
+};
+
 export default function ChartOfAccountsPage() {
   const { hasCompanyContext, currentCompany } = useApiWithCompany();
   const { categories: accounts, refreshCategories } = useContext(AISharedContext);
@@ -94,6 +100,10 @@ export default function ChartOfAccountsPage() {
   const [editName, setEditName] = useState("");
   const [editType, setEditType] = useState("");
   const [editParentId, setEditParentId] = useState<string | null>(null);
+  
+  // Refs to store the latest values for immediate access
+  const editParentIdRef = useRef<string | null>(null);
+  const editTypeRef = useRef<string>("");
 
   // Payee edit state
   const [editingPayeeId, setEditingPayeeId] = useState<string | null>(null);
@@ -270,6 +280,26 @@ export default function ChartOfAccountsPage() {
       setLoading(false);
     }
   }, [accounts]);
+
+  // Options for Select components
+  const typeOptions: SelectOption[] = ACCOUNT_TYPES.map(type => ({
+    value: type,
+    label: type
+  }));
+
+  const getParentOptions = (currentId?: string, type?: string): SelectOption[] => {
+    const availableParents = accounts.filter((cat: Category) => 
+      cat.id !== currentId && 
+      (type ? cat.type === type : true)
+    );
+    return [
+      { value: "", label: "None" },
+      ...availableParents.map((cat: Category) => ({
+        value: cat.id,
+        label: cat.name
+      }))
+    ];
+  };
 
   const fetchParentOptions = useCallback(async () => {
     if (!hasCompanyContext || !currentCompany?.id) return;
@@ -559,6 +589,9 @@ export default function ChartOfAccountsPage() {
     setEditName(account.name);
     setEditType(account.type);
     setEditParentId(account.parent_id || null);
+    // Also set the refs for immediate access
+    editTypeRef.current = account.type;
+    editParentIdRef.current = account.parent_id || null;
   };
 
   const handleEditPayee = (payee: Payee) => {
@@ -569,36 +602,21 @@ export default function ChartOfAccountsPage() {
   const handleUpdate = async () => {
     if (!editingId) return;
 
-    // Get current values directly from the DOM to ensure we have the latest values
+    // Get current values from React state since we're using React components
     const getCurrentValues = () => {
-      if (!categoriesTableRef.current) {
-        console.log("No table ref, using state values");
-        return {
-          name: editName,
-          type: editType,
-          parent_id: editParentId,
-        };
+      // Get the name from the input field in the DOM as it might have been changed
+      let name = editName;
+      if (categoriesTableRef.current) {
+        const nameInput = categoriesTableRef.current.querySelector('tr input[type="text"]') as HTMLInputElement;
+        if (nameInput) {
+          name = nameInput.value || editName;
+        }
       }
 
-      // Find the currently editing row by looking for input elements
-      const editingRow = categoriesTableRef.current.querySelector('tr input[type="text"]')?.closest("tr");
-      if (!editingRow) {
-        console.log("No editing row found, using state values");
-        return {
-          name: editName,
-          type: editType,
-          parent_id: editParentId,
-        };
-      }
+      // Use refs for both type and parent since changes need immediate access
+      let parent_id = editParentIdRef.current;
+      const type = editTypeRef.current;
 
-      const nameInput = editingRow.querySelector('input[type="text"]') as HTMLInputElement;
-      const selects = editingRow.querySelectorAll("select") as NodeListOf<HTMLSelectElement>;
-      const typeSelect = selects[0]; // First select is type
-      const parentSelect = selects[1]; // Second select is parent
-
-      const name = nameInput?.value || editName;
-      const type = typeSelect?.value || editType;
-      let parent_id: string | null = parentSelect?.value || null;
 
       // Convert empty string to null (for "No Parent" selection)
       if (parent_id === "" || parent_id === undefined || parent_id === "null") {
@@ -608,14 +626,13 @@ export default function ChartOfAccountsPage() {
 
       // Validate parent type matches category type - if not, clear parent
       if (parent_id) {
-        const parentCategory = parentOptions.find((opt) => opt.id === parent_id);
+        const parentCategory = accounts.find((acc) => acc.id === parent_id);
         if (parentCategory && parentCategory.type !== type) {
-          console.log(
-            `Clearing parent ${parentCategory.name} (${parentCategory.type}) because it doesn't match category type ${type}`
-          );
           parent_id = null;
         }
       }
+
+
 
       return {
         name,
@@ -700,7 +717,24 @@ export default function ChartOfAccountsPage() {
     const handleClickToSave = (event: MouseEvent) => {
       if (!editingId || !categoriesTableRef.current) return;
 
-      const target = event.target as Node;
+      const target = event.target as Element;
+
+      // Check if the click is on a Select dropdown or its components
+      const isSelectDropdown = target.closest('.react-select__control') ||
+                               target.closest('.react-select__dropdown-indicator') ||
+                               target.closest('.react-select__menu') ||
+                               target.closest('.react-select__menu-list') ||
+                               target.closest('.react-select__option') ||
+                               target.closest('.react-select__input') ||
+                               target.closest('[class*="react-select"]') ||
+                               target.closest('[role="listbox"]') ||
+                               target.closest('[role="option"]') ||
+                               target.closest('[role="combobox"]');
+
+      // If clicking on Select dropdown, don't save
+      if (isSelectDropdown) {
+        return;
+      }
 
       // If click is outside the table, save
       if (!categoriesTableRef.current.contains(target)) {
@@ -709,15 +743,18 @@ export default function ChartOfAccountsPage() {
       }
 
       // If click is inside the table, check if it's on a different row
-      const clickedRow = (target as Element).closest("tr");
+      const clickedRow = target.closest("tr");
       if (clickedRow) {
         // Get all the input/select elements in the currently editing row
         const editingInputs = categoriesTableRef.current.querySelectorAll(`tr input[type="text"], tr select`);
 
-        // Check if the clicked element is one of the editing inputs
+        // Also check for Select components by looking for the editing row ID
+        const editingRow = categoriesTableRef.current.querySelector(`tr:has(input[type="text"]:focus), tr:has(.react-select__control)`);
+        
+        // Check if the clicked element is one of the editing inputs or within the editing row
         const isClickOnCurrentEditingElement = Array.from(editingInputs).some(
           (input) => input.contains(target) || input === target
-        );
+        ) || (editingRow && editingRow.contains(target));
 
         // If not clicking on the current editing elements, save
         if (!isClickOnCurrentEditingElement) {
@@ -1052,50 +1089,60 @@ export default function ChartOfAccountsPage() {
             </td>
             <td className="border p-1 text-xs">
               {editingId === parent.id ? (
-                <select
-                  value={editType}
-                  onChange={(e) => {
-                    setEditType(e.target.value);
-                    // Clear parent when type changes since parent must match type
-                    setEditParentId(null);
+                <Select
+                  options={typeOptions}
+                  value={typeOptions.find(opt => opt.value === editType) || typeOptions[0]}
+                  onChange={(selectedOption) => {
+                    const option = selectedOption as SelectOption | null;
+                    if (option) {
+                      setEditType(option.value);
+                      editTypeRef.current = option.value; // Store in ref for immediate access
+                      // Clear parent when type changes since parent must match type
+                      setEditParentId(null);
+                      editParentIdRef.current = null;
+                    }
                   }}
-                  className="w-full border-none outline-none bg-transparent text-xs"
-                  onKeyDown={(e) => e.key === "Enter" && handleUpdate()}
-                >
-                  {ACCOUNT_TYPES.map((type) => (
-                    <option key={type} value={type}>
-                      {type}
-                    </option>
-                  ))}
-                </select>
+                  isSearchable
+                  className="w-full"
+                  classNames={{
+                    container: () => "w-full",
+                    control: () => "w-full h-7 min-h-7 border border-gray-300 rounded text-xs",
+                    input: () => "w-px",
+                    valueContainer: () => "px-1 py-0.5 h-7",
+                    indicatorsContainer: () => "h-7",
+                    indicatorSeparator: () => "bg-gray-300",
+                    dropdownIndicator: () => "text-gray-500 p-1"
+                  }}
+                />
               ) : (
                 parent.type
               )}
             </td>
             <td className="border p-1 text-xs">
               {editingId === parent.id ? (
-                <select
-                  value={editParentId || ""}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    setEditParentId(value === "" ? null : value);
+                <Select
+                  options={getParentOptions(parent.id, editType)}
+                  value={getParentOptions(parent.id, editType).find(opt => opt.value === (editParentId || "")) || getParentOptions(parent.id, editType)[0]}
+                  onChange={(selectedOption) => {
+                    const option = selectedOption as SelectOption | null;
+                    if (option) {
+                      const newParentId = option.value === "" ? null : option.value;
+                      setEditParentId(newParentId);
+                      editParentIdRef.current = newParentId; // Store in ref for immediate access
+                    }
                   }}
-                  className="w-full border-none outline-none bg-transparent text-xs"
-                  onKeyDown={(e) => e.key === "Enter" && handleUpdate()}
-                >
-                  <option value="">No Parent</option>
-                  {parentOptions
-                    .filter(
-                      (opt) =>
-                        opt.id !== parent.id && // Can't be parent of itself
-                        (opt.type === editType || !editType)
-                    )
-                    .map((opt) => (
-                      <option key={opt.id} value={opt.id}>
-                        {opt.name} ({opt.type})
-                      </option>
-                    ))}
-                </select>
+                  isSearchable
+                  className="w-full"
+                  classNames={{
+                    container: () => "w-full",
+                    control: () => "w-full h-7 min-h-7 border border-gray-300 rounded text-xs",
+                    input: () => "w-px",
+                    valueContainer: () => "px-1 py-0.5 h-7",
+                    indicatorsContainer: () => "h-7",
+                    indicatorSeparator: () => "bg-gray-300",
+                    dropdownIndicator: () => "text-gray-500 p-1"
+                  }}
+                />
               ) : (
                 ""
               )}
@@ -1149,50 +1196,60 @@ export default function ChartOfAccountsPage() {
               </td>
               <td className="border p-1 text-xs">
                 {editingId === subAcc.id ? (
-                  <select
-                    value={editType}
-                    onChange={(e) => {
-                      setEditType(e.target.value);
-                      // Clear parent when type changes since parent must match type
-                      setEditParentId(null);
+                  <Select
+                    options={typeOptions}
+                    value={typeOptions.find(opt => opt.value === editType) || typeOptions[0]}
+                    onChange={(selectedOption) => {
+                      const option = selectedOption as SelectOption | null;
+                      if (option) {
+                        setEditType(option.value);
+                        editTypeRef.current = option.value; // Store in ref for immediate access
+                        // Clear parent when type changes since parent must match type
+                        setEditParentId(null);
+                        editParentIdRef.current = null;
+                      }
                     }}
-                    className="w-full border-none outline-none bg-transparent text-xs"
-                    onKeyDown={(e) => e.key === "Enter" && handleUpdate()}
-                  >
-                    {ACCOUNT_TYPES.map((type) => (
-                      <option key={type} value={type}>
-                        {type}
-                      </option>
-                    ))}
-                  </select>
+                    isSearchable
+                    className="w-full"
+                    classNames={{
+                      container: () => "w-full",
+                      control: () => "w-full h-7 min-h-7 border border-gray-300 rounded text-xs",
+                      input: () => "w-px",
+                      valueContainer: () => "px-1 py-0.5 h-7",
+                      indicatorsContainer: () => "h-7",
+                      indicatorSeparator: () => "bg-gray-300",
+                      dropdownIndicator: () => "text-gray-500 p-1"
+                    }}
+                  />
                 ) : (
                   subAcc.type
                 )}
               </td>
               <td className="border p-1 text-xs">
                 {editingId === subAcc.id ? (
-                  <select
-                    value={editParentId || ""}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      setEditParentId(value === "" ? null : value);
+                  <Select
+                    options={getParentOptions(subAcc.id, editType)}
+                    value={getParentOptions(subAcc.id, editType).find(opt => opt.value === (editParentId || "")) || getParentOptions(subAcc.id, editType)[0]}
+                    onChange={(selectedOption) => {
+                      const option = selectedOption as SelectOption | null;
+                      if (option) {
+                        const newParentId = option.value === "" ? null : option.value;
+                        setEditParentId(newParentId);
+                        editParentIdRef.current = newParentId; // Store in ref for immediate access
+                      }
                     }}
-                    className="w-full border-none outline-none bg-transparent text-xs"
-                    onKeyDown={(e) => e.key === "Enter" && handleUpdate()}
-                  >
-                    <option value="">No Parent</option>
-                    {parentOptions
-                      .filter(
-                        (opt) =>
-                          opt.id !== subAcc.id && // Can't be parent of itself
-                          (opt.type === editType || !editType)
-                      )
-                      .map((opt) => (
-                        <option key={opt.id} value={opt.id}>
-                          {opt.name} ({opt.type})
-                        </option>
-                      ))}
-                  </select>
+                    isSearchable
+                    className="w-full"
+                                      classNames={{
+                    container: () => "w-full",
+                    control: () => "w-full h-7 min-h-7 border border-gray-300 rounded text-xs",
+                    input: () => "w-px", // Prevents input from expanding based on content
+                    valueContainer: () => "px-1 py-0.5 h-7",
+                    indicatorsContainer: () => "h-7",
+                    indicatorSeparator: () => "bg-gray-300",
+                    dropdownIndicator: () => "text-gray-500 p-1"
+                  }}
+                  />
                 ) : (
                   parent.name
                 )}
@@ -1327,7 +1384,13 @@ export default function ChartOfAccountsPage() {
             {loading ? (
               <div className="p-4 text-center text-gray-500 text-xs">Loading...</div>
             ) : (
-              <table className="w-full border-collapse border border-gray-300 text-xs">
+              <table className="w-full border-collapse border border-gray-300 text-xs table-fixed">
+                <colgroup>
+                  <col className="w-auto" />
+                  <col className="w-32" />
+                  <col className="w-40" />
+                  <col className="w-24" />
+                </colgroup>
                 <thead className="bg-gray-100">
                   <tr>
                     <th
