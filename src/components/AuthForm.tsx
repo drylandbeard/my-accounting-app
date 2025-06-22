@@ -201,7 +201,7 @@ export default function AuthForm() {
                       disabled={isResendingVerification}
                       className="text-blue-600 hover:text-blue-800 underline disabled:opacity-50"
                     >
-                      {isResendingVerification ? "Sending..." : "Resend verification email"}
+                      {isResendingVerification ? "Sending..." : "Resend"}
                     </button>
                   </div>
                 )}
@@ -242,7 +242,7 @@ export default function AuthForm() {
                     </div>
                   )}
                   <Button type="submit" className="w-full" disabled={isLoading}>
-                    {isLoading ? "Please wait..." : (isSignUp ? "Create account" : "Sign in")}
+                    {isLoading ? "Please wait..." : (isSignUp ? "Sign up" : "Sign in")}
                   </Button>
                 </div>
               </div>

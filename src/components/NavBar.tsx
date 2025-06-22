@@ -104,7 +104,7 @@ function CompanyModal({ isOpen, onClose, onCreateCompany }: CompanyModalProps) {
               disabled={isCreating || !name.trim()}
               className="px-3 py-1 text-sm font-medium text-white bg-black rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {isCreating ? "Creating..." : "Create Company"}
+              {isCreating ? "Creating..." : "Create"}
             </button>
           </div>
         </form>
@@ -480,7 +480,7 @@ function EditCompanyModal({ isOpen, onClose, company, onUpdateCompany }: EditCom
               disabled={isUpdating || !name.trim()}
               className="px-3 py-1 text-sm font-medium text-white bg-black rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {isUpdating ? "Updating..." : "Update Company"}
+              {isUpdating ? "Updating..." : "Update"}
             </button>
           </div>
         </form>
