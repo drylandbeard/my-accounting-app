@@ -1245,12 +1245,6 @@ export default function ChartOfAccountsPage() {
             <h2 className="text-lg font-semibold">Categories</h2>
             <div className="flex gap-2">
               <button
-                onClick={exportCategories}
-                className="px-3 py-1 text-xs border border-gray-300 rounded bg-gray-100 hover:bg-gray-200"
-              >
-                Export
-              </button>
-              <button
                 onClick={() =>
                   setCategoryImportModal((prev) => ({
                     ...prev,
@@ -1260,6 +1254,12 @@ export default function ChartOfAccountsPage() {
                 className="px-3 py-1 text-xs border border-gray-300 rounded bg-gray-100 hover:bg-gray-200"
               >
                 Import
+              </button>
+              <button
+                onClick={exportCategories}
+                className="px-3 py-1 text-xs border border-gray-300 rounded bg-gray-100 hover:bg-gray-200"
+              >
+                Export
               </button>
             </div>
           </div>
@@ -1386,12 +1386,6 @@ export default function ChartOfAccountsPage() {
             <h2 className="text-lg font-semibold">Payees</h2>
             <div className="flex gap-2">
               <button
-                onClick={exportPayees}
-                className="px-3 py-1 border border-gray-300 rounded bg-gray-100 hover:bg-gray-200 text-xs"
-              >
-                Export
-              </button>
-              <button
                 onClick={() =>
                   setPayeeImportModal((prev) => ({
                     ...prev,
@@ -1401,6 +1395,12 @@ export default function ChartOfAccountsPage() {
                 className="px-3 py-1 border border-gray-300 rounded bg-gray-100 hover:bg-gray-200 text-xs"
               >
                 Import
+              </button>
+              <button
+                onClick={exportPayees}
+                className="px-3 py-1 border border-gray-300 rounded bg-gray-100 hover:bg-gray-200 text-xs"
+              >
+                Export
               </button>
             </div>
           </div>
