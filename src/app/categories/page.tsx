@@ -91,6 +91,14 @@ type SelectOption = {
   label: string;
 };
 
+type MergeModalState = {
+  isOpen: boolean;
+  selectedCategories: Set<string>;
+  targetCategoryId: string | null;
+  isLoading: boolean;
+  error: string | null;
+};
+
 export default function ChartOfAccountsPage() {
   const { hasCompanyContext, currentCompany } = useApiWithCompany();
   const { categories: accounts, refreshCategories } = useContext(AISharedContext);
@@ -161,6 +169,15 @@ export default function ChartOfAccountsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [payeeCurrentPage, setPayeeCurrentPage] = useState(1);
   const [itemsPerPage] = useState(50); // Fixed items per page
+
+  // Merge modal state
+  const [mergeModal, setMergeModal] = useState<MergeModalState>({
+    isOpen: false,
+    selectedCategories: new Set(),
+    targetCategoryId: null,
+    isLoading: false,
+    error: null,
+  });
 
   // Reset to first page when search term changes
   useEffect(() => {
@@ -829,6 +846,150 @@ export default function ChartOfAccountsPage() {
     }
   };
 
+  // Merge categories functionality
+  const handleMergeCategories = async () => {
+    if (mergeModal.selectedCategories.size < 2 || !mergeModal.targetCategoryId) {
+      setMergeModal(prev => ({
+        ...prev,
+        error: "Please select at least 2 categories to merge and choose a target category."
+      }));
+      return;
+    }
+
+    setMergeModal(prev => ({ ...prev, isLoading: true, error: null }));
+
+    try {
+      const selectedCategoryIds = Array.from(mergeModal.selectedCategories);
+      const targetCategory = accounts.find(acc => acc.id === mergeModal.targetCategoryId);
+      const categoriesToMerge = accounts.filter(acc => selectedCategoryIds.includes(acc.id));
+
+      if (!targetCategory) {
+        throw new Error("Target category not found");
+      }
+
+      // Validate all categories have the same type
+      const types = new Set(categoriesToMerge.map(cat => cat.type));
+      if (types.size > 1) {
+        throw new Error("All categories to merge must have the same type");
+      }
+
+      // Get source categories (categories to be merged into target, excluding target)
+      const sourceCategories = categoriesToMerge.filter(cat => cat.id !== mergeModal.targetCategoryId);
+
+      // Step 1: Move all subcategories from source categories to target category
+      for (const sourceCategory of sourceCategories) {
+        const subcategories = accounts.filter(acc => acc.parent_id === sourceCategory.id);
+        
+        if (subcategories.length > 0) {
+          const { error: subcatError } = await supabase
+            .from("chart_of_accounts")
+            .update({ parent_id: mergeModal.targetCategoryId })
+            .in("id", subcategories.map(sub => sub.id));
+
+          if (subcatError) {
+            throw new Error(`Failed to move subcategories: ${subcatError.message}`);
+          }
+        }
+      }
+
+      // Step 2: Update all transaction references
+      const sourceIds = sourceCategories.map(cat => cat.id);
+      
+      // Update selected_category_id references
+      const { error: selectedCatError } = await supabase
+        .from("transactions")
+        .update({ selected_category_id: mergeModal.targetCategoryId })
+        .in("selected_category_id", sourceIds);
+
+      if (selectedCatError) {
+        throw new Error(`Failed to update transaction selected_category_id: ${selectedCatError.message}`);
+      }
+
+      // Update corresponding_category_id references
+      const { error: correspondingCatError } = await supabase
+        .from("transactions")
+        .update({ corresponding_category_id: mergeModal.targetCategoryId })
+        .in("corresponding_category_id", sourceIds);
+
+      if (correspondingCatError) {
+        throw new Error(`Failed to update transaction corresponding_category_id: ${correspondingCatError.message}`);
+      }
+
+      // Update imported_transactions references
+      const { error: importedTxError } = await supabase
+        .from("imported_transactions")
+        .update({ selected_category_id: mergeModal.targetCategoryId })
+        .in("selected_category_id", sourceIds);
+
+      if (importedTxError) {
+        throw new Error(`Failed to update imported_transactions: ${importedTxError.message}`);
+      }
+
+      // Step 3: Update automations that reference the source categories by name
+      // Automations store category names in action_value, not category IDs
+      const sourceNames = sourceCategories.map(cat => cat.name);
+      
+      if (sourceNames.length > 0) {
+        const { error: automationsError } = await supabase
+          .from("automations")
+          .update({ action_value: targetCategory.name })
+          .eq("automation_type", "category")
+          .in("action_value", sourceNames)
+          .eq("company_id", currentCompany!.id);
+
+        if (automationsError) {
+          throw new Error(`Failed to update automations: ${automationsError.message}`);
+        }
+      }
+
+      // Step 4: Delete source categories
+      const { error: deleteError } = await supabase
+        .from("chart_of_accounts")
+        .delete()
+        .in("id", sourceIds);
+
+      if (deleteError) {
+        throw new Error(`Failed to delete source categories: ${deleteError.message}`);
+      }
+
+      // Step 5: If target category was a subcategory and we're merging parent categories into it,
+      // we need to make it a parent category
+      if (targetCategory.parent_id && sourceCategories.some(cat => !cat.parent_id)) {
+        const { error: promoteError } = await supabase
+          .from("chart_of_accounts")
+          .update({ parent_id: null })
+          .eq("id", mergeModal.targetCategoryId);
+
+        if (promoteError) {
+          throw new Error(`Failed to promote target category to parent: ${promoteError.message}`);
+        }
+      }
+
+      // Success - close modal and refresh data
+      setMergeModal({
+        isOpen: false,
+        selectedCategories: new Set(),
+        targetCategoryId: null,
+        isLoading: false,
+        error: null,
+      });
+
+      await refreshCategories();
+      await fetchParentOptions();
+
+      // Highlight the merged category
+      highlightCategory(mergeModal.targetCategoryId);
+
+    } catch (error) {
+      console.error("Error merging categories:", error);
+      setMergeModal(prev => ({
+        ...prev,
+        isLoading: false,
+        error: error instanceof Error ? error.message : "Failed to merge categories. Please try again."
+      }));
+    }
+  };
+
   const downloadCategoriesTemplate = () => {
     const csvContent =
       "Name,Type,Parent\nOperating Expenses,Expense,\nOffice Supplies,Expense,Operating Expenses\nUtilities,Expense,Operating Expenses\nBank Fees,Expense,\nAdvertising,Expense,\nCurrent Assets,Asset,\nCash,Asset,Current Assets\nAccounts Receivable,Asset,Current Assets\nSales Revenue,Revenue,\nService Revenue,Revenue,";
@@ -1467,6 +1628,17 @@ export default function ChartOfAccountsPage() {
             <h2 className="text-lg font-semibold">Categories</h2>
             <div className="flex gap-2">
               <button
+              onClick={() =>
+                setMergeModal((prev) => ({
+                  ...prev,
+                  isOpen: true,
+                }))
+              }
+              className="px-3 py-1 text-xs border border-gray-300 rounded bg-gray-100 hover:bg-gray-200"
+            >
+              Merge
+            </button>
+            <button
                 onClick={() =>
                   setCategoryImportModal((prev) => ({
                     ...prev,
@@ -2531,6 +2703,210 @@ export default function ChartOfAccountsPage() {
                     </div>
                   </>
                 )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Merge Categories Modal */}
+      {mergeModal.isOpen && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50">
+          <div className="bg-white rounded-lg p-6 w-[700px] max-h-[80vh] overflow-y-auto shadow-xl">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold">Merge Categories</h2>
+              <button
+                onClick={() =>
+                  setMergeModal({
+                    isOpen: false,
+                    selectedCategories: new Set(),
+                    targetCategoryId: null,
+                    isLoading: false,
+                    error: null,
+                  })
+                }
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X className="w-4 h-4" />
+              </button>
+    </div>
+
+            {mergeModal.error && (
+              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded mb-4">
+                {mergeModal.error}
+              </div>
+            )}
+
+            {mergeModal.isLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                  <h4 className="text-sm font-medium text-blue-800 mb-2">How Merging Works:</h4>
+                  <ul className="text-sm text-blue-700 space-y-1">
+                    <li>• Select 2 or more categories with the same type to merge</li>
+                    <li>• Choose which category to keep as the &quot;target&quot; (others will be deleted)</li>
+                    <li>• All subcategories from merged categories will be moved to the target</li>
+                    <li>• All transaction references will be updated to point to the target category</li>
+                    <li>• If merging parent categories into a subcategory, it will become a parent</li>
+                  </ul>
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-medium text-gray-700 mb-2">Select Categories to Merge:</h3>
+                  <div className="border rounded-lg overflow-hidden max-h-64 overflow-y-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50 sticky top-0">
+                        <tr>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-8">
+                            Select
+                          </th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Name
+                          </th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Type
+                          </th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Parent
+                          </th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Target
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {accounts
+                          .filter(acc => {
+                            // Filter categories to show only those with same type as selected ones
+                            if (mergeModal.selectedCategories.size === 0) return true;
+                            const selectedTypes = new Set(
+                              Array.from(mergeModal.selectedCategories)
+                                .map(id => accounts.find(acc => acc.id === id)?.type)
+                                .filter(Boolean)
+                            );
+                            return selectedTypes.size === 0 || selectedTypes.has(acc.type);
+                          })
+                          .map((category) => {
+                            const parentCategory = category.parent_id 
+                              ? accounts.find(acc => acc.id === category.parent_id) 
+                              : null;
+
+                            return (
+                              <tr key={category.id} className={mergeModal.selectedCategories.has(category.id) ? "bg-blue-50" : ""}>
+                                <td className="px-4 py-2 whitespace-nowrap w-8">
+                                  <input
+                                    type="checkbox"
+                                    checked={mergeModal.selectedCategories.has(category.id)}
+                                    onChange={(e) => {
+                                      const newSelected = new Set(mergeModal.selectedCategories);
+                                      if (e.target.checked) {
+                                        newSelected.add(category.id);
+                                      } else {
+                                        newSelected.delete(category.id);
+                                        // If unchecking target, clear target selection
+                                        if (mergeModal.targetCategoryId === category.id) {
+                                          setMergeModal(prev => ({ ...prev, targetCategoryId: null }));
+                                        }
+                                      }
+                                      setMergeModal(prev => ({ 
+                                        ...prev, 
+                                        selectedCategories: newSelected,
+                                        error: null 
+                                      }));
+                                    }}
+                                    className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                                  />
+                                </td>
+                                <td className="px-4 py-2 text-sm text-gray-900">
+                                  <span style={{ paddingLeft: `${category.parent_id ? 16 : 0}px` }}>
+                                    {category.name}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-2 text-sm text-gray-900">{category.type}</td>
+                                <td className="px-4 py-2 text-sm text-gray-500">
+                                  {parentCategory?.name || "—"}
+                                </td>
+                                <td className="px-4 py-2 whitespace-nowrap w-8">
+                                  <input
+                                    type="radio"
+                                    name="targetCategory"
+                                    checked={mergeModal.targetCategoryId === category.id}
+                                    disabled={!mergeModal.selectedCategories.has(category.id)}
+                                    onChange={() => {
+                                      setMergeModal(prev => ({ 
+                                        ...prev, 
+                                        targetCategoryId: category.id,
+                                        error: null 
+                                      }));
+                                    }}
+                                    className="rounded border-gray-300 text-gray-900 focus:ring-gray-900 disabled:opacity-50"
+                                  />
+                                </td>
+                              </tr>
+                            );
+                          })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {mergeModal.selectedCategories.size > 0 && (
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                    <h4 className="text-sm font-medium text-gray-700 mb-2">Selected for Merge:</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {Array.from(mergeModal.selectedCategories).map(id => {
+                        const category = accounts.find(acc => acc.id === id);
+                        if (!category) return null;
+                        
+                        return (
+                          <span 
+                            key={id} 
+                            className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                              mergeModal.targetCategoryId === id 
+                                ? "bg-green-100 text-green-800 border border-green-200" 
+                                : "bg-blue-100 text-blue-800"
+                            }`}
+                          >
+                            {category.name}
+                            {mergeModal.targetCategoryId === id && " (Target)"}
+                          </span>
+                        );
+                      })}
+                    </div>
+                    {mergeModal.selectedCategories.size >= 2 && !mergeModal.targetCategoryId && (
+                      <p className="text-sm text-orange-600 mt-2">
+                        Please select which category to keep as the target using the radio buttons.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex justify-end space-x-2 mt-6">
+                  <button
+                    onClick={() =>
+                      setMergeModal({
+                        isOpen: false,
+                        selectedCategories: new Set(),
+                        targetCategoryId: null,
+                        isLoading: false,
+                        error: null,
+                      })
+                    }
+                    className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleMergeCategories}
+                    disabled={mergeModal.selectedCategories.size < 2 || !mergeModal.targetCategoryId}
+                    className="px-4 py-2 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Merge
+                  </button>
+                </div>
               </div>
             )}
           </div>
