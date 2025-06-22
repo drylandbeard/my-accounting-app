@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { CheckCircle, Mail, AlertCircle } from "lucide-react";
 import { useAuthStore } from "@/zustand/authStore";
@@ -18,7 +18,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-export default function VerifyEmailPage() {
+function VerifyEmailContent() {
   const [code, setCode] = useState("");
   const [isVerifying, setIsVerifying] = useState(false);
   const [isResending, setIsResending] = useState(false);
@@ -224,7 +224,7 @@ export default function VerifyEmailPage() {
 
               {/* Resend Code */}
               <div className="text-center text-sm">
-                                 <span className="text-gray-600">Didn&apos;t receive the code? </span>
+                <span className="text-gray-600">Didn&apos;t receive the code? </span>
                 <button
                   onClick={handleResendCode}
                   disabled={isResending}
@@ -248,5 +248,35 @@ export default function VerifyEmailPage() {
         </Card>
       </div>
     </div>
+  );
+}
+
+function LoadingFallback() {
+  return (
+    <div className="bg-muted flex min-h-svh flex-col items-center justify-center gap-6 p-6 md:p-10">
+      <div className="flex w-full max-w-sm flex-col gap-6">
+        <Card>
+          <CardHeader className="text-center">
+            <div className="flex justify-center mb-4">
+              <Mail className="w-16 h-16 text-blue-600" />
+            </div>
+            <CardTitle className="text-xl">
+              Loading...
+            </CardTitle>
+            <CardDescription>
+              Please wait while we load the verification page.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+export default function VerifyEmailPage() {
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      <VerifyEmailContent />
+    </Suspense>
   );
 } 
