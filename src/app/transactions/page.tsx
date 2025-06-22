@@ -2492,17 +2492,6 @@ export default function TransactionsPage() {
     }
   };
 
-  // To add AI screen context tracking to this page, uncomment and adapt the following:
-  // const { updateScreenContext } = useScreenContext();
-  // useEffect(() => {
-  //   updateScreenContext('transactions', {
-  //     transactions: yourTransactionsArray,
-  //     filteredData: yourFilteredData,
-  //     searchTerm: yourSearchTerm,
-  //     currentFilters: { /* your filters */ },
-  //   });
-  // }, [yourDependencies, updateScreenContext]);
-
   // --- RENDER ---
 
   // Check if user has company context for Plaid operations
