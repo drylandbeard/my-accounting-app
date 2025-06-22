@@ -1,5 +1,5 @@
 import './globals.css'
-import { AuthProvider } from "@/components/AuthContext";
+import { AuthProvider } from "@/components/AuthProvider";
 import AuthenticatedApp from "@/components/AuthenticatedApp";
 
 export const metadata = {

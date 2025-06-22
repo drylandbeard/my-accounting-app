@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { signIn } from "@/lib/auth";
+import { generateTokens } from "@/lib/jwt";
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,15 +17,36 @@ export async function POST(request: NextRequest) {
 
     if (result.error) {
       return NextResponse.json(
-        { error: result.error },
+        { error: result.error, needsVerification: result.needsVerification, email: result.email },
         { status: 400 }
       );
     }
 
-    return NextResponse.json({
-      user: result.user,
-      companies: result.companies,
-    });
+    if (result.user && result.companies) {
+      // Generate JWT tokens
+      const { accessToken, refreshToken } = generateTokens({
+        userId: result.user.id,
+        email: result.user.email,
+      });
+
+      // Select current company (first one by default)
+      const currentCompany = result.companies.length > 0 
+        ? result.companies[0].companies 
+        : null;
+
+      return NextResponse.json({
+        user: result.user,
+        companies: result.companies,
+        currentCompany,
+        accessToken,
+        refreshToken,
+      });
+    }
+
+    return NextResponse.json(
+      { error: "Authentication failed" },
+      { status: 400 }
+    );
   } catch {
     return NextResponse.json(
       { error: "Internal server error" },

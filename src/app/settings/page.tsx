@@ -1,6 +1,6 @@
 "use client";
 
-import { useAuth } from "@/components/AuthContext";
+import { useAuthStore } from "@/zustand/authStore";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
@@ -505,7 +505,7 @@ function DeleteCompanyModal({ isOpen, onClose, companyName, onDeleteCompany }: D
 }
 
 export default function SettingsPage() {
-  const { user, currentCompany, setCurrentCompany, companies, setCompanies } = useAuth();
+  const { user, currentCompany, companies } = useAuthStore();
   const router = useRouter();
   const { fetchWithCompany } = useApiWithCompany();
   
@@ -600,8 +600,11 @@ export default function SettingsPage() {
 
       if (error) throw error;
 
-      // Update current company
-        setCurrentCompany({ ...currentCompany, ...updatedData });
+      // Update current company in Zustand state
+      useAuthStore.setState(state => ({
+        ...state,
+        currentCompany: currentCompany ? { ...currentCompany, ...updatedData } : null
+      }));
       setEditCompanyModal({ isOpen: false, company: null });
     } catch (error) {
       throw new Error(error instanceof Error ? error.message : "Failed to update company");
@@ -703,10 +706,11 @@ export default function SettingsPage() {
           
           // Remove the non-existent company from the companies list
           const updatedCompanies = companies.filter(c => c.companies.id !== currentCompany.id);
-          setCompanies(updatedCompanies);
-          
-          // Clear current company and redirect to home page
-          setCurrentCompany(null);
+          useAuthStore.setState(state => ({
+            ...state,
+            companies: updatedCompanies,
+            currentCompany: null
+          }));
           router.push("/");
           return; // Don't throw error, treat as successful cleanup
         }
@@ -717,12 +721,13 @@ export default function SettingsPage() {
       const result = await response.json();
       console.log("Delete successful:", result);
 
-      // Remove the deleted company from the companies list
+      // Remove the deleted company from the companies list and clear current company
       const updatedCompanies = companies.filter(c => c.companies.id !== currentCompany.id);
-      setCompanies(updatedCompanies);
-
-      // Clear current company and redirect to home page
-      setCurrentCompany(null);
+      useAuthStore.setState(state => ({
+        ...state,
+        companies: updatedCompanies,
+        currentCompany: null
+      }));
       router.push("/");
     } catch (error) {
       console.error("Error deleting company:", error);

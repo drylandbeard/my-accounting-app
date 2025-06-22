@@ -1,10 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { CheckCircle, Mail, AlertCircle } from "lucide-react";
-import { useAuth } from "@/components/AuthContext";
-import { getUserCompanies } from "@/lib/auth-client";
+import { useAuthStore } from "@/zustand/authStore";
 import {
   InputOTP,
   InputOTPGroup,
@@ -19,7 +18,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-export default function VerifyEmailPage() {
+function VerifyEmailContent() {
   const [code, setCode] = useState("");
   const [isVerifying, setIsVerifying] = useState(false);
   const [isResending, setIsResending] = useState(false);
@@ -29,7 +28,7 @@ export default function VerifyEmailPage() {
   
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { setUser: setAuthUser, setCompanies } = useAuth();
+  const { setAuth } = useAuthStore();
 
   // Get email from URL parameters
   useEffect(() => {
@@ -71,8 +70,20 @@ export default function VerifyEmailPage() {
         setSuccess(true);
         
         // Automatically sign in the user after successful verification
-        if (data.user) {
-          await signInUserAfterVerification(data.user);
+        if (data.user && data.accessToken) {
+          // Set auth state in Zustand store
+          setAuth({
+            user: data.user,
+            companies: data.companies || [],
+            currentCompany: data.currentCompany || null,
+            accessToken: data.accessToken,
+            refreshToken: data.refreshToken,
+          });
+          
+          // Show success message briefly, then redirect
+          setTimeout(() => {
+            router.replace("/");
+          }, 2000);
         }
       } else {
         setError(data.error || "Failed to verify code. Please try again.");
@@ -82,57 +93,6 @@ export default function VerifyEmailPage() {
       setError("An unexpected error occurred. Please try again.");
     } finally {
       setIsVerifying(false);
-    }
-  };
-
-  const signInUserAfterVerification = async (userData: { id: string; email: string; role: string }) => {
-    try {
-      // Get user's companies
-      const companiesResult = await getUserCompanies(userData.id);
-      
-      if (companiesResult.error) {
-        console.error("Failed to get user companies:", companiesResult.error);
-        // Still sign in the user even if companies fetch fails
-        
-        const userToSet = {
-          id: userData.id,
-          email: userData.email,
-          role: userData.role as "Owner" | "Member" | "Accountant"
-        };
-        
-        setAuthUser(userToSet);
-        setCompanies([]);
-      } else {
-        // Transform the companies data to match UserCompany interface
-        const transformedCompanies = (companiesResult.companies || []).map((item: {
-          company_id: string;
-          role: string;
-          companies: { id: string; name: string; description?: string } | { id: string; name: string; description?: string }[];
-        }) => ({
-          company_id: item.company_id,
-          role: item.role as "Owner" | "Member" | "Accountant",
-          companies: Array.isArray(item.companies) ? item.companies[0] : item.companies
-        }));
-        
-        const userToSet = {
-          id: userData.id,
-          email: userData.email,
-          role: userData.role as "Owner" | "Member" | "Accountant"
-        };
-        
-        // Set user and companies in auth context
-        setAuthUser(userToSet);
-        setCompanies(transformedCompanies);
-      }
-      
-      // Show success message briefly, then redirect
-      setTimeout(() => {
-        router.replace("/");
-      }, 2000);
-      
-    } catch (error) {
-      console.error("Error signing in after verification:", error);
-      setError("Verification successful, but failed to sign in automatically. Please try signing in manually.");
     }
   };
 
@@ -264,7 +224,7 @@ export default function VerifyEmailPage() {
 
               {/* Resend Code */}
               <div className="text-center text-sm">
-                                 <span className="text-gray-600">Didn&apos;t receive the code? </span>
+                <span className="text-gray-600">Didn&apos;t receive the code? </span>
                 <button
                   onClick={handleResendCode}
                   disabled={isResending}
@@ -288,5 +248,35 @@ export default function VerifyEmailPage() {
         </Card>
       </div>
     </div>
+  );
+}
+
+function LoadingFallback() {
+  return (
+    <div className="bg-muted flex min-h-svh flex-col items-center justify-center gap-6 p-6 md:p-10">
+      <div className="flex w-full max-w-sm flex-col gap-6">
+        <Card>
+          <CardHeader className="text-center">
+            <div className="flex justify-center mb-4">
+              <Mail className="w-16 h-16 text-blue-600" />
+            </div>
+            <CardTitle className="text-xl">
+              Loading...
+            </CardTitle>
+            <CardDescription>
+              Please wait while we load the verification page.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+export default function VerifyEmailPage() {
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      <VerifyEmailContent />
+    </Suspense>
   );
 } 

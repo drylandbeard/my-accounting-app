@@ -1,9 +1,9 @@
 "use client";
 
-import { useAuth } from "@/components/AuthContext";
+import { useAuthStore } from "@/zustand/authStore";
+import { useApiWithCompany } from "@/hooks/useApiWithCompany";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { createCompany, updateUserEmail, updateUserPassword } from "@/lib/auth-client";
 import { X, Plus } from "lucide-react";
 import NavBar from "@/components/NavBar";
 
@@ -112,7 +112,8 @@ function CompanyModal({ isOpen, onClose, onCreateCompany }: CompanyModalProps) {
 }
 
 export default function GatewayPage() {
-  const { user, companies, setCurrentCompany, setCompanies } = useAuth();
+  const { user, companies } = useAuthStore();
+  const { fetchAuthenticated } = useApiWithCompany();
   const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
   const [showAccountSection, setShowAccountSection] = useState(false);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
@@ -138,12 +139,19 @@ export default function GatewayPage() {
   const handleCreateCompany = async (name: string, description?: string) => {
     if (!user) throw new Error("User not found");
 
-    // Use client-safe createCompany function (no email imports)
-    const result = await createCompany(user.id, name, description);
+    // Use the authenticated fetch to create company
+    const response = await fetchAuthenticated("/api/company/create", {
+      method: "POST",
+      body: JSON.stringify({ name, description }),
+    });
+
+    const result = await response.json();
     
-    if (result.error) {
-      throw new Error(result.error);
-    } else if (result.company) {
+    if (!response.ok) {
+      throw new Error(result.error || "Failed to create company");
+    }
+
+    if (result.company) {
       // Add new company to the list
       const newUserCompany = {
         company_id: result.company.id,
@@ -151,7 +159,11 @@ export default function GatewayPage() {
         companies: result.company
       };
       
-      setCompanies([...companies, newUserCompany]);
+      // Update the global state through Zustand
+      useAuthStore.setState(state => ({
+        ...state,
+        companies: [...state.companies, newUserCompany],
+      }));
     }
   };
 
@@ -162,7 +174,6 @@ export default function GatewayPage() {
     setEmailForm(prev => ({ ...prev, error: "", success: false }));
     setPasswordForm(prev => ({ ...prev, error: "", success: false }));
 
-    let hasChanges = false;
     let hasErrors = false;
 
     // Check if email changed
@@ -204,28 +215,35 @@ export default function GatewayPage() {
     try {
       // Update email if changed
       if (emailChanged) {
-        const emailResult = await updateUserEmail(user.id, emailForm.email);
-        if (emailResult.error) {
-          setEmailForm(prev => ({ ...prev, error: emailResult.error, isUpdating: false }));
+        const emailResult = await fetchAuthenticated("/api/user/update-email", {
+          method: "POST",
+          body: JSON.stringify({ email: emailForm.email }),
+        });
+        if (!emailResult.ok) {
+          setEmailForm(prev => ({ ...prev, error: "Failed to update email", isUpdating: false }));
           if (passwordChanged) setPasswordForm(prev => ({ ...prev, isUpdating: false }));
           return;
         }
-        hasChanges = true;
       }
 
       // Update password if changed
       if (passwordChanged) {
-        const passwordResult = await updateUserPassword(user.id, passwordForm.currentPassword, passwordForm.newPassword);
-        if (passwordResult.error) {
-          setPasswordForm(prev => ({ ...prev, error: passwordResult.error, isUpdating: false }));
+        const passwordResult = await fetchAuthenticated("/api/user/update-password", {
+          method: "POST",
+          body: JSON.stringify({
+            currentPassword: passwordForm.currentPassword,
+            newPassword: passwordForm.newPassword,
+          }),
+        });
+        if (!passwordResult.ok) {
+          setPasswordForm(prev => ({ ...prev, error: "Failed to update password", isUpdating: false }));
           if (emailChanged) setEmailForm(prev => ({ ...prev, isUpdating: false }));
           return;
         }
-        hasChanges = true;
       }
 
       // Success - reset form and exit edit mode
-      if (hasChanges) {
+      if (emailChanged || passwordChanged) {
         setEmailForm(prev => ({ ...prev, isUpdating: false, success: true }));
         setPasswordForm({
           currentPassword: "",
@@ -273,7 +291,8 @@ export default function GatewayPage() {
   };
 
   const handleCompanySelect = (company: { id: string; name: string; description?: string }) => {
-    setCurrentCompany(company);
+    // Implement company selection logic
+    console.log("Selected company:", company);
     router.push('/transactions');
   };
 

@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
-import { useAuth } from "./AuthContext";
-import { createCompany } from "@/lib/auth-client";
+import { useAuthStore } from "@/zustand/authStore";
+import { useApiWithCompany } from "@/hooks/useApiWithCompany";
 
 import { X, Settings, User, LogOut, Sparkles } from "lucide-react";
 import { supabase } from "@/lib/supabase";
@@ -137,7 +137,8 @@ interface NavBarProps {
 }
 
 export default function NavBar({ showAccountAction, showAccountSection, isGatewayPage = false, onToggleAI }: NavBarProps) {
-  const { user, companies, currentCompany, setCurrentCompany, setCompanies, logout } = useAuth();
+  const { user, companies, currentCompany, logout } = useAuthStore();
+  const { fetchAuthenticated } = useApiWithCompany();
   const [isAccountDropdownOpen, setIsAccountDropdownOpen] = useState(false);
   const router = useRouter();
 
@@ -168,12 +169,19 @@ export default function NavBar({ showAccountAction, showAccountSection, isGatewa
   const handleCreateCompany = async (name: string, description?: string) => {
     if (!user) throw new Error("User not found");
 
-    // Use client-safe createCompany function (no email imports)
-    const result = await createCompany(user.id, name, description);
+    // Use the authenticated fetch to create company
+    const response = await fetchAuthenticated("/api/company/create", {
+      method: "POST",
+      body: JSON.stringify({ name, description }),
+    });
+
+    const result = await response.json();
     
-    if (result.error) {
-      throw new Error(result.error);
-    } else if (result.company) {
+    if (!response.ok) {
+      throw new Error(result.error || "Failed to create company");
+    }
+
+    if (result.company) {
       // Add new company to the list
       const newUserCompany = {
         company_id: result.company.id,
@@ -181,8 +189,12 @@ export default function NavBar({ showAccountAction, showAccountSection, isGatewa
         companies: result.company
       };
       
-      setCompanies([...companies, newUserCompany]);
-      setCurrentCompany(result.company);
+      // Update the global state through Zustand
+      useAuthStore.setState(state => ({
+        ...state,
+        companies: [...state.companies, newUserCompany],
+        currentCompany: result.company
+      }));
     }
   };
 
@@ -339,19 +351,22 @@ export default function NavBar({ showAccountAction, showAccountSection, isGatewa
                 throw new Error(error.message);
               }
 
-              // Update the companies list in context
+              // Update the companies list in Zustand state
               const updatedCompanies = companies.map(userCompany => ({
                 ...userCompany,
                 companies: userCompany.companies.id === editingCompany.id
                   ? { ...userCompany.companies, ...updatedData }
                   : userCompany.companies
               }));
-              setCompanies(updatedCompanies);
-
-              // Update current company if it's the one being edited
-              if (currentCompany?.id === editingCompany.id) {
-                setCurrentCompany({ ...currentCompany, ...updatedData });
-              }
+              
+              // Update Zustand state
+              useAuthStore.setState(state => ({
+                ...state,
+                companies: updatedCompanies,
+                currentCompany: currentCompany?.id === editingCompany.id 
+                  ? { ...currentCompany, ...updatedData }
+                  : state.currentCompany
+              }));
 
               setIsEditCompanyModalOpen(false);
               setEditingCompany(null);

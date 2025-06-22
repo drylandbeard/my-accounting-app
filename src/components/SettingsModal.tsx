@@ -1,9 +1,9 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useAuth } from "./AuthContext";
+import { useAuthStore } from "@/zustand/authStore";
+import { useApiWithCompany } from "@/hooks/useApiWithCompany";
 import { X } from "lucide-react";
-import { updateUserEmail, updateUserPassword, updateUserRole } from "@/lib/auth";
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -11,7 +11,8 @@ interface SettingsModalProps {
 }
 
 export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
-  const { user, setUser } = useAuth();
+  const { user } = useAuthStore();
+  const { fetchAuthenticated } = useApiWithCompany();
   
   const [email, setEmail] = useState(user?.email || "");
   const [role, setRole] = useState<"Owner" | "Member" | "Accountant">(user?.role || "Owner");
@@ -45,17 +46,27 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     try {
       // Update email if changed
       if (email !== user.email) {
-        const emailResult = await updateUserEmail(user.id, email);
-        if (emailResult.error) {
-          throw new Error(emailResult.error);
+        const emailResponse = await fetchAuthenticated("/api/user/update-email", {
+          method: "POST",
+          body: JSON.stringify({ email }),
+        });
+        
+        if (!emailResponse.ok) {
+          const errorData = await emailResponse.json();
+          throw new Error(errorData.error || "Failed to update email");
         }
       }
 
       // Update role if changed
       if (role !== user.role) {
-        const roleResult = await updateUserRole(user.id, role as "Owner" | "Member" | "Accountant");
-        if (roleResult.error) {
-          throw new Error(roleResult.error);
+        const roleResponse = await fetchAuthenticated("/api/user/update-role", {
+          method: "POST",
+          body: JSON.stringify({ role }),
+        });
+        
+        if (!roleResponse.ok) {
+          const errorData = await roleResponse.json();
+          throw new Error(errorData.error || "Failed to update role");
         }
       }
 
@@ -71,18 +82,29 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           throw new Error("Current password is required to change password");
         }
 
-        const passwordResult = await updateUserPassword(user.id, currentPassword, newPassword);
-        if (passwordResult.error) {
-          throw new Error(passwordResult.error);
+        const passwordResponse = await fetchAuthenticated("/api/user/update-password", {
+          method: "POST",
+          body: JSON.stringify({
+            currentPassword,
+            newPassword,
+          }),
+        });
+        
+        if (!passwordResponse.ok) {
+          const errorData = await passwordResponse.json();
+          throw new Error(errorData.error || "Failed to update password");
         }
       }
 
-      // Update user context
-      setUser({
-        ...user,
-        email,
-        role: role as "Owner" | "Member" | "Accountant"
-      });
+      // Update user in Zustand state
+      useAuthStore.setState(state => ({
+        ...state,
+        user: user ? {
+          ...user,
+          email,
+          role: role as "Owner" | "Member" | "Accountant"
+        } : null
+      }));
 
       setSuccess("Settings updated successfully!");
       setCurrentPassword("");
@@ -153,11 +175,11 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             <label className="block text-xs font-medium text-gray-700 mb-1">
               Role
             </label>
-                         <select
-               value={role}
-               onChange={(e) => setRole(e.target.value as "Owner" | "Member" | "Accountant")}
-               className="w-full px-2 py-1 border border-gray-300 rounded-md text-sm focus:border-black focus:outline-none focus:ring-black"
-             >
+            <select
+              value={role}
+              onChange={(e) => setRole(e.target.value as "Owner" | "Member" | "Accountant")}
+              className="w-full px-2 py-1 border border-gray-300 rounded-md text-sm focus:border-black focus:outline-none focus:ring-black"
+            >
               <option value="Owner">Owner</option>
               <option value="Member">Member</option>
               <option value="Accountant">Accountant</option>
@@ -204,9 +226,9 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           <button
             onClick={handleSave}
             disabled={isLoading || !hasChanges()}
-            className="px-3 py-1 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-3 py-1 text-sm font-medium text-white bg-black rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            {isLoading ? "Saving..." : "Save"}
+            {isLoading ? "Saving..." : "Save Changes"}
           </button>
         </div>
       </div>
