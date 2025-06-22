@@ -37,10 +37,11 @@ type Payee = {
 type CategoryImportModalState = {
   isOpen: boolean;
   step: "upload" | "review";
-  csvData: Category[];
+  csvData: CategoryImportData[];
   isLoading: boolean;
   error: string | null;
   selectedCategories: Set<string>;
+  autoCreateMissing: boolean;
 };
 
 type PayeeImportModalState = {
@@ -60,6 +61,19 @@ type CategoryCSVRow = {
 
 type PayeeCSVRow = {
   Name: string;
+};
+
+type CategoryImportData = {
+  id: string;
+  name: string;
+  type: string;
+  subtype?: string;
+  parent_id?: string | null;
+  company_id?: string;
+  isValid: boolean;
+  validationMessage?: string;
+  needsParentCreation?: boolean;
+  parentName?: string;
 };
 
 type SortConfig = {
@@ -121,6 +135,7 @@ export default function ChartOfAccountsPage() {
     isLoading: false,
     error: null,
     selectedCategories: new Set(),
+    autoCreateMissing: false,
   });
 
   const [payeeImportModal, setPayeeImportModal] = useState<PayeeImportModalState>({
@@ -501,56 +516,53 @@ export default function ChartOfAccountsPage() {
   };
 
   const handleDelete = async (id: string) => {
-    // First check if this is a parent category
-    const { data: subcategories } = await supabase.from("chart_of_accounts").select("id").eq("parent_id", id);
+    // First check if this category has subcategories
+    const { data: subcategories } = await supabase
+      .from("chart_of_accounts")
+      .select("id, name")
+      .eq("parent_id", id);
 
     if (subcategories && subcategories.length > 0) {
-      // This is a parent category, check if any subcategories have transactions
-      const subcategoryIds = subcategories.map((sub) => sub.id);
-      const { data: transactions, error: txError } = await supabase
-        .from("transactions")
-        .select("id")
-        .or(
-          `selected_category_id.in.(${subcategoryIds.join(",")}),corresponding_category_id.in.(${subcategoryIds.join(
-            ","
-          )})`
-        )
-        .limit(1);
+      // This category has subcategories - prevent deletion
+      alert(
+        `This category cannot be deleted because it has ${subcategories.length} subcategor${subcategories.length === 1 ? 'y' : 'ies'}. Please delete or reassign the subcategories first.`
+      );
+      return;
+    }
 
-      if (txError) {
-        console.error("Error checking transactions:", txError);
-        return;
-      }
+    // Check if this category is used in transactions
+    const { data: transactions, error: txError } = await supabase
+      .from("transactions")
+      .select("id")
+      .or(`selected_category_id.eq.${id},corresponding_category_id.eq.${id}`)
+      .limit(1);
 
-      if (transactions && transactions.length > 0) {
-        alert(
-          "This category cannot be deleted because it contains subcategories that are used in existing transactions. Please reassign or delete the transactions first."
-        );
-        return;
-      }
-    } else {
-      // This is a regular category, check if it has transactions
-      const { data: transactions, error: txError } = await supabase
-        .from("transactions")
-        .select("id")
-        .or(`selected_category_id.eq.${id},corresponding_category_id.eq.${id}`)
-        .limit(1);
+    if (txError) {
+      console.error("Error checking transactions:", txError);
+      alert("Error checking if category is in use. Please try again.");
+      return;
+    }
 
-      if (txError) {
-        console.error("Error checking transactions:", txError);
-        return;
-      }
+    if (transactions && transactions.length > 0) {
+      alert(
+        "This category cannot be deleted because it is used in existing transactions. Please reassign or delete the transactions first."
+      );
+      return;
+    }
 
-      if (transactions && transactions.length > 0) {
-        alert(
-          "This category cannot be deleted because it is used in existing transactions. Please reassign or delete the transactions first."
-        );
-        return;
-      }
+    // Show confirmation dialog before deleting
+    const categoryToDelete = accounts.find(acc => acc.id === id);
+    const categoryName = categoryToDelete?.name || "this category";
+    
+    if (!window.confirm(`Are you sure you want to delete "${categoryName}"? This action cannot be undone.`)) {
+      return;
     }
 
     const { error } = await supabase.from("chart_of_accounts").delete().eq("id", id);
-    if (!error) {
+    if (error) {
+      console.error("Error deleting category:", error);
+      alert("Failed to delete category. Please try again.");
+    } else {
       setEditingId(null);
       // Categories will be refreshed automatically via real-time subscription
       fetchParentOptions();
@@ -567,6 +579,7 @@ export default function ChartOfAccountsPage() {
 
     if (txError) {
       console.error("Error checking transactions:", txError);
+      alert("Error checking if payee is in use. Please try again.");
       return;
     }
 
@@ -577,8 +590,19 @@ export default function ChartOfAccountsPage() {
       return;
     }
 
+    // Show confirmation dialog before deleting
+    const payeeToDelete = payees.find(payee => payee.id === id);
+    const payeeName = payeeToDelete?.name || "this payee";
+    
+    if (!window.confirm(`Are you sure you want to delete "${payeeName}"? This action cannot be undone.`)) {
+      return;
+    }
+
     const { error } = await supabase.from("payees").delete().eq("id", id);
-    if (!error) {
+    if (error) {
+      console.error("Error deleting payee:", error);
+      alert("Failed to delete payee. Please try again.");
+    } else {
       setEditingPayeeId(null);
       fetchPayees();
     }
@@ -787,7 +811,7 @@ export default function ChartOfAccountsPage() {
 
   const downloadCategoriesTemplate = () => {
     const csvContent =
-      "Name,Type,Parent\nOffice Supplies,Expense,\nBank Fees,Expense,\nAdvertising,Expense,\nCash,Asset,\nAccounts Receivable,Asset,\nSales Revenue,Revenue,\nService Revenue,Revenue,";
+      "Name,Type,Parent\nOperating Expenses,Expense,\nOffice Supplies,Expense,Operating Expenses\nUtilities,Expense,Operating Expenses\nBank Fees,Expense,\nAdvertising,Expense,\nCurrent Assets,Asset,\nCash,Asset,Current Assets\nAccounts Receivable,Asset,Current Assets\nSales Revenue,Revenue,\nService Revenue,Revenue,";
     const blob = new Blob([csvContent], { type: "text/csv" });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -882,6 +906,119 @@ export default function ChartOfAccountsPage() {
     return null;
   };
 
+  // Validate parent references and detect missing parents
+  const validateParentReferences = (categories: CategoryImportData[]): CategoryImportData[] => {
+    return categories.map((category) => {
+      let isValid = true;
+      let validationMessage = "";
+      let needsParentCreation = false;
+
+      // Check for name uniqueness - must not exist in database
+      const nameExistsInDb = accounts.some(
+        (acc) => acc.name.toLowerCase() === category.name.toLowerCase()
+      );
+      
+      if (nameExistsInDb) {
+        isValid = false;
+        validationMessage = `Category "${category.name}" already exists in database`;
+        return {
+          ...category,
+          isValid,
+          validationMessage,
+          needsParentCreation,
+        };
+      }
+
+      // Check for name uniqueness within CSV data
+      const duplicatesInCsv = categories.filter(
+        (cat) => cat.name.toLowerCase() === category.name.toLowerCase()
+      );
+      
+      if (duplicatesInCsv.length > 1) {
+        isValid = false;
+        validationMessage = `Duplicate name "${category.name}" found in CSV`;
+        return {
+          ...category,
+          isValid,
+          validationMessage,
+          needsParentCreation,
+        };
+      }
+
+      // Validate parent references
+      if (category.parentName) {
+        // Check if parent exists in current accounts
+        const parentExists = accounts.some(
+          (acc) => acc.name.toLowerCase() === category.parentName!.toLowerCase()
+        );
+        
+        // Check if parent exists in the import data
+        const parentInImport = categories.find(
+          (cat) => cat.name.toLowerCase() === category.parentName!.toLowerCase() && cat.id !== category.id
+        );
+
+        if (!parentExists && !parentInImport) {
+          needsParentCreation = true;
+          validationMessage = `Parent "${category.parentName}" does not exist`;
+        } else if (parentExists || parentInImport) {
+          // Validate that parent type matches (parents must have same type as child)
+          const existingParent = accounts.find((acc) => acc.name.toLowerCase() === category.parentName!.toLowerCase());
+          const importParent = parentInImport;
+          
+          const parentType = existingParent?.type || importParent?.type;
+          if (parentType && parentType !== category.type) {
+            isValid = false;
+            validationMessage = `Parent "${category.parentName}" has type "${parentType}" but child has type "${category.type}". Parent and child must have the same type.`;
+          }
+        }
+
+        // Check if parent is in CSV but not selected for import
+        if (parentInImport) {
+          // This will be handled at the selection level, not here
+          // We'll add this check when user tries to import
+        }
+      }
+
+      return {
+        ...category,
+        isValid,
+        validationMessage,
+        needsParentCreation,
+      };
+    });
+  };
+
+  // Validate that if a parent is in the CSV, it must be selected if its children are selected
+  const validateParentDependencies = (
+    categories: CategoryImportData[], 
+    selectedIds: Set<string>
+  ): { isValid: boolean; missingParents: string[] } => {
+    const missingParents: string[] = [];
+    
+    const selectedCategories = categories.filter(cat => selectedIds.has(cat.id));
+    
+    for (const category of selectedCategories) {
+      if (category.parentName) {
+        // Find if the parent is in the CSV data
+        const parentInCsv = categories.find(
+          cat => cat.name.toLowerCase() === category.parentName!.toLowerCase()
+        );
+        
+        // If parent is in CSV but not selected, add to missing parents
+        if (parentInCsv && !selectedIds.has(parentInCsv.id)) {
+          if (!missingParents.includes(category.parentName)) {
+            missingParents.push(category.parentName);
+          }
+        }
+      }
+    }
+    
+    return {
+      isValid: missingParents.length === 0,
+      missingParents
+    };
+  };
+
   const validatePayeeCSV = (data: Papa.ParseResult<PayeeCSVRow>) => {
     if (!data.data || data.data.length === 0) {
       return "CSV file is empty";
@@ -938,7 +1075,7 @@ export default function ChartOfAccountsPage() {
           return;
         }
 
-        const categories = results.data
+        const categories: CategoryImportData[] = results.data
           .filter((row: CategoryCSVRow) => row.Name && row.Type)
           .map((row: CategoryCSVRow) => {
             const parentCategory = row["Parent"] ? accounts.find((acc) => acc.name === row["Parent"]) : null;
@@ -948,14 +1085,22 @@ export default function ChartOfAccountsPage() {
               name: row.Name.trim(),
               type: row.Type,
               parent_id: parentCategory?.id || null,
-              company_id: currentCompany?.id,
+              company_id: currentCompany?.id || "",
+              parentName: row.Parent?.trim() || undefined,
+              // Initialize validation fields - will be populated by validateParentReferences
+              isValid: true,
+              validationMessage: "",
+              needsParentCreation: false,
             };
           });
+
+        // Validate parent references
+        const validatedCategories = validateParentReferences(categories);
 
         setCategoryImportModal((prev) => ({
           ...prev,
           isLoading: false,
-          csvData: categories,
+          csvData: validatedCategories,
           step: "review",
         }));
       },
@@ -1240,15 +1385,15 @@ export default function ChartOfAccountsPage() {
                     }}
                     isSearchable
                     className="w-full"
-                                      classNames={{
-                    container: () => "w-full",
-                    control: () => "w-full h-7 min-h-7 border border-gray-300 rounded text-xs",
-                    input: () => "w-px", // Prevents input from expanding based on content
-                    valueContainer: () => "px-1 py-0.5 h-7",
-                    indicatorsContainer: () => "h-7",
-                    indicatorSeparator: () => "bg-gray-300",
-                    dropdownIndicator: () => "text-gray-500 p-1"
-                  }}
+                    classNames={{
+                      container: () => "w-full",
+                      control: () => "w-full h-7 min-h-7 border border-gray-300 rounded text-xs",
+                      input: () => "w-px", // Prevents input from expanding based on content
+                      valueContainer: () => "px-1 py-0.5 h-7",
+                      indicatorsContainer: () => "h-7",
+                      indicatorSeparator: () => "bg-gray-300",
+                      dropdownIndicator: () => "text-gray-500 p-1"
+                    }}
                   />
                 ) : (
                   parent.name
@@ -1928,6 +2073,56 @@ export default function ChartOfAccountsPage() {
                       <div className="flex justify-between items-center">
                         <h3 className="text-sm font-medium text-gray-700">Review Categories</h3>
                       </div>
+
+                      {/* Missing parents warning and options */}
+                      {categoryImportModal.csvData.some((cat) => cat.needsParentCreation) && (
+                        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                          <h4 className="text-sm font-medium text-yellow-800 mb-2">Missing Parent Categories Detected</h4>
+                          <p className="text-sm text-yellow-700 mb-3">
+                            Some categories reference parent categories that don&apos;t exist in your system.
+                          </p>
+                          <label className="flex items-center space-x-2">
+                            <input
+                              type="checkbox"
+                              checked={categoryImportModal.autoCreateMissing}
+                              onChange={(e) =>
+                                setCategoryImportModal((prev) => ({
+                                  ...prev,
+                                  autoCreateMissing: e.target.checked,
+                                }))
+                              }
+                              className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                            />
+                            <span className="text-sm text-yellow-700">
+                              Automatically create missing parent categories during import (with same type as child)
+                            </span>
+                          </label>
+                        </div>
+                      )}
+
+                      {/* Parent dependency warning */}
+                      {(() => {
+                        const dependencyCheck = validateParentDependencies(
+                          categoryImportModal.csvData, 
+                          categoryImportModal.selectedCategories
+                        );
+                        
+                        return !dependencyCheck.isValid && (
+                          <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
+                            <h4 className="text-sm font-medium text-orange-800 mb-2">Parent Dependencies Required</h4>
+                            <p className="text-sm text-orange-700 mb-2">
+                              Some selected categories have parents that are also in this CSV but not selected for import:
+                            </p>
+                            <ul className="text-sm text-orange-700 list-disc list-inside">
+                              {dependencyCheck.missingParents.map((parentName) => (
+                                <li key={parentName}>
+                                  <strong>{parentName}</strong> - Must be selected to import its children
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        );
+                      })()}
                       <div className="border rounded-lg overflow-hidden">
                         <table className="min-w-full divide-y divide-gray-200">
                           <thead className="bg-gray-50">
@@ -1941,11 +2136,13 @@ export default function ChartOfAccountsPage() {
                                   }
                                   onChange={(e) => {
                                     if (e.target.checked) {
+                                      // Select all categories
                                       setCategoryImportModal((prev) => ({
                                         ...prev,
                                         selectedCategories: new Set(categoryImportModal.csvData.map((cat) => cat.id)),
                                       }));
                                     } else {
+                                      // Deselect all categories
                                       setCategoryImportModal((prev) => ({
                                         ...prev,
                                         selectedCategories: new Set(),
@@ -1964,11 +2161,23 @@ export default function ChartOfAccountsPage() {
                               <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                 Parent
                               </th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Status
+                              </th>
                             </tr>
                           </thead>
                           <tbody className="bg-white divide-y divide-gray-200">
                             {categoryImportModal.csvData.map((category) => (
-                              <tr key={category.id}>
+                              <tr
+                                key={category.id}
+                                className={`${
+                                  category.needsParentCreation && !categoryImportModal.autoCreateMissing
+                                    ? "bg-yellow-50"
+                                    : !category.isValid
+                                    ? "bg-red-50"
+                                    : ""
+                                }`}
+                              >
                                 <td className="px-4 py-2 whitespace-nowrap w-8 text-left">
                                   <input
                                     type="checkbox"
@@ -1977,8 +2186,26 @@ export default function ChartOfAccountsPage() {
                                       const newSelected = new Set(categoryImportModal.selectedCategories);
                                       if (e.target.checked) {
                                         newSelected.add(category.id);
+                                        
+                                        // Auto-select parent if it's in the CSV
+                                        if (category.parentName) {
+                                          const parentInCsv = categoryImportModal.csvData.find(
+                                            cat => cat.name.toLowerCase() === category.parentName!.toLowerCase()
+                                          );
+                                          if (parentInCsv) {
+                                            newSelected.add(parentInCsv.id);
+                                          }
+                                        }
                                       } else {
                                         newSelected.delete(category.id);
+                                        
+                                        // Auto-deselect children if this is a parent
+                                        const childrenInCsv = categoryImportModal.csvData.filter(
+                                          cat => cat.parentName && cat.parentName.toLowerCase() === category.name.toLowerCase()
+                                        );
+                                        childrenInCsv.forEach(child => {
+                                          newSelected.delete(child.id);
+                                        });
                                       }
                                       setCategoryImportModal((prev) => ({
                                         ...prev,
@@ -1991,9 +2218,32 @@ export default function ChartOfAccountsPage() {
                                 <td className="px-4 py-2 text-sm text-gray-900">{category.name}</td>
                                 <td className="px-4 py-2 text-sm text-gray-900">{category.type}</td>
                                 <td className="px-4 py-2 text-sm text-gray-900">
-                                  {category.parent_id
-                                    ? accounts.find((acc) => acc.id === category.parent_id)?.name || "Unknown"
-                                    : "-"}
+                                  {category.parentName || "-"}
+                                </td>
+                                <td className="px-4 py-2 text-sm">
+                                  {!category.isValid ? (
+                                    <div className="flex items-center space-x-1">
+                                      <span className="w-2 h-2 bg-red-400 rounded-full"></span>
+                                      <span className="text-red-700 text-xs">{category.validationMessage}</span>
+                                    </div>
+                                  ) : category.needsParentCreation ? (
+                                    categoryImportModal.autoCreateMissing ? (
+                                      <div className="flex items-center space-x-1">
+                                        <span className="w-2 h-2 bg-blue-400 rounded-full"></span>
+                                        <span className="text-blue-700 text-xs">Will create parent</span>
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center space-x-1">
+                                        <span className="w-2 h-2 bg-orange-400 rounded-full"></span>
+                                        <span className="text-orange-700 text-xs">Missing parent</span>
+                                      </div>
+                                    )
+                                  ) : (
+                                    <div className="flex items-center space-x-1">
+                                      <span className="w-2 h-2 bg-green-400 rounded-full"></span>
+                                      <span className="text-green-700 text-xs">Valid</span>
+                                    </div>
+                                  )}
                                 </td>
                               </tr>
                             ))}
@@ -2004,7 +2254,25 @@ export default function ChartOfAccountsPage() {
                     <div className="flex justify-between items-center">
                       <div className="text-sm font-medium">
                         {categoryImportModal.selectedCategories.size > 0 && (
-                          <span className="text-gray-600">{categoryImportModal.selectedCategories.size} selected</span>
+                          <>
+                            <span className="text-gray-600">
+                              {categoryImportModal.selectedCategories.size} selected
+                            </span>
+                            {!categoryImportModal.autoCreateMissing &&
+                              (() => {
+                                const selectedCategories = categoryImportModal.csvData.filter((cat) =>
+                                  categoryImportModal.selectedCategories.has(cat.id)
+                                );
+                                const validCount = selectedCategories.filter((cat) => cat.isValid && !cat.needsParentCreation).length;
+                                const invalidCount = selectedCategories.filter((cat) => !cat.isValid || cat.needsParentCreation).length;
+
+                                return invalidCount > 0 ? (
+                                  <span className="text-red-600 ml-2">
+                                    ({validCount} will import, {invalidCount} will skip)
+                                  </span>
+                                ) : null;
+                              })()}
+                          </>
                         )}
                       </div>
                       <div className="flex justify-end space-x-2 mt-4">
@@ -2039,17 +2307,178 @@ export default function ChartOfAccountsPage() {
                                 throw new Error("No categories selected for import.");
                               }
 
-                              const categoriesToInsert = selectedCategories.map((cat) => ({
-                                name: cat.name,
-                                type: cat.type,
-                                parent_id: cat.parent_id,
-                                company_id: currentCompany.id,
-                              }));
+                              // Check for parent dependencies
+                              const dependencyCheck = validateParentDependencies(
+                                categoryImportModal.csvData, 
+                                categoryImportModal.selectedCategories
+                              );
+                              
+                              if (!dependencyCheck.isValid) {
+                                throw new Error(
+                                  `Cannot import: The following parent categories are in the CSV but not selected: ${dependencyCheck.missingParents.join(", ")}. Please select them or deselect their children.`
+                                );
+                              }
 
-                              const { error } = await supabase.from("chart_of_accounts").insert(categoriesToInsert);
+                              // If auto-create is enabled, create missing parent categories first
+                              if (categoryImportModal.autoCreateMissing) {
+                                const missingParents = new Set<string>();
 
-                              if (error) {
-                                throw new Error(error.message);
+                                selectedCategories.forEach((cat) => {
+                                  if (cat.needsParentCreation && cat.parentName) {
+                                    missingParents.add(cat.parentName);
+                                  }
+                                });
+
+                                // Create missing parent categories with same type as child
+                                if (missingParents.size > 0) {
+                                  const parentsToCreate = Array.from(missingParents).map((parentName) => {
+                                    // Find a child category to get the type
+                                    const childWithThisParent = selectedCategories.find(
+                                      (cat) => cat.parentName === parentName
+                                    );
+                                    return {
+                                      name: parentName,
+                                      type: childWithThisParent?.type || "Expense", // Default to Expense if can't determine
+                                      parent_id: null, // These are parent categories
+                                      company_id: currentCompany.id,
+                                    };
+                                  });
+
+                                  const { error: parentError } = await supabase
+                                    .from("chart_of_accounts")
+                                    .insert(parentsToCreate);
+
+                                  if (parentError) {
+                                    throw new Error(`Failed to create parent categories: ${parentError.message}`);
+                                  }
+
+                                  // Refresh accounts list to get the newly created parents
+                                  await refreshCategories();
+                                }
+                              } else {
+                                // If not auto-creating, filter out categories that need parent creation or are invalid
+                                const validCategories = selectedCategories.filter((cat) => cat.isValid && !cat.needsParentCreation);
+                                const invalidCategories = selectedCategories.filter((cat) => !cat.isValid || cat.needsParentCreation);
+
+                                if (invalidCategories.length > 0 && validCategories.length > 0) {
+                                  // Mixed selection - show confirmation
+                                  const proceed = window.confirm(
+                                    `${invalidCategories.length} selected categor${invalidCategories.length === 1 ? 'y' : 'ies'} reference missing parents or have validation errors and will be skipped.\n\n` +
+                                      `Only ${validCategories.length} valid categor${validCategories.length === 1 ? 'y' : 'ies'} will be imported.\n\n` +
+                                      `Click OK to proceed with valid categories only, or Cancel to go back and enable auto-creation.`
+                                  );
+
+                                  if (!proceed) {
+                                    // User cancelled, stop the import process
+                                    setCategoryImportModal((prev) => ({
+                                      ...prev,
+                                      isLoading: false,
+                                    }));
+                                    return;
+                                  }
+                                } else if (validCategories.length === 0) {
+                                  // All selected categories are invalid
+                                  throw new Error(
+                                    "All selected categories reference missing parents or have validation errors. Enable 'Auto-create missing parents' or select only valid categories."
+                                  );
+                                }
+
+                                // Update selectedCategories to only include valid ones
+                                selectedCategories.splice(0, selectedCategories.length, ...validCategories);
+                              }
+
+                              // Sort categories to import parents before children
+                              const sortCategoriesByDependency = (categories: CategoryImportData[]): CategoryImportData[] => {
+                                const sorted: CategoryImportData[] = [];
+                                const remaining = [...categories];
+                                const processing = new Set<string>();
+
+                                const addCategory = (cat: CategoryImportData) => {
+                                  if (processing.has(cat.id)) return; // Avoid circular dependencies
+                                  processing.add(cat.id);
+
+                                  // If category has a parent in the import list, add parent first
+                                  if (cat.parentName) {
+                                    const parentInImport = remaining.find(
+                                      c => c.name.toLowerCase() === cat.parentName!.toLowerCase() && c.id !== cat.id
+                                    );
+                                    if (parentInImport && !sorted.includes(parentInImport)) {
+                                      addCategory(parentInImport);
+                                    }
+                                  }
+
+                                  // Add this category if not already added
+                                  if (!sorted.includes(cat)) {
+                                    sorted.push(cat);
+                                  }
+                                  processing.delete(cat.id);
+                                };
+
+                                // Add all categories, respecting dependencies
+                                for (const cat of remaining) {
+                                  addCategory(cat);
+                                }
+
+                                return sorted;
+                              };
+
+                              const orderedCategories = sortCategoriesByDependency(selectedCategories);
+
+                              // Split categories into parents and children for two-phase import
+                              const parentCategories = orderedCategories.filter(cat => !cat.parentName);
+                              const childCategories = orderedCategories.filter(cat => cat.parentName);
+
+                              // Phase 1: Import parent categories first
+                              if (parentCategories.length > 0) {
+                                const parentCategoriesToInsert = parentCategories.map((cat) => ({
+                                  name: cat.name,
+                                  type: cat.type,
+                                  parent_id: null, // Parents have no parent
+                                  company_id: currentCompany.id,
+                                }));
+
+                                const { error: parentError } = await supabase.from("chart_of_accounts").insert(parentCategoriesToInsert);
+                                if (parentError) {
+                                  throw new Error(`Failed to import parent categories: ${parentError.message}`);
+                                }
+
+                                // Refresh accounts list to get newly created parents
+                                await refreshCategories();
+                              }
+
+                              // Phase 2: Import child categories with proper parent_id resolution
+                              if (childCategories.length > 0) {
+                                const childCategoriesToInsert = await Promise.all(
+                                  childCategories.map(async (cat) => {
+                                    let parent_id = cat.parent_id;
+                                    
+                                    // If we have a parentName but no parent_id, look it up (including newly created parents)
+                                    if (cat.parentName && !parent_id) {
+                                      // Get fresh accounts list that includes newly created parents
+                                      const { data: freshAccounts } = await supabase
+                                        .from("chart_of_accounts")
+                                        .select("*")
+                                        .eq("company_id", currentCompany.id);
+                                      
+                                      if (freshAccounts) {
+                                        const parentAccount = freshAccounts.find((acc) => acc.name.toLowerCase() === cat.parentName!.toLowerCase());
+                                        parent_id = parentAccount?.id || null;
+                                      }
+                                    }
+
+                                    return {
+                                      name: cat.name,
+                                      type: cat.type,
+                                      parent_id,
+                                      company_id: currentCompany.id,
+                                    };
+                                  })
+                                );
+
+                                const { error: childError } = await supabase.from("chart_of_accounts").insert(childCategoriesToInsert);
+                                if (childError) {
+                                  throw new Error(`Failed to import child categories: ${childError.message}`);
+                                }
                               }
 
                               setCategoryImportModal({
@@ -2059,9 +2488,10 @@ export default function ChartOfAccountsPage() {
                                 isLoading: false,
                                 error: null,
                                 selectedCategories: new Set(),
+                                autoCreateMissing: false,
                               });
 
-                              fetchParentOptions();
+                              await fetchParentOptions();
                             } catch (error) {
                               setCategoryImportModal((prev) => ({
                                 ...prev,
