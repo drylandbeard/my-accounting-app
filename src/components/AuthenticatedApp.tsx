@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { useAuth } from "./AuthContext";
+import { useAuthStore } from "@/zustand/authStore";
 import AuthForm from "./AuthForm";
 import NavBar from "./NavBar";
 import AISidePanel from "./AISidePanel";
@@ -10,7 +10,7 @@ import AISharedContext from "./AISharedContext";
 import { usePathname } from "next/navigation";
 
 export default function AuthenticatedApp({ children }: { children: React.ReactNode }) {
-  const { user, isLoading } = useAuth();
+  const { isAuthenticated } = useAuthStore();
   const [isAIPanelOpen, setIsAIPanelOpen] = useState(false);
   const pathname = usePathname();
   
@@ -21,22 +21,13 @@ export default function AuthenticatedApp({ children }: { children: React.ReactNo
   const publicPages = ["/verify-email"];
   const isPublicPage = publicPages.some(page => pathname.startsWith(page));
 
-  // Show loading state
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-sm text-gray-600">Loading...</div>
-      </div>
-    );
-  }
-
   // Show login form if not authenticated (but allow access to public pages)
-  if (!user && !isPublicPage) {
+  if (!isAuthenticated && !isPublicPage) {
     return <AuthForm />;
   }
 
   // If user is not authenticated but on a public page, show the page without auth wrapper
-  if (!user && isPublicPage) {
+  if (!isAuthenticated && isPublicPage) {
     return <>{children}</>;
   }
 

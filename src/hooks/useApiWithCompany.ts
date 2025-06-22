@@ -1,12 +1,13 @@
 "use client";
 
-import { useAuth } from "@/components/AuthContext";
+import { useAuthStore, createAuthenticatedFetch } from "@/zustand/authStore";
 
 /**
- * Custom hook for making API requests with company context
+ * Custom hook for making API requests with company context and JWT authentication
  */
 export function useApiWithCompany() {
-  const { user, currentCompany } = useAuth();
+  const { user, currentCompany, isAuthenticated } = useAuthStore();
+  const authenticatedFetch = createAuthenticatedFetch();
 
   /**
    * Make a fetch request with company and user context automatically included
@@ -21,13 +22,12 @@ export function useApiWithCompany() {
     }
 
     const headers = {
-      "Content-Type": "application/json",
       "x-user-id": user.id,
       "x-company-id": currentCompany.id,
-      ...options.headers,
+      ...(options.headers as Record<string, string> || {}),
     };
 
-    return fetch(url, {
+    return authenticatedFetch(url, {
       ...options,
       headers,
     });
@@ -52,11 +52,32 @@ export function useApiWithCompany() {
     });
   };
 
+  /**
+   * Make an authenticated request without company context (for user-level operations)
+   */
+  const fetchAuthenticated = async (url: string, options: RequestInit = {}) => {
+    if (!user) {
+      throw new Error("User not authenticated");
+    }
+
+    const headers = {
+      "x-user-id": user.id,
+      ...(options.headers as Record<string, string> || {}),
+    };
+
+    return authenticatedFetch(url, {
+      ...options,
+      headers,
+    });
+  };
+
   return {
     fetchWithCompany,
     postWithCompany,
     getWithCompany,
+    fetchAuthenticated,
     hasCompanyContext: !!(user && currentCompany),
+    isAuthenticated,
     currentCompany,
     user,
   };

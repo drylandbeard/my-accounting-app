@@ -1,8 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { signIn } from "@/lib/auth-client";
-import { useAuth } from "./AuthContext";
+import { useAuthStore } from "@/zustand/authStore";
 import { useRouter } from "next/navigation";
 import { CheckCircle, X } from "lucide-react";
 import { GalleryVerticalEnd } from "lucide-react";
@@ -30,7 +29,7 @@ export default function AuthForm() {
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
 
-  const { setUser, setCompanies } = useAuth();
+  const { setAuth } = useAuthStore();
   const router = useRouter();
 
   // Auto-hide toast after 5 seconds
@@ -77,17 +76,30 @@ export default function AuthForm() {
           router.push(`/verify-email?email=${encodeURIComponent(email)}`);
         }
       } else {
-        // Use client-safe signIn function (no email imports)
-        const result = await signIn(email, password);
-        if (result.error) {
+        // Use the updated signin API that returns JWT tokens
+        const response = await fetch("/api/auth/signin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password }),
+        });
+        
+        const result = await response.json();
+        
+        if (!response.ok) {
           if (result.needsVerification) {
             setShowVerificationMessage(true);
             setEmail(result.email || email);
           }
           setError(result.error);
-        } else if (result.user) {
-          setUser(result.user);
-          setCompanies(result.companies);
+        } else if (result.user && result.accessToken) {
+          // Set auth state in Zustand store
+          setAuth({
+            user: result.user,
+            companies: result.companies,
+            currentCompany: result.currentCompany,
+            accessToken: result.accessToken,
+            refreshToken: result.refreshToken,
+          });
           
           // Redirect to homepage
           router.push("/");
@@ -201,7 +213,7 @@ export default function AuthForm() {
                     <Input
                       id="email"
                       type="email"
-                      placeholder="me@example.com"
+                      placeholder="m@example.com"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       required
@@ -209,14 +221,12 @@ export default function AuthForm() {
                   </div>
                   <div className="grid gap-3">
                     <Label htmlFor="password">Password</Label>
-                    <Input 
-                      id="password" 
-                      type="password" 
-                      placeholder="Enter your password"
+                    <Input
+                      id="password"
+                      type="password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      autoComplete={isSignUp ? "new-password" : "current-password"}
-                      required 
+                      required
                     />
                   </div>
                   {isSignUp && (
@@ -225,77 +235,44 @@ export default function AuthForm() {
                       <Input
                         id="confirmPassword"
                         type="password"
-                        placeholder="Confirm your password"
                         value={confirmPassword}
                         onChange={(e) => setConfirmPassword(e.target.value)}
-                        autoComplete="new-password"
                         required
                       />
                     </div>
                   )}
                   <Button type="submit" className="w-full" disabled={isLoading}>
-                    {isLoading ? "Processing..." : (isSignUp ? "Sign up" : "Login")}
+                    {isLoading ? "Please wait..." : (isSignUp ? "Create account" : "Sign in")}
                   </Button>
-                </div>
-                
-                <div className="text-center text-sm">
-                  {isSignUp ? (
-                    <>
-                      Already have an account?{" "}
-                      <button
-                        type="button"
-                        onClick={toggleMode}
-                        className="underline underline-offset-4 hover:text-primary"
-                      >
-                        Sign in
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      Don&apos;t have an account?{" "}
-                      <button
-                        type="button"
-                        onClick={toggleMode}
-                        className="underline underline-offset-4 hover:text-primary"
-                      >
-                        Sign up
-                      </button>
-                    </>
-                  )}
                 </div>
               </div>
             </form>
+            
+            <div className="mt-4 text-center text-sm">
+              {isSignUp ? "Already have an account?" : "Don't have an account?"}{" "}
+              <button
+                type="button"
+                onClick={toggleMode}
+                className="underline underline-offset-4 hover:text-primary"
+              >
+                {isSignUp ? "Sign in" : "Sign up"}
+              </button>
+            </div>
           </CardContent>
         </Card>
-        
-        <div className="text-muted-foreground text-center text-xs text-balance">
-          By continuing, you agree to our{" "}
-          <a href="#" className="underline underline-offset-4 hover:text-primary">
-            Terms of Service
-          </a>{" "}
-          and{" "}
-          <a href="#" className="underline underline-offset-4 hover:text-primary">
-            Privacy Policy
-          </a>.
-        </div>
       </div>
 
       {/* Toast Notification */}
       {showToast && (
-        <div className="fixed top-4 right-4 z-50 max-w-md">
-          <div className="bg-green-50 border border-green-200 rounded-lg shadow-lg p-4 flex items-start gap-3">
-                          <CheckCircle className="w-6 h-6 text-green-600 flex-shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <h4 className="text-sm font-medium text-green-800">Email Sent!</h4>
-              <p className="text-sm text-green-700 mt-1">{toastMessage}</p>
-            </div>
-            <button
-              onClick={() => setShowToast(false)}
-              className="text-green-400 hover:text-green-600 transition-colors"
-            >
-                              <X className="w-5 h-5" />
-            </button>
-          </div>
+        <div className="fixed top-4 right-4 bg-white border border-gray-200 rounded-lg shadow-lg p-4 flex items-center gap-3 z-50">
+          <CheckCircle className="h-5 w-5 text-green-500" />
+          <span className="text-sm">{toastMessage}</span>
+          <button
+            onClick={() => setShowToast(false)}
+            className="text-gray-400 hover:text-gray-600"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
       )}
     </div>
