@@ -5,10 +5,10 @@ and the complex interaction between multiple imported type definitions from diff
 
 "use client";
 
-import { useState, useEffect, useRef, useContext } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { X, RefreshCcw } from "lucide-react";
-import { AISharedContext } from "./AISharedContext";
+import { useAISidePanelStore } from "@/zustand/authStore";
 import { useApiWithCompany } from "@/hooks/useApiWithCompany";
 import { tools } from "@/ai/tools";
 import { categoryPrompt } from "@/ai/prompts";
@@ -18,102 +18,55 @@ import { assignParentCategoryHandler } from "@/ai/functions/assignParentCategory
 import { deleteCategoryHandler } from "@/ai/functions/deleteCategory";
 import { changeCategoryTypeHandler } from "../ai/functions/changeCategoryType";
 
-interface Message {
-  role: "user" | "assistant";
-  content: string;
-  showConfirmation?: boolean;
-  pendingAction?: any;
-}
-
 interface AISidePanelProps {
   isOpen: boolean;
   setIsOpen: (open: boolean) => void;
 }
 
-const DEFAULT_PANEL_WIDTH = 400;
 const MIN_PANEL_WIDTH = 300;
 const MAX_PANEL_WIDTH = 800;
 
 export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
-  const [messages, setMessages] = useState<Message[]>(() => {
-    if (typeof window === "undefined") {
-      return [];
-    }
-    const savedMessages = localStorage.getItem("aiChatMessages");
-    if (savedMessages) {
-      try {
-        const parsedMessages = JSON.parse(savedMessages);
-        // Filter out any messages with showConfirmation or pendingAction to avoid stale confirmations
-        return parsedMessages.map((msg: Message) => ({
-          role: msg.role,
-          content: msg.content,
-        }));
-      } catch (error) {
-        console.error("Error parsing saved messages:", error);
-        localStorage.removeItem("aiChatMessages");
-        return [];
-      }
-    }
-    // Return welcome message for new users
-    return [
-      {
-        role: "assistant",
-        content: `👋 Hey there! I'm your **continuous** accounting assistant agent. I'm always monitoring your workflow and looking for ways to optimize it!
+  // Zustand store state
+  const {
+    messages,
+    setMessages,
+    addMessage,
+    clearMessages,
+    setIsLoading,
+    panelWidth,
+    setPanelWidth,
+    proactiveMode,
+    setProactiveMode,
+    categories,
+    transactions,
+    accounts,
+    refreshCategories,
+    currentScreenContext,
+    lastActivityTime,
+    updateActivityTime,
+    recentProactiveMessages,
+    addProactiveMessage,
+    clearProactiveMessage,
+  } = useAISidePanelStore();
 
-🔄 **Continuous Mode**: I'll automatically suggest improvements when you make changes, monitor for new transactions, and check in periodically to help enhance your accounting setup.
-
-I can help you:
-• Create and organize chart of account categories
-• Set up category hierarchies that make sense for your business
-• Proactively suggest optimizations as you work
-• Monitor changes and offer continuous improvements
-• Answer questions about accounting structure
-
-What kind of business are you running? I'd love to learn more so I can continuously provide tailored suggestions! 💡
-
-*Tip: Toggle the "🔄 Continuous" button in the header if you prefer manual-only assistance.*`,
-      },
-    ];
-  });
+  // Local state
   const [inputMessage, setInputMessage] = useState("");
-  const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
   const [isResizing, setIsResizing] = useState(false);
   const resizeRef = useRef<HTMLDivElement>(null);
-  const { categories, refreshCategories } = useContext(AISharedContext);
   const [pendingToolQueue, setPendingToolQueue] = useState<any[]>([]);
   const [pendingToolArgs, setPendingToolArgs] = useState<any | null>(null);
-  const [transactions, setTransactions] = useState<any[]>([]);
-  const [accounts, setAccounts] = useState<any[]>([]);
   const { currentCompany, postWithCompany } = useApiWithCompany();
-  const [lastActivityTime, setLastActivityTime] = useState<number>(Date.now());
-  const [proactiveMode, setProactiveMode] = useState<boolean>(() => {
-    if (typeof window === "undefined") return true;
-    const saved = localStorage.getItem("aiProactiveMode");
-    return saved !== null ? JSON.parse(saved) : true;
-  });
   const [lastCategoriesHash, setLastCategoriesHash] = useState<string>("");
   const [lastTransactionsCount, setLastTransactionsCount] = useState<number>(0);
-  const [recentProactiveMessages, setRecentProactiveMessages] = useState<Set<string>>(new Set());
 
-  // Load saved panel width from localStorage
+  // Load saved panel width from localStorage on mount
   useEffect(() => {
     const savedWidth = localStorage.getItem("aiPanelWidth");
     if (savedWidth) {
       setPanelWidth(parseInt(savedWidth, 10));
     }
-  }, []);
-
-  // Save messages to localStorage whenever messages change
-  useEffect(() => {
-    // A small delay to batch updates and avoid excessive writes.
-    const handler = setTimeout(() => {
-      localStorage.setItem("aiChatMessages", JSON.stringify(messages));
-    }, 100);
-
-    return () => {
-      clearTimeout(handler);
-    };
-  }, [messages]);
+  }, [setPanelWidth]);
 
   // Fetch transactions and accounts when component mounts
   useEffect(() => {
@@ -125,47 +78,27 @@ What kind of business are you running? I'd love to learn more so I can continuou
         supabase.from("accounts").select("*").eq("company_id", currentCompany.id),
       ]);
 
-      setTransactions(transactionsData.data || []);
-      setAccounts(accountsData.data || []);
+      // Update Zustand store instead of local state
+      useAISidePanelStore.getState().setTransactions(transactionsData.data || []);
+      useAISidePanelStore.getState().setAccounts(accountsData.data || []);
     };
 
     fetchData();
   }, [currentCompany]);
 
-  // Save panel width to localStorage
-  useEffect(() => {
-    localStorage.setItem("aiPanelWidth", panelWidth.toString());
-  }, [panelWidth]);
-
-  // Save proactive mode setting
-  useEffect(() => {
-    localStorage.setItem("aiProactiveMode", JSON.stringify(proactiveMode));
-  }, [proactiveMode]);
-
   // Helper function to add proactive message without duplicates
-  const addProactiveMessage = (messageKey: string, content: string, delay: number = 2000) => {
+  const addProactiveMessageWithDelay = (messageKey: string, content: string, delay: number = 2000) => {
     if (recentProactiveMessages.has(messageKey)) return;
 
-    setRecentProactiveMessages((prev) => new Set(prev).add(messageKey));
+    addProactiveMessage(messageKey);
 
     setTimeout(() => {
-      setMessages((prev) => {
-        // Double-check the message hasn't been added already
-        const lastMessage = prev[prev.length - 1];
-        if (lastMessage?.role === "assistant" && lastMessage.content.includes(content.substring(0, 50))) {
-          return prev;
-        }
-        return [...prev, { role: "assistant", content }];
-      });
+      setMessages([...messages, { role: "assistant", content }]);
     }, delay);
 
     // Clear the message key after 5 minutes to allow future similar messages
     setTimeout(() => {
-      setRecentProactiveMessages((prev) => {
-        const newSet = new Set(prev);
-        newSet.delete(messageKey);
-        return newSet;
-      });
+      clearProactiveMessage(messageKey);
     }, 5 * 60 * 1000);
   };
 
@@ -187,7 +120,7 @@ What kind of business are you running? I'd love to learn more so I can continuou
 
 What would you like to focus on next? I'm here to help you continuously improve your accounting structure! 💡`;
 
-      addProactiveMessage(messageKey, content, 2000);
+      addProactiveMessageWithDelay(messageKey, content, 2000);
     }
 
     // Check for new transactions
@@ -205,7 +138,7 @@ Here's how I can help optimize this:
 
 Ready to tackle these together? What type of transactions are these mostly? 🚀`;
 
-      addProactiveMessage(messageKey, content, 1500);
+      addProactiveMessageWithDelay(messageKey, content, 1500);
     }
 
     setLastCategoriesHash(categoriesHash);
@@ -218,6 +151,10 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
     proactiveMode,
     currentCompany,
     recentProactiveMessages,
+    addProactiveMessage,
+    clearProactiveMessage,
+    messages,
+    setMessages,
   ]);
 
   // Periodic check-ins to keep AI engaged
@@ -240,23 +177,17 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
         const randomMessage = checkInMessages[Math.floor(Math.random() * checkInMessages.length)];
         const messageKey = `check-in-${Date.now()}`;
 
-        addProactiveMessage(messageKey, randomMessage, 0);
-        setLastActivityTime(Date.now()); // Reset timer after check-in
+        addProactiveMessageWithDelay(messageKey, randomMessage, 0);
+        updateActivityTime(); // Reset timer after check-in
       }
     }, 60000); // Check every minute
 
     return () => clearInterval(checkInInterval);
-  }, [lastActivityTime, messages.length, proactiveMode, recentProactiveMessages]);
-
-  // Update activity time on user interaction
-  const updateActivityTime = () => {
-    setLastActivityTime(Date.now());
-  };
+  }, [lastActivityTime, messages.length, proactiveMode, updateActivityTime]);
 
   // Function to refresh/clear chat context
   const handleRefreshContext = () => {
-    setMessages([]);
-    localStorage.removeItem("aiChatMessages");
+    clearMessages();
     setPendingToolQueue([]);
     setPendingToolArgs(null);
   };
@@ -444,14 +375,14 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
   const handleConfirm = async (messageIndex: number) => {
     const message = messages[messageIndex];
     if (message.pendingAction) {
-      if (message.pendingAction.action === "batch_execute") {
+      if ((message.pendingAction as any)?.action === "batch_execute") {
         // Execute all actions in the queue
         const results: string[] = [];
         let currentMessage = message.content + "\n\n✅ **Executing actions:**\n";
 
         // Update message to show it's executing
-        setMessages((prev) =>
-          prev.map((msg, idx) =>
+        setMessages(
+          messages.map((msg, idx) =>
             idx === messageIndex
               ? { ...msg, content: currentMessage, showConfirmation: false, pendingAction: undefined }
               : msg
@@ -464,8 +395,8 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
           try {
             // Update to show current action being processed
             const processingMessage = currentMessage + `\n🔄 Processing action ${i + 1}...`;
-            setMessages((prev) =>
-              prev.map((msg, idx) => (idx === messageIndex ? { ...msg, content: processingMessage } : msg))
+            setMessages(
+              messages.map((msg, idx) => (idx === messageIndex ? { ...msg, content: processingMessage } : msg))
             );
 
             // For actions that depend on recently created categories, get fresh data
@@ -496,16 +427,16 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
             await new Promise((resolve) => setTimeout(resolve, 500));
 
             // Update message with progress
-            setMessages((prev) =>
-              prev.map((msg, idx) => (idx === messageIndex ? { ...msg, content: currentMessage } : msg))
+            setMessages(
+              messages.map((msg, idx) => (idx === messageIndex ? { ...msg, content: currentMessage } : msg))
             );
           } catch (error) {
             results.push(`${i + 1}. Error: ${error}`);
             currentMessage += `${i + 1}. ❌ Error: ${error}\n`;
 
             // Update message with error
-            setMessages((prev) =>
-              prev.map((msg, idx) => (idx === messageIndex ? { ...msg, content: currentMessage } : msg))
+            setMessages(
+              messages.map((msg, idx) => (idx === messageIndex ? { ...msg, content: currentMessage } : msg))
             );
           }
         }
@@ -515,15 +446,15 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
 
         // Final message update
         currentMessage += `\n🎉 **All actions completed!**`;
-        setMessages((prev) =>
-          prev.map((msg, idx) => (idx === messageIndex ? { ...msg, content: currentMessage } : msg))
+        setMessages(
+          messages.map((msg, idx) => (idx === messageIndex ? { ...msg, content: currentMessage } : msg))
         );
       } else {
         // Execute single action (backward compatibility)
 
         // Show confirming message first
-        setMessages((prev) =>
-          prev.map((msg, idx) =>
+        setMessages(
+          messages.map((msg, idx) =>
             idx === messageIndex
               ? {
                   ...msg,
@@ -542,8 +473,8 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
           await refreshCategories();
 
           // Update the message to show the result
-          setMessages((prev) =>
-            prev.map((msg, idx) =>
+          setMessages(
+            messages.map((msg, idx) =>
               idx === messageIndex
                 ? {
                     ...msg,
@@ -557,8 +488,8 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
           );
         } catch (error) {
           // Update the message to show the error
-          setMessages((prev) =>
-            prev.map((msg, idx) =>
+          setMessages(
+            messages.map((msg, idx) =>
               idx === messageIndex
                 ? {
                     ...msg,
@@ -574,8 +505,8 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
 
   // Handle cancellation
   const handleCancel = (messageIndex: number) => {
-    setMessages((prev) =>
-      prev.map((msg, idx) =>
+    setMessages(
+      messages.map((msg, idx) =>
         idx === messageIndex
           ? {
               ...msg,
@@ -594,28 +525,33 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
     // Update activity time on user interaction
     updateActivityTime();
 
-    const newMessage: Message = {
-      role: "user",
+    const newMessage = {
+      role: "user" as const,
       content: inputMessage,
     };
-    setMessages((prev) => [...prev, newMessage]);
+    
+    addMessage(newMessage);
     setInputMessage("");
 
-    // Only provide categories context
+    // Create context from current screen data and global categories
     const contextMessages: { role: string; content: string }[] = [
       {
         role: "system",
-        content: `Available categories: ${categories.map((c) => c.name).join(", ")}`,
+        content: `Current page: ${currentScreenContext.page}
+Available categories: ${categories.map((c) => c.name).join(", ")}
+Current screen data: ${JSON.stringify(currentScreenContext.data, null, 2)}`,
       },
     ];
 
     const openAIMessages = [
       { role: "system", content: categoryPrompt },
       ...contextMessages,
-      ...[...messages, newMessage].map((m) => ({ role: m.role, content: m.content })),
+      ...messages.map((m) => ({ role: m.role, content: m.content })),
+      { role: newMessage.role, content: newMessage.content },
     ];
 
-    setMessages((prev) => [...prev, { role: "assistant", content: "Thinking..." }]);
+    addMessage({ role: "assistant", content: "Thinking..." });
+    setIsLoading(true);
 
     try {
       const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -708,15 +644,18 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
 
         // Set up for batch execution
         setPendingToolQueue(allActions);
-        setMessages((prev) => [
-          ...prev.slice(0, -1), // remove 'Thinking...'
-          {
-            role: "assistant",
-            content: confirmationMessage,
-            showConfirmation: true,
-            pendingAction: { action: "batch_execute" },
-          },
-        ]);
+        
+        // Remove "Thinking..." and add confirmation message
+        const updatedMessages = [...messages];
+        updatedMessages.pop(); // Remove "Thinking..."
+        updatedMessages.push({
+          role: "assistant",
+          content: confirmationMessage,
+          showConfirmation: true,
+          pendingAction: { action: "batch_execute" },
+        });
+        setMessages(updatedMessages);
+        setIsLoading(false);
         return;
       }
 
@@ -744,15 +683,17 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
           }
         }
 
-        setMessages((prev) => [
-          ...prev.slice(0, -1), // remove 'Thinking...'
-          {
-            role: "assistant",
-            content: aiResponse,
-            showConfirmation,
-            pendingAction,
-          },
-        ]);
+        // Remove "Thinking..." and add response
+        const updatedMessages = [...messages];
+        updatedMessages.pop(); // Remove "Thinking..."
+        updatedMessages.push({
+          role: "assistant",
+          content: aiResponse,
+          showConfirmation,
+          pendingAction,
+        });
+        setMessages(updatedMessages);
+        setIsLoading(false);
         return;
       }
 
@@ -761,19 +702,27 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
         aiResponse = "Sorry, I could not generate a response.";
       }
 
-      setMessages((prev) => [
-        ...prev.slice(0, -1), // remove 'Thinking...'
-        {
-          role: "assistant",
-          content: aiResponse,
-        },
-      ]);
+      // Remove "Thinking..." and add response
+      const updatedMessages = [...messages];
+      updatedMessages.pop(); // Remove "Thinking..."
+      updatedMessages.push({
+        role: "assistant",
+        content: aiResponse,
+      });
+      setMessages(updatedMessages);
+      setIsLoading(false);
     } catch (err) {
       console.error("API Error:", err); // Debug log
-      setMessages((prev) => [
-        ...prev.slice(0, -1),
-        { role: "assistant", content: "Sorry, there was an error contacting the AI." },
-      ]);
+      
+      // Remove "Thinking..." and add error message
+      const updatedMessages = [...messages];
+      updatedMessages.pop(); // Remove "Thinking..."
+      updatedMessages.push({
+        role: "assistant", 
+        content: "Sorry, there was an error contacting the AI."
+      });
+      setMessages(updatedMessages);
+      setIsLoading(false);
     }
   };
 
@@ -783,30 +732,24 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
     if (pendingToolArgs.type === "create_category") {
       result = await createCategoryHandler({ ...pendingToolArgs.args, companyId: currentCompany?.id });
       if (result.success) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: `Category "${pendingToolArgs.args.name}" (${pendingToolArgs.args.type}) has been created! Would you like to create another category or assign this one to a parent category?`,
-          },
-        ]);
+        addMessage({
+          role: "assistant",
+          content: `Category "${pendingToolArgs.args.name}" (${pendingToolArgs.args.type}) has been created! Would you like to create another category or assign this one to a parent category?`,
+        });
         await refreshCategories();
       } else {
-        setMessages((prev) => [...prev, { role: "assistant", content: `Error creating category: ${result.error}` }]);
+        addMessage({ role: "assistant", content: `Error creating category: ${result.error}` });
       }
     } else if (pendingToolArgs.type === "rename_category") {
       result = await renameCategoryHandler({ ...pendingToolArgs.args, companyId: currentCompany?.id, categories });
       if (result.success) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: `Category "${pendingToolArgs.args.oldName}" has been renamed to "${pendingToolArgs.args.newName}". Is there anything else you'd like to change about this category?`,
-          },
-        ]);
+        addMessage({
+          role: "assistant",
+          content: `Category "${pendingToolArgs.args.oldName}" has been renamed to "${pendingToolArgs.args.newName}". Is there anything else you'd like to change about this category?`,
+        });
         await refreshCategories();
       } else {
-        setMessages((prev) => [...prev, { role: "assistant", content: `Error renaming category: ${result.error}` }]);
+        addMessage({ role: "assistant", content: `Error renaming category: ${result.error}` });
       }
     } else if (pendingToolArgs.type === "assign_parent_category") {
       result = await assignParentCategoryHandler({
@@ -815,47 +758,35 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
         categories,
       });
       if (result.success) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: `Assigned "${pendingToolArgs.args.childName}" as a subcategory of "${pendingToolArgs.args.parentName}". Would you like to organize any other categories?`,
-          },
-        ]);
+        addMessage({
+          role: "assistant",
+          content: `Assigned "${pendingToolArgs.args.childName}" as a subcategory of "${pendingToolArgs.args.parentName}". Would you like to organize any other categories?`,
+        });
         await refreshCategories();
       } else {
-        setMessages((prev) => [...prev, { role: "assistant", content: `Error: ${result.error}` }]);
+        addMessage({ role: "assistant", content: `Error: ${result.error}` });
       }
     } else if (pendingToolArgs.type === "delete_category") {
       result = await deleteCategoryHandler({ ...pendingToolArgs.args, companyId: currentCompany?.id, categories });
       if (result.success) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: `Category "${pendingToolArgs.args.name}" has been deleted. Would you like to make any other changes to your categories?`,
-          },
-        ]);
+        addMessage({
+          role: "assistant",
+          content: `Category "${pendingToolArgs.args.name}" has been deleted. Would you like to make any other changes to your categories?`,
+        });
         await refreshCategories();
       } else {
-        setMessages((prev) => [...prev, { role: "assistant", content: `Error deleting category: ${result.error}` }]);
+        addMessage({ role: "assistant", content: `Error deleting category: ${result.error}` });
       }
     } else if (pendingToolArgs.type === "change_category_type") {
       result = await changeCategoryTypeHandler({ ...pendingToolArgs.args, companyId: currentCompany?.id, categories });
       if (result.success) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: `Category "${pendingToolArgs.args.categoryName}" type has been changed to "${pendingToolArgs.args.newType}". Would you like to make any other changes to your categories?`,
-          },
-        ]);
+        addMessage({
+          role: "assistant",
+          content: `Category "${pendingToolArgs.args.categoryName}" type has been changed to "${pendingToolArgs.args.newType}". Would you like to make any other changes to your categories?`,
+        });
         await refreshCategories();
       } else {
-        setMessages((prev) => [
-          ...prev,
-          { role: "assistant", content: `Error changing category type: ${result.error}` },
-        ]);
+        addMessage({ role: "assistant", content: `Error changing category type: ${result.error}` });
       }
     }
     // Remove the first tool from the queue and set up the next one
@@ -865,59 +796,44 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
       const nextTool = newQueue[0];
       if (nextTool.function?.name === "create_category") {
         setPendingToolArgs({ type: "create_category", args: JSON.parse(nextTool.function.arguments) });
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: `To confirm, I will create a new category named "${
-              JSON.parse(nextTool.function.arguments).name
-            }" with type "${JSON.parse(nextTool.function.arguments).type}". Please press confirm.`,
-          },
-        ]);
+        addMessage({
+          role: "assistant",
+          content: `To confirm, I will create a new category named "${
+            JSON.parse(nextTool.function.arguments).name
+          }" with type "${JSON.parse(nextTool.function.arguments).type}". Please press confirm.`,
+        });
       } else if (nextTool.function?.name === "rename_category") {
         setPendingToolArgs({ type: "rename_category", args: JSON.parse(nextTool.function.arguments) });
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: `To confirm, I will rename the category "${JSON.parse(nextTool.function.arguments).oldName}" to "${
-              JSON.parse(nextTool.function.arguments).newName
-            }". Please press confirm.`,
-          },
-        ]);
+        addMessage({
+          role: "assistant",
+          content: `To confirm, I will rename the category "${JSON.parse(nextTool.function.arguments).oldName}" to "${
+            JSON.parse(nextTool.function.arguments).newName
+          }". Please press confirm.`,
+        });
       } else if (nextTool.function?.name === "assign_parent_category") {
         setPendingToolArgs({ type: "assign_parent_category", args: JSON.parse(nextTool.function.arguments) });
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: `To confirm, I will assign "${
-              JSON.parse(nextTool.function.arguments).childName
-            }" as a subcategory of "${JSON.parse(nextTool.function.arguments).parentName}". Please press confirm.`,
-          },
-        ]);
+        addMessage({
+          role: "assistant",
+          content: `To confirm, I will assign "${
+            JSON.parse(nextTool.function.arguments).childName
+          }" as a subcategory of "${JSON.parse(nextTool.function.arguments).parentName}". Please press confirm.`,
+        });
       } else if (nextTool.function?.name === "delete_category") {
         setPendingToolArgs({ type: "delete_category", args: JSON.parse(nextTool.function.arguments) });
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: `To confirm, I will delete the category "${
-              JSON.parse(nextTool.function.arguments).name
-            }". Please press confirm.`,
-          },
-        ]);
+        addMessage({
+          role: "assistant",
+          content: `To confirm, I will delete the category "${
+            JSON.parse(nextTool.function.arguments).name
+          }". Please press confirm.`,
+        });
       } else if (nextTool.function?.name === "change_category_type") {
         setPendingToolArgs({ type: "change_category_type", args: JSON.parse(nextTool.function.arguments) });
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: `To confirm, I will change the type of category "${
-              JSON.parse(nextTool.function.arguments).categoryName
-            }" to "${JSON.parse(nextTool.function.arguments).newType}". Please press confirm.`,
-          },
-        ]);
+        addMessage({
+          role: "assistant",
+          content: `To confirm, I will change the type of category "${
+            JSON.parse(nextTool.function.arguments).categoryName
+          }" to "${JSON.parse(nextTool.function.arguments).newType}". Please press confirm.`,
+        });
       }
     } else {
       setPendingToolArgs(null);
@@ -1015,7 +931,7 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
                           : "inherit",
                     }}
                   >
-                    {message.content}
+                    {String(message.content)}
                   </div>
 
                   {/* Confirmation buttons */}
@@ -1132,3 +1048,6 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
     </div>
   );
 }
+
+// Export the screen context hook for easy use in pages
+export { useScreenContext } from "@/zustand/authStore";

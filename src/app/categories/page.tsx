@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState, useContext, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { useApiWithCompany } from "@/hooks/useApiWithCompany";
-import { AISharedContext } from "@/components/AISharedContext";
+import { useAISidePanelStore, useScreenContext } from "@/zustand/authStore";
 import Papa from "papaparse";
 import { v4 as uuidv4 } from "uuid";
 import { X } from "lucide-react";
@@ -73,7 +73,11 @@ type PayeeSortConfig = {
 
 export default function ChartOfAccountsPage() {
   const { hasCompanyContext, currentCompany } = useApiWithCompany();
-  const { categories: accounts, refreshCategories } = useContext(AISharedContext);
+  
+  // Use Zustand instead of React Context
+  const { categories: accounts, refreshCategories } = useAISidePanelStore();
+  const { updateScreenContext } = useScreenContext();
+  
   const [payees, setPayees] = useState<Payee[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -145,6 +149,32 @@ export default function ChartOfAccountsPage() {
   useEffect(() => {
     setPayeeCurrentPage(1);
   }, [payeeSearch]);
+
+  // Update AI screen context whenever data changes
+  useEffect(() => {
+    const filteredAccounts = accounts.filter((account) =>
+      account.name.toLowerCase().includes(search.toLowerCase())
+    );
+    
+    const filteredPayees = payees.filter((payee) =>
+      payee.name.toLowerCase().includes(payeeSearch.toLowerCase())
+    );
+
+    updateScreenContext('categories', {
+      categories: accounts,
+      payees: payees,
+      filteredData: [...filteredAccounts, ...filteredPayees],
+      searchTerm: search || payeeSearch,
+      currentFilters: {
+        categorySearch: search,
+        payeeSearch: payeeSearch,
+        categorySortConfig,
+        payeeSortConfig,
+        currentPage,
+        payeeCurrentPage,
+      },
+    });
+  }, [accounts, payees, search, payeeSearch, categorySortConfig, payeeSortConfig, currentPage, payeeCurrentPage, updateScreenContext]);
 
   // Pagination utility function
   const getPaginatedData = <T,>(data: T[], currentPage: number, itemsPerPage: number) => {
