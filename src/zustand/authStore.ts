@@ -25,7 +25,6 @@ interface AuthData {
   companies: UserCompany[];
   currentCompany: Company | null;
   accessToken: string;
-  refreshToken: string;
 }
 
 interface AuthState {
@@ -46,20 +45,18 @@ interface AuthState {
   refreshTokens: () => Promise<boolean>;
 }
 
-// Separate store for sensitive tokens (no persistence)
+// Separate store for access token only (no persistence)
 interface TokenState {
   accessToken: string | null;
-  refreshToken: string | null;
-  setTokens: (accessToken: string, refreshToken: string) => void;
+  setAccessToken: (accessToken: string) => void;
   clearTokens: () => void;
 }
 
-// Token store - not persisted for security
+// Token store - not persisted for security (access token only)
 export const useTokenStore = create<TokenState>((set) => ({
   accessToken: null,
-  refreshToken: null,
-  setTokens: (accessToken, refreshToken) => set({ accessToken, refreshToken }),
-  clearTokens: () => set({ accessToken: null, refreshToken: null }),
+  setAccessToken: (accessToken) => set({ accessToken }),
+  clearTokens: () => set({ accessToken: null }),
 }));
 
 // Secure storage configuration - only use sessionStorage for security
@@ -96,8 +93,8 @@ export const useAuthStore = create<AuthState>()(
           isAuthenticated: true 
         });
         
-        // Store tokens in separate non-persisted store
-        useTokenStore.getState().setTokens(auth.accessToken, auth.refreshToken);
+        // Store access token in separate non-persisted store
+        useTokenStore.getState().setAccessToken(auth.accessToken);
       },
 
       setCurrentCompany: (company) => set({ currentCompany: company }),
@@ -115,24 +112,24 @@ export const useAuthStore = create<AuthState>()(
       logout: () => {
         const { clearAuth } = get();
         clearAuth();
+        // Clear refresh token cookie by calling logout endpoint
+        fetch('/api/auth/logout', { method: 'POST' });
         // Redirect to login page
         window.location.href = '/';
       },
 
       refreshTokens: async () => {
-        const { refreshToken } = useTokenStore.getState();
-        if (!refreshToken) return false;
-
         try {
+          // No need to send refresh token - it's in cookies
           const response = await fetch('/api/auth/refresh', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ refreshToken }),
+            credentials: 'include', // Important: include cookies
           });
 
           if (response.ok) {
-            const { accessToken: newAccessToken, refreshToken: newRefreshToken } = await response.json();
-            useTokenStore.getState().setTokens(newAccessToken, newRefreshToken);
+            const { accessToken } = await response.json();
+            useTokenStore.getState().setAccessToken(accessToken);
             return true;
           }
           
@@ -179,6 +176,7 @@ export const createAuthenticatedFetch = () => {
     let response = await fetch(url, {
       ...options,
       headers,
+      credentials: 'include', // Important: include cookies for refresh token
     });
 
     // Auto-refresh on 401
@@ -190,6 +188,7 @@ export const createAuthenticatedFetch = () => {
         response = await fetch(url, {
           ...options,
           headers,
+          credentials: 'include',
         });
       } else {
         // If refresh fails, redirect to login
@@ -205,10 +204,10 @@ export const createAuthenticatedFetch = () => {
 // Initialize auth state from tokens on app start
 export const initializeAuth = async () => {
   const { isAuthenticated } = useAuthStore.getState();
-  const { accessToken, refreshToken } = useTokenStore.getState();
+  const { accessToken } = useTokenStore.getState();
   
-  // If we have stored auth state but no tokens in memory, try to refresh
-  if (isAuthenticated && !accessToken && refreshToken) {
+  // If we have stored auth state but no access token in memory, try to refresh
+  if (isAuthenticated && !accessToken) {
     await useAuthStore.getState().refreshTokens();
   }
   
@@ -217,6 +216,7 @@ export const initializeAuth = async () => {
     try {
       const response = await fetch('/api/auth/validate', {
         headers: { 'Authorization': `Bearer ${accessToken}` },
+        credentials: 'include',
       });
       
       if (!response.ok) {
