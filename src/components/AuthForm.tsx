@@ -9,9 +9,6 @@ import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -164,17 +161,6 @@ export default function AuthForm() {
         </a>
         
         <Card>
-          <CardHeader className="text-center">
-            <CardTitle className="text-xl">
-              {isSignUp ? "Create your account" : "Welcome back"}
-            </CardTitle>
-            <CardDescription>
-              {isSignUp 
-                ? "Enter your details to create your account" 
-                : "Enter your credentials to access your account"
-              }
-            </CardDescription>
-          </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit}>
               <div className="grid gap-6">
