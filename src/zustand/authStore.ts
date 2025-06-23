@@ -216,17 +216,45 @@ export const createAuthenticatedFetch = () => {
 
 // Initialize auth state on app start
 export const initializeAuth = async () => {
-  const { setAuth, refreshTokens } = useAuthStore.getState();
-  const { accessToken } = useTokenStore.getState();
+  const { setAuth, clearAuth } = useAuthStore.getState();
   
-  // If we have a refresh token cookie but no access token, try to refresh
-  if (!accessToken) {
-    const refreshed = await refreshTokens();
+  try {
+    // Try to validate existing session first
+    // This will work with either access token (Authorization header) or refresh token (cookie)
+    let response = await fetch('/api/auth/validate', {
+      method: 'GET',
+      credentials: 'include', // Include cookies
+    });
+
+    // If validation succeeds, we have a valid session
+    if (response.ok) {
+      const data = await response.json();
+      if (data.user && data.valid) {
+        // Ensure we have a fresh access token
+        const { refreshTokens } = useAuthStore.getState();
+        const refreshed = await refreshTokens();
+        
+        if (refreshed) {
+          setAuth({
+            user: data.user,
+            companies: data.companies || [],
+            currentCompany: data.currentCompany || null,
+            accessToken: useTokenStore.getState().accessToken!,
+          });
+          return;
+        }
+      }
+    }
     
-    if (refreshed) {
-      // After refresh, validate the session to get user data and companies
-      try {
-        const response = await fetch('/api/auth/validate', {
+    // If validation fails, try to refresh tokens
+    if (response.status === 401) {
+      const { refreshTokens } = useAuthStore.getState();
+      const refreshed = await refreshTokens();
+      
+      if (refreshed) {
+        // After successful refresh, validate again to get user data
+        response = await fetch('/api/auth/validate', {
+          method: 'GET',
           headers: { 
             'Authorization': `Bearer ${useTokenStore.getState().accessToken}` 
           },
@@ -235,18 +263,23 @@ export const initializeAuth = async () => {
         
         if (response.ok) {
           const data = await response.json();
-          if (data.user) {
+          if (data.user && data.valid) {
             setAuth({
               user: data.user,
               companies: data.companies || [],
               currentCompany: data.currentCompany || null,
               accessToken: useTokenStore.getState().accessToken!,
             });
+            return;
           }
         }
-      } catch {
-        // Silent fail - user will need to login
       }
     }
+    
+    // If all attempts fail, clear auth state
+    clearAuth();
+  } catch (error) {
+    console.error('Auth initialization error:', error);
+    clearAuth();
   }
 }; 
