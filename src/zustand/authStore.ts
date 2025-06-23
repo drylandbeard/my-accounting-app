@@ -61,15 +61,44 @@ export const useTokenStore = create<TokenState>((set) => ({
   clearTokens: () => set({ accessToken: null }),
 }));
 
-// Main auth store - no persistence, everything in memory
+// Helper functions for currentCompany persistence
+const getCurrentCompanyFromStorage = (): Company | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const stored = localStorage.getItem('currentCompany');
+    console.log('🔍 Getting company from storage:', stored);
+    return stored ? JSON.parse(stored) : null;
+  } catch {
+    console.log('❌ Error reading company from localStorage');
+    return null;
+  }
+};
+
+const setCurrentCompanyInStorage = (company: Company | null) => {
+  if (typeof window === 'undefined') return;
+  try {
+    if (company) {
+      console.log('💾 Storing company in localStorage:', company);
+      localStorage.setItem('currentCompany', JSON.stringify(company));
+    } else {
+      console.log('🗑️ Removing company from localStorage');
+      localStorage.removeItem('currentCompany');
+    }
+  } catch {
+    console.log('❌ Error writing to localStorage');
+  }
+};
+
+// Main auth store - no persistence except for currentCompany
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   companies: [],
-  currentCompany: null,
+  currentCompany: getCurrentCompanyFromStorage(),
   isAuthenticated: false,
   isLoading: false,
 
   setAuth: (auth) => {
+    console.log('🔐 Setting auth with currentCompany:', auth.currentCompany);
     // Store user data in memory only
     set({ 
       user: auth.user,
@@ -82,7 +111,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     useTokenStore.getState().setAccessToken(auth.accessToken);
   },
 
-  setCurrentCompany: (company) => set({ currentCompany: company }),
+  setCurrentCompany: (company) => {
+    console.log('🏢 setCurrentCompany called with:', company);
+    set({ currentCompany: company });
+    setCurrentCompanyInStorage(company);
+  },
 
   updateCompany: (companyId, updates) => set((state) => {
     // Update in companies array
@@ -96,6 +129,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const updatedCurrentCompany = state.currentCompany?.id === companyId
       ? { ...state.currentCompany, ...updates }
       : state.currentCompany;
+    
+    // Update localStorage if current company was updated
+    if (state.currentCompany?.id === companyId && updatedCurrentCompany) {
+      setCurrentCompanyInStorage(updatedCurrentCompany);
+    }
     
     return {
       companies: updatedCompanies,
@@ -113,6 +151,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const updatedCurrentCompany = state.currentCompany?.id === companyId
       ? null
       : state.currentCompany;
+    
+    // Clear localStorage if current company was removed
+    if (state.currentCompany?.id === companyId) {
+      setCurrentCompanyInStorage(null);
+    }
     
     return {
       companies: updatedCompanies,
@@ -133,6 +176,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       currentCompany: null,
       isAuthenticated: false 
     });
+    setCurrentCompanyInStorage(null);
     useTokenStore.getState().clearTokens();
   },
 
@@ -218,6 +262,8 @@ export const createAuthenticatedFetch = () => {
 export const initializeAuth = async () => {
   const { setAuth, clearAuth } = useAuthStore.getState();
   
+  console.log('🚀 Initializing auth...');
+  
   try {
     // Try to validate existing session first
     // This will work with either access token (Authorization header) or refresh token (cookie)
@@ -235,12 +281,33 @@ export const initializeAuth = async () => {
         const refreshed = await refreshTokens();
         
         if (refreshed) {
-          // Preserve existing currentCompany if one is already set
-          const existingCurrentCompany = useAuthStore.getState().currentCompany;
+                      // Restore currentCompany from localStorage and validate user still has access
+            const storedCompany = getCurrentCompanyFromStorage();
+            let validCurrentCompany = null;
+            
+            console.log('📦 Stored company found:', storedCompany);
+            console.log('🏢 User companies:', data.companies);
+            
+            if (storedCompany && data.companies) {
+              // Check if stored company is still in user's companies list
+              const hasAccess = data.companies.some(
+                (userCompany: UserCompany) => userCompany.companies.id === storedCompany.id
+              );
+              console.log('🔐 User has access to stored company:', hasAccess);
+              if (hasAccess) {
+                validCurrentCompany = storedCompany;
+                console.log('✅ Restoring company:', validCurrentCompany);
+              } else {
+                console.log('❌ User no longer has access to stored company, clearing...');
+                // Clear invalid stored company
+                setCurrentCompanyInStorage(null);
+              }
+            }
+          
           setAuth({
             user: data.user,
             companies: data.companies || [],
-            currentCompany: existingCurrentCompany || data.currentCompany || null,
+            currentCompany: validCurrentCompany,
             accessToken: useTokenStore.getState().accessToken!,
           });
           return;
@@ -266,12 +333,33 @@ export const initializeAuth = async () => {
         if (response.ok) {
           const data = await response.json();
           if (data.user && data.valid) {
-            // Preserve existing currentCompany if one is already set
-            const existingCurrentCompany = useAuthStore.getState().currentCompany;
+                      // Restore currentCompany from localStorage and validate user still has access
+          const storedCompany = getCurrentCompanyFromStorage();
+          let validCurrentCompany = null;
+          
+          console.log('📦 [After refresh] Stored company found:', storedCompany);
+          console.log('🏢 [After refresh] User companies:', data.companies);
+          
+          if (storedCompany && data.companies) {
+            // Check if stored company is still in user's companies list
+            const hasAccess = data.companies.some(
+              (userCompany: UserCompany) => userCompany.companies.id === storedCompany.id
+            );
+            console.log('🔐 [After refresh] User has access to stored company:', hasAccess);
+            if (hasAccess) {
+              validCurrentCompany = storedCompany;
+              console.log('✅ [After refresh] Restoring company:', validCurrentCompany);
+            } else {
+              console.log('❌ [After refresh] User no longer has access to stored company, clearing...');
+              // Clear invalid stored company
+              setCurrentCompanyInStorage(null);
+            }
+          }
+            
             setAuth({
               user: data.user,
               companies: data.companies || [],
-              currentCompany: existingCurrentCompany || data.currentCompany || null,
+              currentCompany: validCurrentCompany,
               accessToken: useTokenStore.getState().accessToken!,
             });
             return;
