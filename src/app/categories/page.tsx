@@ -123,7 +123,6 @@ export default function ChartOfAccountsPage() {
 
   const {
     payees,
-    isLoading: payeesLoading,
     error: payeesError,
     highlightedPayeeIds,
     lastActionPayeeId,
