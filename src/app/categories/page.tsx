@@ -7,6 +7,7 @@ import { useAIStore } from "@/zustand/aiStore";
 import Papa from "papaparse";
 import { v4 as uuidv4 } from "uuid";
 import { X } from "lucide-react";
+import { Select } from "@/components/ui/select";
 import {
   Pagination,
   PaginationContent,
@@ -36,10 +37,11 @@ type Payee = {
 type CategoryImportModalState = {
   isOpen: boolean;
   step: "upload" | "review";
-  csvData: Category[];
+  csvData: CategoryImportData[];
   isLoading: boolean;
   error: string | null;
   selectedCategories: Set<string>;
+  autoCreateMissing: boolean;
 };
 
 type PayeeImportModalState = {
@@ -61,6 +63,19 @@ type PayeeCSVRow = {
   Name: string;
 };
 
+type CategoryImportData = {
+  id: string;
+  name: string;
+  type: string;
+  subtype?: string;
+  parent_id?: string | null;
+  company_id?: string;
+  isValid: boolean;
+  validationMessage?: string;
+  needsParentCreation?: boolean;
+  parentName?: string;
+};
+
 type SortConfig = {
   key: "name" | "type" | "parent" | null;
   direction: "asc" | "desc";
@@ -69,6 +84,19 @@ type SortConfig = {
 type PayeeSortConfig = {
   key: "name" | null;
   direction: "asc" | "desc";
+};
+
+type SelectOption = {
+  value: string;
+  label: string;
+};
+
+type MergeModalState = {
+  isOpen: boolean;
+  selectedCategories: Set<string>;
+  targetCategoryId: string | null;
+  isLoading: boolean;
+  error: string | null;
 };
 
 export default function ChartOfAccountsPage() {
@@ -108,6 +136,10 @@ export default function ChartOfAccountsPage() {
   const [editName, setEditName] = useState("");
   const [editType, setEditType] = useState("");
   const [editParentId, setEditParentId] = useState<string | null>(null);
+  
+  // Refs to store the latest values for immediate access
+  const editParentIdRef = useRef<string | null>(null);
+  const editTypeRef = useRef<string>("");
 
   // Payee edit state
   const [editingPayeeId, setEditingPayeeId] = useState<string | null>(null);
@@ -123,6 +155,7 @@ export default function ChartOfAccountsPage() {
     isLoading: false,
     error: null,
     selectedCategories: new Set(),
+    autoCreateMissing: false,
   });
 
   const [payeeImportModal, setPayeeImportModal] = useState<PayeeImportModalState>({
@@ -148,6 +181,15 @@ export default function ChartOfAccountsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [payeeCurrentPage, setPayeeCurrentPage] = useState(1);
   const [itemsPerPage] = useState(50); // Fixed items per page
+
+  // Merge modal state
+  const [mergeModal, setMergeModal] = useState<MergeModalState>({
+    isOpen: false,
+    selectedCategories: new Set(),
+    targetCategoryId: null,
+    isLoading: false,
+    error: null,
+  });
 
   // Reset to first page when search term changes
   useEffect(() => {
@@ -272,6 +314,26 @@ export default function ChartOfAccountsPage() {
       setLoading(false);
     }
   }, [accounts]);
+
+  // Options for Select components
+  const typeOptions: SelectOption[] = ACCOUNT_TYPES.map(type => ({
+    value: type,
+    label: type
+  }));
+
+  const getParentOptions = (currentId?: string, type?: string): SelectOption[] => {
+    const availableParents = accounts.filter((cat: Category) => 
+      cat.id !== currentId && 
+      (type ? cat.type === type : true)
+    );
+    return [
+      { value: "", label: "None" },
+      ...availableParents.map((cat: Category) => ({
+        value: cat.id,
+        label: cat.name
+      }))
+    ];
+  };
 
   const fetchParentOptions = useCallback(async () => {
     if (!hasCompanyContext || !currentCompany?.id) return;
@@ -473,56 +535,73 @@ export default function ChartOfAccountsPage() {
   };
 
   const handleDelete = async (id: string) => {
-    // First check if this is a parent category
-    const { data: subcategories } = await supabase.from("chart_of_accounts").select("id").eq("parent_id", id);
+    // First check if this category is linked to a bank account
+    const { data: categoryData, error: categoryError } = await supabase
+      .from("chart_of_accounts")
+      .select("plaid_account_id, name")
+      .eq("id", id)
+      .single();
+
+    if (categoryError) {
+      console.error("Error checking category:", categoryError);
+      alert("Error checking category details. Please try again.");
+      return;
+    }
+
+    if (categoryData?.plaid_account_id) {
+      alert(
+        `This category "${categoryData.name}" cannot be deleted because it is linked to a bank account. Bank account categories are automatically managed by the system.`
+      );
+      return;
+    }
+
+    // Check if this category has subcategories
+    const { data: subcategories } = await supabase
+      .from("chart_of_accounts")
+      .select("id, name")
+      .eq("parent_id", id);
 
     if (subcategories && subcategories.length > 0) {
-      // This is a parent category, check if any subcategories have transactions
-      const subcategoryIds = subcategories.map((sub) => sub.id);
-      const { data: transactions, error: txError } = await supabase
-        .from("transactions")
-        .select("id")
-        .or(
-          `selected_category_id.in.(${subcategoryIds.join(",")}),corresponding_category_id.in.(${subcategoryIds.join(
-            ","
-          )})`
-        )
-        .limit(1);
+      // This category has subcategories - prevent deletion
+      alert(
+        `This category cannot be deleted because it has ${subcategories.length} subcategor${subcategories.length === 1 ? 'y' : 'ies'}. Please delete or reassign the subcategories first.`
+      );
+      return;
+    }
 
-      if (txError) {
-        console.error("Error checking transactions:", txError);
-        return;
-      }
+    // Check if this category is used in transactions
+    const { data: transactions, error: txError } = await supabase
+      .from("transactions")
+      .select("id")
+      .or(`selected_category_id.eq.${id},corresponding_category_id.eq.${id}`)
+      .limit(1);
 
-      if (transactions && transactions.length > 0) {
-        alert(
-          "This category cannot be deleted because it contains subcategories that are used in existing transactions. Please reassign or delete the transactions first."
-        );
-        return;
-      }
-    } else {
-      // This is a regular category, check if it has transactions
-      const { data: transactions, error: txError } = await supabase
-        .from("transactions")
-        .select("id")
-        .or(`selected_category_id.eq.${id},corresponding_category_id.eq.${id}`)
-        .limit(1);
+    if (txError) {
+      console.error("Error checking transactions:", txError);
+      alert("Error checking if category is in use. Please try again.");
+      return;
+    }
 
-      if (txError) {
-        console.error("Error checking transactions:", txError);
-        return;
-      }
+    if (transactions && transactions.length > 0) {
+      alert(
+        "This category cannot be deleted because it is used in existing transactions. Please reassign or delete the transactions first."
+      );
+      return;
+    }
 
-      if (transactions && transactions.length > 0) {
-        alert(
-          "This category cannot be deleted because it is used in existing transactions. Please reassign or delete the transactions first."
-        );
-        return;
-      }
+    // Show confirmation dialog before deleting
+    const categoryToDelete = accounts.find(acc => acc.id === id);
+    const categoryName = categoryToDelete?.name || "this category";
+    
+    if (!window.confirm(`Are you sure you want to delete "${categoryName}"? This action cannot be undone.`)) {
+      return;
     }
 
     const { error } = await supabase.from("chart_of_accounts").delete().eq("id", id);
-    if (!error) {
+    if (error) {
+      console.error("Error deleting category:", error);
+      alert("Failed to delete category. Please try again.");
+    } else {
       setEditingId(null);
       // Categories will be refreshed automatically via real-time subscription
       fetchParentOptions();
@@ -539,6 +618,7 @@ export default function ChartOfAccountsPage() {
 
     if (txError) {
       console.error("Error checking transactions:", txError);
+      alert("Error checking if payee is in use. Please try again.");
       return;
     }
 
@@ -549,8 +629,19 @@ export default function ChartOfAccountsPage() {
       return;
     }
 
+    // Show confirmation dialog before deleting
+    const payeeToDelete = payees.find(payee => payee.id === id);
+    const payeeName = payeeToDelete?.name || "this payee";
+    
+    if (!window.confirm(`Are you sure you want to delete "${payeeName}"? This action cannot be undone.`)) {
+      return;
+    }
+
     const { error } = await supabase.from("payees").delete().eq("id", id);
-    if (!error) {
+    if (error) {
+      console.error("Error deleting payee:", error);
+      alert("Failed to delete payee. Please try again.");
+    } else {
       setEditingPayeeId(null);
       fetchPayees();
     }
@@ -561,6 +652,9 @@ export default function ChartOfAccountsPage() {
     setEditName(account.name);
     setEditType(account.type);
     setEditParentId(account.parent_id || null);
+    // Also set the refs for immediate access
+    editTypeRef.current = account.type;
+    editParentIdRef.current = account.parent_id || null;
   };
 
   const handleEditPayee = (payee: Payee) => {
@@ -571,36 +665,21 @@ export default function ChartOfAccountsPage() {
   const handleUpdate = async () => {
     if (!editingId) return;
 
-    // Get current values directly from the DOM to ensure we have the latest values
+    // Get current values from React state since we're using React components
     const getCurrentValues = () => {
-      if (!categoriesTableRef.current) {
-        console.log("No table ref, using state values");
-        return {
-          name: editName,
-          type: editType,
-          parent_id: editParentId,
-        };
+      // Get the name from the input field in the DOM as it might have been changed
+      let name = editName;
+      if (categoriesTableRef.current) {
+        const nameInput = categoriesTableRef.current.querySelector('tr input[type="text"]') as HTMLInputElement;
+        if (nameInput) {
+          name = nameInput.value || editName;
+        }
       }
 
-      // Find the currently editing row by looking for input elements
-      const editingRow = categoriesTableRef.current.querySelector('tr input[type="text"]')?.closest("tr");
-      if (!editingRow) {
-        console.log("No editing row found, using state values");
-        return {
-          name: editName,
-          type: editType,
-          parent_id: editParentId,
-        };
-      }
+      // Use refs for both type and parent since changes need immediate access
+      let parent_id = editParentIdRef.current;
+      const type = editTypeRef.current;
 
-      const nameInput = editingRow.querySelector('input[type="text"]') as HTMLInputElement;
-      const selects = editingRow.querySelectorAll("select") as NodeListOf<HTMLSelectElement>;
-      const typeSelect = selects[0]; // First select is type
-      const parentSelect = selects[1]; // Second select is parent
-
-      const name = nameInput?.value || editName;
-      const type = typeSelect?.value || editType;
-      let parent_id: string | null = parentSelect?.value || null;
 
       // Convert empty string to null (for "No Parent" selection)
       if (parent_id === "" || parent_id === undefined || parent_id === "null") {
@@ -610,14 +689,13 @@ export default function ChartOfAccountsPage() {
 
       // Validate parent type matches category type - if not, clear parent
       if (parent_id) {
-        const parentCategory = parentOptions.find((opt) => opt.id === parent_id);
+        const parentCategory = accounts.find((acc) => acc.id === parent_id);
         if (parentCategory && parentCategory.type !== type) {
-          console.log(
-            `Clearing parent ${parentCategory.name} (${parentCategory.type}) because it doesn't match category type ${type}`
-          );
           parent_id = null;
         }
       }
+
+
 
       return {
         name,
@@ -702,7 +780,24 @@ export default function ChartOfAccountsPage() {
     const handleClickToSave = (event: MouseEvent) => {
       if (!editingId || !categoriesTableRef.current) return;
 
-      const target = event.target as Node;
+      const target = event.target as Element;
+
+      // Check if the click is on a Select dropdown or its components
+      const isSelectDropdown = target.closest('.react-select__control') ||
+                               target.closest('.react-select__dropdown-indicator') ||
+                               target.closest('.react-select__menu') ||
+                               target.closest('.react-select__menu-list') ||
+                               target.closest('.react-select__option') ||
+                               target.closest('.react-select__input') ||
+                               target.closest('[class*="react-select"]') ||
+                               target.closest('[role="listbox"]') ||
+                               target.closest('[role="option"]') ||
+                               target.closest('[role="combobox"]');
+
+      // If clicking on Select dropdown, don't save
+      if (isSelectDropdown) {
+        return;
+      }
 
       // If click is outside the table, save
       if (!categoriesTableRef.current.contains(target)) {
@@ -711,15 +806,18 @@ export default function ChartOfAccountsPage() {
       }
 
       // If click is inside the table, check if it's on a different row
-      const clickedRow = (target as Element).closest("tr");
+      const clickedRow = target.closest("tr");
       if (clickedRow) {
         // Get all the input/select elements in the currently editing row
         const editingInputs = categoriesTableRef.current.querySelectorAll(`tr input[type="text"], tr select`);
 
-        // Check if the clicked element is one of the editing inputs
+        // Also check for Select components by looking for the editing row ID
+        const editingRow = categoriesTableRef.current.querySelector(`tr:has(input[type="text"]:focus), tr:has(.react-select__control)`);
+        
+        // Check if the clicked element is one of the editing inputs or within the editing row
         const isClickOnCurrentEditingElement = Array.from(editingInputs).some(
           (input) => input.contains(target) || input === target
-        );
+        ) || (editingRow && editingRow.contains(target));
 
         // If not clicking on the current editing elements, save
         if (!isClickOnCurrentEditingElement) {
@@ -750,9 +848,153 @@ export default function ChartOfAccountsPage() {
     }
   };
 
+  // Merge categories functionality
+  const handleMergeCategories = async () => {
+    if (mergeModal.selectedCategories.size < 2 || !mergeModal.targetCategoryId) {
+      setMergeModal(prev => ({
+        ...prev,
+        error: "Please select at least 2 categories to merge and choose a target category."
+      }));
+      return;
+    }
+
+    setMergeModal(prev => ({ ...prev, isLoading: true, error: null }));
+
+    try {
+      const selectedCategoryIds = Array.from(mergeModal.selectedCategories);
+      const targetCategory = accounts.find(acc => acc.id === mergeModal.targetCategoryId);
+      const categoriesToMerge = accounts.filter(acc => selectedCategoryIds.includes(acc.id));
+
+      if (!targetCategory) {
+        throw new Error("Target category not found");
+      }
+
+      // Validate all categories have the same type
+      const types = new Set(categoriesToMerge.map(cat => cat.type));
+      if (types.size > 1) {
+        throw new Error("All categories to merge must have the same type");
+      }
+
+      // Get source categories (categories to be merged into target, excluding target)
+      const sourceCategories = categoriesToMerge.filter(cat => cat.id !== mergeModal.targetCategoryId);
+
+      // Step 1: Move all subcategories from source categories to target category
+      for (const sourceCategory of sourceCategories) {
+        const subcategories = accounts.filter(acc => acc.parent_id === sourceCategory.id);
+        
+        if (subcategories.length > 0) {
+          const { error: subcatError } = await supabase
+            .from("chart_of_accounts")
+            .update({ parent_id: mergeModal.targetCategoryId })
+            .in("id", subcategories.map(sub => sub.id));
+
+          if (subcatError) {
+            throw new Error(`Failed to move subcategories: ${subcatError.message}`);
+          }
+        }
+      }
+
+      // Step 2: Update all transaction references
+      const sourceIds = sourceCategories.map(cat => cat.id);
+      
+      // Update selected_category_id references
+      const { error: selectedCatError } = await supabase
+        .from("transactions")
+        .update({ selected_category_id: mergeModal.targetCategoryId })
+        .in("selected_category_id", sourceIds);
+
+      if (selectedCatError) {
+        throw new Error(`Failed to update transaction selected_category_id: ${selectedCatError.message}`);
+      }
+
+      // Update corresponding_category_id references
+      const { error: correspondingCatError } = await supabase
+        .from("transactions")
+        .update({ corresponding_category_id: mergeModal.targetCategoryId })
+        .in("corresponding_category_id", sourceIds);
+
+      if (correspondingCatError) {
+        throw new Error(`Failed to update transaction corresponding_category_id: ${correspondingCatError.message}`);
+      }
+
+      // Update imported_transactions references
+      const { error: importedTxError } = await supabase
+        .from("imported_transactions")
+        .update({ selected_category_id: mergeModal.targetCategoryId })
+        .in("selected_category_id", sourceIds);
+
+      if (importedTxError) {
+        throw new Error(`Failed to update imported_transactions: ${importedTxError.message}`);
+      }
+
+      // Step 3: Update automations that reference the source categories by name
+      // Automations store category names in action_value, not category IDs
+      const sourceNames = sourceCategories.map(cat => cat.name);
+      
+      if (sourceNames.length > 0) {
+        const { error: automationsError } = await supabase
+          .from("automations")
+          .update({ action_value: targetCategory.name })
+          .eq("automation_type", "category")
+          .in("action_value", sourceNames)
+          .eq("company_id", currentCompany!.id);
+
+        if (automationsError) {
+          throw new Error(`Failed to update automations: ${automationsError.message}`);
+        }
+      }
+
+      // Step 4: Delete source categories
+      const { error: deleteError } = await supabase
+        .from("chart_of_accounts")
+        .delete()
+        .in("id", sourceIds);
+
+      if (deleteError) {
+        throw new Error(`Failed to delete source categories: ${deleteError.message}`);
+      }
+
+      // Step 5: If target category was a subcategory and we're merging parent categories into it,
+      // we need to make it a parent category
+      if (targetCategory.parent_id && sourceCategories.some(cat => !cat.parent_id)) {
+        const { error: promoteError } = await supabase
+          .from("chart_of_accounts")
+          .update({ parent_id: null })
+          .eq("id", mergeModal.targetCategoryId);
+
+        if (promoteError) {
+          throw new Error(`Failed to promote target category to parent: ${promoteError.message}`);
+        }
+      }
+
+      // Success - close modal and refresh data
+      setMergeModal({
+        isOpen: false,
+        selectedCategories: new Set(),
+        targetCategoryId: null,
+        isLoading: false,
+        error: null,
+      });
+
+      await refreshCategories();
+      await fetchParentOptions();
+
+      // Highlight the merged category
+      highlightCategory(mergeModal.targetCategoryId);
+
+    } catch (error) {
+      console.error("Error merging categories:", error);
+      setMergeModal(prev => ({
+        ...prev,
+        isLoading: false,
+        error: error instanceof Error ? error.message : "Failed to merge categories. Please try again."
+      }));
+    }
+  };
+
   const downloadCategoriesTemplate = () => {
     const csvContent =
-      "Name,Type,Parent\nOffice Supplies,Expense,\nBank Fees,Expense,\nAdvertising,Expense,\nCash,Asset,\nAccounts Receivable,Asset,\nSales Revenue,Revenue,\nService Revenue,Revenue,";
+      "Name,Type,Parent\nOperating Expenses,Expense,\nOffice Supplies,Expense,Operating Expenses\nUtilities,Expense,Operating Expenses\nBank Fees,Expense,\nAdvertising,Expense,\nCurrent Assets,Asset,\nCash,Asset,Current Assets\nAccounts Receivable,Asset,Current Assets\nSales Revenue,Revenue,\nService Revenue,Revenue,";
     const blob = new Blob([csvContent], { type: "text/csv" });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -847,6 +1089,119 @@ export default function ChartOfAccountsPage() {
     return null;
   };
 
+  // Validate parent references and detect missing parents
+  const validateParentReferences = (categories: CategoryImportData[]): CategoryImportData[] => {
+    return categories.map((category) => {
+      let isValid = true;
+      let validationMessage = "";
+      let needsParentCreation = false;
+
+      // Check for name uniqueness - must not exist in database
+      const nameExistsInDb = accounts.some(
+        (acc) => acc.name.toLowerCase() === category.name.toLowerCase()
+      );
+      
+      if (nameExistsInDb) {
+        isValid = false;
+        validationMessage = `Category "${category.name}" already exists in database`;
+        return {
+          ...category,
+          isValid,
+          validationMessage,
+          needsParentCreation,
+        };
+      }
+
+      // Check for name uniqueness within CSV data
+      const duplicatesInCsv = categories.filter(
+        (cat) => cat.name.toLowerCase() === category.name.toLowerCase()
+      );
+      
+      if (duplicatesInCsv.length > 1) {
+        isValid = false;
+        validationMessage = `Duplicate name "${category.name}" found in CSV`;
+        return {
+          ...category,
+          isValid,
+          validationMessage,
+          needsParentCreation,
+        };
+      }
+
+      // Validate parent references
+      if (category.parentName) {
+        // Check if parent exists in current accounts
+        const parentExists = accounts.some(
+          (acc) => acc.name.toLowerCase() === category.parentName!.toLowerCase()
+        );
+        
+        // Check if parent exists in the import data
+        const parentInImport = categories.find(
+          (cat) => cat.name.toLowerCase() === category.parentName!.toLowerCase() && cat.id !== category.id
+        );
+
+        if (!parentExists && !parentInImport) {
+          needsParentCreation = true;
+          validationMessage = `Parent "${category.parentName}" does not exist`;
+        } else if (parentExists || parentInImport) {
+          // Validate that parent type matches (parents must have same type as child)
+          const existingParent = accounts.find((acc) => acc.name.toLowerCase() === category.parentName!.toLowerCase());
+          const importParent = parentInImport;
+          
+          const parentType = existingParent?.type || importParent?.type;
+          if (parentType && parentType !== category.type) {
+            isValid = false;
+            validationMessage = `Parent "${category.parentName}" has type "${parentType}" but child has type "${category.type}". Parent and child must have the same type.`;
+          }
+        }
+
+        // Check if parent is in CSV but not selected for import
+        if (parentInImport) {
+          // This will be handled at the selection level, not here
+          // We'll add this check when user tries to import
+        }
+      }
+
+      return {
+        ...category,
+        isValid,
+        validationMessage,
+        needsParentCreation,
+      };
+    });
+  };
+
+  // Validate that if a parent is in the CSV, it must be selected if its children are selected
+  const validateParentDependencies = (
+    categories: CategoryImportData[], 
+    selectedIds: Set<string>
+  ): { isValid: boolean; missingParents: string[] } => {
+    const missingParents: string[] = [];
+    
+    const selectedCategories = categories.filter(cat => selectedIds.has(cat.id));
+    
+    for (const category of selectedCategories) {
+      if (category.parentName) {
+        // Find if the parent is in the CSV data
+        const parentInCsv = categories.find(
+          cat => cat.name.toLowerCase() === category.parentName!.toLowerCase()
+        );
+        
+        // If parent is in CSV but not selected, add to missing parents
+        if (parentInCsv && !selectedIds.has(parentInCsv.id)) {
+          if (!missingParents.includes(category.parentName)) {
+            missingParents.push(category.parentName);
+          }
+        }
+      }
+    }
+    
+    return {
+      isValid: missingParents.length === 0,
+      missingParents
+    };
+  };
+
   const validatePayeeCSV = (data: Papa.ParseResult<PayeeCSVRow>) => {
     if (!data.data || data.data.length === 0) {
       return "CSV file is empty";
@@ -903,7 +1258,7 @@ export default function ChartOfAccountsPage() {
           return;
         }
 
-        const categories = results.data
+        const categories: CategoryImportData[] = results.data
           .filter((row: CategoryCSVRow) => row.Name && row.Type)
           .map((row: CategoryCSVRow) => {
             const parentCategory = row["Parent"] ? accounts.find((acc) => acc.name === row["Parent"]) : null;
@@ -913,14 +1268,22 @@ export default function ChartOfAccountsPage() {
               name: row.Name.trim(),
               type: row.Type,
               parent_id: parentCategory?.id || null,
-              company_id: currentCompany?.id,
+              company_id: currentCompany?.id || "",
+              parentName: row.Parent?.trim() || undefined,
+              // Initialize validation fields - will be populated by validateParentReferences
+              isValid: true,
+              validationMessage: "",
+              needsParentCreation: false,
             };
           });
+
+        // Validate parent references
+        const validatedCategories = validateParentReferences(categories);
 
         setCategoryImportModal((prev) => ({
           ...prev,
           isLoading: false,
-          csvData: categories,
+          csvData: validatedCategories,
           step: "review",
         }));
       },
@@ -1054,50 +1417,60 @@ export default function ChartOfAccountsPage() {
             </td>
             <td className="border p-1 text-xs">
               {editingId === parent.id ? (
-                <select
-                  value={editType}
-                  onChange={(e) => {
-                    setEditType(e.target.value);
-                    // Clear parent when type changes since parent must match type
-                    setEditParentId(null);
+                <Select
+                  options={typeOptions}
+                  value={typeOptions.find(opt => opt.value === editType) || typeOptions[0]}
+                  onChange={(selectedOption) => {
+                    const option = selectedOption as SelectOption | null;
+                    if (option) {
+                      setEditType(option.value);
+                      editTypeRef.current = option.value; // Store in ref for immediate access
+                      // Clear parent when type changes since parent must match type
+                      setEditParentId(null);
+                      editParentIdRef.current = null;
+                    }
                   }}
-                  className="w-full border-none outline-none bg-transparent text-xs"
-                  onKeyDown={(e) => e.key === "Enter" && handleUpdate()}
-                >
-                  {ACCOUNT_TYPES.map((type) => (
-                    <option key={type} value={type}>
-                      {type}
-                    </option>
-                  ))}
-                </select>
+                  isSearchable
+                  className="w-full"
+                  classNames={{
+                    container: () => "w-full",
+                    control: () => "w-full h-7 min-h-7 border border-gray-300 rounded text-xs",
+                    input: () => "w-px",
+                    valueContainer: () => "px-1 py-0.5 h-7",
+                    indicatorsContainer: () => "h-7",
+                    indicatorSeparator: () => "bg-gray-300",
+                    dropdownIndicator: () => "text-gray-500 p-1"
+                  }}
+                />
               ) : (
                 parent.type
               )}
             </td>
             <td className="border p-1 text-xs">
               {editingId === parent.id ? (
-                <select
-                  value={editParentId || ""}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    setEditParentId(value === "" ? null : value);
+                <Select
+                  options={getParentOptions(parent.id, editType)}
+                  value={getParentOptions(parent.id, editType).find(opt => opt.value === (editParentId || "")) || getParentOptions(parent.id, editType)[0]}
+                  onChange={(selectedOption) => {
+                    const option = selectedOption as SelectOption | null;
+                    if (option) {
+                      const newParentId = option.value === "" ? null : option.value;
+                      setEditParentId(newParentId);
+                      editParentIdRef.current = newParentId; // Store in ref for immediate access
+                    }
                   }}
-                  className="w-full border-none outline-none bg-transparent text-xs"
-                  onKeyDown={(e) => e.key === "Enter" && handleUpdate()}
-                >
-                  <option value="">No Parent</option>
-                  {parentOptions
-                    .filter(
-                      (opt) =>
-                        opt.id !== parent.id && // Can't be parent of itself
-                        (opt.type === editType || !editType)
-                    )
-                    .map((opt) => (
-                      <option key={opt.id} value={opt.id}>
-                        {opt.name} ({opt.type})
-                      </option>
-                    ))}
-                </select>
+                  isSearchable
+                  className="w-full"
+                  classNames={{
+                    container: () => "w-full",
+                    control: () => "w-full h-7 min-h-7 border border-gray-300 rounded text-xs",
+                    input: () => "w-px",
+                    valueContainer: () => "px-1 py-0.5 h-7",
+                    indicatorsContainer: () => "h-7",
+                    indicatorSeparator: () => "bg-gray-300",
+                    dropdownIndicator: () => "text-gray-500 p-1"
+                  }}
+                />
               ) : (
                 ""
               )}
@@ -1151,50 +1524,60 @@ export default function ChartOfAccountsPage() {
               </td>
               <td className="border p-1 text-xs">
                 {editingId === subAcc.id ? (
-                  <select
-                    value={editType}
-                    onChange={(e) => {
-                      setEditType(e.target.value);
-                      // Clear parent when type changes since parent must match type
-                      setEditParentId(null);
+                  <Select
+                    options={typeOptions}
+                    value={typeOptions.find(opt => opt.value === editType) || typeOptions[0]}
+                    onChange={(selectedOption) => {
+                      const option = selectedOption as SelectOption | null;
+                      if (option) {
+                        setEditType(option.value);
+                        editTypeRef.current = option.value; // Store in ref for immediate access
+                        // Clear parent when type changes since parent must match type
+                        setEditParentId(null);
+                        editParentIdRef.current = null;
+                      }
                     }}
-                    className="w-full border-none outline-none bg-transparent text-xs"
-                    onKeyDown={(e) => e.key === "Enter" && handleUpdate()}
-                  >
-                    {ACCOUNT_TYPES.map((type) => (
-                      <option key={type} value={type}>
-                        {type}
-                      </option>
-                    ))}
-                  </select>
+                    isSearchable
+                    className="w-full"
+                    classNames={{
+                      container: () => "w-full",
+                      control: () => "w-full h-7 min-h-7 border border-gray-300 rounded text-xs",
+                      input: () => "w-px",
+                      valueContainer: () => "px-1 py-0.5 h-7",
+                      indicatorsContainer: () => "h-7",
+                      indicatorSeparator: () => "bg-gray-300",
+                      dropdownIndicator: () => "text-gray-500 p-1"
+                    }}
+                  />
                 ) : (
                   subAcc.type
                 )}
               </td>
               <td className="border p-1 text-xs">
                 {editingId === subAcc.id ? (
-                  <select
-                    value={editParentId || ""}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      setEditParentId(value === "" ? null : value);
+                  <Select
+                    options={getParentOptions(subAcc.id, editType)}
+                    value={getParentOptions(subAcc.id, editType).find(opt => opt.value === (editParentId || "")) || getParentOptions(subAcc.id, editType)[0]}
+                    onChange={(selectedOption) => {
+                      const option = selectedOption as SelectOption | null;
+                      if (option) {
+                        const newParentId = option.value === "" ? null : option.value;
+                        setEditParentId(newParentId);
+                        editParentIdRef.current = newParentId; // Store in ref for immediate access
+                      }
                     }}
-                    className="w-full border-none outline-none bg-transparent text-xs"
-                    onKeyDown={(e) => e.key === "Enter" && handleUpdate()}
-                  >
-                    <option value="">No Parent</option>
-                    {parentOptions
-                      .filter(
-                        (opt) =>
-                          opt.id !== subAcc.id && // Can't be parent of itself
-                          (opt.type === editType || !editType)
-                      )
-                      .map((opt) => (
-                        <option key={opt.id} value={opt.id}>
-                          {opt.name} ({opt.type})
-                        </option>
-                      ))}
-                  </select>
+                    isSearchable
+                    className="w-full"
+                    classNames={{
+                      container: () => "w-full",
+                      control: () => "w-full h-7 min-h-7 border border-gray-300 rounded text-xs",
+                      input: () => "w-px", // Prevents input from expanding based on content
+                      valueContainer: () => "px-1 py-0.5 h-7",
+                      indicatorsContainer: () => "h-7",
+                      indicatorSeparator: () => "bg-gray-300",
+                      dropdownIndicator: () => "text-gray-500 p-1"
+                    }}
+                  />
                 ) : (
                   parent.name
                 )}
@@ -1247,12 +1630,17 @@ export default function ChartOfAccountsPage() {
             <h2 className="text-lg font-semibold">Categories</h2>
             <div className="flex gap-2">
               <button
-                onClick={exportCategories}
-                className="px-3 py-1 text-xs border border-gray-300 rounded bg-gray-100 hover:bg-gray-200"
-              >
-                Export
-              </button>
-              <button
+              onClick={() =>
+                setMergeModal((prev) => ({
+                  ...prev,
+                  isOpen: true,
+                }))
+              }
+              className="px-3 py-1 text-xs border border-gray-300 rounded bg-gray-100 hover:bg-gray-200"
+            >
+              Merge
+            </button>
+            <button
                 onClick={() =>
                   setCategoryImportModal((prev) => ({
                     ...prev,
@@ -1262,6 +1650,12 @@ export default function ChartOfAccountsPage() {
                 className="px-3 py-1 text-xs border border-gray-300 rounded bg-gray-100 hover:bg-gray-200"
               >
                 Import
+              </button>
+              <button
+                onClick={exportCategories}
+                className="px-3 py-1 text-xs border border-gray-300 rounded bg-gray-100 hover:bg-gray-200"
+              >
+                Export
               </button>
             </div>
           </div>
@@ -1329,7 +1723,13 @@ export default function ChartOfAccountsPage() {
             {loading ? (
               <div className="p-4 text-center text-gray-500 text-xs">Loading...</div>
             ) : (
-              <table className="w-full border-collapse border border-gray-300 text-xs">
+              <table className="w-full border-collapse border border-gray-300 text-xs table-fixed">
+                <colgroup>
+                  <col className="w-auto" />
+                  <col className="w-32" />
+                  <col className="w-40" />
+                  <col className="w-24" />
+                </colgroup>
                 <thead className="bg-gray-100">
                   <tr>
                     <th
@@ -1388,12 +1788,6 @@ export default function ChartOfAccountsPage() {
             <h2 className="text-lg font-semibold">Payees</h2>
             <div className="flex gap-2">
               <button
-                onClick={exportPayees}
-                className="px-3 py-1 border border-gray-300 rounded bg-gray-100 hover:bg-gray-200 text-xs"
-              >
-                Export
-              </button>
-              <button
                 onClick={() =>
                   setPayeeImportModal((prev) => ({
                     ...prev,
@@ -1403,6 +1797,12 @@ export default function ChartOfAccountsPage() {
                 className="px-3 py-1 border border-gray-300 rounded bg-gray-100 hover:bg-gray-200 text-xs"
               >
                 Import
+              </button>
+              <button
+                onClick={exportPayees}
+                className="px-3 py-1 border border-gray-300 rounded bg-gray-100 hover:bg-gray-200 text-xs"
+              >
+                Export
               </button>
             </div>
           </div>
@@ -1867,6 +2267,56 @@ export default function ChartOfAccountsPage() {
                       <div className="flex justify-between items-center">
                         <h3 className="text-sm font-medium text-gray-700">Review Categories</h3>
                       </div>
+
+                      {/* Missing parents warning and options */}
+                      {categoryImportModal.csvData.some((cat) => cat.needsParentCreation) && (
+                        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                          <h4 className="text-sm font-medium text-yellow-800 mb-2">Missing Parent Categories Detected</h4>
+                          <p className="text-sm text-yellow-700 mb-3">
+                            Some categories reference parent categories that don&apos;t exist in your system.
+                          </p>
+                          <label className="flex items-center space-x-2">
+                            <input
+                              type="checkbox"
+                              checked={categoryImportModal.autoCreateMissing}
+                              onChange={(e) =>
+                                setCategoryImportModal((prev) => ({
+                                  ...prev,
+                                  autoCreateMissing: e.target.checked,
+                                }))
+                              }
+                              className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                            />
+                            <span className="text-sm text-yellow-700">
+                              Automatically create missing parent categories during import (with same type as child)
+                            </span>
+                          </label>
+                        </div>
+                      )}
+
+                      {/* Parent dependency warning */}
+                      {(() => {
+                        const dependencyCheck = validateParentDependencies(
+                          categoryImportModal.csvData, 
+                          categoryImportModal.selectedCategories
+                        );
+                        
+                        return !dependencyCheck.isValid && (
+                          <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
+                            <h4 className="text-sm font-medium text-orange-800 mb-2">Parent Dependencies Required</h4>
+                            <p className="text-sm text-orange-700 mb-2">
+                              Some selected categories have parents that are also in this CSV but not selected for import:
+                            </p>
+                            <ul className="text-sm text-orange-700 list-disc list-inside">
+                              {dependencyCheck.missingParents.map((parentName) => (
+                                <li key={parentName}>
+                                  <strong>{parentName}</strong> - Must be selected to import its children
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        );
+                      })()}
                       <div className="border rounded-lg overflow-hidden">
                         <table className="min-w-full divide-y divide-gray-200">
                           <thead className="bg-gray-50">
@@ -1880,11 +2330,13 @@ export default function ChartOfAccountsPage() {
                                   }
                                   onChange={(e) => {
                                     if (e.target.checked) {
+                                      // Select all categories
                                       setCategoryImportModal((prev) => ({
                                         ...prev,
                                         selectedCategories: new Set(categoryImportModal.csvData.map((cat) => cat.id)),
                                       }));
                                     } else {
+                                      // Deselect all categories
                                       setCategoryImportModal((prev) => ({
                                         ...prev,
                                         selectedCategories: new Set(),
@@ -1903,11 +2355,23 @@ export default function ChartOfAccountsPage() {
                               <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                 Parent
                               </th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Status
+                              </th>
                             </tr>
                           </thead>
                           <tbody className="bg-white divide-y divide-gray-200">
                             {categoryImportModal.csvData.map((category) => (
-                              <tr key={category.id}>
+                              <tr
+                                key={category.id}
+                                className={`${
+                                  category.needsParentCreation && !categoryImportModal.autoCreateMissing
+                                    ? "bg-yellow-50"
+                                    : !category.isValid
+                                    ? "bg-red-50"
+                                    : ""
+                                }`}
+                              >
                                 <td className="px-4 py-2 whitespace-nowrap w-8 text-left">
                                   <input
                                     type="checkbox"
@@ -1916,8 +2380,26 @@ export default function ChartOfAccountsPage() {
                                       const newSelected = new Set(categoryImportModal.selectedCategories);
                                       if (e.target.checked) {
                                         newSelected.add(category.id);
+                                        
+                                        // Auto-select parent if it's in the CSV
+                                        if (category.parentName) {
+                                          const parentInCsv = categoryImportModal.csvData.find(
+                                            cat => cat.name.toLowerCase() === category.parentName!.toLowerCase()
+                                          );
+                                          if (parentInCsv) {
+                                            newSelected.add(parentInCsv.id);
+                                          }
+                                        }
                                       } else {
                                         newSelected.delete(category.id);
+                                        
+                                        // Auto-deselect children if this is a parent
+                                        const childrenInCsv = categoryImportModal.csvData.filter(
+                                          cat => cat.parentName && cat.parentName.toLowerCase() === category.name.toLowerCase()
+                                        );
+                                        childrenInCsv.forEach(child => {
+                                          newSelected.delete(child.id);
+                                        });
                                       }
                                       setCategoryImportModal((prev) => ({
                                         ...prev,
@@ -1930,9 +2412,32 @@ export default function ChartOfAccountsPage() {
                                 <td className="px-4 py-2 text-sm text-gray-900">{category.name}</td>
                                 <td className="px-4 py-2 text-sm text-gray-900">{category.type}</td>
                                 <td className="px-4 py-2 text-sm text-gray-900">
-                                  {category.parent_id
-                                    ? accounts.find((acc) => acc.id === category.parent_id)?.name || "Unknown"
-                                    : "-"}
+                                  {category.parentName || "-"}
+                                </td>
+                                <td className="px-4 py-2 text-sm">
+                                  {!category.isValid ? (
+                                    <div className="flex items-center space-x-1">
+                                      <span className="w-2 h-2 bg-red-400 rounded-full"></span>
+                                      <span className="text-red-700 text-xs">{category.validationMessage}</span>
+                                    </div>
+                                  ) : category.needsParentCreation ? (
+                                    categoryImportModal.autoCreateMissing ? (
+                                      <div className="flex items-center space-x-1">
+                                        <span className="w-2 h-2 bg-blue-400 rounded-full"></span>
+                                        <span className="text-blue-700 text-xs">Will create parent</span>
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center space-x-1">
+                                        <span className="w-2 h-2 bg-orange-400 rounded-full"></span>
+                                        <span className="text-orange-700 text-xs">Missing parent</span>
+                                      </div>
+                                    )
+                                  ) : (
+                                    <div className="flex items-center space-x-1">
+                                      <span className="w-2 h-2 bg-green-400 rounded-full"></span>
+                                      <span className="text-green-700 text-xs">Valid</span>
+                                    </div>
+                                  )}
                                 </td>
                               </tr>
                             ))}
@@ -1943,7 +2448,25 @@ export default function ChartOfAccountsPage() {
                     <div className="flex justify-between items-center">
                       <div className="text-sm font-medium">
                         {categoryImportModal.selectedCategories.size > 0 && (
-                          <span className="text-gray-600">{categoryImportModal.selectedCategories.size} selected</span>
+                          <>
+                            <span className="text-gray-600">
+                              {categoryImportModal.selectedCategories.size} selected
+                            </span>
+                            {!categoryImportModal.autoCreateMissing &&
+                              (() => {
+                                const selectedCategories = categoryImportModal.csvData.filter((cat) =>
+                                  categoryImportModal.selectedCategories.has(cat.id)
+                                );
+                                const validCount = selectedCategories.filter((cat) => cat.isValid && !cat.needsParentCreation).length;
+                                const invalidCount = selectedCategories.filter((cat) => !cat.isValid || cat.needsParentCreation).length;
+
+                                return invalidCount > 0 ? (
+                                  <span className="text-red-600 ml-2">
+                                    ({validCount} will import, {invalidCount} will skip)
+                                  </span>
+                                ) : null;
+                              })()}
+                          </>
                         )}
                       </div>
                       <div className="flex justify-end space-x-2 mt-4">
@@ -1978,17 +2501,178 @@ export default function ChartOfAccountsPage() {
                                 throw new Error("No categories selected for import.");
                               }
 
-                              const categoriesToInsert = selectedCategories.map((cat) => ({
-                                name: cat.name,
-                                type: cat.type,
-                                parent_id: cat.parent_id,
-                                company_id: currentCompany.id,
-                              }));
+                              // Check for parent dependencies
+                              const dependencyCheck = validateParentDependencies(
+                                categoryImportModal.csvData, 
+                                categoryImportModal.selectedCategories
+                              );
+                              
+                              if (!dependencyCheck.isValid) {
+                                throw new Error(
+                                  `Cannot import: The following parent categories are in the CSV but not selected: ${dependencyCheck.missingParents.join(", ")}. Please select them or deselect their children.`
+                                );
+                              }
 
-                              const { error } = await supabase.from("chart_of_accounts").insert(categoriesToInsert);
+                              // If auto-create is enabled, create missing parent categories first
+                              if (categoryImportModal.autoCreateMissing) {
+                                const missingParents = new Set<string>();
 
-                              if (error) {
-                                throw new Error(error.message);
+                                selectedCategories.forEach((cat) => {
+                                  if (cat.needsParentCreation && cat.parentName) {
+                                    missingParents.add(cat.parentName);
+                                  }
+                                });
+
+                                // Create missing parent categories with same type as child
+                                if (missingParents.size > 0) {
+                                  const parentsToCreate = Array.from(missingParents).map((parentName) => {
+                                    // Find a child category to get the type
+                                    const childWithThisParent = selectedCategories.find(
+                                      (cat) => cat.parentName === parentName
+                                    );
+                                    return {
+                                      name: parentName,
+                                      type: childWithThisParent?.type || "Expense", // Default to Expense if can't determine
+                                      parent_id: null, // These are parent categories
+                                      company_id: currentCompany.id,
+                                    };
+                                  });
+
+                                  const { error: parentError } = await supabase
+                                    .from("chart_of_accounts")
+                                    .insert(parentsToCreate);
+
+                                  if (parentError) {
+                                    throw new Error(`Failed to create parent categories: ${parentError.message}`);
+                                  }
+
+                                  // Refresh accounts list to get the newly created parents
+                                  await refreshCategories();
+                                }
+                              } else {
+                                // If not auto-creating, filter out categories that need parent creation or are invalid
+                                const validCategories = selectedCategories.filter((cat) => cat.isValid && !cat.needsParentCreation);
+                                const invalidCategories = selectedCategories.filter((cat) => !cat.isValid || cat.needsParentCreation);
+
+                                if (invalidCategories.length > 0 && validCategories.length > 0) {
+                                  // Mixed selection - show confirmation
+                                  const proceed = window.confirm(
+                                    `${invalidCategories.length} selected categor${invalidCategories.length === 1 ? 'y' : 'ies'} reference missing parents or have validation errors and will be skipped.\n\n` +
+                                      `Only ${validCategories.length} valid categor${validCategories.length === 1 ? 'y' : 'ies'} will be imported.\n\n` +
+                                      `Click OK to proceed with valid categories only, or Cancel to go back and enable auto-creation.`
+                                  );
+
+                                  if (!proceed) {
+                                    // User cancelled, stop the import process
+                                    setCategoryImportModal((prev) => ({
+                                      ...prev,
+                                      isLoading: false,
+                                    }));
+                                    return;
+                                  }
+                                } else if (validCategories.length === 0) {
+                                  // All selected categories are invalid
+                                  throw new Error(
+                                    "All selected categories reference missing parents or have validation errors. Enable 'Auto-create missing parents' or select only valid categories."
+                                  );
+                                }
+
+                                // Update selectedCategories to only include valid ones
+                                selectedCategories.splice(0, selectedCategories.length, ...validCategories);
+                              }
+
+                              // Sort categories to import parents before children
+                              const sortCategoriesByDependency = (categories: CategoryImportData[]): CategoryImportData[] => {
+                                const sorted: CategoryImportData[] = [];
+                                const remaining = [...categories];
+                                const processing = new Set<string>();
+
+                                const addCategory = (cat: CategoryImportData) => {
+                                  if (processing.has(cat.id)) return; // Avoid circular dependencies
+                                  processing.add(cat.id);
+
+                                  // If category has a parent in the import list, add parent first
+                                  if (cat.parentName) {
+                                    const parentInImport = remaining.find(
+                                      c => c.name.toLowerCase() === cat.parentName!.toLowerCase() && c.id !== cat.id
+                                    );
+                                    if (parentInImport && !sorted.includes(parentInImport)) {
+                                      addCategory(parentInImport);
+                                    }
+                                  }
+
+                                  // Add this category if not already added
+                                  if (!sorted.includes(cat)) {
+                                    sorted.push(cat);
+                                  }
+                                  processing.delete(cat.id);
+                                };
+
+                                // Add all categories, respecting dependencies
+                                for (const cat of remaining) {
+                                  addCategory(cat);
+                                }
+
+                                return sorted;
+                              };
+
+                              const orderedCategories = sortCategoriesByDependency(selectedCategories);
+
+                              // Split categories into parents and children for two-phase import
+                              const parentCategories = orderedCategories.filter(cat => !cat.parentName);
+                              const childCategories = orderedCategories.filter(cat => cat.parentName);
+
+                              // Phase 1: Import parent categories first
+                              if (parentCategories.length > 0) {
+                                const parentCategoriesToInsert = parentCategories.map((cat) => ({
+                                  name: cat.name,
+                                  type: cat.type,
+                                  parent_id: null, // Parents have no parent
+                                  company_id: currentCompany.id,
+                                }));
+
+                                const { error: parentError } = await supabase.from("chart_of_accounts").insert(parentCategoriesToInsert);
+                                if (parentError) {
+                                  throw new Error(`Failed to import parent categories: ${parentError.message}`);
+                                }
+
+                                // Refresh accounts list to get newly created parents
+                                await refreshCategories();
+                              }
+
+                              // Phase 2: Import child categories with proper parent_id resolution
+                              if (childCategories.length > 0) {
+                                const childCategoriesToInsert = await Promise.all(
+                                  childCategories.map(async (cat) => {
+                                    let parent_id = cat.parent_id;
+                                    
+                                    // If we have a parentName but no parent_id, look it up (including newly created parents)
+                                    if (cat.parentName && !parent_id) {
+                                      // Get fresh accounts list that includes newly created parents
+                                      const { data: freshAccounts } = await supabase
+                                        .from("chart_of_accounts")
+                                        .select("*")
+                                        .eq("company_id", currentCompany.id);
+                                      
+                                      if (freshAccounts) {
+                                        const parentAccount = freshAccounts.find((acc) => acc.name.toLowerCase() === cat.parentName!.toLowerCase());
+                                        parent_id = parentAccount?.id || null;
+                                      }
+                                    }
+
+                                    return {
+                                      name: cat.name,
+                                      type: cat.type,
+                                      parent_id,
+                                      company_id: currentCompany.id,
+                                    };
+                                  })
+                                );
+
+                                const { error: childError } = await supabase.from("chart_of_accounts").insert(childCategoriesToInsert);
+                                if (childError) {
+                                  throw new Error(`Failed to import child categories: ${childError.message}`);
+                                }
                               }
 
                               setCategoryImportModal({
@@ -1998,9 +2682,10 @@ export default function ChartOfAccountsPage() {
                                 isLoading: false,
                                 error: null,
                                 selectedCategories: new Set(),
+                                autoCreateMissing: false,
                               });
 
-                              fetchParentOptions();
+                              await fetchParentOptions();
                             } catch (error) {
                               setCategoryImportModal((prev) => ({
                                 ...prev,
@@ -2020,6 +2705,210 @@ export default function ChartOfAccountsPage() {
                     </div>
                   </>
                 )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Merge Categories Modal */}
+      {mergeModal.isOpen && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50">
+          <div className="bg-white rounded-lg p-6 w-[700px] max-h-[80vh] overflow-y-auto shadow-xl">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold">Merge Categories</h2>
+              <button
+                onClick={() =>
+                  setMergeModal({
+                    isOpen: false,
+                    selectedCategories: new Set(),
+                    targetCategoryId: null,
+                    isLoading: false,
+                    error: null,
+                  })
+                }
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X className="w-4 h-4" />
+              </button>
+    </div>
+
+            {mergeModal.error && (
+              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded mb-4">
+                {mergeModal.error}
+              </div>
+            )}
+
+            {mergeModal.isLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                  <h4 className="text-sm font-medium text-blue-800 mb-2">How Merging Works:</h4>
+                  <ul className="text-sm text-blue-700 space-y-1">
+                    <li>• Select 2 or more categories with the same type to merge</li>
+                    <li>• Choose which category to keep as the &quot;target&quot; (others will be deleted)</li>
+                    <li>• All subcategories from merged categories will be moved to the target</li>
+                    <li>• All transaction references will be updated to point to the target category</li>
+                    <li>• If merging parent categories into a subcategory, it will become a parent</li>
+                  </ul>
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-medium text-gray-700 mb-2">Select Categories to Merge:</h3>
+                  <div className="border rounded-lg overflow-hidden max-h-64 overflow-y-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50 sticky top-0">
+                        <tr>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-8">
+                            Select
+                          </th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Name
+                          </th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Type
+                          </th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Parent
+                          </th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Target
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {accounts
+                          .filter(acc => {
+                            // Filter categories to show only those with same type as selected ones
+                            if (mergeModal.selectedCategories.size === 0) return true;
+                            const selectedTypes = new Set(
+                              Array.from(mergeModal.selectedCategories)
+                                .map(id => accounts.find(acc => acc.id === id)?.type)
+                                .filter(Boolean)
+                            );
+                            return selectedTypes.size === 0 || selectedTypes.has(acc.type);
+                          })
+                          .map((category) => {
+                            const parentCategory = category.parent_id 
+                              ? accounts.find(acc => acc.id === category.parent_id) 
+                              : null;
+
+                            return (
+                              <tr key={category.id} className={mergeModal.selectedCategories.has(category.id) ? "bg-blue-50" : ""}>
+                                <td className="px-4 py-2 whitespace-nowrap w-8">
+                                  <input
+                                    type="checkbox"
+                                    checked={mergeModal.selectedCategories.has(category.id)}
+                                    onChange={(e) => {
+                                      const newSelected = new Set(mergeModal.selectedCategories);
+                                      if (e.target.checked) {
+                                        newSelected.add(category.id);
+                                      } else {
+                                        newSelected.delete(category.id);
+                                        // If unchecking target, clear target selection
+                                        if (mergeModal.targetCategoryId === category.id) {
+                                          setMergeModal(prev => ({ ...prev, targetCategoryId: null }));
+                                        }
+                                      }
+                                      setMergeModal(prev => ({ 
+                                        ...prev, 
+                                        selectedCategories: newSelected,
+                                        error: null 
+                                      }));
+                                    }}
+                                    className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                                  />
+                                </td>
+                                <td className="px-4 py-2 text-sm text-gray-900">
+                                  <span style={{ paddingLeft: `${category.parent_id ? 16 : 0}px` }}>
+                                    {category.name}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-2 text-sm text-gray-900">{category.type}</td>
+                                <td className="px-4 py-2 text-sm text-gray-500">
+                                  {parentCategory?.name || "—"}
+                                </td>
+                                <td className="px-4 py-2 whitespace-nowrap w-8">
+                                  <input
+                                    type="radio"
+                                    name="targetCategory"
+                                    checked={mergeModal.targetCategoryId === category.id}
+                                    disabled={!mergeModal.selectedCategories.has(category.id)}
+                                    onChange={() => {
+                                      setMergeModal(prev => ({ 
+                                        ...prev, 
+                                        targetCategoryId: category.id,
+                                        error: null 
+                                      }));
+                                    }}
+                                    className="rounded border-gray-300 text-gray-900 focus:ring-gray-900 disabled:opacity-50"
+                                  />
+                                </td>
+                              </tr>
+                            );
+                          })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {mergeModal.selectedCategories.size > 0 && (
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                    <h4 className="text-sm font-medium text-gray-700 mb-2">Selected for Merge:</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {Array.from(mergeModal.selectedCategories).map(id => {
+                        const category = accounts.find(acc => acc.id === id);
+                        if (!category) return null;
+                        
+                        return (
+                          <span 
+                            key={id} 
+                            className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                              mergeModal.targetCategoryId === id 
+                                ? "bg-green-100 text-green-800 border border-green-200" 
+                                : "bg-blue-100 text-blue-800"
+                            }`}
+                          >
+                            {category.name}
+                            {mergeModal.targetCategoryId === id && " (Target)"}
+                          </span>
+                        );
+                      })}
+                    </div>
+                    {mergeModal.selectedCategories.size >= 2 && !mergeModal.targetCategoryId && (
+                      <p className="text-sm text-orange-600 mt-2">
+                        Please select which category to keep as the target using the radio buttons.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex justify-end space-x-2 mt-6">
+                  <button
+                    onClick={() =>
+                      setMergeModal({
+                        isOpen: false,
+                        selectedCategories: new Set(),
+                        targetCategoryId: null,
+                        isLoading: false,
+                        error: null,
+                      })
+                    }
+                    className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleMergeCategories}
+                    disabled={mergeModal.selectedCategories.size < 2 || !mergeModal.targetCategoryId}
+                    className="px-4 py-2 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Merge
+                  </button>
+                </div>
               </div>
             )}
           </div>

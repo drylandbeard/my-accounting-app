@@ -2882,7 +2882,7 @@ export default function TransactionsPage() {
                           }}
                           className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
                         >
-                          Import Transactions
+                          Import
                         </button>
                       </div>
                     </div>
@@ -3452,7 +3452,7 @@ export default function TransactionsPage() {
                 onClick={handleUpdateAccountNames}
                 className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
               >
-                Save Changes
+                Save
               </button>
             </div>
           </div>
@@ -3623,7 +3623,7 @@ export default function TransactionsPage() {
                 }}
                 className="px-4 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50"
               >
-                View Past Entries
+                View Past
               </button>
               <button
                 onClick={() => setJournalEntryModal(prev => ({ ...prev, isOpen: false }))}
@@ -3897,7 +3897,7 @@ export default function TransactionsPage() {
                 className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
                 disabled={!editJournalEntryModal.entry.description.trim() || editJournalEntryModal.entry.transactions.length === 0}
               >
-                Save Changes
+                Save
               </button>
               <button
                 onClick={async () => {

@@ -228,7 +228,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             disabled={isLoading || !hasChanges()}
             className="px-3 py-1 text-sm font-medium text-white bg-black rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            {isLoading ? "Saving..." : "Save Changes"}
+            {isLoading ? "Saving..." : "Save"}
           </button>
         </div>
       </div>

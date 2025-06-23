@@ -157,7 +157,7 @@ export default function AuthForm() {
           <div className="bg-primary text-primary-foreground flex size-6 items-center justify-center rounded-md">
             <GalleryVerticalEnd className="size-4" />
           </div>
-          Switch
+          switch
         </a>
         
         <Card>
@@ -186,7 +186,7 @@ export default function AuthForm() {
                       disabled={isResendingVerification}
                       className="text-blue-600 hover:text-blue-800 underline disabled:opacity-50"
                     >
-                      {isResendingVerification ? "Sending..." : "Resend verification email"}
+                      {isResendingVerification ? "Sending..." : "Resend"}
                     </button>
                   </div>
                 )}
@@ -227,7 +227,7 @@ export default function AuthForm() {
                     </div>
                   )}
                   <Button type="submit" className="w-full" disabled={isLoading}>
-                    {isLoading ? "Please wait..." : (isSignUp ? "Create account" : "Sign in")}
+                    {isLoading ? "Please wait..." : (isSignUp ? "Sign up" : "Sign in")}
                   </Button>
                 </div>
               </div>

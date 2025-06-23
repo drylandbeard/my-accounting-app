@@ -102,7 +102,7 @@ function CompanyModal({ isOpen, onClose, onCreateCompany }: CompanyModalProps) {
               disabled={isCreating || !name.trim()}
               className="px-3 py-1 text-sm font-medium text-white bg-black rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {isCreating ? "Creating..." : "Create Company"}
+              {isCreating ? "Creating..." : "Create"}
             </button>
           </div>
         </form>
@@ -535,7 +535,7 @@ export default function GatewayPage() {
                     className="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-md hover:bg-gray-800 transition-colors"
                   >
                     <Plus className="w-4 h-4" />
-                    Create Company
+                    Create
                   </button>
                 </div>
               )}

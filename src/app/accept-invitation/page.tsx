@@ -238,7 +238,7 @@ export default function AcceptInvitationPage() {
                 disabled={isSubmitting}
                 className="w-full bg-black hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium py-2 px-4 rounded-md transition-colors text-sm"
               >
-                {isSubmitting ? "Setting up your account..." : "Complete Account Setup"}
+                {isSubmitting ? "Setting up your account..." : "Complete Setup"}
               </button>
             </form>
           </div>

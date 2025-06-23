@@ -108,7 +108,7 @@ function EditCompanyModal({ isOpen, onClose, company, onUpdateCompany }: EditCom
               disabled={isUpdating || !name.trim()}
               className="px-4 py-2 text-sm font-medium text-white bg-black rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {isUpdating ? "Updating..." : "Update Company"}
+              {isUpdating ? "Updating..." : "Update"}
             </button>
           </div>
         </form>
@@ -214,7 +214,7 @@ function AddMemberModal({ isOpen, onClose, onAddMember }: AddMemberModalProps) {
               disabled={isAdding || !email.trim()}
               className="px-4 py-2 text-sm font-medium text-white bg-black rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {isAdding ? "Adding..." : "Add Member"}
+              {isAdding ? "Adding..." : "Add"}
             </button>
           </div>
         </form>
@@ -319,7 +319,7 @@ function TransferOwnershipModal({ isOpen, onClose, members, onTransferOwnership 
               disabled={isTransferring || !selectedMemberId || nonOwnerMembers.length === 0}
               className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors hover:bg-red-700"
             >
-              {isTransferring ? "Transferring..." : "Transfer Ownership"}
+                              {isTransferring ? "Transferring..." : "Transfer"}
             </button>
           </div>
         </form>
@@ -495,7 +495,7 @@ function DeleteCompanyModal({ isOpen, onClose, companyName, onDeleteCompany }: D
               disabled={isDeleting || !isDeleteTextValid}
               className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors hover:bg-red-700"
             >
-              {isDeleting ? "Deleting..." : "Delete Company"}
+              {isDeleting ? "Deleting..." : "Delete"}
             </button>
           </div>
         </form>
@@ -773,7 +773,7 @@ export default function SettingsPage() {
                   className="text-sm text-orange-600 hover:text-orange-800 flex items-center gap-1"
                 >
                   <ArrowRight className="w-4 h-4" />
-                  Transfer Ownership
+                  Transfer
                 </button>
               )}
               <button

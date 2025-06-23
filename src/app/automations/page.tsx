@@ -870,7 +870,7 @@ export default function AutomationsPage() {
                   isOpen: true,
                 })
               }
-              className="text-lg font-semibold text-blue-600 hover:text-blue-800 cursor-pointer"
+              className="px-3 py-1 text-xs border border-gray-300 rounded bg-gray-100 hover:bg-gray-200"
             >
               + New Payee Automation
             </button>
@@ -954,7 +954,7 @@ export default function AutomationsPage() {
                   isOpen: true,
                 })
               }
-              className="text-lg font-semibold text-blue-600 hover:text-blue-800 cursor-pointer"
+              className="px-3 py-1 text-xs border border-gray-300 rounded bg-gray-100 hover:bg-gray-200"
             >
               + New Category Automation
             </button>
