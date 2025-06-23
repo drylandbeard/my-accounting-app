@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuthStore } from "@/zustand/authStore";
-import { useApiWithCompany } from "@/hooks/useApiWithCompany";
+import { api } from "@/lib/api";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { X, Plus } from "lucide-react";
@@ -113,7 +113,6 @@ function CompanyModal({ isOpen, onClose, onCreateCompany }: CompanyModalProps) {
 
 export default function GatewayPage() {
   const { user, companies } = useAuthStore();
-  const { fetchAuthenticated } = useApiWithCompany();
   const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
   const [showAccountSection, setShowAccountSection] = useState(false);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
@@ -139,11 +138,8 @@ export default function GatewayPage() {
   const handleCreateCompany = async (name: string, description?: string) => {
     if (!user) throw new Error("User not found");
 
-    // Use the authenticated fetch to create company
-    const response = await fetchAuthenticated("/api/company/create", {
-      method: "POST",
-      body: JSON.stringify({ name, description }),
-    });
+    // Use the authenticated API to create company
+    const response = await api.post("/api/company/create", { name, description });
 
     const result = await response.json();
     
@@ -215,10 +211,7 @@ export default function GatewayPage() {
     try {
       // Update email if changed
       if (emailChanged) {
-        const emailResult = await fetchAuthenticated("/api/user/update-email", {
-          method: "POST",
-          body: JSON.stringify({ email: emailForm.email }),
-        });
+        const emailResult = await api.post("/api/user/update-email", { email: emailForm.email });
         if (!emailResult.ok) {
           setEmailForm(prev => ({ ...prev, error: "Failed to update email", isUpdating: false }));
           if (passwordChanged) setPasswordForm(prev => ({ ...prev, isUpdating: false }));
@@ -228,12 +221,9 @@ export default function GatewayPage() {
 
       // Update password if changed
       if (passwordChanged) {
-        const passwordResult = await fetchAuthenticated("/api/user/update-password", {
-          method: "POST",
-          body: JSON.stringify({
-            currentPassword: passwordForm.currentPassword,
-            newPassword: passwordForm.newPassword,
-          }),
+        const passwordResult = await api.post("/api/user/update-password", {
+          currentPassword: passwordForm.currentPassword,
+          newPassword: passwordForm.newPassword,
         });
         if (!passwordResult.ok) {
           setPasswordForm(prev => ({ ...prev, error: "Failed to update password", isUpdating: false }));

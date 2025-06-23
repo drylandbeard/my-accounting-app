@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useEffect, ReactNode } from 'react';
-import { useApiWithCompany } from '@/hooks/useApiWithCompany';
+import { useAuthStore } from '@/zustand/authStore';
 import { useAIStore } from '@/zustand/aiStore';
 
 interface Category {
@@ -28,7 +28,7 @@ export const AISharedContext = createContext<AISharedContextType>({
 
 // Hook that provides the same interface but uses Zustand
 export function useAISharedContext() {
-  const { currentCompany } = useApiWithCompany();
+  const { currentCompany } = useAuthStore();
   const { categories, refreshCategories: refreshCategoriesFromStore } = useAIStore();
   
   const refreshCategories = async () => {
@@ -41,7 +41,8 @@ export function useAISharedContext() {
 }
 
 export default function AISharedContextProvider({ children }: { children: ReactNode }) {
-  const { currentCompany, hasCompanyContext } = useApiWithCompany();
+  const { currentCompany } = useAuthStore();
+  const hasCompanyContext = !!(currentCompany);
   const { refreshCategories, categories } = useAIStore();
 
   // Refresh categories when company changes

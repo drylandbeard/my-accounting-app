@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { useApiWithCompany } from "@/hooks/useApiWithCompany";
+import { useAuthStore } from "@/zustand/authStore";
 import { supabase } from "../../lib/supabase";
 import { Select } from "@/components/ui/select";
 import Papa from "papaparse";
@@ -75,7 +75,8 @@ type AutomationCSVRow = {
 };
 
 export default function AutomationsPage() {
-  const { hasCompanyContext, currentCompany } = useApiWithCompany();
+  const { currentCompany } = useAuthStore();
+  const hasCompanyContext = !!(currentCompany);
 
   // State for payee automations
   const [payeeAutomations, setPayeeAutomations] = useState<PayeeAutomation[]>([]);

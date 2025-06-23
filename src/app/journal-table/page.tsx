@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { useApiWithCompany } from '@/hooks/useApiWithCompany';
+import { useAuthStore } from '@/zustand/authStore';
 import { 
   Pagination,
   PaginationContent,
@@ -48,7 +48,8 @@ type SortConfig = {
 };
 
 export default function JournalTablePage() {
-  const { hasCompanyContext, currentCompany } = useApiWithCompany();
+  const { currentCompany } = useAuthStore();
+  const hasCompanyContext = !!(currentCompany);
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [payees, setPayees] = useState<Payee[]>([]);

@@ -4,7 +4,7 @@ import { useAuthStore } from "@/zustand/authStore";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { useCompanyApi } from "@/hooks/useCompanyApi";
+import { api } from "@/lib/api";
 import { X, Plus, CreditCard, Trash, ArrowRight, AlertTriangle } from "lucide-react";
 
 interface CompanyMember {
@@ -507,7 +507,6 @@ function DeleteCompanyModal({ isOpen, onClose, companyName, onDeleteCompany }: D
 export default function SettingsPage() {
   const { user, currentCompany, updateCompany, removeCompany } = useAuthStore();
   const router = useRouter();
-  const { companyApi } = useCompanyApi();
   
   // Team Members State
   const [companyMembers, setCompanyMembers] = useState<CompanyMember[]>([]);
@@ -594,7 +593,7 @@ export default function SettingsPage() {
 
     try {
       // Use API endpoint for better security and validation
-      const response = await companyApi.put("/api/update-company", updatedData);
+      const response = await api.put("/api/update-company", updatedData);
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -615,7 +614,7 @@ export default function SettingsPage() {
     if (!currentCompany || !user) return;
 
     try {
-      const response = await companyApi.post("/api/member/invite-member", { email, role });
+      const response = await api.post("/api/member/invite-member", { email, role });
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -687,7 +686,7 @@ export default function SettingsPage() {
         userId: user.id,
       });
 
-      const response = await companyApi.delete("/api/delete-company");
+      const response = await api.delete("/api/delete-company");
 
       console.log("Delete response status:", response.status);
 

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useAuthStore } from "@/zustand/authStore";
-import { useApiWithCompany } from "@/hooks/useApiWithCompany";
+import { api } from "@/lib/api";
 import { X } from "lucide-react";
 
 interface SettingsModalProps {
@@ -12,7 +12,6 @@ interface SettingsModalProps {
 
 export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const { user } = useAuthStore();
-  const { fetchAuthenticated } = useApiWithCompany();
   
   const [email, setEmail] = useState(user?.email || "");
   const [role, setRole] = useState<"Owner" | "Member" | "Accountant">(user?.role || "Owner");
@@ -46,10 +45,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     try {
       // Update email if changed
       if (email !== user.email) {
-        const emailResponse = await fetchAuthenticated("/api/user/update-email", {
-          method: "POST",
-          body: JSON.stringify({ email }),
-        });
+        const emailResponse = await api.post("/api/user/update-email", { email });
         
         if (!emailResponse.ok) {
           const errorData = await emailResponse.json();
@@ -59,10 +55,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
       // Update role if changed
       if (role !== user.role) {
-        const roleResponse = await fetchAuthenticated("/api/user/update-role", {
-          method: "POST",
-          body: JSON.stringify({ role }),
-        });
+        const roleResponse = await api.post("/api/user/update-role", { role });
         
         if (!roleResponse.ok) {
           const errorData = await roleResponse.json();
@@ -82,12 +75,9 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           throw new Error("Current password is required to change password");
         }
 
-        const passwordResponse = await fetchAuthenticated("/api/user/update-password", {
-          method: "POST",
-          body: JSON.stringify({
-            currentPassword,
-            newPassword,
-          }),
+        const passwordResponse = await api.post("/api/user/update-password", {
+          currentPassword,
+          newPassword,
         });
         
         if (!passwordResponse.ok) {

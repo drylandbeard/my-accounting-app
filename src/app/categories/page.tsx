@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
-import { useApiWithCompany } from "@/hooks/useApiWithCompany";
+import { useAuthStore } from "@/zustand/authStore";
 import { useAIStore } from "@/zustand/aiStore";
 import Papa from "papaparse";
 import { v4 as uuidv4 } from "uuid";
@@ -100,7 +100,8 @@ type MergeModalState = {
 };
 
 export default function ChartOfAccountsPage() {
-  const { hasCompanyContext, currentCompany } = useApiWithCompany();
+  const { currentCompany } = useAuthStore();
+  const hasCompanyContext = !!(currentCompany);
   const { 
     categories: accounts, 
     refreshCategories: refreshCategoriesFromStore,

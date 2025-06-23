@@ -9,7 +9,8 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { X, RefreshCcw } from "lucide-react";
 import { useAIStore } from "@/zustand/aiStore";
-import { useApiWithCompany } from "@/hooks/useApiWithCompany";
+import { useAuthStore } from "@/zustand/authStore";
+import { api } from "@/lib/api";
 import { tools } from "@/ai/tools";
 import { categoryPrompt } from "@/ai/prompts";
 import { createCategoryHandler } from "@/ai/functions/createCategory";
@@ -82,7 +83,7 @@ What kind of business are you running? I'd love to learn more so I can continuou
   
   // Use Zustand store instead of context
   const { categories, refreshCategories: refreshCategoriesFromStore } = useAIStore();
-  const { currentCompany } = useApiWithCompany();
+  const { currentCompany } = useAuthStore();
   
   // Create a wrapper for refreshCategories that includes company ID
   const refreshCategories = useCallback(async () => {
@@ -95,7 +96,6 @@ What kind of business are you running? I'd love to learn more so I can continuou
   const [pendingToolArgs, setPendingToolArgs] = useState<any | null>(null);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [accounts, setAccounts] = useState<any[]>([]);
-  const { postWithCompany } = useApiWithCompany();
   const [lastActivityTime, setLastActivityTime] = useState<number>(Date.now());
   const [proactiveMode, setProactiveMode] = useState<boolean>(() => {
     if (typeof window === "undefined") return true;
@@ -352,7 +352,7 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
       ]);
       // Remove from imported_transactions
       await supabase.from("imported_transactions").delete().eq("id", tx.id);
-      await postWithCompany("/api/sync-journal", {});
+      await api.post("/api/sync-journal", {});
       // Refresh categories unless we're in batch mode
       if (!skipRefresh) {
         await refreshCategories();
