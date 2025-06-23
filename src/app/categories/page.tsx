@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState, useContext, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { useApiWithCompany } from "@/hooks/useApiWithCompany";
-import { AISharedContext } from "@/components/AISharedContext";
+import { useAIStore } from "@/zustand/aiStore";
 import Papa from "papaparse";
 import { v4 as uuidv4 } from "uuid";
 import { X } from "lucide-react";
@@ -73,7 +73,21 @@ type PayeeSortConfig = {
 
 export default function ChartOfAccountsPage() {
   const { hasCompanyContext, currentCompany } = useApiWithCompany();
-  const { categories: accounts, refreshCategories } = useContext(AISharedContext);
+  const { 
+    categories: accounts, 
+    refreshCategories: refreshCategoriesFromStore,
+    highlightCategory,
+    highlightedCategoryIds,
+    lastActionId 
+  } = useAIStore();
+  
+  // Create wrapper for refreshCategories that includes company ID
+  const refreshCategories = useCallback(async () => {
+    if (currentCompany?.id) {
+      await refreshCategoriesFromStore(currentCompany.id);
+    }
+  }, [currentCompany?.id, refreshCategoriesFromStore]);
+  
   const [payees, setPayees] = useState<Payee[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -99,9 +113,7 @@ export default function ChartOfAccountsPage() {
   const [editingPayeeId, setEditingPayeeId] = useState<string | null>(null);
   const [editPayeeName, setEditPayeeName] = useState("");
 
-  // AI Integration - Real-time and focus states
-  const [highlightedIds, setHighlightedIds] = useState<Set<string>>(new Set());
-  const [lastActionId, setLastActionId] = useState<string | null>(null);
+  // AI Integration states are now handled by Zustand store
 
   // Import modal state
   const [categoryImportModal, setCategoryImportModal] = useState<CategoryImportModalState>({
@@ -240,11 +252,10 @@ export default function ChartOfAccountsPage() {
     );
   };
 
-  // AI Integration - Highlight a category and scroll to it
-  const highlightCategory = useCallback((categoryId: string) => {
-    setHighlightedIds((prev) => new Set([...prev, categoryId]));
-    setLastActionId(categoryId);
-
+  // Use highlight function from Zustand store and add scroll behavior
+  const highlightCategoryWithScroll = useCallback((categoryId: string) => {
+    highlightCategory(categoryId);
+    
     setTimeout(() => {
       const element = document.getElementById(`category-${categoryId}`);
       if (element) {
@@ -254,16 +265,7 @@ export default function ChartOfAccountsPage() {
         });
       }
     }, 100);
-
-    setTimeout(() => {
-      setHighlightedIds((prev) => {
-        const newSet = new Set(prev);
-        newSet.delete(categoryId);
-        return newSet;
-      });
-      setLastActionId((currentId) => (currentId === categoryId ? null : currentId));
-    }, 3000);
-  }, []);
+  }, [highlightCategory]);
 
   useEffect(() => {
     if (accounts) {
@@ -318,7 +320,7 @@ export default function ChartOfAccountsPage() {
           }
 
           if (recordId) {
-            highlightCategory(recordId);
+            highlightCategoryWithScroll(recordId);
           }
 
           fetchParentOptions();
@@ -332,7 +334,7 @@ export default function ChartOfAccountsPage() {
       console.log("Cleaning up real-time subscription");
       supabase.removeChannel(channel);
     };
-  }, [currentCompany?.id, hasCompanyContext, highlightCategory, fetchParentOptions, refreshCategories]);
+  }, [currentCompany?.id, hasCompanyContext, highlightCategoryWithScroll, fetchParentOptions, refreshCategories]);
 
   // Sorting functions
   const sortCategories = (categories: Category[], sortConfig: SortConfig) => {
@@ -1032,7 +1034,7 @@ export default function ChartOfAccountsPage() {
             key={parent.id}
             id={`category-${parent.id}`}
             className={`transition-colors duration-1000 ${
-              highlightedIds.has(parent.id) ? "bg-green-100" : "hover:bg-gray-50"
+                              highlightedCategoryIds.has(parent.id) ? "bg-green-100" : "hover:bg-gray-50"
             }`}
           >
             <td style={{ paddingLeft: `${level * 16 + 4}px` }} className="border p-1 text-xs">
@@ -1046,7 +1048,7 @@ export default function ChartOfAccountsPage() {
                   autoFocus
                 />
               ) : (
-                <span className={highlightedIds.has(parent.id) ? "font-bold text-green-800" : ""}>{parent.name}</span>
+                <span className={highlightedCategoryIds.has(parent.id) ? "font-bold text-green-800" : ""}>{parent.name}</span>
               )}
               {lastActionId === parent.id && <span className="ml-2 inline-block text-green-600">✨</span>}
             </td>
@@ -1124,7 +1126,7 @@ export default function ChartOfAccountsPage() {
               key={subAcc.id}
               id={`category-${subAcc.id}`}
               className={`transition-colors duration-1000 ${
-                highlightedIds.has(subAcc.id) ? "bg-green-100" : "hover:bg-gray-50"
+                highlightedCategoryIds.has(subAcc.id) ? "bg-green-100" : "hover:bg-gray-50"
               }`}
             >
               <td
@@ -1143,7 +1145,7 @@ export default function ChartOfAccountsPage() {
                     autoFocus
                   />
                 ) : (
-                  <span className={highlightedIds.has(subAcc.id) ? "font-bold text-green-800" : ""}>{subAcc.name}</span>
+                  <span className={highlightedCategoryIds.has(subAcc.id) ? "font-bold text-green-800" : ""}>{subAcc.name}</span>
                 )}
                 {lastActionId === subAcc.id && <span className="ml-2 inline-block text-green-600">✨</span>}
               </td>

@@ -1,8 +1,8 @@
 "use client";
 
-import { createContext, useState, useEffect, ReactNode, useCallback } from 'react';
-import { supabase } from '@/lib/supabase';
+import { createContext, useEffect, ReactNode } from 'react';
 import { useApiWithCompany } from '@/hooks/useApiWithCompany';
+import { useAIStore } from '@/zustand/aiStore';
 
 interface Category {
   id: string;
@@ -14,52 +14,55 @@ interface Category {
   plaid_account_id?: string | null;
 }
 
+// Keep the context for backward compatibility but it will just be a passthrough
 export type AISharedContextType = {
   categories: Category[];
   refreshCategories: () => Promise<void>;
 };
 
+// Legacy context for components that might still use it
 export const AISharedContext = createContext<AISharedContextType>({
   categories: [],
   refreshCategories: async () => {},
 });
 
-export default function AISharedContextProvider({ children }: { children: ReactNode }) {
-  const [categories, setCategories] = useState<Category[]>([]);
-  const { currentCompany, hasCompanyContext } = useApiWithCompany();
-
-  const refreshCategories = useCallback(async () => {
-    try {
-      if (!hasCompanyContext || !currentCompany?.id) {
-        setCategories([]);
-        return;
-      }
-
-      const { data: catData, error } = await supabase
-        .from('chart_of_accounts')
-        .select('*')
-        .eq('company_id', currentCompany.id)
-        .order('parent_id', { ascending: true, nullsFirst: true })
-        .order('type', { ascending: true })
-        .order('name', { ascending: true });
-      
-      if (error) {
-        console.error('Error refreshing categories:', error);
-        return;
-      }
-      
-      setCategories(catData || []);
-    } catch (err) {
-      console.error('Error in refreshCategories:', err);
+// Hook that provides the same interface but uses Zustand
+export function useAISharedContext() {
+  const { currentCompany } = useApiWithCompany();
+  const { categories, refreshCategories: refreshCategoriesFromStore } = useAIStore();
+  
+  const refreshCategories = async () => {
+    if (currentCompany?.id) {
+      await refreshCategoriesFromStore(currentCompany.id);
     }
-  }, [hasCompanyContext, currentCompany?.id]);
+  };
+  
+  return { categories, refreshCategories };
+}
 
+export default function AISharedContextProvider({ children }: { children: ReactNode }) {
+  const { currentCompany, hasCompanyContext } = useApiWithCompany();
+  const { refreshCategories, categories } = useAIStore();
+
+  // Refresh categories when company changes
   useEffect(() => {
-    refreshCategories();
-  }, [refreshCategories]);
+    if (hasCompanyContext && currentCompany?.id) {
+      refreshCategories(currentCompany.id);
+    }
+  }, [currentCompany?.id, hasCompanyContext, refreshCategories]);
+
+  // Provide context value using Zustand store data
+  const contextValue: AISharedContextType = {
+    categories,
+    refreshCategories: async () => {
+      if (currentCompany?.id) {
+        await refreshCategories(currentCompany.id);
+      }
+    }
+  };
 
   return (
-    <AISharedContext.Provider value={{ categories, refreshCategories }}>
+    <AISharedContext.Provider value={contextValue}>
       {children}
     </AISharedContext.Provider>
   );
