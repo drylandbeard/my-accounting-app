@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { supabase } from '@/lib/supabase';
+import { api } from '@/lib/api';
 
 // Types
 export interface Payee {
@@ -7,6 +7,11 @@ export interface Payee {
   name: string;
   company_id: string;
 }
+
+// Helper function to sort payees alphabetically by name
+const sortPayees = (payees: Payee[]): Payee[] => {
+  return [...payees].sort((a, b) => a.name.localeCompare(b.name));
+};
 
 // Store interface
 interface PayeesState {
@@ -20,9 +25,9 @@ interface PayeesState {
   lastActionPayeeId: string | null;
   
   // Actions
-  refreshPayees: (companyId: string) => Promise<void>;
-  addPayee: (payee: Omit<Payee, 'id'>) => Promise<Payee | null>;
-  updatePayee: (id: string, updates: Partial<Payee>) => Promise<boolean>;
+  refreshPayees: () => Promise<void>;
+  addPayee: (payee: { name: string }) => Promise<Payee | null>;
+  updatePayee: (id: string, updates: { name: string }) => Promise<boolean>;
   deletePayee: (id: string) => Promise<boolean>;
   highlightPayee: (payeeId: string) => void;
   clearError: () => void;
@@ -37,22 +42,20 @@ export const usePayeesStore = create<PayeesState>((set, get) => ({
   lastActionPayeeId: null,
   
   // Actions
-  refreshPayees: async (companyId: string) => {
+  refreshPayees: async () => {
     set({ isLoading: true, error: null });
     try {
-      const { data, error } = await supabase
-        .from('payees')
-        .select('*')
-        .eq('company_id', companyId)
-        .order('name');
+      const response = await api.get('/api/payee');
       
-      if (error) {
-        console.error('Error refreshing payees:', error);
-        set({ error: error.message, isLoading: false });
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('API error refreshing payees:', errorData.error);
+        set({ error: errorData.error || 'Failed to refresh payees', isLoading: false });
         return;
       }
       
-      set({ payees: data || [], isLoading: false });
+      const result = await response.json();
+      set({ payees: result.payees || [], isLoading: false });
     } catch (err) {
       console.error('Error in refreshPayees:', err);
       const errorMessage = err instanceof Error ? err.message : 'Failed to refresh payees';
@@ -62,35 +65,39 @@ export const usePayeesStore = create<PayeesState>((set, get) => ({
   
   addPayee: async (payeeData) => {
     try {
-      // Check for duplicate names (case-insensitive)
-      const { payees } = get();
-      const existingPayee = payees.find(
-        (payee) => payee.name.toLowerCase() === payeeData.name.toLowerCase()
-      );
+      // Prepare data for API call
+      const requestData = {
+        name: payeeData.name.trim(),
+      };
+
+      // Call the API route
+      const response = await api.post('/api/payee', requestData);
       
-      if (existingPayee) {
-        set({ error: `Payee "${payeeData.name}" already exists.` });
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('API error adding payee:', errorData.error);
+        set({ error: errorData.error || 'Failed to add payee' });
         return null;
       }
       
-      const { data, error } = await supabase
-        .from('payees')
-        .insert([payeeData])
-        .select()
-        .single();
+      const result = await response.json();
+      const newPayee = result.payee as Payee;
       
-      if (error) {
-        console.error('Error adding payee:', error);
-        set({ error: `Failed to add payee: ${error.message}` });
-        return null;
+      // Update the store with the sorted payees from the API
+      if (result.payees) {
+        set({
+          payees: result.payees,
+          error: null
+        });
+      } else {
+        // Fallback: add to existing payees with proper sorting if sorted list not available
+        const updatedPayees = [...get().payees, newPayee];
+        const sortedPayees = sortPayees(updatedPayees);
+        set({
+          payees: sortedPayees,
+          error: null
+        });
       }
-      
-      // Optimistically update the store
-      const newPayee = data as Payee;
-      set((state) => ({
-        payees: [...state.payees, newPayee].sort((a, b) => a.name.localeCompare(b.name)),
-        error: null
-      }));
       
       // Highlight the new payee
       get().highlightPayee(newPayee.id);
@@ -98,7 +105,7 @@ export const usePayeesStore = create<PayeesState>((set, get) => ({
       return newPayee;
     } catch (err) {
       console.error('Error in addPayee:', err);
-      const errorMessage = err instanceof Error ? err.message : 'Failed to add payee';
+      const errorMessage = err instanceof Error ? err.message : 'Network error occurred';
       set({ error: errorMessage });
       return null;
     }
@@ -106,91 +113,93 @@ export const usePayeesStore = create<PayeesState>((set, get) => ({
   
   updatePayee: async (id: string, updates) => {
     try {
-      // Check for duplicate names (case-insensitive, excluding current)
+      // Optimistic update with proper sorting
       const { payees } = get();
-      if (updates.name) {
-        const existingPayee = payees.find(
-          (payee) => payee.id !== id && payee.name.toLowerCase() === updates.name!.toLowerCase()
-        );
-        
-        if (existingPayee) {
-          set({ error: `Payee "${updates.name}" already exists.` });
-          return false;
-        }
-      }
-      
-      // Optimistic update
       const updatedPayees = payees.map((payee) =>
         payee.id === id ? { ...payee, ...updates } : payee
       );
-      set({ payees: updatedPayees, error: null });
       
-      const { error } = await supabase
-        .from('payees')
-        .update(updates)
-        .eq('id', id);
+      // Sort the payees to keep them alphabetically arranged
+      const sortedPayees = sortPayees(updatedPayees);
+      set({ payees: sortedPayees, error: null });
       
-      if (error) {
-        console.error('Error updating payee:', error);
+      // Highlight immediately with optimistic update
+      get().highlightPayee(id);
+      
+      // Prepare data for API call
+      const requestData = {
+        id,
+        name: updates.name.trim()
+      };
+
+      // Call the API route
+      const response = await api.put('/api/payee/update', requestData);
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('API error updating payee:', errorData.error);
         // Revert optimistic update
-        set({ payees, error: `Failed to update payee: ${error.message}` });
+        set({ payees, error: errorData.error || 'Failed to update payee' });
         return false;
       }
+
+      const result = await response.json();
       
-      // Highlight the updated payee
-      get().highlightPayee(id);
+      // Update the store with the sorted payees from the API if available
+      if (result.payees) {
+        set({
+          payees: result.payees,
+          error: null
+        });
+      }
       
       return true;
     } catch (err) {
       console.error('Error in updatePayee:', err);
       // Revert optimistic update
       const { payees } = get();
-      set({ payees, error: 'Failed to update payee' });
+      const errorMessage = err instanceof Error ? err.message : 'Network error occurred';
+      set({ payees, error: errorMessage });
       return false;
     }
   },
   
   deletePayee: async (id: string) => {
     try {
-      // Check if payee is used in transactions
-      const { data: transactions, error: txError } = await supabase
-        .from('transactions')
-        .select('id')
-        .eq('payee_id', id)
-        .limit(1);
-      
-      if (txError) {
-        console.error('Error checking transactions:', txError);
-        set({ error: 'Error checking if payee is in use. Please try again.' });
-        return false;
-      }
-      
-      if (transactions && transactions.length > 0) {
-        set({ error: 'Cannot delete payee because it is used in existing transactions. Please reassign or delete the transactions first.' });
-        return false;
-      }
-      
       // Optimistic delete
       const { payees } = get();
       const updatedPayees = payees.filter((payee) => payee.id !== id);
       set({ payees: updatedPayees, error: null });
       
-      const { error } = await supabase
-        .from('payees')
-        .delete()
-        .eq('id', id);
+      // Call the API route
+      const response = await api.delete('/api/payee/delete', {
+        body: JSON.stringify({ payeeId: id })
+      });
       
-      if (error) {
-        console.error('Error deleting payee:', error);
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('API error deleting payee:', errorData.error);
         // Revert optimistic delete
-        set({ payees, error: `Failed to delete payee: ${error.message}` });
+        set({ payees, error: errorData.error || 'Failed to delete payee' });
         return false;
+      }
+      
+      const result = await response.json();
+      
+      // Update the store with the sorted payees from the API if available
+      if (result.payees) {
+        set({
+          payees: result.payees,
+          error: null
+        });
       }
       
       return true;
     } catch (err) {
       console.error('Error in deletePayee:', err);
-      set({ error: 'Failed to delete payee' });
+      // Revert optimistic delete
+      const { payees } = get();
+      set({ payees, error: 'Failed to delete payee' });
       return false;
     }
   },

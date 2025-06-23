@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { supabase } from '@/lib/supabase';
 import { api } from '@/lib/api';
 
 // Categories Store - manages category/chart of accounts state
@@ -14,6 +13,22 @@ export interface Category {
   plaid_account_id?: string | null;
 }
 
+// Helper function to sort categories the same way as the API
+const sortCategories = (categories: Category[]): Category[] => {
+  return [...categories].sort((a, b) => {
+    // First sort by parent_id (nulls first - parents before children)
+    if (a.parent_id === null && b.parent_id !== null) return -1;
+    if (a.parent_id !== null && b.parent_id === null) return 1;
+    
+    // Then by type (alphabetical)
+    const typeCompare = a.type.localeCompare(b.type);
+    if (typeCompare !== 0) return typeCompare;
+    
+    // Finally by name (alphabetical)
+    return a.name.localeCompare(b.name);
+  });
+};
+
 // Store interface
 interface CategoriesState {
   // Categories data
@@ -26,7 +41,7 @@ interface CategoriesState {
   lastActionCategoryId: string | null;
   
   // Actions
-  refreshCategories: (companyId: string) => Promise<void>;
+  refreshCategories: () => Promise<void>;
   addCategory: (category: { name: string; type: string; parent_id?: string | null }) => Promise<Category | null>;
   updateCategory: (id: string, updates: Partial<Category>) => Promise<boolean>;
   deleteCategory: (id: string) => Promise<boolean>;
@@ -43,24 +58,20 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
   lastActionCategoryId: null,
   
   // Actions
-  refreshCategories: async (companyId: string) => {
+  refreshCategories: async () => {
     set({ isLoading: true, error: null });
     try {
-      const { data, error } = await supabase
-        .from('chart_of_accounts')
-        .select('*')
-        .eq('company_id', companyId)
-        .order('parent_id', { ascending: true, nullsFirst: true })
-        .order('type', { ascending: true })
-        .order('name', { ascending: true });
+      const response = await api.get('/api/category');
       
-      if (error) {
-        console.error('Error refreshing categories:', error);
-        set({ error: error.message, isLoading: false });
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('API error refreshing categories:', errorData.error);
+        set({ error: errorData.error || 'Failed to refresh categories', isLoading: false });
         return;
       }
       
-      set({ categories: data || [], isLoading: false });
+      const result = await response.json();
+      set({ categories: result.categories || [], isLoading: false });
     } catch (err) {
       console.error('Error in refreshCategories:', err);
       const errorMessage = err instanceof Error ? err.message : 'Failed to refresh categories';
@@ -77,7 +88,7 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
         parent_id: categoryData.parent_id || null,
       };
 
-      // Call the API route instead of direct Supabase
+      // Call the API route
       const response = await api.post('/api/category/create', requestData);
       
       if (!response.ok) {
@@ -97,11 +108,13 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
           error: null
         });
       } else {
-        // Fallback: add to existing categories if sorted list not available
-      set((state) => ({
-        categories: [...state.categories, newCategory],
-        error: null
-      }));
+        // Fallback: add to existing categories with proper sorting if sorted list not available
+        const updatedCategories = [...get().categories, newCategory];
+        const sortedCategories = sortCategories(updatedCategories);
+        set({
+          categories: sortedCategories,
+          error: null
+        });
       }
       
       // Highlight the new category
@@ -118,12 +131,18 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
   
   updateCategory: async (id: string, updates) => {
     try {
-      // Optimistic update
+      // Optimistic update with proper sorting
       const { categories } = get();
       const updatedCategories = categories.map((cat) =>
         cat.id === id ? { ...cat, ...updates } : cat
       );
-      set({ categories: updatedCategories, error: null });
+      
+      // Sort the categories to match API sorting behavior
+      const sortedCategories = sortCategories(updatedCategories);
+      set({ categories: sortedCategories, error: null });
+      
+      // Highlight immediately with optimistic update
+      get().highlightCategory(id);
       
       // Prepare data for API call
       const requestData = {
@@ -131,7 +150,7 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
         ...updates
       };
 
-      // Call the API route instead of direct Supabase
+      // Call the API route
       const response = await api.put('/api/category/update', requestData);
       
       if (!response.ok) {
@@ -152,9 +171,6 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
         });
       }
       
-      // Highlight the updated category
-      get().highlightCategory(id);
-      
       return true;
     } catch (err) {
       console.error('Error in updateCategory:', err);
@@ -168,53 +184,40 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
   
   deleteCategory: async (id: string) => {
     try {
-      // Check if category has subcategories
-      const { categories } = get();
-      const subcategories = categories.filter(cat => cat.parent_id === id);
-      
-      if (subcategories.length > 0) {
-        set({ error: `Cannot delete category because it has ${subcategories.length} subcategories. Please delete or reassign them first.` });
-        return false;
-      }
-      
-      // Check if category is used in transactions
-      const { data: transactions, error: txError } = await supabase
-        .from('transactions')
-        .select('id')
-        .or(`selected_category_id.eq.${id},corresponding_category_id.eq.${id}`)
-        .limit(1);
-      
-      if (txError) {
-        console.error('Error checking transactions:', txError);
-        set({ error: 'Error checking if category is in use. Please try again.' });
-        return false;
-      }
-      
-      if (transactions && transactions.length > 0) {
-        set({ error: 'Cannot delete category because it is used in existing transactions. Please reassign or delete the transactions first.' });
-        return false;
-      }
-      
       // Optimistic delete
+      const { categories } = get();
       const updatedCategories = categories.filter((cat) => cat.id !== id);
       set({ categories: updatedCategories, error: null });
       
-      const { error } = await supabase
-        .from('chart_of_accounts')
-        .delete()
-        .eq('id', id);
+      // Call the API route
+      const response = await api.delete('/api/category/delete', {
+        body: JSON.stringify({ categoryId: id })
+      });
       
-      if (error) {
-        console.error('Error deleting category:', error);
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('API error deleting category:', errorData.error);
         // Revert optimistic delete
-        set({ categories, error: `Failed to delete category: ${error.message}` });
+        set({ categories, error: errorData.error || 'Failed to delete category' });
         return false;
+      }
+      
+      const result = await response.json();
+      
+      // Update the store with the sorted categories from the API if available
+      if (result.categories) {
+        set({
+          categories: result.categories,
+          error: null
+        });
       }
       
       return true;
     } catch (err) {
       console.error('Error in deleteCategory:', err);
-      set({ error: 'Failed to delete category' });
+      // Revert optimistic delete
+      const { categories } = get();
+      set({ categories, error: 'Failed to delete category' });
       return false;
     }
   },
