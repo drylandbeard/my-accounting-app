@@ -1804,7 +1804,7 @@ export default function ChartOfAccountsPage() {
             <form onSubmit={handleAddAccount} className="flex gap-2 items-center">
               <input
                 type="text"
-                placeholder="Category Name"
+                placeholder="Add Category Name"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 className="border border-gray-300 px-2 py-1 text-xs flex-1"
