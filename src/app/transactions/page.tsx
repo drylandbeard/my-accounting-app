@@ -572,17 +572,21 @@ export default function TransactionsPage() {
       try {
         const res = await api.get('/api/1-create-link-token')
         const data = await res.json()
-        if (res.ok) {
-          setLinkToken(data.link_token)
+        
+        if (data.linkToken) {
+          setLinkToken(data.linkToken)
         } else {
-          console.error('Failed to create link token:', data.error)
+          console.error('No link token received')
         }
       } catch (error) {
-        console.error('Error creating link token:', error)
+        console.error('Failed to create link token:', error)
       }
     }
-    createLinkToken()
-  }, []) // Removed hasCompanyContext and getWithCompany from dependencies to prevent infinite re-renders
+
+    if (hasCompanyContext) {
+      createLinkToken()
+    }
+  }, [hasCompanyContext])
 
   // Update the account selection modal state to include dates
   const [accountSelectionModal, setAccountSelectionModal] = useState<{
