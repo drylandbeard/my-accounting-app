@@ -3969,15 +3969,13 @@ export default function TransactionsPage() {
             return (
               <div className="ml-4 flex items-center gap-3 my-auto">
                 <div className="flex items-center gap-1 px-2 py-1 bg-gray-50 border border-gray-200 rounded-md">
-                  <span className="text-gray-700 text-xs font-medium">Current Balance:</span>
+                  <span className="text-gray-700 text-xs font-medium">Account Balance:</span>
                   <span className="text-gray-900 text-xs font-semibold">{formatAmount(currentBalance)}</span>
                 </div>
-                {activeTab === 'added' && (
-                  <div className="flex items-center gap-1 px-2 py-1 bg-gray-50 border border-gray-200 rounded-md">
-                    <span className="text-gray-700 text-xs font-medium">Switch Balance:</span>
-                    <span className="text-gray-900 text-xs font-semibold">{formatAmount(switchBalance)}</span>
-                  </div>
-                )}
+                <div className="flex items-center gap-1 px-2 py-1 bg-gray-50 border border-gray-200 rounded-md">
+                  <span className="text-gray-700 text-xs font-medium">Switch Balance:</span>
+                  <span className="text-gray-900 text-xs font-semibold">{formatAmount(switchBalance)}</span>
+                </div>
               </div>
             );
           })()}
