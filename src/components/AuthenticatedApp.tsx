@@ -18,7 +18,17 @@ export default function AuthenticatedApp({ children }: { children: React.ReactNo
   const isHomepage = pathname === "/";
   
   // Pages that should be accessible without authentication
-  const publicPages = ["/verify-email"];
+  const publicPages = [
+    "/verify-email",
+    "/accept-invitation",
+    // Auth API routes are handled separately by middleware, but included for completeness
+    "/api/auth/signup",
+    "/api/auth/signin", 
+    "/api/auth/verify-email",
+    "/api/auth/verify-code",
+    "/api/auth/resend-verification",
+    "/api/accept-invitation"
+  ];
   const isPublicPage = publicPages.some(page => pathname.startsWith(page));
 
   // Show login form if not authenticated (but allow access to public pages)
