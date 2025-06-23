@@ -5,10 +5,10 @@ and the complex interaction between multiple imported type definitions from diff
 
 "use client";
 
-import { useState, useEffect, useRef, useContext } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { X, RefreshCcw } from "lucide-react";
-import { AISharedContext } from "./AISharedContext";
+import { useAIStore } from "@/zustand/aiStore";
 import { useApiWithCompany } from "@/hooks/useApiWithCompany";
 import { tools } from "@/ai/tools";
 import { categoryPrompt } from "@/ai/prompts";
@@ -79,12 +79,23 @@ What kind of business are you running? I'd love to learn more so I can continuou
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
   const [isResizing, setIsResizing] = useState(false);
   const resizeRef = useRef<HTMLDivElement>(null);
-  const { categories, refreshCategories } = useContext(AISharedContext);
+  
+  // Use Zustand store instead of context
+  const { categories, refreshCategories: refreshCategoriesFromStore } = useAIStore();
+  const { currentCompany } = useApiWithCompany();
+  
+  // Create a wrapper for refreshCategories that includes company ID
+  const refreshCategories = useCallback(async () => {
+    if (currentCompany?.id) {
+      await refreshCategoriesFromStore(currentCompany.id);
+    }
+  }, [currentCompany?.id, refreshCategoriesFromStore]);
+  
   const [pendingToolQueue, setPendingToolQueue] = useState<any[]>([]);
   const [pendingToolArgs, setPendingToolArgs] = useState<any | null>(null);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [accounts, setAccounts] = useState<any[]>([]);
-  const { currentCompany, postWithCompany } = useApiWithCompany();
+  const { postWithCompany } = useApiWithCompany();
   const [lastActivityTime, setLastActivityTime] = useState<number>(Date.now());
   const [proactiveMode, setProactiveMode] = useState<boolean>(() => {
     if (typeof window === "undefined") return true;
