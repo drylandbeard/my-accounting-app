@@ -4,7 +4,7 @@ import { useAuthStore } from "@/zustand/authStore";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { useApiWithCompany } from "@/hooks/useApiWithCompany";
+import { api } from "@/lib/api";
 import { X, Plus, CreditCard, Trash, ArrowRight, AlertTriangle } from "lucide-react";
 
 interface CompanyMember {
@@ -505,9 +505,8 @@ function DeleteCompanyModal({ isOpen, onClose, companyName, onDeleteCompany }: D
 }
 
 export default function SettingsPage() {
-  const { user, currentCompany, companies } = useAuthStore();
+  const { user, currentCompany, updateCompany, removeCompany } = useAuthStore();
   const router = useRouter();
-  const { fetchWithCompany } = useApiWithCompany();
   
   // Team Members State
   const [companyMembers, setCompanyMembers] = useState<CompanyMember[]>([]);
@@ -590,21 +589,21 @@ export default function SettingsPage() {
   };
 
   const handleUpdateCompany = async (updatedData: { name: string; description: string }) => {
-    if (!currentCompany) return;
+    if (!currentCompany || !user) return;
 
     try {
-      const { error } = await supabase
-        .from("companies")
-        .update(updatedData)
-        .eq("id", currentCompany.id);
+      // Use API endpoint for better security and validation
+      const response = await api.put("/api/update-company", updatedData);
 
-      if (error) throw error;
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to update company");
+      }
 
-      // Update current company in Zustand state
-      useAuthStore.setState(state => ({
-        ...state,
-        currentCompany: currentCompany ? { ...currentCompany, ...updatedData } : null
-      }));
+      const result = await response.json();
+      
+      // Update company in Zustand state with the response data
+      updateCompany(currentCompany.id, result.company);
       setEditCompanyModal({ isOpen: false, company: null });
     } catch (error) {
       throw new Error(error instanceof Error ? error.message : "Failed to update company");
@@ -612,13 +611,10 @@ export default function SettingsPage() {
   };
 
   const handleAddMember = async (email: string, role: "Owner" | "Member" | "Accountant") => {
-    if (!currentCompany) return;
+    if (!currentCompany || !user) return;
 
     try {
-      const response = await fetchWithCompany("/api/member/invite-member", {
-        method: "POST",
-        body: JSON.stringify({ email, role }),
-      });
+      const response = await api.post("/api/member/invite-member", { email, role });
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -681,18 +677,16 @@ export default function SettingsPage() {
   };
 
   const handleDeleteCompany = async () => {
-    if (!currentCompany || !isOwner) return;
+    if (!currentCompany || !isOwner || !user) return;
 
     try {
       console.log("Attempting to delete company:", {
         companyId: currentCompany.id,
         companyName: currentCompany.name,
-        userId: user?.id,
+        userId: user.id,
       });
 
-      const response = await fetchWithCompany("/api/delete-company", {
-        method: "DELETE",
-      });
+      const response = await api.delete("/api/delete-company");
 
       console.log("Delete response status:", response.status);
 
@@ -704,13 +698,8 @@ export default function SettingsPage() {
         if (response.status === 404 || errorData.error?.includes("Company does not exist")) {
           console.log("Company doesn't exist in database, cleaning up localStorage");
           
-          // Remove the non-existent company from the companies list
-          const updatedCompanies = companies.filter(c => c.companies.id !== currentCompany.id);
-          useAuthStore.setState(state => ({
-            ...state,
-            companies: updatedCompanies,
-            currentCompany: null
-          }));
+          // Remove the non-existent company from Zustand state
+          removeCompany(currentCompany.id);
           router.push("/");
           return; // Don't throw error, treat as successful cleanup
         }
@@ -721,13 +710,8 @@ export default function SettingsPage() {
       const result = await response.json();
       console.log("Delete successful:", result);
 
-      // Remove the deleted company from the companies list and clear current company
-      const updatedCompanies = companies.filter(c => c.companies.id !== currentCompany.id);
-      useAuthStore.setState(state => ({
-        ...state,
-        companies: updatedCompanies,
-        currentCompany: null
-      }));
+      // Remove the deleted company from Zustand state
+      removeCompany(currentCompany.id);
       router.push("/");
     } catch (error) {
       console.error("Error deleting company:", error);

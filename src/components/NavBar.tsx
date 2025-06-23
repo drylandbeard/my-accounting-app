@@ -4,9 +4,9 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
 import { useAuthStore } from "@/zustand/authStore";
-import { useApiWithCompany } from "@/hooks/useApiWithCompany";
+import { api } from "@/lib/api";
 
-import { X, Settings, User, LogOut, Sparkles } from "lucide-react";
+import { X, Settings, User, LogOut, PanelRight } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 interface CompanyModalProps {
@@ -138,7 +138,6 @@ interface NavBarProps {
 
 export default function NavBar({ showAccountAction, showAccountSection, isGatewayPage = false, onToggleAI }: NavBarProps) {
   const { user, companies, currentCompany, logout } = useAuthStore();
-  const { fetchAuthenticated } = useApiWithCompany();
   const [isAccountDropdownOpen, setIsAccountDropdownOpen] = useState(false);
   const router = useRouter();
 
@@ -169,11 +168,8 @@ export default function NavBar({ showAccountAction, showAccountSection, isGatewa
   const handleCreateCompany = async (name: string, description?: string) => {
     if (!user) throw new Error("User not found");
 
-    // Use the authenticated fetch to create company
-    const response = await fetchAuthenticated("/api/company/create", {
-      method: "POST",
-      body: JSON.stringify({ name, description }),
-    });
+    // Use the authenticated API to create company
+    const response = await api.post("/api/company/create", { name, description });
 
     const result = await response.json();
     
@@ -278,7 +274,7 @@ export default function NavBar({ showAccountAction, showAccountSection, isGatewa
                   className="flex items-center space-x-1 text-gray-700 hover:text-black px-2 py-1 rounded"
                   title="Toggle AI Assistant"
                 >
-                  <Sparkles className="w-4 h-4" />
+                  <PanelRight className="w-4 h-4" />
                 </button>
               )}
 

@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { CheckCircle, XCircle, Mail } from "lucide-react";
+import { api } from "@/lib/api";
 
 interface InvitationData {
   email: string;
@@ -64,7 +65,7 @@ export default function AcceptInvitationPage() {
 
     try {
       console.log("📡 Making API call to validate invitation token...");
-      const response = await fetch(`/api/accept-invitation?token=${invitationToken}`);
+      const response = await api.public.get(`/api/member/accept-invitation?token=${invitationToken}`);
       const data = await response.json();
       
       console.log("📡 API Response:", { status: response.status, data });
@@ -116,13 +117,9 @@ export default function AcceptInvitationPage() {
 
     try {
       console.log("📡 Completing invitation signup...");
-      const response = await fetch("/api/member/complete-invitation", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          token: invitation.token, 
-          password 
-        }),
+      const response = await api.public.post("/api/member/complete-invitation", { 
+        token: invitation.token, 
+        password 
       });
 
       const data = await response.json();

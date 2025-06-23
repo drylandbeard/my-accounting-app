@@ -1,14 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserIdFromRequest } from "@/lib/jwt";
+import { verifyRefreshToken } from "@/lib/jwt";
 import { supabase } from "@/lib/supabase";
 
 export async function GET(request: NextRequest) {
   try {
-    const userId = getUserIdFromRequest(request);
+    // First try to get user ID from Authorization header (access token)
+    let userId = getUserIdFromRequest(request);
+    
+    // If no access token, try to get user ID from refresh token cookie
+    if (!userId) {
+      const refreshToken = request.cookies.get('refreshToken')?.value;
+      if (refreshToken) {
+        const refreshPayload = verifyRefreshToken(refreshToken);
+        userId = refreshPayload?.userId || null;
+      }
+    }
     
     if (!userId) {
       return NextResponse.json(
-        { error: "Invalid token" },
+        { error: "Invalid or missing token" },
         { status: 401 }
       );
     }
@@ -27,6 +38,29 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Fetch user's companies
+    const { data: companies, error: companiesError } = await supabase
+      .from("company_users")
+      .select(`
+        company_id,
+        role,
+        companies (
+          id,
+          name,
+          description
+        )
+      `)
+      .eq("user_id", userId)
+      .eq("is_active", true);
+
+    if (companiesError) {
+      console.error("Error fetching user companies:", companiesError);
+      return NextResponse.json(
+        { error: "Failed to fetch user companies" },
+        { status: 500 }
+      );
+    }
+
     return NextResponse.json({
       valid: true,
       user: {
@@ -34,6 +68,8 @@ export async function GET(request: NextRequest) {
         email: user.email,
         role: user.role,
       },
+      companies: companies || [],
+      currentCompany: companies && companies.length > 0 ? companies[0].companies : null,
     });
   } catch {
     return NextResponse.json(

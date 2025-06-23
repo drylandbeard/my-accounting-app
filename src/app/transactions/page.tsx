@@ -7,7 +7,8 @@ import { supabase } from '@/lib/supabase'
 import Papa from 'papaparse'
 import { v4 as uuidv4 } from 'uuid'
 import { X, Loader2 } from 'lucide-react'
-import { useApiWithCompany } from '@/hooks/useApiWithCompany'
+import { useAuthStore } from '@/zustand/authStore'
+import { api } from '@/lib/api'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Select } from '@/components/ui/select'
 import { 
@@ -217,7 +218,8 @@ function SortableAccountItem({ account, onNameChange, onDelete, deleteConfirmati
 }
 
 export default function TransactionsPage() {
-  const { getWithCompany, postWithCompany, hasCompanyContext, currentCompany } = useApiWithCompany()
+  const { currentCompany } = useAuthStore();
+  const hasCompanyContext = !!(currentCompany);
   const [linkToken, setLinkToken] = useState<string | null>(null)
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null)
   const [accounts, setAccounts] = useState<Account[]>([])
@@ -470,8 +472,8 @@ export default function TransactionsPage() {
       <div className="font-semibold mb-1">{acc.name}</div>
       <div className="space-y-1">
         <div><span className="text-gray-300">Institution:</span> {acc.institution_name || 'Manual Account'}</div>
-        <div><span className="text-gray-300">Last Synced:</span> {formatLastSyncTime(acc.last_synced)}</div>
-        <div><span className="text-gray-300">Created:</span> {formatCreatedAt(acc.created_at)}</div>
+        <div><span className="text-gray-300">Last Updated:</span> {formatLastSyncTime(acc.last_synced)}</div>
+        <div><span className="text-gray-300">Linked On:</span> {formatCreatedAt(acc.created_at)}</div>
       </div>
     </div>
   );
@@ -531,7 +533,7 @@ export default function TransactionsPage() {
           startDate = thirtyDaysAgo.toISOString().split('T')[0];
         }
 
-        const response = await postWithCompany('/api/get-transactions', {
+        const response = await api.post('/api/get-transactions', {
           access_token: item.access_token,
           item_id: item.item_id,
           start_date: startDate,
@@ -568,7 +570,7 @@ export default function TransactionsPage() {
       }
       
       try {
-        const res = await getWithCompany('/api/1-create-link-token')
+        const res = await api.get('/api/1-create-link-token')
         const data = await res.json()
         if (res.ok) {
           setLinkToken(data.link_token)
@@ -604,7 +606,7 @@ export default function TransactionsPage() {
     onSuccess: async (public_token, metadata) => {
       try {
         // First, get the access token
-        const res = await postWithCompany('/api/2-exchange-public-token', { public_token });
+        const res = await api.post('/api/2-exchange-public-token', { public_token });
 
         const data = await res.json();
 
@@ -674,7 +676,7 @@ export default function TransactionsPage() {
 
       // Helper function for API calls with error handling
       const callAPI = async (step: string, url: string, payload: Record<string, unknown>) => {
-        const response = await postWithCompany(url, payload);
+        const response = await api.post(url, payload);
 
         const data = await response.json();
         
@@ -1287,7 +1289,7 @@ export default function TransactionsPage() {
       };
 
       // Use the bulk API endpoint
-      const response = await postWithCompany('/api/move-transactions', bulkRequest);
+      const response = await api.post('/api/move-transactions', bulkRequest);
 
       const data = await response.json();
       
@@ -1336,7 +1338,7 @@ export default function TransactionsPage() {
       }
 
       // Use the bulk undo API endpoint
-      const response = await postWithCompany('/api/undo-transactions', {
+      const response = await api.post('/api/undo-transactions', {
         transaction_ids: transactions.map(tx => tx.id)
       });
 
@@ -1787,7 +1789,7 @@ export default function TransactionsPage() {
       const selectedAccountIdInCOA = selectedAccount.id;
 
       // Call the update transaction API
-      const response = await postWithCompany('/api/update-transaction', {
+      const response = await api.post('/api/update-transaction', {
         transactionId: editModal.transaction.id,
         date: updatedTransaction.date,
         description: updatedTransaction.description,
@@ -1806,7 +1808,7 @@ export default function TransactionsPage() {
       }
 
       // Sync journal after successful update
-      await postWithCompany('/api/sync-journal', {});
+      await api.post('/api/sync-journal', {});
       
       setEditModal({ isOpen: false, transaction: null });
       setNotification({ type: 'success', message: 'Transaction updated successfully' });
@@ -2162,7 +2164,7 @@ export default function TransactionsPage() {
     }
 
     // Automatically sync the journal after saving
-    await postWithCompany('/api/sync-journal', {});
+    await api.post('/api/sync-journal', {});
 
     // Reset modal and refresh data
     setJournalEntryModal({
@@ -2532,7 +2534,7 @@ export default function TransactionsPage() {
             {isSyncing ? (
               <div className="flex items-center space-x-1">
                 <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-gray-400" />
-                <span>Syncing...</span>
+                <span>Updating...</span>
               </div>
             ) : (
               <span>Update</span>
@@ -3969,15 +3971,13 @@ export default function TransactionsPage() {
             return (
               <div className="ml-4 flex items-center gap-3 my-auto">
                 <div className="flex items-center gap-1 px-2 py-1 bg-gray-50 border border-gray-200 rounded-md">
-                  <span className="text-gray-700 text-xs font-medium">Current Balance:</span>
+                  <span className="text-gray-700 text-xs font-medium">Account Balance:</span>
                   <span className="text-gray-900 text-xs font-semibold">{formatAmount(currentBalance)}</span>
                 </div>
-                {activeTab === 'added' && (
-                  <div className="flex items-center gap-1 px-2 py-1 bg-gray-50 border border-gray-200 rounded-md">
-                    <span className="text-gray-700 text-xs font-medium">switch Balance:</span>
-                    <span className="text-gray-900 text-xs font-semibold">{formatAmount(switchBalance)}</span>
-                  </div>
-                )}
+                <div className="flex items-center gap-1 px-2 py-1 bg-gray-50 border border-gray-200 rounded-md">
+                  <span className="text-gray-700 text-xs font-medium">Switch Balance:</span>
+                  <span className="text-gray-900 text-xs font-semibold">{formatAmount(switchBalance)}</span>
+                </div>
               </div>
             );
           })()}

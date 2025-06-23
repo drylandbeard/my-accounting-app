@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '../../../lib/supabase'
-import { useApiWithCompany } from '@/hooks/useApiWithCompany'
+import { useAuthStore } from '@/zustand/authStore'
 
 type Account = {
   id: string
@@ -24,7 +24,8 @@ type Transaction = {
 }
 
 export default function BalanceSheetPage() {
-  const { hasCompanyContext, currentCompany } = useApiWithCompany()
+  const { currentCompany } = useAuthStore();
+  const hasCompanyContext = !!(currentCompany);
   const [accounts, setAccounts] = useState<Account[]>([])
   const [journalEntries, setJournalEntries] = useState<Transaction[]>([])
   const [asOfDate, setAsOfDate] = useState<string>('')

@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuthStore } from "@/zustand/authStore";
-import { useApiWithCompany } from "@/hooks/useApiWithCompany";
+import { api } from "@/lib/api";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { X, Plus } from "lucide-react";
@@ -113,7 +113,6 @@ function CompanyModal({ isOpen, onClose, onCreateCompany }: CompanyModalProps) {
 
 export default function GatewayPage() {
   const { user, companies } = useAuthStore();
-  const { fetchAuthenticated } = useApiWithCompany();
   const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
   const [showAccountSection, setShowAccountSection] = useState(false);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
@@ -139,11 +138,8 @@ export default function GatewayPage() {
   const handleCreateCompany = async (name: string, description?: string) => {
     if (!user) throw new Error("User not found");
 
-    // Use the authenticated fetch to create company
-    const response = await fetchAuthenticated("/api/company/create", {
-      method: "POST",
-      body: JSON.stringify({ name, description }),
-    });
+    // Use the authenticated API to create company
+    const response = await api.post("/api/company/create", { name, description });
 
     const result = await response.json();
     
@@ -215,10 +211,7 @@ export default function GatewayPage() {
     try {
       // Update email if changed
       if (emailChanged) {
-        const emailResult = await fetchAuthenticated("/api/user/update-email", {
-          method: "POST",
-          body: JSON.stringify({ email: emailForm.email }),
-        });
+        const emailResult = await api.post("/api/user/update-email", { email: emailForm.email });
         if (!emailResult.ok) {
           setEmailForm(prev => ({ ...prev, error: "Failed to update email", isUpdating: false }));
           if (passwordChanged) setPasswordForm(prev => ({ ...prev, isUpdating: false }));
@@ -228,12 +221,9 @@ export default function GatewayPage() {
 
       // Update password if changed
       if (passwordChanged) {
-        const passwordResult = await fetchAuthenticated("/api/user/update-password", {
-          method: "POST",
-          body: JSON.stringify({
-            currentPassword: passwordForm.currentPassword,
-            newPassword: passwordForm.newPassword,
-          }),
+        const passwordResult = await api.post("/api/user/update-password", {
+          currentPassword: passwordForm.currentPassword,
+          newPassword: passwordForm.newPassword,
         });
         if (!passwordResult.ok) {
           setPasswordForm(prev => ({ ...prev, error: "Failed to update password", isUpdating: false }));
@@ -305,14 +295,6 @@ export default function GatewayPage() {
       />
       <main className="flex items-center justify-center min-h-screen">
         <div className="text-center max-w-4xl mx-auto px-6">
-          {user && (
-            <div className="mb-6">
-              <p className="text-lg text-gray-600 mb-2">
-                Hello, {user.email}!
-              </p>
-            </div>
-          )}
-
           {/* Account Section */}
           {showAccountSection && user && (
             <div className="mb-8 p-6 bg-gray-50 border border-gray-200 rounded-lg max-w-md mx-auto">
@@ -455,10 +437,10 @@ export default function GatewayPage() {
                   <div className="flex justify-start">
                     <button
                       onClick={() => setIsCompanyModalOpen(true)}
-                      className="flex items-center gap-1 text-sm text-gray-700 hover:text-black transition-colors"
+                      className="flex items-center gap-2 px-2 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 transition-colors hover:cursor-pointer"
                     >
-                      Add Company
                       <Plus className="w-4 h-4" />
+                      Add Company
                     </button>
                   </div>
 
@@ -512,7 +494,7 @@ export default function GatewayPage() {
                             <td className="px-4 py-3 text-left">
                               <button
                                 onClick={() => handleCompanySelect(userCompany.companies)}
-                                className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 transition-colors ml-auto"
+                                className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 transition-colors ml-auto hover:cursor-pointer"
                               >
                                 Enter
                                 <span>→</span>

@@ -34,13 +34,27 @@ export async function POST(request: NextRequest) {
         ? result.companies[0].companies 
         : null;
 
-      return NextResponse.json({
+      // Create response
+      const response = NextResponse.json({
         user: result.user,
         companies: result.companies,
         currentCompany,
-        accessToken,
-        refreshToken,
+        accessToken, // Only send access token in body
+        // Remove refreshToken from response body
       });
+
+      // Set refresh token as HTTP-only cookie
+      response.cookies.set({
+        name: "refreshToken",
+        value: refreshToken,
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        maxAge: 60 * 60 * 24 * 7, // 7 days
+        path: "/",
+      });
+
+      return response;
     }
 
     return NextResponse.json(
