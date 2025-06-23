@@ -4,7 +4,7 @@ import { useAuthStore } from "@/zustand/authStore";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { useApiWithCompany } from "@/hooks/useApiWithCompany";
+import { useCompanyApi } from "@/hooks/useCompanyApi";
 import { X, Plus, CreditCard, Trash, ArrowRight, AlertTriangle } from "lucide-react";
 
 interface CompanyMember {
@@ -507,7 +507,7 @@ function DeleteCompanyModal({ isOpen, onClose, companyName, onDeleteCompany }: D
 export default function SettingsPage() {
   const { user, currentCompany, updateCompany, removeCompany } = useAuthStore();
   const router = useRouter();
-  const { fetchWithCompany } = useApiWithCompany();
+  const { companyApi } = useCompanyApi();
   
   // Team Members State
   const [companyMembers, setCompanyMembers] = useState<CompanyMember[]>([]);
@@ -590,14 +590,11 @@ export default function SettingsPage() {
   };
 
   const handleUpdateCompany = async (updatedData: { name: string; description: string }) => {
-    if (!currentCompany) return;
+    if (!currentCompany || !user) return;
 
     try {
       // Use API endpoint for better security and validation
-      const response = await fetchWithCompany("/api/update-company", {
-        method: "PUT",
-        body: JSON.stringify(updatedData),
-      });
+      const response = await companyApi.put("/api/update-company", updatedData);
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -615,13 +612,10 @@ export default function SettingsPage() {
   };
 
   const handleAddMember = async (email: string, role: "Owner" | "Member" | "Accountant") => {
-    if (!currentCompany) return;
+    if (!currentCompany || !user) return;
 
     try {
-      const response = await fetchWithCompany("/api/member/invite-member", {
-        method: "POST",
-        body: JSON.stringify({ email, role }),
-      });
+      const response = await companyApi.post("/api/member/invite-member", { email, role });
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -684,18 +678,16 @@ export default function SettingsPage() {
   };
 
   const handleDeleteCompany = async () => {
-    if (!currentCompany || !isOwner) return;
+    if (!currentCompany || !isOwner || !user) return;
 
     try {
       console.log("Attempting to delete company:", {
         companyId: currentCompany.id,
         companyName: currentCompany.name,
-        userId: user?.id,
+        userId: user.id,
       });
 
-      const response = await fetchWithCompany("/api/delete-company", {
-        method: "DELETE",
-      });
+      const response = await companyApi.delete("/api/delete-company");
 
       console.log("Delete response status:", response.status);
 
