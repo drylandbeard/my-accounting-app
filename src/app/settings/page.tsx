@@ -666,14 +666,51 @@ export default function SettingsPage() {
   };
 
   const handleTransferOwnership = async (newOwnerId: string) => {
-    const newOwner = companyMembers.find(m => m.id === newOwnerId);
-    setConfirmationModal({
-      isOpen: true,
-      title: "Ownership Transferred",
-      message: `Ownership would be transferred to ${newOwner?.email || 'Unknown'}.`,
-      onConfirm: () => setConfirmationModal({ ...confirmationModal, isOpen: false }),
-      confirmText: "OK",
-    });
+    if (!currentCompany || !user) return;
+
+    try {
+      const response = await api.post("/api/member/transfer-ownership", { newOwnerId });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to transfer ownership");
+      }
+
+      const result = await response.json();
+      
+      // Update local state to reflect the ownership change
+      setCompanyMembers(prev => prev.map(member => {
+        if (member.id === newOwnerId) {
+          return { ...member, role: "Owner" };
+        }
+        if (member.id === user.id) {
+          return { ...member, role: "Member" };
+        }
+        return member;
+      }));
+
+      // Close the transfer modal
+      setTransferOwnershipModal(false);
+
+      // Show success message
+      setConfirmationModal({
+        isOpen: true,
+        title: "Ownership Transferred",
+        message: `Ownership has been successfully transferred to ${result.newOwner.email}. You are now a Member of this company.`,
+        onConfirm: () => setConfirmationModal({ ...confirmationModal, isOpen: false }),
+        confirmText: "OK",
+      });
+    } catch (error) {
+      console.error("Error transferring ownership:", error);
+      setConfirmationModal({
+        isOpen: true,
+        title: "Transfer Failed", 
+        message: error instanceof Error ? error.message : "Failed to transfer ownership. Please try again.",
+        onConfirm: () => setConfirmationModal({ ...confirmationModal, isOpen: false }),
+        confirmText: "OK",
+        confirmButtonStyle: "danger",
+      });
+    }
   };
 
   const handleDeleteCompany = async () => {
@@ -772,7 +809,7 @@ export default function SettingsPage() {
                   className="text-sm text-orange-600 hover:text-orange-800 flex items-center gap-1"
                 >
                   <ArrowRight className="w-4 h-4" />
-                  Transfer
+                  Transfer Ownership
                 </button>
               )}
               <button
