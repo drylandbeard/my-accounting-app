@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/zustand/authStore";
 import { useCategoriesStore } from "@/zustand/categoriesStore";
+import { usePayeesStore } from "@/zustand/payeesStore";
 
 import Papa from "papaparse";
 import { v4 as uuidv4 } from "uuid";
@@ -119,6 +120,17 @@ export default function ChartOfAccountsPage() {
     deleteCategory,
     highlightCategory
   } = useCategoriesStore();
+
+  const {
+    payees,
+    error: payeesError,
+    highlightedPayeeIds,
+    lastActionPayeeId,
+    refreshPayees: refreshPayeesFromStore,
+    addPayee,
+    updatePayee,
+    deletePayee
+  } = usePayeesStore();
   
   // Create wrapper functions for refresh that include company ID
   const refreshCategories = useCallback(async () => {

@@ -13,8 +13,7 @@ import { useAuthStore } from "@/zustand/authStore";
 import { api } from "@/lib/api";
 import { tools } from "@/ai/tools";
 import { categoryPrompt } from "@/ai/prompts";
-import { assignParentCategoryHandler } from "@/ai/functions/assignParentCategory";
-import { changeCategoryTypeHandler } from "../ai/functions/changeCategoryType";
+
 
 interface Message {
   role: "user" | "assistant";
@@ -95,6 +94,83 @@ What kind of business are you running? I'd love to learn more so I can continuou
       await refreshCategoriesFromStore(currentCompany.id);
     }
   }, [currentCompany?.id, refreshCategoriesFromStore]);
+
+  // Helper function for assigning parent category using store
+  const assignParentCategory = useCallback(async (childCategoryId: string, parentCategoryId: string) => {
+    try {
+      // Validate that both categories exist
+      const childCategory = categories.find(c => c.id === childCategoryId);
+      const parentCategory = categories.find(c => c.id === parentCategoryId);
+      
+      if (!childCategory) {
+        return { success: false, error: `Child category with ID '${childCategoryId}' not found` };
+      }
+      
+      if (!parentCategory) {
+        return { success: false, error: `Parent category with ID '${parentCategoryId}' not found` };
+      }
+      
+      // Check for circular dependency
+      if (childCategoryId === parentCategoryId) {
+        return { success: false, error: 'A category cannot be its own parent' };
+      }
+      
+             // Check if parent would create a circular dependency
+       let currentParent: typeof parentCategory | undefined = parentCategory;
+       while (currentParent?.parent_id) {
+         if (currentParent.parent_id === childCategoryId) {
+           return { success: false, error: 'This would create a circular dependency' };
+         }
+         currentParent = categories.find(c => c.id === currentParent?.parent_id);
+         if (!currentParent) break;
+       }
+      
+      const result = await updateCategory(childCategoryId, { parent_id: parentCategoryId });
+      return { success: result, error: result ? null : 'Failed to assign parent category' };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  }, [categories, updateCategory]);
+
+  // Helper function for changing category type using store
+  const changeCategoryType = useCallback(async (categoryId: string, newType: string) => {
+    try {
+      // Validate that category exists
+      const category = categories.find(c => c.id === categoryId);
+      
+      if (!category) {
+        return { success: false, error: `Category with ID '${categoryId}' not found` };
+      }
+      
+      // Check if category has children and ensure type consistency
+      const children = categories.filter(c => c.parent_id === categoryId);
+      if (children.length > 0) {
+        const inconsistentChildren = children.filter(c => c.type !== newType);
+        if (inconsistentChildren.length > 0) {
+          return { 
+            success: false, 
+            error: `Cannot change type because this category has ${inconsistentChildren.length} subcategories with different types. Please update them first or remove them.`
+          };
+        }
+      }
+      
+      // Check if category has a parent and ensure type consistency
+      if (category.parent_id) {
+        const parent = categories.find(c => c.id === category.parent_id);
+        if (parent && parent.type !== newType) {
+          return {
+            success: false,
+            error: `Cannot change type because the parent category has type '${parent.type}'. Categories and their parents must have the same type.`
+          };
+        }
+      }
+      
+      const result = await updateCategory(categoryId, { type: newType });
+      return { success: result, error: result ? null : 'Failed to change category type' };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  }, [categories, updateCategory]);
   
   const [pendingToolQueue, setPendingToolQueue] = useState<any[]>([]);
   const [pendingToolArgs, setPendingToolArgs] = useState<any | null>(null);
@@ -422,10 +498,7 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
     }
 
     if (action.action === "change_category_type") {
-      const result = await changeCategoryTypeHandler({
-        categoryId: action.categoryId!,
-        newType: action.newType!,
-      });
+      const result = await changeCategoryType(action.categoryId!, action.newType!);
 
       if (result.success) {
         if (!skipRefresh) {
@@ -438,10 +511,7 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
     }
 
     if (action.action === "assign_parent_category") {
-      const result = await assignParentCategoryHandler({
-        childCategoryId: action.childCategoryId!,
-        parentCategoryId: action.parentCategoryId!,
-      });
+      const result = await assignParentCategory(action.childCategoryId!, action.parentCategoryId!);
 
       if (result.success) {
         if (!skipRefresh) {
@@ -782,7 +852,6 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
           name: pendingToolArgs.args.name,
           type: pendingToolArgs.args.type,
           parent_id: pendingToolArgs.args.parent_id || null,
-          company_id: currentCompany!.id,
         };
 
         result = await addCategory(categoryData);
@@ -825,10 +894,7 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
         setMessages((prev) => [...prev, { role: "assistant", content: `Error updating category: ${error instanceof Error ? error.message : 'Unknown error'}` }]);
       }
     } else if (pendingToolArgs.type === "assign_parent_category") {
-      result = await assignParentCategoryHandler({
-        childCategoryId: pendingToolArgs.args.childCategoryId,
-        parentCategoryId: pendingToolArgs.args.parentCategoryId,
-      });
+      result = await assignParentCategory(pendingToolArgs.args.childCategoryId, pendingToolArgs.args.parentCategoryId);
       if (result.success) {
         setMessages((prev) => [
           ...prev,
@@ -859,10 +925,7 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
         setMessages((prev) => [...prev, { role: "assistant", content: `Error deleting category: ${error instanceof Error ? error.message : 'Unknown error'}` }]);
       }
     } else if (pendingToolArgs.type === "change_category_type") {
-      result = await changeCategoryTypeHandler({
-        categoryId: pendingToolArgs.args.categoryId,
-        newType: pendingToolArgs.args.newType,
-      });
+      result = await changeCategoryType(pendingToolArgs.args.categoryId, pendingToolArgs.args.newType);
       if (result.success) {
         setMessages((prev) => [
           ...prev,
