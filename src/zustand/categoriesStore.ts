@@ -27,7 +27,7 @@ interface CategoriesState {
   
   // Actions
   refreshCategories: (companyId: string) => Promise<void>;
-  addCategory: (category: Omit<Category, 'id'>) => Promise<Category | null>;
+  addCategory: (category: { name: string; type: string; parent_id?: string | null }) => Promise<Category | null>;
   updateCategory: (id: string, updates: Partial<Category>) => Promise<boolean>;
   deleteCategory: (id: string) => Promise<boolean>;
   highlightCategory: (categoryId: string) => void;
@@ -86,7 +86,7 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
         set({ error: errorData.error || 'Failed to add category' });
         return null;
       }
-
+      
       const result = await response.json();
       const newCategory = result.category as Category;
       
@@ -98,10 +98,10 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
         });
       } else {
         // Fallback: add to existing categories if sorted list not available
-        set((state) => ({
-          categories: [...state.categories, newCategory],
-          error: null
-        }));
+      set((state) => ({
+        categories: [...state.categories, newCategory],
+        error: null
+      }));
       }
       
       // Highlight the new category
