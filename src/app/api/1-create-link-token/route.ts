@@ -15,18 +15,20 @@ export async function GET(req: NextRequest) {
 
     const response = await plaidClient.linkTokenCreate({
       user: {
-        client_user_id: userId, // Use actual user ID
+        client_user_id: userId,
       },
-      client_name: 'Switch',
-      products: [(process.env.PLAID_PRODUCTS as Products) || Products.Transactions],
-      country_codes: [(process.env.PLAID_COUNTRY_CODE as CountryCode) || CountryCode.Us],
+      client_name: 'My Accounting App',
+      products: [Products.Transactions],
+      country_codes: [CountryCode.Us],
       language: 'en',
-      redirect_uri: process.env.PLAID_REDIRECT_URI, // use env variable!
     })
 
-    return NextResponse.json({ link_token: response.data.link_token })
+    return NextResponse.json({ linkToken: response.data.link_token })
   } catch (error) {
     console.error('Error creating link token:', error)
-    return NextResponse.json({ error: 'Failed to create link token' }, { status: 500 })
+    return NextResponse.json(
+      { error: 'Failed to create link token' },
+      { status: 500 }
+    )
   }
 }
