@@ -69,7 +69,7 @@ export async function GET(request: NextRequest) {
         role: user.role,
       },
       companies: companies || [],
-      currentCompany: companies && companies.length > 0 ? companies[0].companies : null,
+      currentCompany: null, // Don't automatically select first company
     });
   } catch {
     return NextResponse.json(
