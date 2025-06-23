@@ -1,6 +1,6 @@
 import bcrypt from "bcryptjs";
 import { supabase } from "./supabase";
-import { createPresetCategories } from "./preset-categories";
+import { createPresetCategories, createPresetPayees } from "./preset-categories";
 
 /**
  * Hash a password using bcrypt
@@ -86,33 +86,37 @@ export async function signIn(email: string, password: string) {
 /**
  * Create a new company for a user (client-safe - no email imports)
  */
-export async function createCompany(userId: string, name: string, description?: string) {
+export const createCompany = async (userId: string, name: string, description?: string) => {
   try {
-    // Create company
+    // Create the company
     const { data: company, error: companyError } = await supabase
       .from("companies")
       .insert({
-        name,
-        description
+        name: name.trim(),
+        description: description?.trim() || null,
       })
       .select()
       .single();
 
-    if (companyError) {
-      return { error: companyError.message };
+    if (companyError || !company) {
+      console.error("Error creating company:", companyError);
+      return { error: companyError?.message || "Failed to create company" };
     }
 
     // Associate user with company as Owner
-    const { error: associationError } = await supabase
+    const { error: userCompanyError } = await supabase
       .from("company_users")
       .insert({
         company_id: company.id,
         user_id: userId,
-        role: "Owner"
+        role: "Owner",
       });
 
-    if (associationError) {
-      return { error: associationError.message };
+    if (userCompanyError) {
+      console.error("Error associating user with company:", userCompanyError);
+      // Try to clean up the company
+      await supabase.from("companies").delete().eq("id", company.id);
+      return { error: userCompanyError.message };
     }
 
     // Create preset categories for the new company
@@ -122,11 +126,25 @@ export async function createCompany(userId: string, name: string, description?: 
       console.error("Failed to create preset categories:", presetCategoriesResult.error);
     }
 
-    return { company };
-  } catch {
+    // Create preset payees for the new company
+    const presetPayeesResult = await createPresetPayees(company.id);
+    
+    if (presetPayeesResult.error) {
+      console.error("Failed to create preset payees:", presetPayeesResult.error);
+    }
+
+    console.log(`Company created successfully: ${company.id}`);
+    return { 
+      success: true, 
+      company,
+      presetCategoriesCreated: !!presetCategoriesResult.success,
+      presetPayeesCreated: !!presetPayeesResult.success
+    };
+  } catch (error) {
+    console.error("Unexpected error creating company:", error);
     return { error: "Failed to create company" };
   }
-}
+};
 
 /**
  * Get user's companies

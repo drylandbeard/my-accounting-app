@@ -17,16 +17,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Company name is required" }, { status: 400 });
     }
     
-    // Create company with preset categories
+    // Create company with preset categories and payees
     const result = await createCompany(userId, name.trim(), description?.trim());
     
     if (result.error) {
       return NextResponse.json({ error: result.error }, { status: 400 });
     }
     
-    return NextResponse.json({ company: result.company }, { status: 201 });
+    return NextResponse.json({
+      success: true,
+      company: result.company,
+      presetCategoriesCreated: result.presetCategoriesCreated,
+      presetPayeesCreated: result.presetPayeesCreated
+    });
+    
   } catch (error) {
     console.error("Error in company creation API:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Internal server error" }, 
+      { status: 500 }
+    );
   }
 } 
