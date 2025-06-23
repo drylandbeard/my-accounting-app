@@ -41,7 +41,8 @@ export function generateTokens(payload: { userId: string; email: string }) {
  */
 export function verifyAccessToken(token: string): JWTPayload | null {
   try {
-    return jwt.verify(token, JWT_SECRET) as JWTPayload;
+    const decoded = jwt.verify(token, JWT_SECRET) as JWTPayload;
+    return decoded;
   } catch {
     return null;
   }
@@ -52,7 +53,8 @@ export function verifyAccessToken(token: string): JWTPayload | null {
  */
 export function verifyRefreshToken(token: string): RefreshTokenPayload | null {
   try {
-    return jwt.verify(token, JWT_REFRESH_SECRET) as RefreshTokenPayload;
+    const decoded = jwt.verify(token, JWT_REFRESH_SECRET) as RefreshTokenPayload;
+    return decoded;
   } catch {
     return null;
   }

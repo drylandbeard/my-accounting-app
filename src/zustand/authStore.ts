@@ -235,10 +235,12 @@ export const initializeAuth = async () => {
         const refreshed = await refreshTokens();
         
         if (refreshed) {
+          // Preserve existing currentCompany if one is already set
+          const existingCurrentCompany = useAuthStore.getState().currentCompany;
           setAuth({
             user: data.user,
             companies: data.companies || [],
-            currentCompany: data.currentCompany || null,
+            currentCompany: existingCurrentCompany || data.currentCompany || null,
             accessToken: useTokenStore.getState().accessToken!,
           });
           return;
@@ -264,10 +266,12 @@ export const initializeAuth = async () => {
         if (response.ok) {
           const data = await response.json();
           if (data.user && data.valid) {
+            // Preserve existing currentCompany if one is already set
+            const existingCurrentCompany = useAuthStore.getState().currentCompany;
             setAuth({
               user: data.user,
               companies: data.companies || [],
-              currentCompany: data.currentCompany || null,
+              currentCompany: existingCurrentCompany || data.currentCompany || null,
               accessToken: useTokenStore.getState().accessToken!,
             });
             return;
