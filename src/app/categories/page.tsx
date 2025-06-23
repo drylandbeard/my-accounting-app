@@ -32,6 +32,8 @@ type Payee = {
   id: string;
   name: string;
   company_id: string;
+  isValid?: boolean;
+  validationMessage?: string;
 };
 
 type CategoryImportModalState = {
@@ -131,6 +133,10 @@ export default function ChartOfAccountsPage() {
 
   // Add new payee state
   const [newPayeeName, setNewPayeeName] = useState("");
+
+  // Error states for form validation
+  const [categoryError, setCategoryError] = useState<string | null>(null);
+  const [payeeError, setPayeeError] = useState<string | null>(null);
 
   // Edit state
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -503,6 +509,20 @@ export default function ChartOfAccountsPage() {
   const handleAddAccount = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName || !newType || !hasCompanyContext) return;
+    
+    // Clear previous error
+    setCategoryError(null);
+    
+    // Check if category name already exists (case-insensitive)
+    const existingCategory = accounts.find(
+      (acc) => acc.name.toLowerCase() === newName.toLowerCase()
+    );
+    
+    if (existingCategory) {
+      setCategoryError(`Category "${newName}" already exists.`);
+      return;
+    }
+    
     const { error } = await supabase.from("chart_of_accounts").insert([
       {
         name: newName,
@@ -511,10 +531,14 @@ export default function ChartOfAccountsPage() {
         company_id: currentCompany!.id,
       },
     ]);
-    if (!error) {
+    
+    if (error) {
+      setCategoryError(`Failed to add category: ${error.message}`);
+    } else {
       setNewName("");
       setNewType("");
       setParentId(null);
+      setCategoryError(null);
       // Categories will be refreshed automatically via real-time subscription
       fetchParentOptions();
     }
@@ -523,14 +547,32 @@ export default function ChartOfAccountsPage() {
   const handleAddPayee = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPayeeName || !hasCompanyContext) return;
+    
+    // Clear previous error
+    setPayeeError(null);
+    
+    // Check if payee name already exists (case-insensitive)
+    const existingPayee = payees.find(
+      (payee) => payee.name.toLowerCase() === newPayeeName.toLowerCase()
+    );
+    
+    if (existingPayee) {
+      setPayeeError(`Payee "${newPayeeName}" already exists.`);
+      return;
+    }
+    
     const { error } = await supabase.from("payees").insert([
       {
         name: newPayeeName,
         company_id: currentCompany!.id,
       },
     ]);
-    if (!error) {
+    
+    if (error) {
+      setPayeeError(`Failed to add payee: ${error.message}`);
+    } else {
       setNewPayeeName("");
+      setPayeeError(null);
       fetchPayees();
     }
   };
@@ -696,8 +738,6 @@ export default function ChartOfAccountsPage() {
         }
       }
 
-
-
       return {
         name,
         type,
@@ -707,6 +747,16 @@ export default function ChartOfAccountsPage() {
 
     const currentValues = getCurrentValues();
     const editingIdToUpdate = editingId;
+
+    // Check if another category with the same name exists (case-insensitive, excluding current)
+    const existingCategory = accounts.find(
+      (acc) => acc.id !== editingIdToUpdate && acc.name.toLowerCase() === currentValues.name.toLowerCase()
+    );
+
+    if (existingCategory) {
+      alert(`Category "${currentValues.name}" already exists.`);
+      return;
+    }
 
     // Immediately exit editing mode and refresh to show updated values optimistically
     setEditingId(null);
@@ -836,6 +886,16 @@ export default function ChartOfAccountsPage() {
   const handleUpdatePayee = async () => {
     if (!editingPayeeId) return;
 
+    // Check if another payee with the same name exists (case-insensitive, excluding current)
+    const existingPayee = payees.find(
+      (payee) => payee.id !== editingPayeeId && payee.name.toLowerCase() === editPayeeName.toLowerCase()
+    );
+
+    if (existingPayee) {
+      alert(`Payee "${editPayeeName}" already exists.`);
+      return;
+    }
+
     const { error } = await supabase
       .from("payees")
       .update({
@@ -846,6 +906,8 @@ export default function ChartOfAccountsPage() {
     if (!error) {
       setEditingPayeeId(null);
       fetchPayees();
+    } else {
+      alert(`Failed to update payee: ${error.message}`);
     }
   };
 
@@ -1325,11 +1387,31 @@ export default function ChartOfAccountsPage() {
 
         const payeeData = results.data
           .filter((row: PayeeCSVRow) => row.Name)
-          .map((row: PayeeCSVRow) => ({
-            id: uuidv4(),
-            name: row.Name.trim(),
-            company_id: currentCompany?.id || "",
-          }));
+          .map((row: PayeeCSVRow) => {
+            const name = row.Name.trim();
+            
+            // Check if payee already exists in database (case-insensitive)
+            const existsInDb = payees.some(
+              (payee) => payee.name.toLowerCase() === name.toLowerCase()
+            );
+            
+            // Check for duplicates within CSV data
+            const duplicatesInCsv = results.data.filter(
+              (csvRow: PayeeCSVRow) => csvRow.Name && csvRow.Name.trim().toLowerCase() === name.toLowerCase()
+            );
+            
+            return {
+              id: uuidv4(),
+              name,
+              company_id: currentCompany?.id || "",
+              isValid: !existsInDb && duplicatesInCsv.length === 1,
+              validationMessage: existsInDb 
+                ? `Payee "${name}" already exists in database`
+                : duplicatesInCsv.length > 1 
+                ? `Duplicate payee "${name}" found in CSV`
+                : "",
+            };
+          });
 
         setPayeeImportModal((prev) => ({
           ...prev,
@@ -1657,7 +1739,10 @@ export default function ChartOfAccountsPage() {
                 type="text"
                 placeholder="Add Payee Name"
                 value={newPayeeName}
-                onChange={(e) => setNewPayeeName(e.target.value)}
+                onChange={(e) => {
+                  setNewPayeeName(e.target.value);
+                  setPayeeError(null); // Clear error when typing
+                }}
                 className="border border-gray-300 px-2 py-1 text-xs flex-1"
                 required
               />
@@ -1668,6 +1753,11 @@ export default function ChartOfAccountsPage() {
                 Add
               </button>
             </form>
+            {payeeError && (
+              <div className="mt-2 p-2 bg-red-50 border border-red-200 text-red-700 text-xs rounded">
+                {payeeError}
+              </div>
+            )}
           </div>
 
           {/* Payee Search Bar */}
@@ -1806,7 +1896,10 @@ export default function ChartOfAccountsPage() {
                 type="text"
                 placeholder="Add Category Name"
                 value={newName}
-                onChange={(e) => setNewName(e.target.value)}
+                onChange={(e) => {
+                  setNewName(e.target.value);
+                  setCategoryError(null); // Clear error when typing
+                }}
                 className="border border-gray-300 px-2 py-1 text-xs flex-1"
                 required
               />
@@ -1844,6 +1937,11 @@ export default function ChartOfAccountsPage() {
                 Add
               </button>
             </form>
+            {categoryError && (
+              <div className="mt-2 p-2 bg-red-50 border border-red-200 text-red-700 text-xs rounded">
+                {categoryError}
+              </div>
+            )}
           </div>
 
           {/* Search Bar */}
@@ -2050,15 +2148,22 @@ export default function ChartOfAccountsPage() {
                               <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                 Name
                               </th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Status
+                              </th>
                             </tr>
                           </thead>
                           <tbody className="bg-white divide-y divide-gray-200">
                             {payeeImportModal.csvData.map((payee) => (
-                              <tr key={payee.id}>
+                              <tr 
+                                key={payee.id}
+                                className={payee.isValid === false ? "bg-red-50" : ""}
+                              >
                                 <td className="px-4 py-2 whitespace-nowrap w-8 text-left">
                                   <input
                                     type="checkbox"
                                     checked={payeeImportModal.selectedPayees.has(payee.id)}
+                                    disabled={payee.isValid === false}
                                     onChange={(e) => {
                                       const newSelected = new Set(payeeImportModal.selectedPayees);
                                       if (e.target.checked) {
@@ -2071,10 +2176,23 @@ export default function ChartOfAccountsPage() {
                                         selectedPayees: newSelected,
                                       }));
                                     }}
-                                    className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                                    className="rounded border-gray-300 text-gray-900 focus:ring-gray-900 disabled:opacity-50"
                                   />
                                 </td>
                                 <td className="px-4 py-2 text-sm text-gray-900">{payee.name}</td>
+                                <td className="px-4 py-2 text-sm">
+                                  {payee.isValid === false ? (
+                                    <div className="flex items-center space-x-1">
+                                      <span className="w-2 h-2 bg-red-400 rounded-full"></span>
+                                      <span className="text-red-700 text-xs">{payee.validationMessage}</span>
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center space-x-1">
+                                      <span className="w-2 h-2 bg-green-400 rounded-full"></span>
+                                      <span className="text-green-700 text-xs">Valid</span>
+                                    </div>
+                                  )}
+                                </td>
                               </tr>
                             ))}
                           </tbody>
@@ -2119,7 +2237,35 @@ export default function ChartOfAccountsPage() {
                                 throw new Error("No payees selected for import.");
                               }
 
-                              const payeesToInsert = selectedPayees.map((payee) => ({
+                              // Filter out invalid payees
+                              const validPayees = selectedPayees.filter((payee) => payee.isValid !== false);
+                              const invalidPayees = selectedPayees.filter((payee) => payee.isValid === false);
+
+                              if (invalidPayees.length > 0 && validPayees.length > 0) {
+                                const proceed = window.confirm(
+                                  `${invalidPayees.length} selected payee${
+                                    invalidPayees.length === 1 ? "" : "s"
+                                  } already exist or have validation errors and will be skipped.\n\n` +
+                                    `Only ${validPayees.length} valid payee${
+                                      validPayees.length === 1 ? "" : "s"
+                                    } will be imported.\n\n` +
+                                    `Click OK to proceed with valid payees only, or Cancel to go back.`
+                                );
+
+                                if (!proceed) {
+                                  setPayeeImportModal((prev) => ({
+                                    ...prev,
+                                    isLoading: false,
+                                  }));
+                                  return;
+                                }
+                              } else if (validPayees.length === 0) {
+                                throw new Error(
+                                  "All selected payees already exist or have validation errors. Please select only valid payees."
+                                );
+                              }
+
+                              const payeesToInsert = validPayees.map((payee) => ({
                                 name: payee.name,
                                 company_id: currentCompany.id,
                               }));
