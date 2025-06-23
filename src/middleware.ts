@@ -13,6 +13,8 @@ export function middleware(request: NextRequest) {
     "/api/auth/verify-code",
     "/api/auth/resend-verification",
     "/api/accept-invitation",
+    "/api/member/accept-invitation",
+    "/api/member/complete-invitation",
     "/verify-email",
     "/accept-invitation"
   ];
