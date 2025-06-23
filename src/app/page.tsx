@@ -305,14 +305,6 @@ export default function GatewayPage() {
       />
       <main className="flex items-center justify-center min-h-screen">
         <div className="text-center max-w-4xl mx-auto px-6">
-          {user && (
-            <div className="mb-6">
-              <p className="text-lg text-gray-600 mb-2">
-                Hello, {user.email}!
-              </p>
-            </div>
-          )}
-
           {/* Account Section */}
           {showAccountSection && user && (
             <div className="mb-8 p-6 bg-gray-50 border border-gray-200 rounded-lg max-w-md mx-auto">
@@ -455,10 +447,10 @@ export default function GatewayPage() {
                   <div className="flex justify-start">
                     <button
                       onClick={() => setIsCompanyModalOpen(true)}
-                      className="flex items-center gap-1 text-sm text-gray-700 hover:text-black transition-colors"
+                      className="flex items-center gap-2 px-2 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 transition-colors hover:cursor-pointer"
                     >
-                      Add Company
                       <Plus className="w-4 h-4" />
+                      Add Company
                     </button>
                   </div>
 
@@ -512,7 +504,7 @@ export default function GatewayPage() {
                             <td className="px-4 py-3 text-left">
                               <button
                                 onClick={() => handleCompanySelect(userCompany.companies)}
-                                className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 transition-colors ml-auto"
+                                className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 transition-colors ml-auto hover:cursor-pointer"
                               >
                                 Enter
                                 <span>→</span>
