@@ -1,4 +1,4 @@
-import { useTokenStore } from "@/zustand/authStore";
+import { useTokenStore, useAuthStore } from "@/zustand/authStore";
 
 /**
  * Base API configuration
@@ -102,68 +102,16 @@ export const authApi = {
   },
 };
 
-/**
- * API client for authenticated requests with company context
- */
-export const companyApi = {
-  async get(url: string, companyId: string, userId: string, options: RequestInit = {}) {
-    return makeAuthenticatedRequest(url, {
-      ...options,
-      method: "GET",
-      headers: {
-        ...options.headers,
-        "x-company-id": companyId,
-        "x-user-id": userId,
-      },
-    });
-  },
-
-  async post(url: string, data: unknown, companyId: string, userId: string, options: RequestInit = {}) {
-    return makeAuthenticatedRequest(url, {
-      ...options,
-      method: "POST",
-      headers: {
-        ...options.headers,
-        "x-company-id": companyId,
-        "x-user-id": userId,
-      },
-      body: JSON.stringify(data),
-    });
-  },
-
-  async put(url: string, data: unknown, companyId: string, userId: string, options: RequestInit = {}) {
-    return makeAuthenticatedRequest(url, {
-      ...options,
-      method: "PUT",
-      headers: {
-        ...options.headers,
-        "x-company-id": companyId,
-        "x-user-id": userId,
-      },
-      body: JSON.stringify(data),
-    });
-  },
-
-  async delete(url: string, companyId: string, userId: string, options: RequestInit = {}) {
-    return makeAuthenticatedRequest(url, {
-      ...options,
-      method: "DELETE",
-      headers: {
-        ...options.headers,
-        "x-company-id": companyId,
-        "x-user-id": userId,
-      },
-    });
-  },
-};
+// Company-scoped API is now handled automatically by authApi
 
 /**
- * Make an authenticated request with automatic token handling
+ * Make an authenticated request with automatic token handling and company context
  */
 async function makeAuthenticatedRequest(url: string, options: RequestInit) {
   const { accessToken } = useTokenStore.getState();
+  const { user, currentCompany } = useAuthStore.getState();
   
-  // Build headers with authentication
+  // Build headers with authentication and company context
   const headers: Record<string, string> = {
     ...DEFAULT_HEADERS,
     ...(options.headers as Record<string, string> || {}),
@@ -171,6 +119,15 @@ async function makeAuthenticatedRequest(url: string, options: RequestInit) {
   
   if (accessToken) {
     headers["Authorization"] = `Bearer ${accessToken}`;
+  }
+  
+  // Automatically include company and user context if available
+  if (user) {
+    headers["x-user-id"] = user.id;
+  }
+  
+  if (currentCompany) {
+    headers["x-company-id"] = currentCompany.id;
   }
 
   let response = await fetch(`${API_BASE_URL}${url}`, {
@@ -223,17 +180,14 @@ async function refreshTokens(): Promise<boolean> {
 }
 
 /**
- * Convenience methods for common API patterns
+ * Simplified API client - authenticated requests automatically include company context
  */
 export const api = {
   // Public API methods (no authentication required)
   public: publicApi,
   
-  // Authenticated API methods (requires access token)
-  auth: authApi,
-  
-  // Company-scoped API methods (requires access token + company context)
-  company: companyApi,
+  // Authenticated API methods (automatically includes company context when available)
+  ...authApi,
 };
 
 export default api; 
