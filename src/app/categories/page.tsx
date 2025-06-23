@@ -132,18 +132,14 @@ export default function ChartOfAccountsPage() {
     deletePayee
   } = usePayeesStore();
   
-  // Create wrapper functions for refresh that include company ID
+  // Create wrapper functions for refresh
   const refreshCategories = useCallback(async () => {
-    if (currentCompany?.id) {
-      await refreshCategoriesFromStore(currentCompany.id);
-    }
-  }, [currentCompany?.id, refreshCategoriesFromStore]);
+    await refreshCategoriesFromStore();
+  }, [refreshCategoriesFromStore]);
   
   const refreshPayees = useCallback(async () => {
-    if (currentCompany?.id) {
-      await refreshPayeesFromStore(currentCompany.id);
-    }
-  }, [currentCompany?.id, refreshPayeesFromStore]);
+    await refreshPayeesFromStore();
+  }, [refreshPayeesFromStore]);
   
   const [search, setSearch] = useState("");
   const [payeeSearch, setPayeeSearch] = useState("");
@@ -340,6 +336,23 @@ export default function ChartOfAccountsPage() {
     }, 100);
   }, [highlightCategory]);
 
+  // Similar highlight function for payees
+  const highlightPayeeWithScroll = useCallback((payeeId: string) => {
+    // Get the highlightPayee function from the payees store
+    const { highlightPayee } = usePayeesStore.getState();
+    highlightPayee(payeeId);
+    
+    setTimeout(() => {
+      const element = document.getElementById(`payee-${payeeId}`);
+      if (element) {
+        element.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        });
+      }
+    }, 100);
+  }, []);
+
   // Initialize data when component mounts
   useEffect(() => {
     if (currentCompany?.id) {
@@ -437,6 +450,15 @@ export default function ChartOfAccountsPage() {
         (payload) => {
           console.log("Payees real-time change detected:", payload);
           refreshPayees();
+
+          let recordId: string | null = null;
+          if (payload.eventType === "INSERT" || payload.eventType === "UPDATE") {
+            recordId = payload.new.id;
+          }
+
+          if (recordId) {
+            highlightPayeeWithScroll(recordId);
+          }
         }
       )
       .subscribe();
@@ -446,7 +468,7 @@ export default function ChartOfAccountsPage() {
       supabase.removeChannel(categoriesChannel);
       supabase.removeChannel(payeesChannel);
     };
-  }, [currentCompany?.id, hasCompanyContext, highlightCategoryWithScroll, fetchParentOptions, refreshCategories, refreshPayees]);
+  }, [currentCompany?.id, hasCompanyContext, highlightCategoryWithScroll, highlightPayeeWithScroll, fetchParentOptions, refreshCategories, refreshPayees]);
 
   // Sorting functions
   const sortCategories = (categories: Category[], sortConfig: SortConfig) => {
@@ -841,17 +863,81 @@ export default function ChartOfAccountsPage() {
     };
   }, [editingId]);
 
+  // Handle clicks outside payee input to save changes
+  useEffect(() => {
+    const handlePayeeClickToSave = (event: MouseEvent) => {
+      if (!editingPayeeId) return;
+
+      const target = event.target as Element;
+
+      // Check if the click is on the current editing payee input
+      const editingInput = document.querySelector('tr input[type="text"]:focus') as HTMLInputElement;
+      
+      // If clicking on the current editing input, don't save
+      if (editingInput && (editingInput.contains(target) || editingInput === target)) {
+        return;
+      }
+
+      // Otherwise, save the changes
+      handleUpdatePayee();
+    };
+
+    document.addEventListener("mousedown", handlePayeeClickToSave);
+    return () => {
+      document.removeEventListener("mousedown", handlePayeeClickToSave);
+    };
+  }, [editingPayeeId]);
+
   const handleUpdatePayee = async () => {
     if (!editingPayeeId) return;
 
-    const success = await updatePayee(editingPayeeId, {
-      name: editPayeeName,
-    });
+    // Get the current value from the input field
+    const getCurrentValue = () => {
+      // Get the name from the DOM input field as it might have been changed
+      const editingRow = document.querySelector(`tr:has(input[type="text"]:focus)`);
+      if (editingRow) {
+        const nameInput = editingRow.querySelector('input[type="text"]') as HTMLInputElement;
+        if (nameInput) {
+          return nameInput.value.trim();
+        }
+      }
+      return editPayeeName.trim();
+    };
 
-    if (success) {
+    const currentValue = getCurrentValue();
+    const editingPayeeIdToUpdate = editingPayeeId;
+
+    // Get the original payee to compare values
+    const originalPayee = payees.find(payee => payee.id === editingPayeeIdToUpdate);
+    if (!originalPayee) {
       setEditingPayeeId(null);
-    } else {
-      alert(payeesError || "Failed to update payee. Please try again.");
+      return;
+    }
+
+    // Check if the name has actually changed
+    const hasChanges = originalPayee.name !== currentValue;
+
+    // Immediately exit editing mode
+    setEditingPayeeId(null);
+
+    // If no changes were made, just return without highlighting
+    if (!hasChanges) {
+      return;
+    }
+
+    try {
+      // Update using the store
+      const success = await updatePayee(editingPayeeIdToUpdate, {
+        name: currentValue,
+      });
+
+      if (!success) {
+        alert(payeesError || "Error saving changes. Please try again.");
+        return;
+      }
+    } catch (error) {
+      console.error("Unexpected error during payee update:", error);
+      alert("An unexpected error occurred. Please try again.");
     }
   };
 
@@ -1428,19 +1514,21 @@ export default function ChartOfAccountsPage() {
             }`}
           >
             <td style={{ paddingLeft: `${level * 16 + 4}px` }} className="border p-1 text-xs">
-              {editingId === parent.id ? (
-                <input
-                  type="text"
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  className="w-full border-none outline-none bg-transparent text-xs"
-                  onKeyDown={(e) => e.key === "Enter" && handleUpdate()}
-                  autoFocus
-                />
-              ) : (
-                <span className={highlightedCategoryIds.has(parent.id) ? "font-bold text-green-800" : ""}>{parent.name}</span>
-              )}
-              {lastActionCategoryId === parent.id && <span className="ml-2 inline-block text-green-600">✨</span>}
+              <div className="flex items-center">
+                {editingId === parent.id ? (
+                  <input
+                    type="text"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    className="flex-1 border-none outline-none bg-transparent text-xs"
+                    onKeyDown={(e) => e.key === "Enter" && handleUpdate()}
+                    autoFocus
+                  />
+                ) : (
+                  <span className={highlightedCategoryIds.has(parent.id) ? "font-bold text-green-800" : ""}>{parent.name}</span>
+                )}
+                {lastActionCategoryId === parent.id && <span className="ml-2 inline-block text-green-600 flex-shrink-0">✨</span>}
+              </div>
             </td>
             <td className="border p-1 text-xs">
               {editingId === parent.id ? (
@@ -1535,19 +1623,21 @@ export default function ChartOfAccountsPage() {
                 }}
                 className="border p-1 text-xs"
               >
-                {editingId === subAcc.id ? (
-                  <input
-                    type="text"
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    className="w-full border-none outline-none bg-transparent text-xs"
-                    onKeyDown={(e) => e.key === "Enter" && handleUpdate()}
-                    autoFocus
-                  />
-                ) : (
-                  <span className={highlightedCategoryIds.has(subAcc.id) ? "font-bold text-green-800" : ""}>{subAcc.name}</span>
-                )}
-                {lastActionCategoryId === subAcc.id && <span className="ml-2 inline-block text-green-600">✨</span>}
+                <div className="flex items-center">
+                  {editingId === subAcc.id ? (
+                    <input
+                      type="text"
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      className="flex-1 border-none outline-none bg-transparent text-xs"
+                      onKeyDown={(e) => e.key === "Enter" && handleUpdate()}
+                      autoFocus
+                    />
+                  ) : (
+                    <span className={highlightedCategoryIds.has(subAcc.id) ? "font-bold text-green-800" : ""}>{subAcc.name}</span>
+                  )}
+                  {lastActionCategoryId === subAcc.id && <span className="ml-2 inline-block text-green-600 flex-shrink-0">✨</span>}
+                </div>
               </td>
               <td className="border p-1 text-xs">
                 {editingId === subAcc.id ? (
@@ -1734,27 +1824,29 @@ export default function ChartOfAccountsPage() {
                   displayedPayees.map((payee) => (
                     <tr 
                       key={payee.id}
+                      id={`payee-${payee.id}`}
                       className={`transition-colors duration-1000 ${
                         highlightedPayeeIds.has(payee.id) ? "bg-green-100" : "hover:bg-gray-50"
                       }`}
                     >
                       <td className="border p-1 text-xs">
-                        {editingPayeeId === payee.id ? (
-                          <input
-                            type="text"
-                            value={editPayeeName}
-                            onChange={(e) => setEditPayeeName(e.target.value)}
-                            className="w-full border-none outline-none bg-transparent text-xs"
-                            onBlur={handleUpdatePayee}
-                            onKeyDown={(e) => e.key === "Enter" && handleUpdatePayee()}
-                            autoFocus
-                          />
-                        ) : (
-                          <span className={highlightedPayeeIds.has(payee.id) ? "font-bold text-green-800" : ""}>
-                            {payee.name}
-                          </span>
-                        )}
-                        {lastActionPayeeId === payee.id && <span className="ml-2 inline-block text-green-600">✨</span>}
+                        <div className="flex items-center">
+                          {editingPayeeId === payee.id ? (
+                            <input
+                              type="text"
+                              value={editPayeeName}
+                              onChange={(e) => setEditPayeeName(e.target.value)}
+                              className="flex-1 border-none outline-none bg-transparent text-xs"
+                              onKeyDown={(e) => e.key === "Enter" && handleUpdatePayee()}
+                              autoFocus
+                            />
+                          ) : (
+                            <span className={highlightedPayeeIds.has(payee.id) ? "font-bold text-green-800" : ""}>
+                              {payee.name}
+                            </span>
+                          )}
+                          {lastActionPayeeId === payee.id && <span className="ml-2 inline-block text-green-600 flex-shrink-0">✨</span>}
+                        </div>
                       </td>
                       <td className="border p-1 text-xs">
                         <div className="flex gap-2 justify-center">
