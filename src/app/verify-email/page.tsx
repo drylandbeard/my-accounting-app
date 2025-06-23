@@ -67,8 +67,6 @@ function VerifyEmailContent() {
       const data = await response.json();
 
       if (response.ok) {
-        setSuccess(true);
-        
         // Automatically sign in the user after successful verification
         if (data.user && data.accessToken) {
           // Set auth state in Zustand store
@@ -79,10 +77,17 @@ function VerifyEmailContent() {
             accessToken: data.accessToken,
           });
           
-          // Show success message briefly, then redirect
+          // For immediate redirect to Gateway, uncomment the next line and comment the setTimeout
+          // router.replace("/");
+          
+          // Show success message briefly, then redirect quickly to Gateway
+          setSuccess(true);
           setTimeout(() => {
             router.replace("/");
-          }, 2000);
+          }, 300); // Further reduced to 300ms for even faster redirect
+        } else {
+          // If no user data, just show success
+          setSuccess(true);
         }
       } else {
         setError(data.error || "Failed to verify code. Please try again.");
@@ -148,7 +153,7 @@ function VerifyEmailContent() {
                 Email Verified Successfully!
               </CardTitle>
               <CardDescription>
-                Your account has been activated. Redirecting you to the app...
+                Your account has been activated. Redirecting you to the app in a moment...
               </CardDescription>
             </CardHeader>
           </Card>
