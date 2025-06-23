@@ -8,15 +8,12 @@ and the complex interaction between multiple imported type definitions from diff
 import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { X, RefreshCcw } from "lucide-react";
-import { useAIStore } from "@/zustand/aiStore";
+import { useCategoriesStore } from "@/zustand/categoriesStore";
 import { useAuthStore } from "@/zustand/authStore";
 import { api } from "@/lib/api";
 import { tools } from "@/ai/tools";
 import { categoryPrompt } from "@/ai/prompts";
-import { createCategoryHandler } from "@/ai/functions/createCategory";
-import { renameCategoryHandler } from "@/ai/functions/renameCategory";
 import { assignParentCategoryHandler } from "@/ai/functions/assignParentCategory";
-import { deleteCategoryHandler } from "@/ai/functions/deleteCategory";
 import { changeCategoryTypeHandler } from "../ai/functions/changeCategoryType";
 
 interface Message {
@@ -81,8 +78,15 @@ What kind of business are you running? I'd love to learn more so I can continuou
   const [isResizing, setIsResizing] = useState(false);
   const resizeRef = useRef<HTMLDivElement>(null);
   
-  // Use Zustand store instead of context
-  const { categories, refreshCategories: refreshCategoriesFromStore } = useAIStore();
+  // Use the same Zustand store as the categories page for consistency
+  const { 
+    categories, 
+    refreshCategories: refreshCategoriesFromStore, 
+    addCategory,
+    updateCategory,
+    deleteCategory,
+    error: storeError
+  } = useCategoriesStore();
   const { currentCompany } = useAuthStore();
   
   // Create a wrapper for refreshCategories that includes company ID
@@ -361,70 +365,73 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
     }
 
     if (action.action === "create_category") {
-      const result = await createCategoryHandler({
-        name: action.name!,
-        type: action.type!,
-        companyId: currentCompany?.id,
-      });
+      try {
+        const categoryData = {
+          name: action.name!,
+          type: action.type!,
+          parent_id: action.parent_id || null,
+          company_id: currentCompany!.id,
+        };
 
-      if (result.success) {
-        if (!skipRefresh) {
-          await refreshCategories();
+        const result = await addCategory(categoryData);
+        
+        if (result) {
+          return `Successfully created category '${action.name}' with type '${action.type}'.`;
+        } else {
+          const errorMessage = storeError || 'Failed to create category';
+          return `Error creating category: ${errorMessage}`;
         }
-        return `Successfully created category '${action.name}' with type '${action.type}'.`;
-      } else {
-        return `Error creating category: ${result.error}`;
+      } catch (error) {
+        return `Error creating category: ${error instanceof Error ? error : 'Unknown error'}`;
       }
     }
 
-    if (action.action === "rename_category") {
-      const result = await renameCategoryHandler({
-        oldName: action.oldName!,
-        newName: action.newName!,
-        companyId: currentCompany?.id,
-        categories: categoriesToUse,
-      });
+    if (action.action === "update_category") {
+      try {
+        const updates: any = {};
+        if (action.name) updates.name = action.name;
+        if (action.type) updates.type = action.type;
+        if (action.parent_id !== undefined) updates.parent_id = action.parent_id;
 
-      if (result.success) {
-        if (!skipRefresh) {
-          await refreshCategories();
+        const result = await updateCategory(action.categoryId!, updates);
+        
+        if (result) {
+          return `Successfully updated category '${action.categoryId}'.`;
+        } else {
+          const errorMessage = storeError || 'Failed to update category';
+          return `Error updating category: ${errorMessage}`;
         }
-        return `Successfully renamed category '${action.oldName}' to '${action.newName}'.`;
-      } else {
-        return `Error renaming category: ${result.error}`;
+      } catch (error) {
+        return `Error updating category: ${error instanceof Error ? error.message : 'Unknown error'}`;
       }
     }
 
     if (action.action === "delete_category") {
-      const result = await deleteCategoryHandler({
-        name: action.name!,
-        companyId: currentCompany?.id,
-        categories: categoriesToUse,
-      });
-
-      if (result.success) {
-        if (!skipRefresh) {
-          await refreshCategories();
+      try {
+        const result = await deleteCategory(action.categoryId!);
+        
+        if (result) {
+          return `Successfully deleted category '${action.categoryId}'.`;
+        } else {
+          const errorMessage = storeError || 'Failed to delete category';
+          return `Error deleting category: ${errorMessage}`;
         }
-        return `Successfully deleted category '${action.name}'.`;
-      } else {
-        return `Error deleting category: ${result.error}`;
+      } catch (error) {
+        return `Error deleting category: ${error instanceof Error ? error.message : 'Unknown error'}`;
       }
     }
 
     if (action.action === "change_category_type") {
       const result = await changeCategoryTypeHandler({
-        categoryName: action.categoryName!,
+        categoryId: action.categoryId!,
         newType: action.newType!,
-        companyId: currentCompany?.id,
-        categories: categoriesToUse,
       });
 
       if (result.success) {
         if (!skipRefresh) {
           await refreshCategories();
         }
-        return `Successfully changed category '${action.categoryName}' type to '${action.newType}'.`;
+        return `Successfully changed category '${action.categoryId}' type to '${action.newType}'.`;
       } else {
         return `Error changing category type: ${result.error}`;
       }
@@ -432,17 +439,15 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
 
     if (action.action === "assign_parent_category") {
       const result = await assignParentCategoryHandler({
-        childName: action.categoryName!,
-        parentName: action.parentCategoryName!,
-        companyId: currentCompany?.id,
-        categories: categoriesToUse,
+        childCategoryId: action.childCategoryId!,
+        parentCategoryId: action.parentCategoryId!,
       });
 
       if (result.success) {
         if (!skipRefresh) {
           await refreshCategories();
         }
-        return `Successfully assigned category '${action.categoryName}' under parent category '${action.parentCategoryName}'.`;
+        return `Successfully assigned category '${action.childCategoryId}' under parent category '${action.parentCategoryId}'.`;
       } else {
         return `Error assigning category: ${result.error}`;
       }
@@ -479,32 +484,12 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
               prev.map((msg, idx) => (idx === messageIndex ? { ...msg, content: processingMessage } : msg))
             );
 
-            // For actions that depend on recently created categories, get fresh data
-            let freshCategories = categories;
-            if (action.action === "assign_parent_category" && i > 0) {
-              // Refresh categories and wait for the update
-              await refreshCategories();
-              await new Promise((resolve) => setTimeout(resolve, 1000));
-
-              // Fetch fresh categories directly from database
-              if (currentCompany) {
-                const { data: freshCategoriesData } = await supabase
-                  .from("chart_of_accounts")
-                  .select("*")
-                  .eq("company_id", currentCompany.id);
-                freshCategories = freshCategoriesData || categories;
-              }
-            }
-
-            const result = await executeAction(action, true, freshCategories);
+            const result = await executeAction(action, true, categories);
             results.push(`${i + 1}. ${result}`);
             currentMessage += `${i + 1}. ${result}\n`;
 
-            // CRITICAL: Wait for categories to be refreshed before next action
-            await refreshCategories();
-
-            // Add a small delay to ensure state is updated
-            await new Promise((resolve) => setTimeout(resolve, 500));
+            // Small delay to ensure UI updates are processed
+            await new Promise((resolve) => setTimeout(resolve, 200));
 
             // Update message with progress
             setMessages((prev) =>
@@ -792,76 +777,100 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
     if (!pendingToolArgs || pendingToolQueue.length === 0) return;
     let result: any;
     if (pendingToolArgs.type === "create_category") {
-      result = await createCategoryHandler({ ...pendingToolArgs.args, companyId: currentCompany?.id });
-      if (result.success) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: `Category "${pendingToolArgs.args.name}" (${pendingToolArgs.args.type}) has been created! Would you like to create another category or assign this one to a parent category?`,
-          },
-        ]);
-        await refreshCategories();
-      } else {
-        setMessages((prev) => [...prev, { role: "assistant", content: `Error creating category: ${result.error}` }]);
+      try {
+        const categoryData = {
+          name: pendingToolArgs.args.name,
+          type: pendingToolArgs.args.type,
+          parent_id: pendingToolArgs.args.parent_id || null,
+          company_id: currentCompany!.id,
+        };
+
+        result = await addCategory(categoryData);
+        if (result) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: "assistant",
+              content: `Category "${pendingToolArgs.args.name}" (${pendingToolArgs.args.type}) has been created! Would you like to create another category or assign this one to a parent category?`,
+            },
+          ]);
+        } else {
+          const errorMessage = storeError || 'Failed to create category';
+          setMessages((prev) => [...prev, { role: "assistant", content: `Error creating category: ${errorMessage}` }]);
+        }
+      } catch (error) {
+        setMessages((prev) => [...prev, { role: "assistant", content: `Error creating category: ${error instanceof Error ? error.message : 'Unknown error'}` }]);
       }
-    } else if (pendingToolArgs.type === "rename_category") {
-      result = await renameCategoryHandler({ ...pendingToolArgs.args, companyId: currentCompany?.id, categories });
-      if (result.success) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: `Category "${pendingToolArgs.args.oldName}" has been renamed to "${pendingToolArgs.args.newName}". Is there anything else you'd like to change about this category?`,
-          },
-        ]);
-        await refreshCategories();
-      } else {
-        setMessages((prev) => [...prev, { role: "assistant", content: `Error renaming category: ${result.error}` }]);
+    } else if (pendingToolArgs.type === "update_category") {
+      try {
+        const updates: any = {};
+        if (pendingToolArgs.args.name) updates.name = pendingToolArgs.args.name;
+        if (pendingToolArgs.args.type) updates.type = pendingToolArgs.args.type;
+        if (pendingToolArgs.args.parent_id !== undefined) updates.parent_id = pendingToolArgs.args.parent_id;
+
+        result = await updateCategory(pendingToolArgs.args.categoryId, updates);
+        if (result) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: "assistant",
+              content: `Category "${pendingToolArgs.args.categoryId}" has been updated. Is there anything else you'd like to change about this category?`,
+            },
+          ]);
+        } else {
+          const errorMessage = storeError || 'Failed to update category';
+          setMessages((prev) => [...prev, { role: "assistant", content: `Error updating category: ${errorMessage}` }]);
+        }
+      } catch (error) {
+        setMessages((prev) => [...prev, { role: "assistant", content: `Error updating category: ${error instanceof Error ? error.message : 'Unknown error'}` }]);
       }
     } else if (pendingToolArgs.type === "assign_parent_category") {
       result = await assignParentCategoryHandler({
-        ...pendingToolArgs.args,
-        companyId: currentCompany?.id,
-        categories,
+        childCategoryId: pendingToolArgs.args.childCategoryId,
+        parentCategoryId: pendingToolArgs.args.parentCategoryId,
       });
       if (result.success) {
         setMessages((prev) => [
           ...prev,
           {
             role: "assistant",
-            content: `Assigned "${pendingToolArgs.args.childName}" as a subcategory of "${pendingToolArgs.args.parentName}". Would you like to organize any other categories?`,
+            content: `Assigned "${pendingToolArgs.args.childCategoryId}" as a subcategory of "${pendingToolArgs.args.parentCategoryId}". Would you like to organize any other categories?`,
           },
         ]);
-        await refreshCategories();
       } else {
         setMessages((prev) => [...prev, { role: "assistant", content: `Error: ${result.error}` }]);
       }
     } else if (pendingToolArgs.type === "delete_category") {
-      result = await deleteCategoryHandler({ ...pendingToolArgs.args, companyId: currentCompany?.id, categories });
-      if (result.success) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: `Category "${pendingToolArgs.args.name}" has been deleted. Would you like to make any other changes to your categories?`,
-          },
-        ]);
-        await refreshCategories();
-      } else {
-        setMessages((prev) => [...prev, { role: "assistant", content: `Error deleting category: ${result.error}` }]);
+      try {
+        result = await deleteCategory(pendingToolArgs.args.categoryId);
+        if (result) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              role: "assistant",
+              content: `Category "${pendingToolArgs.args.categoryId}" has been deleted. Would you like to make any other changes to your categories?`,
+            },
+          ]);
+        } else {
+          const errorMessage = storeError || 'Failed to delete category';
+          setMessages((prev) => [...prev, { role: "assistant", content: `Error deleting category: ${errorMessage}` }]);
+        }
+      } catch (error) {
+        setMessages((prev) => [...prev, { role: "assistant", content: `Error deleting category: ${error instanceof Error ? error.message : 'Unknown error'}` }]);
       }
     } else if (pendingToolArgs.type === "change_category_type") {
-      result = await changeCategoryTypeHandler({ ...pendingToolArgs.args, companyId: currentCompany?.id, categories });
+      result = await changeCategoryTypeHandler({
+        categoryId: pendingToolArgs.args.categoryId,
+        newType: pendingToolArgs.args.newType,
+      });
       if (result.success) {
         setMessages((prev) => [
           ...prev,
           {
             role: "assistant",
-            content: `Category "${pendingToolArgs.args.categoryName}" type has been changed to "${pendingToolArgs.args.newType}". Would you like to make any other changes to your categories?`,
+            content: `Category "${pendingToolArgs.args.categoryId}" type has been changed to "${pendingToolArgs.args.newType}". Would you like to make any other changes to your categories?`,
           },
         ]);
-        await refreshCategories();
       } else {
         setMessages((prev) => [
           ...prev,
@@ -885,15 +894,13 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
             }" with type "${JSON.parse(nextTool.function.arguments).type}". Please press confirm.`,
           },
         ]);
-      } else if (nextTool.function?.name === "rename_category") {
-        setPendingToolArgs({ type: "rename_category", args: JSON.parse(nextTool.function.arguments) });
+      } else if (nextTool.function?.name === "update_category") {
+        setPendingToolArgs({ type: "update_category", args: JSON.parse(nextTool.function.arguments) });
         setMessages((prev) => [
           ...prev,
           {
             role: "assistant",
-            content: `To confirm, I will rename the category "${JSON.parse(nextTool.function.arguments).oldName}" to "${
-              JSON.parse(nextTool.function.arguments).newName
-            }". Please press confirm.`,
+            content: `To confirm, I will update the category "${JSON.parse(nextTool.function.arguments).categoryId}". Please press confirm.`,
           },
         ]);
       } else if (nextTool.function?.name === "assign_parent_category") {
@@ -903,8 +910,8 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
           {
             role: "assistant",
             content: `To confirm, I will assign "${
-              JSON.parse(nextTool.function.arguments).childName
-            }" as a subcategory of "${JSON.parse(nextTool.function.arguments).parentName}". Please press confirm.`,
+              JSON.parse(nextTool.function.arguments).childCategoryId
+            }" as a subcategory of "${JSON.parse(nextTool.function.arguments).parentCategoryId}". Please press confirm.`,
           },
         ]);
       } else if (nextTool.function?.name === "delete_category") {
@@ -914,7 +921,7 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
           {
             role: "assistant",
             content: `To confirm, I will delete the category "${
-              JSON.parse(nextTool.function.arguments).name
+              JSON.parse(nextTool.function.arguments).categoryId
             }". Please press confirm.`,
           },
         ]);
@@ -925,7 +932,7 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
           {
             role: "assistant",
             content: `To confirm, I will change the type of category "${
-              JSON.parse(nextTool.function.arguments).categoryName
+              JSON.parse(nextTool.function.arguments).categoryId
             }" to "${JSON.parse(nextTool.function.arguments).newType}". Please press confirm.`,
           },
         ]);

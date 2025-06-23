@@ -3,7 +3,9 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/zustand/authStore";
-import { useAIStore } from "@/zustand/aiStore";
+import { useCategoriesStore } from "@/zustand/categoriesStore";
+import { usePayeesStore } from "@/zustand/payeesStore";
+
 import Papa from "papaparse";
 import { v4 as uuidv4 } from "uuid";
 import { X } from "lucide-react";
@@ -104,23 +106,45 @@ type MergeModalState = {
 export default function ChartOfAccountsPage() {
   const { currentCompany } = useAuthStore();
   const hasCompanyContext = !!(currentCompany);
-  const { 
-    categories: accounts, 
-    refreshCategories: refreshCategoriesFromStore,
-    highlightCategory,
-    highlightedCategoryIds,
-    lastActionId 
-  } = useAIStore();
   
-  // Create wrapper for refreshCategories that includes company ID
+  // Use separate stores for categories and payees
+  const { 
+    categories: accounts,
+    isLoading: loading,
+    error: categoriesError,
+    highlightedCategoryIds,
+    lastActionCategoryId,
+    refreshCategories: refreshCategoriesFromStore,
+    addCategory,
+    updateCategory,
+    deleteCategory,
+    highlightCategory
+  } = useCategoriesStore();
+  
+  const {
+    payees,
+    error: payeesError,
+    highlightedPayeeIds,
+    lastActionPayeeId,
+    refreshPayees: refreshPayeesFromStore,
+    addPayee,
+    updatePayee,
+    deletePayee
+  } = usePayeesStore();
+  
+  // Create wrapper functions for refresh that include company ID
   const refreshCategories = useCallback(async () => {
     if (currentCompany?.id) {
       await refreshCategoriesFromStore(currentCompany.id);
     }
   }, [currentCompany?.id, refreshCategoriesFromStore]);
   
-  const [payees, setPayees] = useState<Payee[]>([]);
-  const [loading, setLoading] = useState(true);
+  const refreshPayees = useCallback(async () => {
+    if (currentCompany?.id) {
+      await refreshPayeesFromStore(currentCompany.id);
+    }
+  }, [currentCompany?.id, refreshPayeesFromStore]);
+  
   const [search, setSearch] = useState("");
   const [payeeSearch, setPayeeSearch] = useState("");
   const categoriesTableRef = useRef<HTMLDivElement>(null);
@@ -316,11 +340,13 @@ export default function ChartOfAccountsPage() {
     }, 100);
   }, [highlightCategory]);
 
+  // Initialize data when component mounts
   useEffect(() => {
-    if (accounts) {
-      setLoading(false);
+    if (currentCompany?.id) {
+      refreshCategories();
+      refreshPayees();
     }
-  }, [accounts]);
+  }, [currentCompany?.id, refreshCategories, refreshPayees]);
 
   // Options for Select components
   const typeOptions: SelectOption[] = ACCOUNT_TYPES.map(type => ({
@@ -360,16 +386,16 @@ export default function ChartOfAccountsPage() {
 
   useEffect(() => {
     fetchParentOptions();
-    fetchPayees();
   }, [currentCompany?.id, hasCompanyContext, fetchParentOptions]);
 
-  // AI Integration - Set up real-time subscription
+  // Real-time subscriptions for both categories and payees
   useEffect(() => {
     if (!hasCompanyContext || !currentCompany?.id) return;
 
-    console.log("Setting up real-time subscription for company:", currentCompany.id);
+    console.log("Setting up real-time subscriptions for company:", currentCompany.id);
 
-    const channel = supabase
+    // Categories subscription
+    const categoriesChannel = supabase
       .channel(`chart_of_accounts_${currentCompany.id}`)
       .on(
         "postgres_changes",
@@ -380,7 +406,7 @@ export default function ChartOfAccountsPage() {
           filter: `company_id=eq.${currentCompany.id}`,
         },
         (payload) => {
-          console.log("Real-time change detected:", payload);
+          console.log("Categories real-time change detected:", payload);
           refreshCategories();
 
           let recordId: string | null = null;
@@ -395,15 +421,32 @@ export default function ChartOfAccountsPage() {
           fetchParentOptions();
         }
       )
-      .subscribe((status) => {
-        console.log("Subscription status:", status);
-      });
+      .subscribe();
+
+    // Payees subscription
+    const payeesChannel = supabase
+      .channel(`payees_${currentCompany.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "payees",
+          filter: `company_id=eq.${currentCompany.id}`,
+        },
+        (payload) => {
+          console.log("Payees real-time change detected:", payload);
+          refreshPayees();
+        }
+      )
+      .subscribe();
 
     return () => {
-      console.log("Cleaning up real-time subscription");
-      supabase.removeChannel(channel);
+      console.log("Cleaning up real-time subscriptions");
+      supabase.removeChannel(categoriesChannel);
+      supabase.removeChannel(payeesChannel);
     };
-  }, [currentCompany?.id, hasCompanyContext, highlightCategoryWithScroll, fetchParentOptions, refreshCategories]);
+  }, [currentCompany?.id, hasCompanyContext, highlightCategoryWithScroll, fetchParentOptions, refreshCategories, refreshPayees]);
 
   // Sorting functions
   const sortCategories = (categories: Category[], sortConfig: SortConfig) => {
@@ -417,8 +460,8 @@ export default function ChartOfAccountsPage() {
         return sortConfig.direction === "asc" ? a.type.localeCompare(b.type) : b.type.localeCompare(a.type);
       }
       if (sortConfig.key === "parent") {
-        const aParent = a.parent_id ? accounts.find((acc) => acc.id === a.parent_id)?.name || "" : "";
-        const bParent = b.parent_id ? accounts.find((acc) => acc.id === b.parent_id)?.name || "" : "";
+        const aParent = a.parent_id ? accounts.find((acc: Category) => acc.id === a.parent_id)?.name || "" : "";
+        const bParent = b.parent_id ? accounts.find((acc: Category) => acc.id === b.parent_id)?.name || "" : "";
         return sortConfig.direction === "asc" ? aParent.localeCompare(bParent) : bParent.localeCompare(aParent);
       }
       return 0;
@@ -450,19 +493,10 @@ export default function ChartOfAccountsPage() {
     }));
   };
 
-  const fetchPayees = async () => {
-    if (!hasCompanyContext) return;
-
-    const { data, error } = await supabase
-      .from("payees")
-      .select("*")
-      .eq("company_id", currentCompany!.id)
-      .order("name");
-    if (!error && data) setPayees(data);
-  };
+  // Payees are now managed by Zustand store - no need for separate fetch function
 
   const filteredAccounts = sortCategories(
-    accounts.filter((account) => {
+    accounts.filter((account: Category) => {
       const searchLower = search.toLowerCase();
       const matchesName = account.name.toLowerCase().includes(searchLower);
       const matchesType = account.type.toLowerCase().includes(searchLower);
@@ -513,34 +547,35 @@ export default function ChartOfAccountsPage() {
     // Clear previous error
     setCategoryError(null);
     
-    // Check if category name already exists (case-insensitive)
-    const existingCategory = accounts.find(
-      (acc) => acc.name.toLowerCase() === newName.toLowerCase()
-    );
-    
-    if (existingCategory) {
-      setCategoryError(`Category "${newName}" already exists.`);
-      return;
-    }
-    
-    const { error } = await supabase.from("chart_of_accounts").insert([
-      {
+    try {
+      const categoryData = {
         name: newName,
         type: newType,
         parent_id: parentId || null,
         company_id: currentCompany!.id,
-      },
-    ]);
-    
-    if (error) {
-      setCategoryError(`Failed to add category: ${error.message}`);
-    } else {
-      setNewName("");
-      setNewType("");
-      setParentId(null);
-      setCategoryError(null);
-      // Categories will be refreshed automatically via real-time subscription
-      fetchParentOptions();
+      };
+      
+      // Use the Zustand store method which handles optimistic updates
+      const result = await addCategory(categoryData);
+      
+      if (result) {
+        // Clear form on success
+        setNewName("");
+        setNewType("");
+        setParentId(null);
+        setCategoryError(null);
+        
+        // Only refresh parent options (needed for dropdown)
+        await fetchParentOptions();
+        
+        // Highlighting is already handled by the store
+      } else {
+        // Error is already set by the store
+        setCategoryError(categoriesError || "Failed to create category");
+      }
+    } catch (error) {
+      console.error("Error creating category:", error);
+      setCategoryError("Network error. Please try again.");
     }
   };
 
@@ -551,29 +586,19 @@ export default function ChartOfAccountsPage() {
     // Clear previous error
     setPayeeError(null);
     
-    // Check if payee name already exists (case-insensitive)
-    const existingPayee = payees.find(
-      (payee) => payee.name.toLowerCase() === newPayeeName.toLowerCase()
-    );
+    const payeeData = {
+      name: newPayeeName,
+      company_id: currentCompany!.id,
+    };
     
-    if (existingPayee) {
-      setPayeeError(`Payee "${newPayeeName}" already exists.`);
-      return;
-    }
+    const result = await addPayee(payeeData);
     
-    const { error } = await supabase.from("payees").insert([
-      {
-        name: newPayeeName,
-        company_id: currentCompany!.id,
-      },
-    ]);
-    
-    if (error) {
-      setPayeeError(`Failed to add payee: ${error.message}`);
-    } else {
+    if (result) {
       setNewPayeeName("");
       setPayeeError(null);
-      fetchPayees();
+    } else {
+      // Error is handled by the store
+      setPayeeError(payeesError);
     }
   };
 
@@ -598,40 +623,6 @@ export default function ChartOfAccountsPage() {
       return;
     }
 
-    // Check if this category has subcategories
-    const { data: subcategories } = await supabase
-      .from("chart_of_accounts")
-      .select("id, name")
-      .eq("parent_id", id);
-
-    if (subcategories && subcategories.length > 0) {
-      // This category has subcategories - prevent deletion
-      alert(
-        `This category cannot be deleted because it has ${subcategories.length} subcategor${subcategories.length === 1 ? 'y' : 'ies'}. Please delete or reassign the subcategories first.`
-      );
-      return;
-    }
-
-    // Check if this category is used in transactions
-    const { data: transactions, error: txError } = await supabase
-      .from("transactions")
-      .select("id")
-      .or(`selected_category_id.eq.${id},corresponding_category_id.eq.${id}`)
-      .limit(1);
-
-    if (txError) {
-      console.error("Error checking transactions:", txError);
-      alert("Error checking if category is in use. Please try again.");
-      return;
-    }
-
-    if (transactions && transactions.length > 0) {
-      alert(
-        "This category cannot be deleted because it is used in existing transactions. Please reassign or delete the transactions first."
-      );
-      return;
-    }
-
     // Show confirmation dialog before deleting
     const categoryToDelete = accounts.find(acc => acc.id === id);
     const categoryName = categoryToDelete?.name || "this category";
@@ -640,38 +631,16 @@ export default function ChartOfAccountsPage() {
       return;
     }
 
-    const { error } = await supabase.from("chart_of_accounts").delete().eq("id", id);
-    if (error) {
-      console.error("Error deleting category:", error);
-      alert("Failed to delete category. Please try again.");
-    } else {
+    const success = await deleteCategory(id);
+    if (success) {
       setEditingId(null);
-      // Categories will be refreshed automatically via real-time subscription
       fetchParentOptions();
+    } else {
+      alert(categoriesError || "Failed to delete category. Please try again.");
     }
   };
 
   const handleDeletePayee = async (id: string) => {
-    // Check if payee is used in transactions
-    const { data: transactions, error: txError } = await supabase
-      .from("transactions")
-      .select("id")
-      .eq("payee_id", id)
-      .limit(1);
-
-    if (txError) {
-      console.error("Error checking transactions:", txError);
-      alert("Error checking if payee is in use. Please try again.");
-      return;
-    }
-
-    if (transactions && transactions.length > 0) {
-      alert(
-        "This payee cannot be deleted because it is used in existing transactions. Please reassign or delete the transactions first."
-      );
-      return;
-    }
-
     // Show confirmation dialog before deleting
     const payeeToDelete = payees.find(payee => payee.id === id);
     const payeeName = payeeToDelete?.name || "this payee";
@@ -680,13 +649,11 @@ export default function ChartOfAccountsPage() {
       return;
     }
 
-    const { error } = await supabase.from("payees").delete().eq("id", id);
-    if (error) {
-      console.error("Error deleting payee:", error);
-      alert("Failed to delete payee. Please try again.");
-    } else {
+    const success = await deletePayee(id);
+    if (success) {
       setEditingPayeeId(null);
-      fetchPayees();
+    } else {
+      alert(payeesError || "Failed to delete payee. Please try again.");
     }
   };
 
@@ -723,10 +690,8 @@ export default function ChartOfAccountsPage() {
       let parent_id = editParentIdRef.current;
       const type = editTypeRef.current;
 
-
       // Convert empty string to null (for "No Parent" selection)
       if (parent_id === "" || parent_id === undefined || parent_id === "null") {
-        console.log("Converting empty/undefined parent_id to null");
         parent_id = null;
       }
 
@@ -748,18 +713,26 @@ export default function ChartOfAccountsPage() {
     const currentValues = getCurrentValues();
     const editingIdToUpdate = editingId;
 
-    // Check if another category with the same name exists (case-insensitive, excluding current)
-    const existingCategory = accounts.find(
-      (acc) => acc.id !== editingIdToUpdate && acc.name.toLowerCase() === currentValues.name.toLowerCase()
-    );
-
-    if (existingCategory) {
-      alert(`Category "${currentValues.name}" already exists.`);
+    // Get the original category to compare values
+    const originalCategory = accounts.find(acc => acc.id === editingIdToUpdate);
+    if (!originalCategory) {
+      setEditingId(null);
       return;
     }
 
-    // Immediately exit editing mode and refresh to show updated values optimistically
+    // Check if any values have actually changed
+    const hasChanges = 
+      originalCategory.name !== currentValues.name ||
+      originalCategory.type !== currentValues.type ||
+      (originalCategory.parent_id || null) !== currentValues.parent_id;
+
+    // Immediately exit editing mode
     setEditingId(null);
+
+    // If no changes were made, just return without highlighting
+    if (!hasChanges) {
+      return;
+    }
 
     try {
       // First get the current chart_of_accounts record to check if it has a plaid_account_id
@@ -772,30 +745,20 @@ export default function ChartOfAccountsPage() {
       if (fetchError) {
         console.error("Error fetching current account:", fetchError);
         alert("Error fetching account data. Please try again.");
-        // Refresh to revert any optimistic changes
-        await refreshCategories();
         return;
       }
 
-      // Update chart_of_accounts
-      const { error } = await supabase
-        .from("chart_of_accounts")
-        .update({
-          name: currentValues.name,
-          type: currentValues.type,
-          parent_id: currentValues.parent_id === "" ? null : currentValues.parent_id,
-        })
-        .eq("id", editingIdToUpdate);
+      // Update using the store
+      const success = await updateCategory(editingIdToUpdate, {
+        name: currentValues.name,
+        type: currentValues.type,
+        parent_id: currentValues.parent_id === "" ? null : currentValues.parent_id,
+      });
 
-      if (error) {
-        console.error("Error updating chart of accounts:", error);
-        alert("Error saving changes. Please try again.");
-        // Refresh to revert any optimistic changes
-        await refreshCategories();
+      if (!success) {
+        alert(categoriesError || "Error saving changes. Please try again.");
         return;
       }
-
-      console.log("Successfully updated chart of accounts");
 
       // If this chart of accounts entry is linked to a plaid account, also update the accounts table
       if (currentAccount?.plaid_account_id) {
@@ -814,15 +777,10 @@ export default function ChartOfAccountsPage() {
         }
       }
 
-      // Refresh categories to ensure consistency with database
-      await refreshCategories();
       await fetchParentOptions();
-      console.log("Update completed successfully");
     } catch (error) {
       console.error("Unexpected error during update:", error);
       alert("An unexpected error occurred. Please try again.");
-      // Refresh to revert any optimistic changes
-      await refreshCategories();
     }
   };
 
@@ -886,28 +844,14 @@ export default function ChartOfAccountsPage() {
   const handleUpdatePayee = async () => {
     if (!editingPayeeId) return;
 
-    // Check if another payee with the same name exists (case-insensitive, excluding current)
-    const existingPayee = payees.find(
-      (payee) => payee.id !== editingPayeeId && payee.name.toLowerCase() === editPayeeName.toLowerCase()
-    );
+    const success = await updatePayee(editingPayeeId, {
+      name: editPayeeName,
+    });
 
-    if (existingPayee) {
-      alert(`Payee "${editPayeeName}" already exists.`);
-      return;
-    }
-
-    const { error } = await supabase
-      .from("payees")
-      .update({
-        name: editPayeeName,
-      })
-      .eq("id", editingPayeeId);
-
-    if (!error) {
+    if (success) {
       setEditingPayeeId(null);
-      fetchPayees();
     } else {
-      alert(`Failed to update payee: ${error.message}`);
+      alert(payeesError || "Failed to update payee. Please try again.");
     }
   };
 
@@ -1496,7 +1440,7 @@ export default function ChartOfAccountsPage() {
               ) : (
                 <span className={highlightedCategoryIds.has(parent.id) ? "font-bold text-green-800" : ""}>{parent.name}</span>
               )}
-              {lastActionId === parent.id && <span className="ml-2 inline-block text-green-600">✨</span>}
+              {lastActionCategoryId === parent.id && <span className="ml-2 inline-block text-green-600">✨</span>}
             </td>
             <td className="border p-1 text-xs">
               {editingId === parent.id ? (
@@ -1603,7 +1547,7 @@ export default function ChartOfAccountsPage() {
                 ) : (
                   <span className={highlightedCategoryIds.has(subAcc.id) ? "font-bold text-green-800" : ""}>{subAcc.name}</span>
                 )}
-                {lastActionId === subAcc.id && <span className="ml-2 inline-block text-green-600">✨</span>}
+                {lastActionCategoryId === subAcc.id && <span className="ml-2 inline-block text-green-600">✨</span>}
               </td>
               <td className="border p-1 text-xs">
                 {editingId === subAcc.id ? (
@@ -1753,9 +1697,9 @@ export default function ChartOfAccountsPage() {
                 Add
               </button>
             </form>
-            {payeeError && (
+            {(payeeError || payeesError) && (
               <div className="mt-2 p-2 bg-red-50 border border-red-200 text-red-700 text-xs rounded">
-                {payeeError}
+                {payeeError || payeesError}
               </div>
             )}
           </div>
@@ -1788,7 +1732,12 @@ export default function ChartOfAccountsPage() {
               <tbody>
                 {displayedPayees.length > 0 ? (
                   displayedPayees.map((payee) => (
-                    <tr key={payee.id}>
+                    <tr 
+                      key={payee.id}
+                      className={`transition-colors duration-1000 ${
+                        highlightedPayeeIds.has(payee.id) ? "bg-green-100" : "hover:bg-gray-50"
+                      }`}
+                    >
                       <td className="border p-1 text-xs">
                         {editingPayeeId === payee.id ? (
                           <input
@@ -1801,8 +1750,11 @@ export default function ChartOfAccountsPage() {
                             autoFocus
                           />
                         ) : (
-                          payee.name
+                          <span className={highlightedPayeeIds.has(payee.id) ? "font-bold text-green-800" : ""}>
+                            {payee.name}
+                          </span>
                         )}
+                        {lastActionPayeeId === payee.id && <span className="ml-2 inline-block text-green-600">✨</span>}
                       </td>
                       <td className="border p-1 text-xs">
                         <div className="flex gap-2 justify-center">
@@ -1937,9 +1889,9 @@ export default function ChartOfAccountsPage() {
                 Add
               </button>
             </form>
-            {categoryError && (
+            {(categoryError || categoriesError) && (
               <div className="mt-2 p-2 bg-red-50 border border-red-200 text-red-700 text-xs rounded">
-                {categoryError}
+                {categoryError || categoriesError}
               </div>
             )}
           </div>
@@ -2285,7 +2237,7 @@ export default function ChartOfAccountsPage() {
                                 selectedPayees: new Set(),
                               });
 
-                              fetchPayees();
+                              // Payees refreshed automatically by store
                             } catch (error) {
                               setPayeeImportModal((prev) => ({
                                 ...prev,
@@ -2754,7 +2706,7 @@ export default function ChartOfAccountsPage() {
                                 const remaining = [...categories];
                                 const processing = new Set<string>();
 
-                                const addCategory = (cat: CategoryImportData) => {
+                                const addCategoryToSorted = (cat: CategoryImportData) => {
                                   if (processing.has(cat.id)) return; // Avoid circular dependencies
                                   processing.add(cat.id);
 
@@ -2764,7 +2716,7 @@ export default function ChartOfAccountsPage() {
                                       (c) => c.name.toLowerCase() === cat.parentName!.toLowerCase() && c.id !== cat.id
                                     );
                                     if (parentInImport && !sorted.includes(parentInImport)) {
-                                      addCategory(parentInImport);
+                                      addCategoryToSorted(parentInImport);
                                     }
                                   }
 
@@ -2777,7 +2729,7 @@ export default function ChartOfAccountsPage() {
 
                                 // Add all categories, respecting dependencies
                                 for (const cat of remaining) {
-                                  addCategory(cat);
+                                  addCategoryToSorted(cat);
                                 }
 
                                 return sorted;
