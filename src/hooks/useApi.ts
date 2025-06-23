@@ -14,28 +14,28 @@ export function useApi() {
       if (!user || !currentCompany) {
         throw new Error("User not authenticated or no company selected");
       }
-      return api.company.get(url, currentCompany.id, user.id, options);
+      return api.get(url, options);
     },
 
     post: (url: string, data: unknown, options?: RequestInit) => {
       if (!user || !currentCompany) {
         throw new Error("User not authenticated or no company selected");
       }
-      return api.company.post(url, data, currentCompany.id, user.id, options);
+      return api.post(url, data, options);
     },
 
     put: (url: string, data: unknown, options?: RequestInit) => {
       if (!user || !currentCompany) {
         throw new Error("User not authenticated or no company selected");
       }
-      return api.company.put(url, data, currentCompany.id, user.id, options);
+      return api.put(url, data, options);
     },
 
     delete: (url: string, options?: RequestInit) => {
       if (!user || !currentCompany) {
         throw new Error("User not authenticated or no company selected");
       }
-      return api.company.delete(url, currentCompany.id, user.id, options);
+      return api.delete(url, options);
     },
   };
 

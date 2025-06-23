@@ -159,6 +159,7 @@ export default function GatewayPage() {
       useAuthStore.setState(state => ({
         ...state,
         companies: [...state.companies, newUserCompany],
+        currentCompany: result.company  // Set the newly created company as current
       }));
     }
   };
@@ -281,7 +282,8 @@ export default function GatewayPage() {
   };
 
   const handleCompanySelect = (company: { id: string; name: string; description?: string }) => {
-    // Implement company selection logic
+    // Set the selected company in global state
+    useAuthStore.getState().setCurrentCompany(company);
     console.log("Selected company:", company);
     router.push('/transactions');
   };

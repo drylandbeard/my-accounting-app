@@ -56,7 +56,7 @@ export function middleware(request: NextRequest) {
     headers.set("Access-Control-Allow-Origin", origin);
     headers.set("Access-Control-Allow-Credentials", "true");
     headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Company-Id, X-User-Id");
+    headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, x-company-id, x-user-id");
   }
 
   // Handle preflight requests
@@ -94,7 +94,7 @@ export function middleware(request: NextRequest) {
       if (payload) {
         isAuthenticated = true;
         // Add user info to headers for API routes
-        headers.set("X-User-Id", payload.userId);
+        headers.set("x-user-id", payload.userId);
       }
     }
 
@@ -107,7 +107,7 @@ export function middleware(request: NextRequest) {
           // We have a valid refresh token, let the request proceed
           // The client will handle token refresh
           isAuthenticated = true;
-          headers.set("X-User-Id", payload.userId);
+          headers.set("x-user-id", payload.userId);
         }
       }
     }
