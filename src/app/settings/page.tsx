@@ -505,7 +505,7 @@ function DeleteCompanyModal({ isOpen, onClose, companyName, onDeleteCompany }: D
 }
 
 export default function SettingsPage() {
-  const { user, currentCompany, companies } = useAuthStore();
+  const { user, currentCompany, updateCompany, removeCompany } = useAuthStore();
   const router = useRouter();
   const { fetchWithCompany } = useApiWithCompany();
   
@@ -593,18 +593,21 @@ export default function SettingsPage() {
     if (!currentCompany) return;
 
     try {
-      const { error } = await supabase
-        .from("companies")
-        .update(updatedData)
-        .eq("id", currentCompany.id);
+      // Use API endpoint for better security and validation
+      const response = await fetchWithCompany("/api/update-company", {
+        method: "PUT",
+        body: JSON.stringify(updatedData),
+      });
 
-      if (error) throw error;
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to update company");
+      }
 
-      // Update current company in Zustand state
-      useAuthStore.setState(state => ({
-        ...state,
-        currentCompany: currentCompany ? { ...currentCompany, ...updatedData } : null
-      }));
+      const result = await response.json();
+      
+      // Update company in Zustand state with the response data
+      updateCompany(currentCompany.id, result.company);
       setEditCompanyModal({ isOpen: false, company: null });
     } catch (error) {
       throw new Error(error instanceof Error ? error.message : "Failed to update company");
@@ -704,13 +707,8 @@ export default function SettingsPage() {
         if (response.status === 404 || errorData.error?.includes("Company does not exist")) {
           console.log("Company doesn't exist in database, cleaning up localStorage");
           
-          // Remove the non-existent company from the companies list
-          const updatedCompanies = companies.filter(c => c.companies.id !== currentCompany.id);
-          useAuthStore.setState(state => ({
-            ...state,
-            companies: updatedCompanies,
-            currentCompany: null
-          }));
+          // Remove the non-existent company from Zustand state
+          removeCompany(currentCompany.id);
           router.push("/");
           return; // Don't throw error, treat as successful cleanup
         }
@@ -721,13 +719,8 @@ export default function SettingsPage() {
       const result = await response.json();
       console.log("Delete successful:", result);
 
-      // Remove the deleted company from the companies list and clear current company
-      const updatedCompanies = companies.filter(c => c.companies.id !== currentCompany.id);
-      useAuthStore.setState(state => ({
-        ...state,
-        companies: updatedCompanies,
-        currentCompany: null
-      }));
+      // Remove the deleted company from Zustand state
+      removeCompany(currentCompany.id);
       router.push("/");
     } catch (error) {
       console.error("Error deleting company:", error);

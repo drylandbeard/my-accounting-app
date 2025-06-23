@@ -39,6 +39,9 @@ interface AuthState {
   // Actions
   setAuth: (auth: AuthData) => void;
   setCurrentCompany: (company: Company | null) => void;
+  updateCompany: (companyId: string, updates: Partial<Company>) => void;
+  removeCompany: (companyId: string) => void;
+  addMemberToCurrentCompany: (member: { id: string; email: string; role: "Owner" | "Member" | "Accountant" }) => void;
   clearAuth: () => void;
   logout: () => void;
   refreshTokens: () => Promise<boolean>;
@@ -80,6 +83,48 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   setCurrentCompany: (company) => set({ currentCompany: company }),
+
+  updateCompany: (companyId, updates) => set((state) => {
+    // Update in companies array
+    const updatedCompanies = state.companies.map(userCompany => 
+      userCompany.companies.id === companyId 
+        ? { ...userCompany, companies: { ...userCompany.companies, ...updates } }
+        : userCompany
+    );
+    
+    // Update current company if it's the one being updated
+    const updatedCurrentCompany = state.currentCompany?.id === companyId
+      ? { ...state.currentCompany, ...updates }
+      : state.currentCompany;
+    
+    return {
+      companies: updatedCompanies,
+      currentCompany: updatedCurrentCompany
+    };
+  }),
+
+  removeCompany: (companyId) => set((state) => {
+    // Remove from companies array
+    const updatedCompanies = state.companies.filter(userCompany => 
+      userCompany.companies.id !== companyId
+    );
+    
+    // Clear current company if it's the one being removed
+    const updatedCurrentCompany = state.currentCompany?.id === companyId
+      ? null
+      : state.currentCompany;
+    
+    return {
+      companies: updatedCompanies,
+      currentCompany: updatedCurrentCompany
+    };
+  }),
+
+  addMemberToCurrentCompany: (member) => {
+    // This is primarily for UI state management - the backend handles the actual DB updates
+    // For now, this is a placeholder. In a full implementation, you might want to track team members in Zustand
+    console.log("Member added to company:", member);
+  },
 
   clearAuth: () => {
     set({ 
