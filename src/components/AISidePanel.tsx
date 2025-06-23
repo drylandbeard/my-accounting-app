@@ -88,12 +88,10 @@ What kind of business are you running? I'd love to learn more so I can continuou
   } = useCategoriesStore();
   const { currentCompany } = useAuthStore();
   
-  // Create a wrapper for refreshCategories that includes company ID
+  // Create a wrapper for refreshCategories
   const refreshCategories = useCallback(async () => {
-    if (currentCompany?.id) {
-      await refreshCategoriesFromStore(currentCompany.id);
-    }
-  }, [currentCompany?.id, refreshCategoriesFromStore]);
+    await refreshCategoriesFromStore();
+  }, [refreshCategoriesFromStore]);
 
   // Helper function for assigning parent category using store
   const assignParentCategory = useCallback(async (childCategoryId: string, parentCategoryId: string) => {
