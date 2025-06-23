@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifyEmail } from "@/lib/auth";
+import { verifyEmail, getUserCompanies } from "@/lib/auth";
+import { generateTokens } from "@/lib/jwt";
 
 export async function POST(request: NextRequest) {
   try {
@@ -20,6 +21,41 @@ export async function POST(request: NextRequest) {
         { error: result.error },
         { status: 400 }
       );
+    }
+
+    if (result.success && result.user) {
+      // Generate JWT tokens
+      const { accessToken, refreshToken } = generateTokens({
+        userId: result.user.id,
+        email: result.user.email,
+      });
+
+      // Get user's companies
+      const companiesResult = await getUserCompanies(result.user.id);
+      const companies = companiesResult.companies || [];
+      const currentCompany = companies.length > 0 ? companies[0].companies : null;
+
+      // Create response
+      const response = NextResponse.json({
+        message: "Email verified successfully",
+        user: result.user,
+        companies,
+        currentCompany,
+        accessToken, // Only send access token in body
+      });
+
+      // Set refresh token as HTTP-only cookie
+      response.cookies.set({
+        name: "refreshToken",
+        value: refreshToken,
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        maxAge: 60 * 60 * 24 * 7, // 7 days
+        path: "/",
+      });
+
+      return response;
     }
 
     return NextResponse.json({

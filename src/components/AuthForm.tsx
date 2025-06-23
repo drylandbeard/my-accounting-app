@@ -98,7 +98,6 @@ export default function AuthForm() {
             companies: result.companies,
             currentCompany: result.currentCompany,
             accessToken: result.accessToken,
-            refreshToken: result.refreshToken,
           });
           
           // Redirect to homepage

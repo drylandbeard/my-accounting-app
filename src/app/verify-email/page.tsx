@@ -77,7 +77,6 @@ function VerifyEmailContent() {
             companies: data.companies || [],
             currentCompany: data.currentCompany || null,
             accessToken: data.accessToken,
-            refreshToken: data.refreshToken,
           });
           
           // Show success message briefly, then redirect
