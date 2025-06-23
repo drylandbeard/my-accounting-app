@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
       user: {
         client_user_id: userId,
       },
-      client_name: 'My Accounting App',
+      client_name: 'switch',
       products: [Products.Transactions],
       country_codes: [CountryCode.Us],
       language: 'en',
