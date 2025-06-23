@@ -6,7 +6,7 @@ import { useState, useEffect, useRef } from "react";
 import { useAuthStore } from "@/zustand/authStore";
 import { useApiWithCompany } from "@/hooks/useApiWithCompany";
 
-import { X, Settings, User, LogOut, Sparkles } from "lucide-react";
+import { X, Settings, User, LogOut, PanelRight } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 interface CompanyModalProps {
@@ -278,7 +278,7 @@ export default function NavBar({ showAccountAction, showAccountSection, isGatewa
                   className="flex items-center space-x-1 text-gray-700 hover:text-black px-2 py-1 rounded"
                   title="Toggle AI Assistant"
                 >
-                  <Sparkles className="w-4 h-4" />
+                  <PanelRight className="w-4 h-4" />
                 </button>
               )}
 
