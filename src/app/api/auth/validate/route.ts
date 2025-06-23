@@ -27,6 +27,28 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Fetch user's companies
+    const { data: companies, error: companiesError } = await supabase
+      .from("user_companies")
+      .select(`
+        company_id,
+        role,
+        companies:company_id (
+          id,
+          name,
+          description
+        )
+      `)
+      .eq("user_id", userId);
+
+    if (companiesError) {
+      console.error("Error fetching user companies:", companiesError);
+      return NextResponse.json(
+        { error: "Failed to fetch user companies" },
+        { status: 500 }
+      );
+    }
+
     return NextResponse.json({
       valid: true,
       user: {
@@ -34,6 +56,8 @@ export async function GET(request: NextRequest) {
         email: user.email,
         role: user.role,
       },
+      companies: companies || [],
+      currentCompany: companies && companies.length > 0 ? companies[0].companies : null,
     });
   } catch {
     return NextResponse.json(

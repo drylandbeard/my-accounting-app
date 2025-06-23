@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
 
 // Types based on your database schema
 export interface User {
@@ -59,103 +58,72 @@ export const useTokenStore = create<TokenState>((set) => ({
   clearTokens: () => set({ accessToken: null }),
 }));
 
-// Secure storage configuration - only use sessionStorage for security
-const secureStorage = createJSONStorage(() => ({
-  getItem: (name: string) => {
-    // Only use sessionStorage for better security
-    return sessionStorage.getItem(name);
-  },
-  setItem: (name: string, value: string) => {
-    // Only store in sessionStorage
-    sessionStorage.setItem(name, value);
-  },
-  removeItem: (name: string) => {
-    sessionStorage.removeItem(name);
-  },
-}));
+// Main auth store - no persistence, everything in memory
+export const useAuthStore = create<AuthState>((set, get) => ({
+  user: null,
+  companies: [],
+  currentCompany: null,
+  isAuthenticated: false,
+  isLoading: false,
 
-// Main auth store - persists user data but not tokens
-export const useAuthStore = create<AuthState>()(
-  persist(
-    (set, get) => ({
+  setAuth: (auth) => {
+    // Store user data in memory only
+    set({ 
+      user: auth.user,
+      companies: auth.companies,
+      currentCompany: auth.currentCompany,
+      isAuthenticated: true 
+    });
+    
+    // Store access token in separate non-persisted store
+    useTokenStore.getState().setAccessToken(auth.accessToken);
+  },
+
+  setCurrentCompany: (company) => set({ currentCompany: company }),
+
+  clearAuth: () => {
+    set({ 
       user: null,
       companies: [],
       currentCompany: null,
-      isAuthenticated: false,
-      isLoading: false,
+      isAuthenticated: false 
+    });
+    useTokenStore.getState().clearTokens();
+  },
 
-      setAuth: (auth) => {
-        // Store user data in persisted store
-        set({ 
-          user: auth.user,
-          companies: auth.companies,
-          currentCompany: auth.currentCompany,
-          isAuthenticated: true 
-        });
-        
-        // Store access token in separate non-persisted store
-        useTokenStore.getState().setAccessToken(auth.accessToken);
-      },
+  logout: () => {
+    const { clearAuth } = get();
+    clearAuth();
+    // Clear refresh token cookie by calling logout endpoint
+    fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+    // Redirect to login page
+    window.location.href = '/';
+  },
 
-      setCurrentCompany: (company) => set({ currentCompany: company }),
+  refreshTokens: async () => {
+    try {
+      // No need to send refresh token - it's in cookies
+      const response = await fetch('/api/auth/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include', // Important: include cookies
+      });
 
-      clearAuth: () => {
-        set({ 
-          user: null,
-          companies: [],
-          currentCompany: null,
-          isAuthenticated: false 
-        });
-        useTokenStore.getState().clearTokens();
-      },
-
-      logout: () => {
-        const { clearAuth } = get();
-        clearAuth();
-        // Clear refresh token cookie by calling logout endpoint
-        fetch('/api/auth/logout', { method: 'POST' });
-        // Redirect to login page
-        window.location.href = '/';
-      },
-
-      refreshTokens: async () => {
-        try {
-          // No need to send refresh token - it's in cookies
-          const response = await fetch('/api/auth/refresh', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include', // Important: include cookies
-          });
-
-          if (response.ok) {
-            const { accessToken } = await response.json();
-            useTokenStore.getState().setAccessToken(accessToken);
-            return true;
-          }
-          
-          // If refresh fails, clear auth
-          get().clearAuth();
-          return false;
-        } catch {
-          get().clearAuth();
-          return false;
-        }
-      },
-    }),
-    {
-      name: 'auth-storage',
-      storage: secureStorage,
-      partialize: (state) => ({
-        // Only persist non-sensitive data
-        user: state.user,
-        companies: state.companies,
-        currentCompany: state.currentCompany,
-        isAuthenticated: state.isAuthenticated,
-        // Tokens are NOT persisted for security
-      }),
+      if (response.ok) {
+        const { accessToken } = await response.json();
+        useTokenStore.getState().setAccessToken(accessToken);
+        return true;
+      }
+      
+      // If refresh fails, clear auth
+      get().clearAuth();
+      return false;
+    } catch {
+      get().clearAuth();
+      return false;
     }
-  )
-);
+  },
+}));
 
 // HTTP client with automatic token handling
 export const createAuthenticatedFetch = () => {
@@ -201,33 +169,39 @@ export const createAuthenticatedFetch = () => {
   };
 };
 
-// Initialize auth state from tokens on app start
+// Initialize auth state on app start
 export const initializeAuth = async () => {
-  const { isAuthenticated } = useAuthStore.getState();
+  const { setAuth, refreshTokens } = useAuthStore.getState();
   const { accessToken } = useTokenStore.getState();
   
-  // If we have stored auth state but no access token in memory, try to refresh
-  if (isAuthenticated && !accessToken) {
-    await useAuthStore.getState().refreshTokens();
-  }
-  
-  // If we have an access token, validate it
-  if (accessToken) {
-    try {
-      const response = await fetch('/api/auth/validate', {
-        headers: { 'Authorization': `Bearer ${accessToken}` },
-        credentials: 'include',
-      });
-      
-      if (!response.ok) {
-        // Token invalid, try refresh
-        const refreshed = await useAuthStore.getState().refreshTokens();
-        if (!refreshed) {
-          useAuthStore.getState().clearAuth();
+  // If we have a refresh token cookie but no access token, try to refresh
+  if (!accessToken) {
+    const refreshed = await refreshTokens();
+    
+    if (refreshed) {
+      // After refresh, validate the session to get user data and companies
+      try {
+        const response = await fetch('/api/auth/validate', {
+          headers: { 
+            'Authorization': `Bearer ${useTokenStore.getState().accessToken}` 
+          },
+          credentials: 'include',
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data.user) {
+            setAuth({
+              user: data.user,
+              companies: data.companies || [],
+              currentCompany: data.currentCompany || null,
+              accessToken: useTokenStore.getState().accessToken!,
+            });
+          }
         }
+      } catch {
+        // Silent fail - user will need to login
       }
-    } catch {
-      useAuthStore.getState().clearAuth();
     }
   }
 }; 
