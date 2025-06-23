@@ -470,8 +470,8 @@ export default function TransactionsPage() {
       <div className="font-semibold mb-1">{acc.name}</div>
       <div className="space-y-1">
         <div><span className="text-gray-300">Institution:</span> {acc.institution_name || 'Manual Account'}</div>
-        <div><span className="text-gray-300">Last Synced:</span> {formatLastSyncTime(acc.last_synced)}</div>
-        <div><span className="text-gray-300">Created:</span> {formatCreatedAt(acc.created_at)}</div>
+        <div><span className="text-gray-300">Last Updated:</span> {formatLastSyncTime(acc.last_synced)}</div>
+        <div><span className="text-gray-300">Linked On:</span> {formatCreatedAt(acc.created_at)}</div>
       </div>
     </div>
   );
@@ -2532,7 +2532,7 @@ export default function TransactionsPage() {
             {isSyncing ? (
               <div className="flex items-center space-x-1">
                 <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-gray-400" />
-                <span>Syncing...</span>
+                <span>Updating...</span>
               </div>
             ) : (
               <span>Update</span>
