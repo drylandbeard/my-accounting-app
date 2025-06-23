@@ -219,7 +219,7 @@ function VerifyEmailContent() {
                 disabled={isVerifying || code.length !== 6}
                 className="w-full"
               >
-                {isVerifying ? "Verifying..." : "Verify Email"}
+                {isVerifying ? "Verifying..." : "Verify"}
               </Button>
 
               {/* Resend Code */}
@@ -230,7 +230,7 @@ function VerifyEmailContent() {
                   disabled={isResending}
                   className="text-blue-600 hover:text-blue-800 underline disabled:opacity-50"
                 >
-                  {isResending ? "Sending..." : "Resend code"}
+                  {isResending ? "Sending..." : "Resend"}
                 </button>
               </div>
 
@@ -240,7 +240,7 @@ function VerifyEmailContent() {
                   onClick={handleGoToSignIn}
                   className="text-gray-600 hover:text-gray-800 underline"
                 >
-                  Back to sign in
+                  Back
                 </button>
               </div>
             </div>
