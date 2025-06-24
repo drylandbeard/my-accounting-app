@@ -57,6 +57,8 @@ export default function JournalTablePage() {
   const [error, setError] = useState<string | null>(null);
   const [sortConfig, setSortConfig] = useState<SortConfig>({ key: null, direction: 'asc' });
   const [searchTerm, setSearchTerm] = useState<string>('');
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -68,10 +70,10 @@ export default function JournalTablePage() {
     fetchPayees();
   }, [currentCompany?.id]);
 
-  // Reset to first page when search term changes
+  // Reset to first page when search term or date filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm]);
+  }, [searchTerm, startDate, endDate]);
 
   const fetchJournalEntries = async () => {
     if (!hasCompanyContext) return;
@@ -204,7 +206,6 @@ export default function JournalTablePage() {
 
   // Define specific column order for the journal table
   const orderedColumns = [
-    { key: 'id', label: formatColumnLabel('id'), sortable: false },
     { key: 'date', label: 'Date', sortable: true },
     { key: 'description', label: 'Description', sortable: true },
     { key: 'payee', label: 'Payee', isCustom: true, sortable: true },
@@ -218,7 +219,14 @@ export default function JournalTablePage() {
       Object.keys(entry).forEach((k) => cols.add(k));
       return cols;
     }, new Set<string>())
-  ).filter((col): col is string => col !== 'chart_account_id' && col !== 'payee_id' && col !== 'transactions');
+  ).filter((col): col is string => 
+    col !== 'id' && 
+    col !== 'transaction_id' && 
+    col !== 'company_id' && 
+    col !== 'chart_account_id' && 
+    col !== 'payee_id' && 
+    col !== 'transactions'
+  );
 
   // Combine ordered columns with any additional columns not in our predefined list, then add category at the end
   const finalColumns = [
@@ -226,15 +234,32 @@ export default function JournalTablePage() {
     ...availableColumns
       .filter(col => !orderedColumns.some(ordCol => ordCol.key === col))
       .map(col => ({ key: col, label: formatColumnLabel(col), sortable: false })),
-    { key: 'category', label: 'Category Name', isCustom: true, sortable: true }
+    { key: 'category', label: 'Category', isCustom: true, sortable: true }
   ];
 
-  const filterEntries = (entries: JournalEntry[], searchTerm: string) => {
-    if (!searchTerm.trim()) return entries;
+  const filterEntries = (entries: JournalEntry[], searchTerm: string, startDate: string, endDate: string) => {
+    let filteredEntries = entries;
+
+    // Filter by date range
+    if (startDate || endDate) {
+      filteredEntries = filteredEntries.filter(entry => {
+        const entryDate = new Date(entry.date);
+        const start = startDate ? new Date(startDate) : null;
+        const end = endDate ? new Date(endDate) : null;
+        
+        if (start && entryDate < start) return false;
+        if (end && entryDate > end) return false;
+        
+        return true;
+      });
+    }
+
+    // Filter by search term
+    if (!searchTerm.trim()) return filteredEntries;
     
     const lowercaseSearch = searchTerm.toLowerCase();
     
-    return entries.filter(entry => {
+    return filteredEntries.filter(entry => {
       // Search in date (formatted)
       const formattedDate = formatDate(entry.date);
       if (formattedDate.toLowerCase().includes(lowercaseSearch)) return true;
@@ -358,8 +383,8 @@ export default function JournalTablePage() {
     );
   };
 
-  // Filter entries based on search term, then sort
-  const filteredEntries = filterEntries(entries, searchTerm);
+  // Filter entries based on search term and date range, then sort
+  const filteredEntries = filterEntries(entries, searchTerm, startDate, endDate);
   const sortedAndFilteredEntries = sortEntries(filteredEntries, sortConfig);
   
   // Get paginated data
@@ -390,13 +415,31 @@ export default function JournalTablePage() {
         <div>No journal entries found.</div>
       ) : (
         <div className="space-y-4">
-          <input
-            type="text"
-            placeholder="Search journal entries..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="border px-2 py-1 w-full text-xs mb-2"
-          />
+          <div className="flex gap-2 items-center mb-2">
+            <input
+              type="text"
+              placeholder="Search journal entries..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="border px-2 py-1 flex-1 text-xs"
+            />
+            <div className="flex gap-2 items-center">
+              <label className="text-xs whitespace-nowrap">Start Date:</label>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="border px-2 py-1 text-xs"
+              />
+              <label className="text-xs whitespace-nowrap">End Date:</label>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="border px-2 py-1 text-xs"
+              />
+            </div>
+          </div>
 
           <div className="overflow-auto max-h-[calc(100vh-170px)] border border-gray-300 rounded">
             <table className="w-full border-collapse">

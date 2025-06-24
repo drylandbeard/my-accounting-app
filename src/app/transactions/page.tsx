@@ -3062,29 +3062,29 @@ export default function TransactionsPage() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Payee
                 </label>
-                <Select
-                  options={payeeOptions}
-                  value={payeeOptions.find(opt => opt.value === editModal.transaction?.payee_id) || payeeOptions[0]}
-                  onChange={(selectedOption) => {
-                    const option = selectedOption as SelectOption | null;
-                    if (option?.value === 'add_new') {
-                      setNewPayeeModal({ 
-                        isOpen: true, 
-                        name: '', 
-                        transactionId: editModal.transaction?.id || null
-                      });
-                    } else if (editModal.transaction) {
-                      setEditModal(prev => ({
-                        ...prev,
-                        transaction: prev.transaction ? {
-                          ...prev.transaction,
-                          payee_id: option?.value || undefined
-                        } : null
-                      }));
-                    }
-                  }}
-                  isSearchable
-                />
+                                  <Select
+                    options={payeeOptions}
+                    value={payeeOptions.find(opt => opt.value === editModal.transaction?.payee_id) || payeeOptions[0]}
+                    onChange={(selectedOption) => {
+                      const option = selectedOption as SelectOption | null;
+                      if (option?.value === 'add_new') {
+                        setNewPayeeModal({ 
+                          isOpen: true, 
+                          name: '', 
+                          transactionId: editModal.transaction?.id || null
+                        });
+                      } else if (editModal.transaction) {
+                        setEditModal(prev => ({
+                          ...prev,
+                          transaction: prev.transaction ? {
+                            ...prev.transaction,
+                            payee_id: option?.value === '' ? undefined : option?.value
+                          } : null
+                        }));
+                      }
+                    }}
+                    isSearchable
+                  />
               </div>
 
               <div>
