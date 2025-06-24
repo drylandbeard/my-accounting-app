@@ -3,7 +3,9 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/zustand/authStore";
-import { useAIStore } from "@/zustand/aiStore";
+import { useCategoriesStore } from "@/zustand/categoriesStore";
+import { usePayeesStore } from "@/zustand/payeesStore";
+
 import Papa from "papaparse";
 import { v4 as uuidv4 } from "uuid";
 import { X } from "lucide-react";
@@ -32,6 +34,8 @@ type Payee = {
   id: string;
   name: string;
   company_id: string;
+  isValid?: boolean;
+  validationMessage?: string;
 };
 
 type CategoryImportModalState = {
@@ -102,23 +106,41 @@ type MergeModalState = {
 export default function ChartOfAccountsPage() {
   const { currentCompany } = useAuthStore();
   const hasCompanyContext = !!(currentCompany);
+  
+  // Use separate stores for categories and payees
   const { 
-    categories: accounts, 
-    refreshCategories: refreshCategoriesFromStore,
-    highlightCategory,
+    categories: accounts,
+    isLoading: loading,
+    error: categoriesError,
     highlightedCategoryIds,
-    lastActionId 
-  } = useAIStore();
+    lastActionCategoryId,
+    refreshCategories: refreshCategoriesFromStore,
+    addCategory,
+    updateCategory,
+    deleteCategory,
+    highlightCategory
+  } = useCategoriesStore();
+
+  const {
+    payees,
+    error: payeesError,
+    highlightedPayeeIds,
+    lastActionPayeeId,
+    refreshPayees: refreshPayeesFromStore,
+    addPayee,
+    updatePayee,
+    deletePayee
+  } = usePayeesStore();
   
-  // Create wrapper for refreshCategories that includes company ID
+  // Create wrapper functions for refresh
   const refreshCategories = useCallback(async () => {
-    if (currentCompany?.id) {
-      await refreshCategoriesFromStore(currentCompany.id);
-    }
-  }, [currentCompany?.id, refreshCategoriesFromStore]);
+    await refreshCategoriesFromStore();
+  }, [refreshCategoriesFromStore]);
   
-  const [payees, setPayees] = useState<Payee[]>([]);
-  const [loading, setLoading] = useState(true);
+  const refreshPayees = useCallback(async () => {
+    await refreshPayeesFromStore();
+  }, [refreshPayeesFromStore]);
+  
   const [search, setSearch] = useState("");
   const [payeeSearch, setPayeeSearch] = useState("");
   const categoriesTableRef = useRef<HTMLDivElement>(null);
@@ -131,6 +153,10 @@ export default function ChartOfAccountsPage() {
 
   // Add new payee state
   const [newPayeeName, setNewPayeeName] = useState("");
+
+  // Error states for form validation
+  const [categoryError, setCategoryError] = useState<string | null>(null);
+  const [payeeError, setPayeeError] = useState<string | null>(null);
 
   // Edit state
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -310,11 +336,30 @@ export default function ChartOfAccountsPage() {
     }, 100);
   }, [highlightCategory]);
 
+  // Similar highlight function for payees
+  const highlightPayeeWithScroll = useCallback((payeeId: string) => {
+    // Get the highlightPayee function from the payees store
+    const { highlightPayee } = usePayeesStore.getState();
+    highlightPayee(payeeId);
+    
+    setTimeout(() => {
+      const element = document.getElementById(`payee-${payeeId}`);
+      if (element) {
+        element.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        });
+      }
+    }, 100);
+  }, []);
+
+  // Initialize data when component mounts
   useEffect(() => {
-    if (accounts) {
-      setLoading(false);
+    if (currentCompany?.id) {
+      refreshCategories();
+      refreshPayees();
     }
-  }, [accounts]);
+  }, [currentCompany?.id, refreshCategories, refreshPayees]);
 
   // Options for Select components
   const typeOptions: SelectOption[] = ACCOUNT_TYPES.map(type => ({
@@ -354,16 +399,16 @@ export default function ChartOfAccountsPage() {
 
   useEffect(() => {
     fetchParentOptions();
-    fetchPayees();
   }, [currentCompany?.id, hasCompanyContext, fetchParentOptions]);
 
-  // AI Integration - Set up real-time subscription
+  // Real-time subscriptions for both categories and payees
   useEffect(() => {
     if (!hasCompanyContext || !currentCompany?.id) return;
 
-    console.log("Setting up real-time subscription for company:", currentCompany.id);
+    console.log("Setting up real-time subscriptions for company:", currentCompany.id);
 
-    const channel = supabase
+    // Categories subscription
+    const categoriesChannel = supabase
       .channel(`chart_of_accounts_${currentCompany.id}`)
       .on(
         "postgres_changes",
@@ -374,7 +419,7 @@ export default function ChartOfAccountsPage() {
           filter: `company_id=eq.${currentCompany.id}`,
         },
         (payload) => {
-          console.log("Real-time change detected:", payload);
+          console.log("Categories real-time change detected:", payload);
           refreshCategories();
 
           let recordId: string | null = null;
@@ -389,15 +434,41 @@ export default function ChartOfAccountsPage() {
           fetchParentOptions();
         }
       )
-      .subscribe((status) => {
-        console.log("Subscription status:", status);
-      });
+      .subscribe();
+
+    // Payees subscription
+    const payeesChannel = supabase
+      .channel(`payees_${currentCompany.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "payees",
+          filter: `company_id=eq.${currentCompany.id}`,
+        },
+        (payload) => {
+          console.log("Payees real-time change detected:", payload);
+          refreshPayees();
+
+          let recordId: string | null = null;
+          if (payload.eventType === "INSERT" || payload.eventType === "UPDATE") {
+            recordId = payload.new.id;
+          }
+
+          if (recordId) {
+            highlightPayeeWithScroll(recordId);
+          }
+        }
+      )
+      .subscribe();
 
     return () => {
-      console.log("Cleaning up real-time subscription");
-      supabase.removeChannel(channel);
+      console.log("Cleaning up real-time subscriptions");
+      supabase.removeChannel(categoriesChannel);
+      supabase.removeChannel(payeesChannel);
     };
-  }, [currentCompany?.id, hasCompanyContext, highlightCategoryWithScroll, fetchParentOptions, refreshCategories]);
+  }, [currentCompany?.id, hasCompanyContext, highlightCategoryWithScroll, highlightPayeeWithScroll, fetchParentOptions, refreshCategories, refreshPayees]);
 
   // Sorting functions
   const sortCategories = (categories: Category[], sortConfig: SortConfig) => {
@@ -411,8 +482,8 @@ export default function ChartOfAccountsPage() {
         return sortConfig.direction === "asc" ? a.type.localeCompare(b.type) : b.type.localeCompare(a.type);
       }
       if (sortConfig.key === "parent") {
-        const aParent = a.parent_id ? accounts.find((acc) => acc.id === a.parent_id)?.name || "" : "";
-        const bParent = b.parent_id ? accounts.find((acc) => acc.id === b.parent_id)?.name || "" : "";
+        const aParent = a.parent_id ? accounts.find((acc: Category) => acc.id === a.parent_id)?.name || "" : "";
+        const bParent = b.parent_id ? accounts.find((acc: Category) => acc.id === b.parent_id)?.name || "" : "";
         return sortConfig.direction === "asc" ? aParent.localeCompare(bParent) : bParent.localeCompare(aParent);
       }
       return 0;
@@ -444,19 +515,10 @@ export default function ChartOfAccountsPage() {
     }));
   };
 
-  const fetchPayees = async () => {
-    if (!hasCompanyContext) return;
-
-    const { data, error } = await supabase
-      .from("payees")
-      .select("*")
-      .eq("company_id", currentCompany!.id)
-      .order("name");
-    if (!error && data) setPayees(data);
-  };
+  // Payees are now managed by Zustand store - no need for separate fetch function
 
   const filteredAccounts = sortCategories(
-    accounts.filter((account) => {
+    accounts.filter((account: Category) => {
       const searchLower = search.toLowerCase();
       const matchesName = account.name.toLowerCase().includes(searchLower);
       const matchesType = account.type.toLowerCase().includes(searchLower);
@@ -503,35 +565,62 @@ export default function ChartOfAccountsPage() {
   const handleAddAccount = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName || !newType || !hasCompanyContext) return;
-    const { error } = await supabase.from("chart_of_accounts").insert([
-      {
+    
+    // Clear previous error
+    setCategoryError(null);
+    
+    try {
+      const categoryData = {
         name: newName,
         type: newType,
         parent_id: parentId || null,
         company_id: currentCompany!.id,
-      },
-    ]);
-    if (!error) {
-      setNewName("");
-      setNewType("");
-      setParentId(null);
-      // Categories will be refreshed automatically via real-time subscription
-      fetchParentOptions();
+      };
+      
+      // Use the Zustand store method which handles optimistic updates
+      const result = await addCategory(categoryData);
+      
+      if (result) {
+        // Clear form on success
+        setNewName("");
+        setNewType("");
+        setParentId(null);
+        setCategoryError(null);
+        
+        // Only refresh parent options (needed for dropdown)
+        await fetchParentOptions();
+        
+        // Highlighting is already handled by the store
+      } else {
+        // Error is already set by the store
+        setCategoryError(categoriesError || "Failed to create category");
+      }
+    } catch (error) {
+      console.error("Error creating category:", error);
+      setCategoryError("Network error. Please try again.");
     }
   };
 
   const handleAddPayee = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPayeeName || !hasCompanyContext) return;
-    const { error } = await supabase.from("payees").insert([
-      {
-        name: newPayeeName,
-        company_id: currentCompany!.id,
-      },
-    ]);
-    if (!error) {
+    
+    // Clear previous error
+    setPayeeError(null);
+    
+    const payeeData = {
+      name: newPayeeName,
+      company_id: currentCompany!.id,
+    };
+    
+    const result = await addPayee(payeeData);
+    
+    if (result) {
       setNewPayeeName("");
-      fetchPayees();
+      setPayeeError(null);
+    } else {
+      // Error is handled by the store
+      setPayeeError(payeesError);
     }
   };
 
@@ -556,40 +645,6 @@ export default function ChartOfAccountsPage() {
       return;
     }
 
-    // Check if this category has subcategories
-    const { data: subcategories } = await supabase
-      .from("chart_of_accounts")
-      .select("id, name")
-      .eq("parent_id", id);
-
-    if (subcategories && subcategories.length > 0) {
-      // This category has subcategories - prevent deletion
-      alert(
-        `This category cannot be deleted because it has ${subcategories.length} subcategor${subcategories.length === 1 ? 'y' : 'ies'}. Please delete or reassign the subcategories first.`
-      );
-      return;
-    }
-
-    // Check if this category is used in transactions
-    const { data: transactions, error: txError } = await supabase
-      .from("transactions")
-      .select("id")
-      .or(`selected_category_id.eq.${id},corresponding_category_id.eq.${id}`)
-      .limit(1);
-
-    if (txError) {
-      console.error("Error checking transactions:", txError);
-      alert("Error checking if category is in use. Please try again.");
-      return;
-    }
-
-    if (transactions && transactions.length > 0) {
-      alert(
-        "This category cannot be deleted because it is used in existing transactions. Please reassign or delete the transactions first."
-      );
-      return;
-    }
-
     // Show confirmation dialog before deleting
     const categoryToDelete = accounts.find(acc => acc.id === id);
     const categoryName = categoryToDelete?.name || "this category";
@@ -598,38 +653,16 @@ export default function ChartOfAccountsPage() {
       return;
     }
 
-    const { error } = await supabase.from("chart_of_accounts").delete().eq("id", id);
-    if (error) {
-      console.error("Error deleting category:", error);
-      alert("Failed to delete category. Please try again.");
-    } else {
+    const success = await deleteCategory(id);
+    if (success) {
       setEditingId(null);
-      // Categories will be refreshed automatically via real-time subscription
       fetchParentOptions();
+    } else {
+      alert(categoriesError || "Failed to delete category. Please try again.");
     }
   };
 
   const handleDeletePayee = async (id: string) => {
-    // Check if payee is used in transactions
-    const { data: transactions, error: txError } = await supabase
-      .from("transactions")
-      .select("id")
-      .eq("payee_id", id)
-      .limit(1);
-
-    if (txError) {
-      console.error("Error checking transactions:", txError);
-      alert("Error checking if payee is in use. Please try again.");
-      return;
-    }
-
-    if (transactions && transactions.length > 0) {
-      alert(
-        "This payee cannot be deleted because it is used in existing transactions. Please reassign or delete the transactions first."
-      );
-      return;
-    }
-
     // Show confirmation dialog before deleting
     const payeeToDelete = payees.find(payee => payee.id === id);
     const payeeName = payeeToDelete?.name || "this payee";
@@ -638,13 +671,11 @@ export default function ChartOfAccountsPage() {
       return;
     }
 
-    const { error } = await supabase.from("payees").delete().eq("id", id);
-    if (error) {
-      console.error("Error deleting payee:", error);
-      alert("Failed to delete payee. Please try again.");
-    } else {
+    const success = await deletePayee(id);
+    if (success) {
       setEditingPayeeId(null);
-      fetchPayees();
+    } else {
+      alert(payeesError || "Failed to delete payee. Please try again.");
     }
   };
 
@@ -681,10 +712,8 @@ export default function ChartOfAccountsPage() {
       let parent_id = editParentIdRef.current;
       const type = editTypeRef.current;
 
-
       // Convert empty string to null (for "No Parent" selection)
       if (parent_id === "" || parent_id === undefined || parent_id === "null") {
-        console.log("Converting empty/undefined parent_id to null");
         parent_id = null;
       }
 
@@ -696,8 +725,6 @@ export default function ChartOfAccountsPage() {
         }
       }
 
-
-
       return {
         name,
         type,
@@ -708,8 +735,26 @@ export default function ChartOfAccountsPage() {
     const currentValues = getCurrentValues();
     const editingIdToUpdate = editingId;
 
-    // Immediately exit editing mode and refresh to show updated values optimistically
+    // Get the original category to compare values
+    const originalCategory = accounts.find(acc => acc.id === editingIdToUpdate);
+    if (!originalCategory) {
+      setEditingId(null);
+      return;
+    }
+
+    // Check if any values have actually changed
+    const hasChanges = 
+      originalCategory.name !== currentValues.name ||
+      originalCategory.type !== currentValues.type ||
+      (originalCategory.parent_id || null) !== currentValues.parent_id;
+
+    // Immediately exit editing mode
     setEditingId(null);
+
+    // If no changes were made, just return without highlighting
+    if (!hasChanges) {
+      return;
+    }
 
     try {
       // First get the current chart_of_accounts record to check if it has a plaid_account_id
@@ -722,30 +767,20 @@ export default function ChartOfAccountsPage() {
       if (fetchError) {
         console.error("Error fetching current account:", fetchError);
         alert("Error fetching account data. Please try again.");
-        // Refresh to revert any optimistic changes
-        await refreshCategories();
         return;
       }
 
-      // Update chart_of_accounts
-      const { error } = await supabase
-        .from("chart_of_accounts")
-        .update({
-          name: currentValues.name,
-          type: currentValues.type,
-          parent_id: currentValues.parent_id === "" ? null : currentValues.parent_id,
-        })
-        .eq("id", editingIdToUpdate);
+      // Update using the store
+      const success = await updateCategory(editingIdToUpdate, {
+        name: currentValues.name,
+        type: currentValues.type,
+        parent_id: currentValues.parent_id === "" ? null : currentValues.parent_id,
+      });
 
-      if (error) {
-        console.error("Error updating chart of accounts:", error);
-        alert("Error saving changes. Please try again.");
-        // Refresh to revert any optimistic changes
-        await refreshCategories();
+      if (!success) {
+        alert(categoriesError || "Error saving changes. Please try again.");
         return;
       }
-
-      console.log("Successfully updated chart of accounts");
 
       // If this chart of accounts entry is linked to a plaid account, also update the accounts table
       if (currentAccount?.plaid_account_id) {
@@ -764,15 +799,10 @@ export default function ChartOfAccountsPage() {
         }
       }
 
-      // Refresh categories to ensure consistency with database
-      await refreshCategories();
       await fetchParentOptions();
-      console.log("Update completed successfully");
     } catch (error) {
       console.error("Unexpected error during update:", error);
       alert("An unexpected error occurred. Please try again.");
-      // Refresh to revert any optimistic changes
-      await refreshCategories();
     }
   };
 
@@ -833,19 +863,81 @@ export default function ChartOfAccountsPage() {
     };
   }, [editingId]);
 
+  // Handle clicks outside payee input to save changes
+  useEffect(() => {
+    const handlePayeeClickToSave = (event: MouseEvent) => {
+      if (!editingPayeeId) return;
+
+      const target = event.target as Element;
+
+      // Check if the click is on the current editing payee input
+      const editingInput = document.querySelector('tr input[type="text"]:focus') as HTMLInputElement;
+      
+      // If clicking on the current editing input, don't save
+      if (editingInput && (editingInput.contains(target) || editingInput === target)) {
+        return;
+      }
+
+      // Otherwise, save the changes
+      handleUpdatePayee();
+    };
+
+    document.addEventListener("mousedown", handlePayeeClickToSave);
+    return () => {
+      document.removeEventListener("mousedown", handlePayeeClickToSave);
+    };
+  }, [editingPayeeId]);
+
   const handleUpdatePayee = async () => {
     if (!editingPayeeId) return;
 
-    const { error } = await supabase
-      .from("payees")
-      .update({
-        name: editPayeeName,
-      })
-      .eq("id", editingPayeeId);
+    // Get the current value from the input field
+    const getCurrentValue = () => {
+      // Get the name from the DOM input field as it might have been changed
+      const editingRow = document.querySelector(`tr:has(input[type="text"]:focus)`);
+      if (editingRow) {
+        const nameInput = editingRow.querySelector('input[type="text"]') as HTMLInputElement;
+        if (nameInput) {
+          return nameInput.value.trim();
+        }
+      }
+      return editPayeeName.trim();
+    };
 
-    if (!error) {
+    const currentValue = getCurrentValue();
+    const editingPayeeIdToUpdate = editingPayeeId;
+
+    // Get the original payee to compare values
+    const originalPayee = payees.find(payee => payee.id === editingPayeeIdToUpdate);
+    if (!originalPayee) {
       setEditingPayeeId(null);
-      fetchPayees();
+      return;
+    }
+
+    // Check if the name has actually changed
+    const hasChanges = originalPayee.name !== currentValue;
+
+    // Immediately exit editing mode
+    setEditingPayeeId(null);
+
+    // If no changes were made, just return without highlighting
+    if (!hasChanges) {
+      return;
+    }
+
+    try {
+      // Update using the store
+      const success = await updatePayee(editingPayeeIdToUpdate, {
+        name: currentValue,
+      });
+
+      if (!success) {
+        alert(payeesError || "Error saving changes. Please try again.");
+        return;
+      }
+    } catch (error) {
+      console.error("Unexpected error during payee update:", error);
+      alert("An unexpected error occurred. Please try again.");
     }
   };
 
@@ -1325,11 +1417,31 @@ export default function ChartOfAccountsPage() {
 
         const payeeData = results.data
           .filter((row: PayeeCSVRow) => row.Name)
-          .map((row: PayeeCSVRow) => ({
-            id: uuidv4(),
-            name: row.Name.trim(),
-            company_id: currentCompany?.id || "",
-          }));
+          .map((row: PayeeCSVRow) => {
+            const name = row.Name.trim();
+            
+            // Check if payee already exists in database (case-insensitive)
+            const existsInDb = payees.some(
+              (payee) => payee.name.toLowerCase() === name.toLowerCase()
+            );
+            
+            // Check for duplicates within CSV data
+            const duplicatesInCsv = results.data.filter(
+              (csvRow: PayeeCSVRow) => csvRow.Name && csvRow.Name.trim().toLowerCase() === name.toLowerCase()
+            );
+            
+            return {
+              id: uuidv4(),
+              name,
+              company_id: currentCompany?.id || "",
+              isValid: !existsInDb && duplicatesInCsv.length === 1,
+              validationMessage: existsInDb 
+                ? `Payee "${name}" already exists in database`
+                : duplicatesInCsv.length > 1 
+                ? `Duplicate payee "${name}" found in CSV`
+                : "",
+            };
+          });
 
         setPayeeImportModal((prev) => ({
           ...prev,
@@ -1402,19 +1514,21 @@ export default function ChartOfAccountsPage() {
             }`}
           >
             <td style={{ paddingLeft: `${level * 16 + 4}px` }} className="border p-1 text-xs">
-              {editingId === parent.id ? (
-                <input
-                  type="text"
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  className="w-full border-none outline-none bg-transparent text-xs"
-                  onKeyDown={(e) => e.key === "Enter" && handleUpdate()}
-                  autoFocus
-                />
-              ) : (
-                <span className={highlightedCategoryIds.has(parent.id) ? "font-bold text-green-800" : ""}>{parent.name}</span>
-              )}
-              {lastActionId === parent.id && <span className="ml-2 inline-block text-green-600">✨</span>}
+              <div className="flex items-center">
+                {editingId === parent.id ? (
+                  <input
+                    type="text"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    className="flex-1 border-none outline-none bg-transparent text-xs"
+                    onKeyDown={(e) => e.key === "Enter" && handleUpdate()}
+                    autoFocus
+                  />
+                ) : (
+                  <span className={highlightedCategoryIds.has(parent.id) ? "font-bold text-green-800" : ""}>{parent.name}</span>
+                )}
+                {lastActionCategoryId === parent.id && <span className="ml-2 inline-block text-green-600 flex-shrink-0">✨</span>}
+              </div>
             </td>
             <td className="border p-1 text-xs">
               {editingId === parent.id ? (
@@ -1509,19 +1623,21 @@ export default function ChartOfAccountsPage() {
                 }}
                 className="border p-1 text-xs"
               >
-                {editingId === subAcc.id ? (
-                  <input
-                    type="text"
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    className="w-full border-none outline-none bg-transparent text-xs"
-                    onKeyDown={(e) => e.key === "Enter" && handleUpdate()}
-                    autoFocus
-                  />
-                ) : (
-                  <span className={highlightedCategoryIds.has(subAcc.id) ? "font-bold text-green-800" : ""}>{subAcc.name}</span>
-                )}
-                {lastActionId === subAcc.id && <span className="ml-2 inline-block text-green-600">✨</span>}
+                <div className="flex items-center">
+                  {editingId === subAcc.id ? (
+                    <input
+                      type="text"
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      className="flex-1 border-none outline-none bg-transparent text-xs"
+                      onKeyDown={(e) => e.key === "Enter" && handleUpdate()}
+                      autoFocus
+                    />
+                  ) : (
+                    <span className={highlightedCategoryIds.has(subAcc.id) ? "font-bold text-green-800" : ""}>{subAcc.name}</span>
+                  )}
+                  {lastActionCategoryId === subAcc.id && <span className="ml-2 inline-block text-green-600 flex-shrink-0">✨</span>}
+                </div>
               </td>
               <td className="border p-1 text-xs">
                 {editingId === subAcc.id ? (
@@ -1657,7 +1773,10 @@ export default function ChartOfAccountsPage() {
                 type="text"
                 placeholder="Add Payee Name"
                 value={newPayeeName}
-                onChange={(e) => setNewPayeeName(e.target.value)}
+                onChange={(e) => {
+                  setNewPayeeName(e.target.value);
+                  setPayeeError(null); // Clear error when typing
+                }}
                 className="border border-gray-300 px-2 py-1 text-xs flex-1"
                 required
               />
@@ -1668,6 +1787,11 @@ export default function ChartOfAccountsPage() {
                 Add
               </button>
             </form>
+            {(payeeError || payeesError) && (
+              <div className="mt-2 p-2 bg-red-50 border border-red-200 text-red-700 text-xs rounded">
+                {payeeError || payeesError}
+              </div>
+            )}
           </div>
 
           {/* Payee Search Bar */}
@@ -1698,21 +1822,31 @@ export default function ChartOfAccountsPage() {
               <tbody>
                 {displayedPayees.length > 0 ? (
                   displayedPayees.map((payee) => (
-                    <tr key={payee.id}>
+                    <tr 
+                      key={payee.id}
+                      id={`payee-${payee.id}`}
+                      className={`transition-colors duration-1000 ${
+                        highlightedPayeeIds.has(payee.id) ? "bg-green-100" : "hover:bg-gray-50"
+                      }`}
+                    >
                       <td className="border p-1 text-xs">
-                        {editingPayeeId === payee.id ? (
-                          <input
-                            type="text"
-                            value={editPayeeName}
-                            onChange={(e) => setEditPayeeName(e.target.value)}
-                            className="w-full border-none outline-none bg-transparent text-xs"
-                            onBlur={handleUpdatePayee}
-                            onKeyDown={(e) => e.key === "Enter" && handleUpdatePayee()}
-                            autoFocus
-                          />
-                        ) : (
-                          payee.name
-                        )}
+                        <div className="flex items-center">
+                          {editingPayeeId === payee.id ? (
+                            <input
+                              type="text"
+                              value={editPayeeName}
+                              onChange={(e) => setEditPayeeName(e.target.value)}
+                              className="flex-1 border-none outline-none bg-transparent text-xs"
+                              onKeyDown={(e) => e.key === "Enter" && handleUpdatePayee()}
+                              autoFocus
+                            />
+                          ) : (
+                            <span className={highlightedPayeeIds.has(payee.id) ? "font-bold text-green-800" : ""}>
+                              {payee.name}
+                            </span>
+                          )}
+                          {lastActionPayeeId === payee.id && <span className="ml-2 inline-block text-green-600 flex-shrink-0">✨</span>}
+                        </div>
                       </td>
                       <td className="border p-1 text-xs">
                         <div className="flex gap-2 justify-center">
@@ -1804,9 +1938,12 @@ export default function ChartOfAccountsPage() {
             <form onSubmit={handleAddAccount} className="flex gap-2 items-center">
               <input
                 type="text"
-                placeholder="Category Name"
+                placeholder="Add Category Name"
                 value={newName}
-                onChange={(e) => setNewName(e.target.value)}
+                onChange={(e) => {
+                  setNewName(e.target.value);
+                  setCategoryError(null); // Clear error when typing
+                }}
                 className="border border-gray-300 px-2 py-1 text-xs flex-1"
                 required
               />
@@ -1844,6 +1981,11 @@ export default function ChartOfAccountsPage() {
                 Add
               </button>
             </form>
+            {(categoryError || categoriesError) && (
+              <div className="mt-2 p-2 bg-red-50 border border-red-200 text-red-700 text-xs rounded">
+                {categoryError || categoriesError}
+              </div>
+            )}
           </div>
 
           {/* Search Bar */}
@@ -2050,15 +2192,22 @@ export default function ChartOfAccountsPage() {
                               <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                 Name
                               </th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Status
+                              </th>
                             </tr>
                           </thead>
                           <tbody className="bg-white divide-y divide-gray-200">
                             {payeeImportModal.csvData.map((payee) => (
-                              <tr key={payee.id}>
+                              <tr 
+                                key={payee.id}
+                                className={payee.isValid === false ? "bg-red-50" : ""}
+                              >
                                 <td className="px-4 py-2 whitespace-nowrap w-8 text-left">
                                   <input
                                     type="checkbox"
                                     checked={payeeImportModal.selectedPayees.has(payee.id)}
+                                    disabled={payee.isValid === false}
                                     onChange={(e) => {
                                       const newSelected = new Set(payeeImportModal.selectedPayees);
                                       if (e.target.checked) {
@@ -2071,10 +2220,23 @@ export default function ChartOfAccountsPage() {
                                         selectedPayees: newSelected,
                                       }));
                                     }}
-                                    className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                                    className="rounded border-gray-300 text-gray-900 focus:ring-gray-900 disabled:opacity-50"
                                   />
                                 </td>
                                 <td className="px-4 py-2 text-sm text-gray-900">{payee.name}</td>
+                                <td className="px-4 py-2 text-sm">
+                                  {payee.isValid === false ? (
+                                    <div className="flex items-center space-x-1">
+                                      <span className="w-2 h-2 bg-red-400 rounded-full"></span>
+                                      <span className="text-red-700 text-xs">{payee.validationMessage}</span>
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center space-x-1">
+                                      <span className="w-2 h-2 bg-green-400 rounded-full"></span>
+                                      <span className="text-green-700 text-xs">Valid</span>
+                                    </div>
+                                  )}
+                                </td>
                               </tr>
                             ))}
                           </tbody>
@@ -2119,7 +2281,35 @@ export default function ChartOfAccountsPage() {
                                 throw new Error("No payees selected for import.");
                               }
 
-                              const payeesToInsert = selectedPayees.map((payee) => ({
+                              // Filter out invalid payees
+                              const validPayees = selectedPayees.filter((payee) => payee.isValid !== false);
+                              const invalidPayees = selectedPayees.filter((payee) => payee.isValid === false);
+
+                              if (invalidPayees.length > 0 && validPayees.length > 0) {
+                                const proceed = window.confirm(
+                                  `${invalidPayees.length} selected payee${
+                                    invalidPayees.length === 1 ? "" : "s"
+                                  } already exist or have validation errors and will be skipped.\n\n` +
+                                    `Only ${validPayees.length} valid payee${
+                                      validPayees.length === 1 ? "" : "s"
+                                    } will be imported.\n\n` +
+                                    `Click OK to proceed with valid payees only, or Cancel to go back.`
+                                );
+
+                                if (!proceed) {
+                                  setPayeeImportModal((prev) => ({
+                                    ...prev,
+                                    isLoading: false,
+                                  }));
+                                  return;
+                                }
+                              } else if (validPayees.length === 0) {
+                                throw new Error(
+                                  "All selected payees already exist or have validation errors. Please select only valid payees."
+                                );
+                              }
+
+                              const payeesToInsert = validPayees.map((payee) => ({
                                 name: payee.name,
                                 company_id: currentCompany.id,
                               }));
@@ -2139,7 +2329,7 @@ export default function ChartOfAccountsPage() {
                                 selectedPayees: new Set(),
                               });
 
-                              fetchPayees();
+                              // Payees refreshed automatically by store
                             } catch (error) {
                               setPayeeImportModal((prev) => ({
                                 ...prev,
@@ -2608,7 +2798,7 @@ export default function ChartOfAccountsPage() {
                                 const remaining = [...categories];
                                 const processing = new Set<string>();
 
-                                const addCategory = (cat: CategoryImportData) => {
+                                const addCategoryToSorted = (cat: CategoryImportData) => {
                                   if (processing.has(cat.id)) return; // Avoid circular dependencies
                                   processing.add(cat.id);
 
@@ -2618,7 +2808,7 @@ export default function ChartOfAccountsPage() {
                                       (c) => c.name.toLowerCase() === cat.parentName!.toLowerCase() && c.id !== cat.id
                                     );
                                     if (parentInImport && !sorted.includes(parentInImport)) {
-                                      addCategory(parentInImport);
+                                      addCategoryToSorted(parentInImport);
                                     }
                                   }
 
@@ -2631,7 +2821,7 @@ export default function ChartOfAccountsPage() {
 
                                 // Add all categories, respecting dependencies
                                 for (const cat of remaining) {
-                                  addCategory(cat);
+                                  addCategoryToSorted(cat);
                                 }
 
                                 return sorted;

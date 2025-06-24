@@ -3,12 +3,13 @@ export const tools = [
     type: 'function',
     function: {
       name: 'create_category',
-      description: 'Create a new chart of account category',
+      description: 'Create a new chart of account category using the categoriesStore with built-in validation and error handling',
       parameters: {
         type: 'object',
         properties: {
           name: { type: 'string', description: 'The name of the new category' },
-          type: { type: 'string', description: 'The type of the new category (e.g. Expense, Income, Asset, Liability, Equity)' },
+          type: { type: 'string', description: 'The type of the new category (Asset, Liability, Equity, Revenue, COGS, Expense)' },
+          parent_id: { type: 'string', description: 'Optional parent category ID for subcategories' }
         },
         required: ['name', 'type'],
       },
@@ -17,31 +18,17 @@ export const tools = [
   {
     type: 'function',
     function: {
-      name: 'rename_category',
-      description: 'Rename an existing chart of account category',
+      name: 'update_category',
+      description: 'Update an existing chart of account category using the categoriesStore with validation and optimistic updates',
       parameters: {
         type: 'object',
         properties: {
-          oldName: { type: 'string', description: 'The current name of the category' },
-          newName: { type: 'string', description: 'The new name for the category' },
+          categoryId: { type: 'string', description: 'The ID of the category to update' },
+          name: { type: 'string', description: 'The new name for the category (optional)' },
+          type: { type: 'string', description: 'The new type for the category (optional)' },
+          parent_id: { type: 'string', description: 'The new parent category ID (optional, null to remove parent)' }
         },
-        required: ['oldName', 'newName'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'assign_parent_category',
-      description: 'Assign or reassign an existing category as a subcategory under another by setting the parent_id field. This can be used both to initially assign a parent or to move a category to a different parent.',
-      parameters: {
-        type: 'object',
-        properties: {
-          childName: { type: 'string', description: 'The name of the subcategory (child)' },
-          parentName: { type: 'string', description: 'The name of the parent category' },
-          companyId: { type: 'string', description: 'The company ID' },
-        },
-        required: ['childName', 'parentName', 'companyId'],
+        required: ['categoryId'],
       },
     },
   },
@@ -49,13 +36,28 @@ export const tools = [
     type: 'function',
     function: {
       name: 'delete_category',
-      description: 'Delete an existing chart of account category',
+      description: 'Delete an existing chart of account category using the categoriesStore with comprehensive validation (checks for subcategories and transaction usage)',
       parameters: {
         type: 'object',
         properties: {
-          name: { type: 'string', description: 'The name of the category to delete' },
+          categoryId: { type: 'string', description: 'The ID of the category to delete' }
         },
-        required: ['name'],
+        required: ['categoryId'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'assign_parent_category',
+      description: 'Assign or reassign an existing category as a subcategory under another using the categoriesStore with circular dependency validation',
+      parameters: {
+        type: 'object',
+        properties: {
+          childCategoryId: { type: 'string', description: 'The ID of the subcategory (child)' },
+          parentCategoryId: { type: 'string', description: 'The ID of the parent category' }
+        },
+        required: ['childCategoryId', 'parentCategoryId'],
       },
     },
   },
@@ -63,15 +65,14 @@ export const tools = [
     type: 'function',
     function: {
       name: 'change_category_type',
-      description: 'Change the type of an existing chart of account category (e.g., from Revenue to Expense, Asset to Liability, etc.)',
+      description: 'Change the type of an existing chart of account category using the categoriesStore with parent-child type consistency validation',
       parameters: {
         type: 'object',
         properties: {  
-          categoryName: { type: 'string', description: 'The name of the category to change' },
-          newType: { type: 'string', description: 'The new type for the category (Asset, Liability, Equity, Revenue, or Expense)' },
-          companyId: { type: 'string', description: 'The company ID' },
+          categoryId: { type: 'string', description: 'The ID of the category to change' },
+          newType: { type: 'string', description: 'The new type for the category (Asset, Liability, Equity, Revenue, COGS, Expense)' }
         },
-        required: ['categoryName', 'newType', 'companyId'],
+        required: ['categoryId', 'newType'],
       },
     },
   },
