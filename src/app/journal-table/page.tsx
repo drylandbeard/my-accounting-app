@@ -43,7 +43,7 @@ type JournalEntry = {
 };
 
 type SortConfig = {
-  key: 'date' | 'description' | 'payee' | 'debit' | 'credit' | 'category' | null;
+  key: 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category' | null;
   direction: 'asc' | 'desc';
 };
 
@@ -137,6 +137,11 @@ export default function JournalTablePage() {
     return account ? account.name : id;
   }
 
+  function getAccountType(id: string) {
+    const account = accounts.find(a => a.id === id);
+    return account ? account.type || '' : '';
+  }
+
   function getPayeeName(id: string) {
     if (!id) return '';
     const payee = payees.find(p => p.id === id);
@@ -156,6 +161,13 @@ export default function JournalTablePage() {
         return sortConfig.direction === 'asc'
           ? a.description.localeCompare(b.description)
           : b.description.localeCompare(a.description);
+      }
+      if (sortConfig.key === 'type') {
+        const aType = getAccountType(a.chart_account_id);
+        const bType = getAccountType(b.chart_account_id);
+        return sortConfig.direction === 'asc'
+          ? aType.localeCompare(bType)
+          : bType.localeCompare(aType);
       }
       if (sortConfig.key === 'payee') {
         const aPayee = getPayeeName(a.transactions?.payee_id || '');
@@ -189,7 +201,7 @@ export default function JournalTablePage() {
     });
   };
 
-  const handleSort = (key: 'date' | 'description' | 'payee' | 'debit' | 'credit' | 'category') => {
+  const handleSort = (key: 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category') => {
     setSortConfig(current => ({
       key,
       direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc'
@@ -208,6 +220,7 @@ export default function JournalTablePage() {
   const orderedColumns = [
     { key: 'date', label: 'Date', sortable: true },
     { key: 'description', label: 'Description', sortable: true },
+    { key: 'type', label: 'Type', isCustom: true, sortable: true },
     { key: 'payee', label: 'Payee', isCustom: true, sortable: true },
     { key: 'debit', label: 'Debit', sortable: true },
     { key: 'credit', label: 'Credit', sortable: true }
@@ -266,6 +279,10 @@ export default function JournalTablePage() {
       
       // Search in description
       if (entry.description.toLowerCase().includes(lowercaseSearch)) return true;
+      
+      // Search in type
+      const accountType = getAccountType(entry.chart_account_id);
+      if (accountType.toLowerCase().includes(lowercaseSearch)) return true;
       
       // Search in payee name
       const payeeName = getPayeeName(entry.transactions?.payee_id || '');
@@ -451,7 +468,7 @@ export default function JournalTablePage() {
                       className={`border p-2 text-center text-xs font-medium tracking-wider whitespace-nowrap ${
                         col.sortable ? 'cursor-pointer hover:bg-gray-200' : ''
                       }`}
-                      onClick={col.sortable ? () => handleSort(col.key as 'date' | 'description' | 'payee' | 'debit' | 'credit' | 'category') : undefined}
+                      onClick={col.sortable ? () => handleSort(col.key as 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category') : undefined}
                     >
                       {col.label}
                       {col.sortable && sortConfig.key === col.key && (
@@ -474,6 +491,8 @@ export default function JournalTablePage() {
                           formatAmount(entry.debit)
                         ) : col.key === 'credit' ? (
                           formatAmount(entry.credit)
+                        ) : col.key === 'type' ? (
+                          getAccountType(entry.chart_account_id)
                         ) : col.key === 'payee' ? (
                           getPayeeName(entry.transactions?.payee_id || '')
                         ) : col.key === 'category' ? (
