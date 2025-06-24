@@ -611,8 +611,9 @@ export default function ChartOfAccountsPage() {
         
         // Highlighting is already handled by the store
       } else {
-        // Error is already set by the store
-        setCategoryError(categoriesError || "Failed to create category");
+        // Error is already set by the store - wait for it to be available
+        // The categoriesError from store will be displayed in the UI
+        setCategoryError(null); // Let the store error be displayed instead
       }
     } catch (error) {
       console.error("Error creating category:", error);
