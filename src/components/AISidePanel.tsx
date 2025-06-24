@@ -498,15 +498,39 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
         if (action.type) updates.type = action.type;
         if (action.parent_id !== undefined) updates.parent_id = action.parent_id;
 
+        console.log('Executing update_category:', { categoryIdOrName, updates, action }); // Debug log
+        
         const result = await updateCategory(categoryIdOrName, updates);
         
+        // Wait a moment for any API errors to propagate
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        console.log('Update result:', result, 'Store error:', storeError); // Debug log
+        
         if (result) {
-          return `Successfully updated category '${action.categoryName || categoryIdOrName}'.`;
+          // Double-check that the store error hasn't been set by API failure
+          if (storeError) {
+            console.error('Update appeared successful but store has error:', storeError); // Debug log
+            return `Error updating category: ${storeError}`;
+          }
+          
+          // Be more specific about what was updated
+          const updateDetails = [];
+          if (updates.name) updateDetails.push(`name to "${updates.name}"`);
+          if (updates.type) updateDetails.push(`type to "${updates.type}"`);
+          if (updates.parent_id !== undefined) {
+            updateDetails.push(updates.parent_id ? `parent category` : `removed parent`);
+          }
+          
+          const detailsText = updateDetails.length > 0 ? ` (${updateDetails.join(', ')})` : '';
+          return `Successfully updated category "${action.categoryName || categoryIdOrName}"${detailsText}. Changes should be reflected in the database and UI.`;
         } else {
-          const errorMessage = storeError || 'Failed to update category';
-          return `Error updating category: ${errorMessage}`;
+          const errorMessage = storeError || 'Failed to update category - no specific error available';
+          console.error('Update failed:', errorMessage); // Debug log
+          return `Error updating category "${action.categoryName || categoryIdOrName}": ${errorMessage}. Please check if the category name already exists or refresh the page.`;
         }
       } catch (error) {
+        console.error('Exception in update_category:', error); // Debug log
         return `Error updating category: ${error instanceof Error ? error.message : 'Unknown error'}`;
       }
     }
@@ -751,7 +775,7 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
         // Execute batch operations
         const operations = message.pendingAction.operations;
         const results: string[] = [];
-        let currentMessage = message.content + "\n\n✅ **Executing batch operations:**\n";
+        let currentMessage = message.content + "\n\n**Executing batch operations:**\n";
 
         // Check if we have currentCompany
         if (!currentCompany) {
@@ -760,7 +784,7 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
               idx === messageIndex
                 ? {
                     ...msg,
-                    content: msg.content + "\n\n❌ **Error:** No company context available. Please refresh the page and try again.",
+                    content: msg.content + "\n\n**Error:** No company context available. Please refresh the page and try again.",
                     showConfirmation: false,
                     pendingAction: undefined,
                   }
@@ -782,13 +806,14 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
         );
         
         let allSuccessful = true;
+        let failedOperations: string[] = [];
 
         // Execute each operation in sequence
         for (let i = 0; i < operations.length; i++) {
           const operation = operations[i];
           try {
             // Update to show current operation being processed
-            const processingMessage = currentMessage + `\n🔄 Processing operation ${i + 1}...`;
+            const processingMessage = currentMessage + `\nProcessing operation ${i + 1}...`;
             setMessages((prev) =>
               prev.map((msg, idx) => (idx === messageIndex ? { ...msg, content: processingMessage } : msg))
             );
@@ -812,9 +837,15 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
             results.push(`${i + 1}. ${result}`);
             currentMessage += `${i + 1}. ${result}\n`;
 
-            // Check if operation was not successful
-            if (result.toLowerCase().includes('error') || result.toLowerCase().includes('failed') || result.toLowerCase().includes('could not')) {
+            // Check if operation was not successful - improved error detection
+            if (result.toLowerCase().includes('error') || 
+                result.toLowerCase().includes('failed') || 
+                result.toLowerCase().includes('could not') ||
+                result.toLowerCase().includes('required') ||
+                result.toLowerCase().includes('not found') ||
+                result.toLowerCase().includes('unable to')) {
               allSuccessful = false;
+              failedOperations.push(`Operation ${i + 1}: ${result}`);
             }
 
             // Small delay to ensure UI updates are processed
@@ -826,8 +857,10 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
             );
           } catch (error) {
             allSuccessful = false;
-            results.push(`${i + 1}. Error: ${error}`);
-            currentMessage += `${i + 1}. ❌ Error: ${error}\n`;
+            const errorMessage = `Error: ${error}`;
+            results.push(`${i + 1}. ${errorMessage}`);
+            currentMessage += `${i + 1}. ${errorMessage}\n`;
+            failedOperations.push(`Operation ${i + 1}: ${errorMessage}`);
 
             // Update message with error
             setMessages((prev) =>
@@ -842,16 +875,15 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
         // Refresh categories
         await refreshCategories();
 
-        // Final message update
-        const successEmoji = allSuccessful ? '🎉' : '⚠️';
-        const statusText = allSuccessful ? "All batch operations completed successfully!" : "Batch operations completed with some issues.";
-        
-        currentMessage += `\n${successEmoji} **${statusText}**`;
-        
-        // Add follow-up suggestion based on what was done
+        // Final message update with detailed error reporting
         if (allSuccessful) {
+          currentMessage += `\n**All batch operations completed successfully!**`;
           currentMessage += `\n\nIs there anything else you'd like to do with your categories or accounting setup?`;
         } else {
+          currentMessage += `\n**Batch operations completed with ${failedOperations.length} error(s):**`;
+          failedOperations.forEach(error => {
+            currentMessage += `\n- ${error}`;
+          });
           currentMessage += `\n\nWould you like me to help fix any of the issues that occurred?`;
         }
         
@@ -867,7 +899,7 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
             idx === messageIndex
               ? {
                   ...msg,
-                  content: msg.content + `\n\n🔄 **Confirming and executing...**`,
+                  content: msg.content + `\n\n**Confirming and executing...**`,
                   showConfirmation: false,
                   pendingAction: undefined,
                 }
@@ -888,8 +920,8 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
                 ? {
                     ...msg,
                     content: msg.content.replace(
-                      "🔄 **Confirming and executing...**",
-                      `✅ **Confirmed and executed:** ${result}`
+                      "**Confirming and executing...**",
+                      `**Confirmed and executed:** ${result}`
                     ),
                   }
                 : msg
@@ -915,7 +947,7 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
               idx === messageIndex
                 ? {
                     ...msg,
-                    content: msg.content.replace("🔄 **Confirming and executing...**", `❌ **Error:** ${error}`),
+                    content: msg.content.replace("**Confirming and executing...**", `**Error:** ${error}`),
                   }
                 : msg
             )
@@ -932,7 +964,7 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
         idx === messageIndex
           ? {
               ...msg,
-              content: msg.content + "\n\n❌ **Cancelled:** Action was not executed.",
+              content: msg.content + "\n\n**Cancelled:** Action was not executed.",
               showConfirmation: false,
               pendingAction: undefined,
             }
@@ -975,7 +1007,7 @@ ${payees.map((p) => `- ${p.name}`).join('\n')}
 Available category names: ${categories.map((c) => c.name).join(", ")}
 Available payee names: ${payees.map((p) => p.name).join(", ")}
 
-IMPORTANT: Before performing any operation that references categories or payees, check if they exist in the current lists above. If any referenced categories or payees don't exist, automatically create them first using the batch_execute tool to include both creation and main operations in the same batch.`
+IMPORTANT: Use the appropriate tools for any data modification operations. For multiple related operations, use batch_execute to group them together efficiently.`
       },
     ];
 
@@ -1134,7 +1166,7 @@ IMPORTANT: Before performing any operation that references categories or payees,
                   const isAutoCreation = !categories.find(c => c.name.toLowerCase() === categoryName.toLowerCase());
                   if (isAutoCreation) {
                     hasAutoCreation = true;
-                    batchMessage += `${index + 1}. 🔧 Auto-create category "${categoryName}" (${categoryType}) - category doesn't exist yet\n`;
+                    batchMessage += `${index + 1}. Auto-create category "${categoryName}" (${categoryType}) - category doesn't exist yet\n`;
                   } else {
                     batchMessage += `${index + 1}. Create category "${categoryName}" (${categoryType})\n`;
                   }
@@ -1176,7 +1208,7 @@ IMPORTANT: Before performing any operation that references categories or payees,
             });
             
             if (hasAutoCreation) {
-              batchMessage += "\n💡 I detected that some categories don't exist yet, so I'll create them first before performing the main operations.";
+              batchMessage += "\nI detected that some categories don't exist yet, so I'll create them first before performing the main operations.";
             }
             
             batchMessage += "\nWould you like to proceed with all these operations?";
@@ -1185,15 +1217,10 @@ IMPORTANT: Before performing any operation that references categories or payees,
             pendingAction = { action: 'batch_execute', operations: args.operations };
             break;
           default:
-            // For tools that don't require confirmation
-            setMessages((prev) => [
-              ...prev.slice(0, -1), // remove 'Thinking...'
-              {
-                role: "assistant",
-                content: aiResponse || `I'll ${functionName.replace('_', ' ')} based on your request.`,
-              },
-            ]);
-            return;
+            // All tool calls must go through confirmation - no exceptions
+            confirmationMessage = `I'll ${functionName.replace('_', ' ')} based on your request. Would you like to proceed?`;
+            pendingAction = { action: functionName, ...args };
+            break;
         }
         
         // Set confirmation message
@@ -1212,37 +1239,6 @@ IMPORTANT: Before performing any operation that references categories or payees,
       // Fallback: check for JSON action in the response content
       if (!aiResponse && choice?.message?.content) {
         aiResponse = choice.message.content.trim();
-
-        const actionMatch = aiResponse.match(/\{[^}]+\}/);
-        let pendingAction = null;
-        let showConfirmation = false;
-
-        if (actionMatch) {
-          try {
-            const action = JSON.parse(actionMatch[0]);
-
-            if (action.action === "assign_parent_category") {
-              pendingAction = action;
-              showConfirmation = true;
-            } else {
-              const result = await executeAction(action);
-              aiResponse += `\n\n${result}`;
-            }
-          } catch {
-            aiResponse += "\n\n[Error parsing action JSON]";
-          }
-        }
-
-        setMessages((prev) => [
-          ...prev.slice(0, -1), // remove 'Thinking...'
-          {
-            role: "assistant",
-            content: aiResponse,
-            showConfirmation,
-            pendingAction,
-          },
-        ]);
-        return;
       }
 
       // Default fallback
