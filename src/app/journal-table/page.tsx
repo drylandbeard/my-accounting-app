@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/zustand/authStore';
+import { X } from 'lucide-react';
 import { 
   Pagination,
   PaginationContent,
@@ -47,6 +48,14 @@ type SortConfig = {
   direction: 'asc' | 'desc';
 };
 
+type NewJournalEntry = {
+  date: string;
+  description: string;
+  amount: string;
+  type: 'debit' | 'credit';
+  categoryId: string;
+};
+
 export default function JournalTablePage() {
   const { currentCompany } = useAuthStore();
   const hasCompanyContext = !!(currentCompany);
@@ -59,6 +68,15 @@ export default function JournalTablePage() {
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newEntry, setNewEntry] = useState<NewJournalEntry>({
+    date: new Date().toISOString().split('T')[0],
+    description: '',
+    amount: '',
+    type: 'debit',
+    categoryId: ''
+  });
+  const [saving, setSaving] = useState(false);
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -104,7 +122,8 @@ export default function JournalTablePage() {
     const { data, error } = await supabase
       .from('chart_of_accounts')
       .select('*')
-      .eq('company_id', currentCompany?.id);
+      .eq('company_id', currentCompany?.id)
+      .order('name');
     if (!error) setAccounts(data || []);
   };
 
@@ -408,6 +427,71 @@ export default function JournalTablePage() {
   const paginationData = getPaginatedData(sortedAndFilteredEntries, currentPage, itemsPerPage);
   const { paginatedData: displayedEntries, totalPages, totalItems } = paginationData;
 
+  const handleAddEntry = async () => {
+    if (!currentCompany?.id) return;
+    
+    // Validation
+    const amount = parseFloat(newEntry.amount || '0');
+    
+    if (!newEntry.date || !newEntry.description) {
+      alert('Please fill in date and description');
+      return;
+    }
+    
+    if (amount === 0) {
+      alert('Please enter a non-zero amount');
+      return;
+    }
+
+    if (!newEntry.categoryId) {
+      alert('Please select a category');
+      return;
+    }
+
+    try {
+      setSaving(true);
+      
+      // Generate a new transaction ID for both entries
+      const transactionId = crypto.randomUUID();
+      
+      // Create journal entry
+      const journalEntry = {
+        date: newEntry.date,
+        description: newEntry.description,
+        debit: newEntry.type === 'debit' ? amount : 0,
+        credit: newEntry.type === 'credit' ? amount : 0,
+        transaction_id: transactionId,
+        chart_account_id: newEntry.categoryId,
+        company_id: currentCompany.id
+      };
+
+      const { error } = await supabase
+        .from('journal')
+        .insert([journalEntry]);
+
+      if (error) throw error;
+
+      // Reset form and close modal
+      setNewEntry({
+        date: new Date().toISOString().split('T')[0],
+        description: '',
+        amount: '',
+        type: 'debit',
+        categoryId: ''
+      });
+      setShowAddModal(false);
+      
+      // Refresh the entries
+      await fetchJournalEntries();
+      
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
+      alert(`Failed to add journal entry: ${errorMessage}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   // Check if user has company context
   if (!hasCompanyContext) {
     return (
@@ -433,6 +517,12 @@ export default function JournalTablePage() {
       ) : (
         <div className="space-y-4">
           <div className="flex gap-2 items-center mb-2">
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-xs"
+            >
+              Add
+            </button>
             <input
               type="text"
               placeholder="Search journal entries..."
@@ -519,6 +609,106 @@ export default function JournalTablePage() {
                 totalPages={totalPages}
                 onPageChange={setCurrentPage}
               />
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Add Journal Entry Modal */}
+      {showAddModal && (
+        <div 
+          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
+          onClick={() => setShowAddModal(false)}
+        >
+          <div 
+            className="bg-white rounded-lg p-6 w-[600px] overflow-y-auto shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold">Add Journal Entry</h2>
+              <button
+                onClick={() => setShowAddModal(false)}
+                className="text-gray-500 hover:text-gray-700 text-xl"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            
+            <div className="grid grid-cols-4 gap-2">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
+                <input
+                  type="date"
+                  value={newEntry.date}
+                  onChange={(e) => setNewEntry(prev => ({ ...prev, date: e.target.value }))}
+                  className="w-full border px-2 py-1 rounded text-xs"
+                  required
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                <input
+                  type="text"
+                  value={newEntry.description}
+                  onChange={(e) => setNewEntry(prev => ({ ...prev, description: e.target.value }))}
+                  className="w-full border px-2 py-1 rounded text-xs"
+                  placeholder="Enter description"
+                  required
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Amount</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={newEntry.amount}
+                  onChange={(e) => setNewEntry(prev => ({ ...prev, amount: e.target.value }))}
+                  className="w-full border px-2 py-1 rounded text-xs"
+                  placeholder="0.00"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
+                <select
+                  value={newEntry.type}
+                  onChange={(e) => setNewEntry(prev => ({ ...prev, type: e.target.value as 'debit' | 'credit' }))}
+                  className="w-full border px-2 py-1 rounded text-xs"
+                >
+                  <option value="debit">Debit</option>
+                  <option value="credit">Credit</option>
+                </select>
+              </div>
+            </div>
+            
+            <div className="mt-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+                <select
+                  value={newEntry.categoryId}
+                  onChange={(e) => setNewEntry(prev => ({ ...prev, categoryId: e.target.value }))}
+                  className="w-full border px-2 py-1 rounded text-xs"
+                >
+                  <option value="">Select category...</option>
+                  {accounts.map(account => (
+                    <option key={account.id} value={account.id}>
+                      {account.name} ({account.type})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            
+            <div className="flex justify-end mt-6">
+              <button
+                onClick={handleAddEntry}
+                disabled={saving}
+                className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800 disabled:opacity-50"
+              >
+                {saving ? 'Adding...' : 'Add Entry'}
+              </button>
             </div>
           </div>
         </div>
