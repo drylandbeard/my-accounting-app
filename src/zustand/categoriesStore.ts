@@ -43,10 +43,16 @@ interface CategoriesState {
   // Actions
   refreshCategories: () => Promise<void>;
   addCategory: (category: { name: string; type: string; parent_id?: string | null }) => Promise<Category | null>;
-  updateCategory: (id: string, updates: Partial<Category>) => Promise<boolean>;
-  deleteCategory: (id: string) => Promise<boolean>;
+  updateCategory: (idOrName: string, updates: Partial<Category>) => Promise<boolean>;
+  deleteCategory: (idOrName: string) => Promise<boolean>;
   highlightCategory: (categoryId: string) => void;
   clearError: () => void;
+  
+  // New functionality
+  findCategoryByName: (name: string, caseSensitive?: boolean) => Category | null;
+  findCategoriesByName: (namePattern: string, caseSensitive?: boolean) => Category[];
+  findParentByName: (childId: string, parentName: string) => Category | null;
+  moveCategory: (categoryIdOrName: string, newParentIdOrName: string | null) => Promise<boolean>;
 }
 
 export const useCategoriesStore = create<CategoriesState>((set, get) => ({
@@ -81,11 +87,27 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
   
   addCategory: async (categoryData) => {
     try {
+      // Handle parent_id conversion if it's provided as a name
+      let processedParentId = categoryData.parent_id || null;
+      if (categoryData.parent_id && typeof categoryData.parent_id === 'string') {
+        const isParentUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(categoryData.parent_id);
+        
+        if (!isParentUUID) {
+          // It's likely a name, find the parent category by name
+          const parentCategory = get().findCategoryByName(categoryData.parent_id);
+          if (!parentCategory) {
+            set({ error: `Parent category not found: ${categoryData.parent_id}` });
+            return null;
+          }
+          processedParentId = parentCategory.id;
+        }
+      }
+      
       // Prepare data for API call
       const requestData = {
         name: categoryData.name.trim(),
         type: categoryData.type,
-        parent_id: categoryData.parent_id || null,
+        parent_id: processedParentId,
       };
 
       // Call the API route
@@ -129,12 +151,58 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
     }
   },
   
-  updateCategory: async (id: string, updates) => {
+  updateCategory: async (idOrName: string, updates) => {
+    // Store original categories for potential revert
+    const originalCategories = get().categories;
+    
+    console.log('updateCategory debug:', { 
+      idOrName, 
+      updates, 
+      availableCategories: originalCategories.map(c => ({ id: c.id, name: c.name }))
+    }); // Debug log
+    
+    // Determine if we have an ID or name for the main category
+    let categoryId = idOrName;
+    let categoryName = null;
+    
+    // Check if it looks like a UUID (ID) or a name
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrName);
+    
+    if (!isUUID) {
+      // It's likely a name, find the category by name
+      const category = get().findCategoryByName(idOrName);
+      console.log('Found category by name:', category); // Debug log
+      if (!category) {
+        set({ error: `Category not found: ${idOrName}` });
+        return false;
+      }
+      categoryId = category.id;
+      categoryName = category.name;
+    }
+    
+    // Handle parent_id conversion if it's provided as a name
+    let processedUpdates = { ...updates };
+    if (updates.parent_id !== undefined && updates.parent_id !== null) {
+      const parentIdOrName = updates.parent_id;
+      const isParentUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(parentIdOrName);
+      
+      if (!isParentUUID) {
+        // It's likely a name, find the parent category by name
+        const parentCategory = get().findCategoryByName(parentIdOrName);
+        if (!parentCategory) {
+          set({ error: `Parent category not found: ${parentIdOrName}` });
+          return false;
+        }
+        processedUpdates.parent_id = parentCategory.id;
+      }
+    }
+    
+    console.log('Final update data:', { categoryId, categoryName, processedUpdates }); // Debug log
+    
     try {
       // Optimistic update with proper sorting
-      const { categories } = get();
-      const updatedCategories = categories.map((cat) =>
-        cat.id === id ? { ...cat, ...updates } : cat
+      const updatedCategories = originalCategories.map((cat) =>
+        cat.id === categoryId ? { ...cat, ...processedUpdates } : cat
       );
       
       // Sort the categories to match API sorting behavior
@@ -142,12 +210,12 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
       set({ categories: sortedCategories, error: null });
       
       // Highlight immediately with optimistic update
-      get().highlightCategory(id);
+      get().highlightCategory(categoryId);
       
       // Prepare data for API call
       const requestData = {
-        id,
-        ...updates
+        id: categoryId,
+        ...processedUpdates
       };
 
       // Call the API route
@@ -157,7 +225,7 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
         const errorData = await response.json();
         console.error('API error updating category:', errorData.error);
         // Revert optimistic update
-        set({ categories, error: errorData.error || 'Failed to update category' });
+        set({ categories: originalCategories, error: errorData.error || 'Failed to update category' });
         return false;
       }
 
@@ -175,30 +243,49 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
     } catch (err) {
       console.error('Error in updateCategory:', err);
       // Revert optimistic update
-      const { categories } = get();
       const errorMessage = err instanceof Error ? err.message : 'Network error occurred';
-      set({ categories, error: errorMessage });
+      set({ categories: originalCategories, error: errorMessage });
       return false;
     }
   },
   
-  deleteCategory: async (id: string) => {
+  deleteCategory: async (idOrName: string) => {
+    // Store original categories for potential revert
+    const originalCategories = get();
+    
+    // Determine if we have an ID or name
+    let categoryId = idOrName;
+    let categoryName = null;
+    
+    // Check if it looks like a UUID (ID) or a name
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrName);
+    
+    if (!isUUID) {
+      // It's likely a name, find the category by name
+      const category = get().findCategoryByName(idOrName);
+      if (!category) {
+        set({ error: `Category not found: ${idOrName}` });
+        return false;
+      }
+      categoryId = category.id;
+      categoryName = category.name;
+    }
+    
     try {
       // Optimistic delete
-      const { categories } = get();
-      const updatedCategories = categories.filter((cat) => cat.id !== id);
+      const updatedCategories = originalCategories.categories.filter((cat) => cat.id !== categoryId);
       set({ categories: updatedCategories, error: null });
       
       // Call the API route
       const response = await api.delete('/api/category/delete', {
-        body: JSON.stringify({ categoryId: id })
+        body: JSON.stringify({ categoryId: categoryId })
       });
       
       if (!response.ok) {
         const errorData = await response.json();
         console.error('API error deleting category:', errorData.error);
         // Revert optimistic delete
-        set({ categories, error: errorData.error || 'Failed to delete category' });
+        set({ categories: originalCategories.categories, error: errorData.error || 'Failed to delete category' });
         return false;
       }
       
@@ -216,8 +303,7 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
     } catch (err) {
       console.error('Error in deleteCategory:', err);
       // Revert optimistic delete
-      const { categories } = get();
-      set({ categories, error: 'Failed to delete category' });
+      set({ categories: originalCategories.categories, error: 'Failed to delete category' });
       return false;
     }
   },
@@ -247,5 +333,88 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
   
   clearError: () => {
     set({ error: null });
-  }
+  },
+  
+  // New helper functions
+  
+  // Find a category by name (case-insensitive by default)
+  findCategoryByName: (name: string, caseSensitive = false) => {
+    const { categories } = get();
+    console.log('findCategoryByName debug:', { 
+      searchName: name, 
+      caseSensitive, 
+      availableCategories: categories.map(c => ({ id: c.id, name: c.name }))
+    }); // Debug log
+    
+    if (caseSensitive) {
+      const found = categories.find((cat) => cat.name === name) || null;
+      console.log('Case-sensitive search result:', found); // Debug log
+      return found;
+    } else {
+      const found = categories.find((cat) => cat.name.toLowerCase() === name.toLowerCase()) || null;
+      console.log('Case-insensitive search result:', found); // Debug log
+      return found;
+    }
+  },
+  
+  // Find categories by partial name (case-insensitive by default)
+  findCategoriesByName: (namePattern: string, caseSensitive = false) => {
+    const { categories } = get();
+    const pattern = caseSensitive ? namePattern : namePattern.toLowerCase();
+    
+    return categories.filter((cat) => {
+      const catName = caseSensitive ? cat.name : cat.name.toLowerCase();
+      return catName.includes(pattern);
+    });
+  },
+  
+  // Find parent category by name for a specific child
+  findParentByName: (childId: string, parentName: string) => {
+    const { categories } = get();
+    const possibleParents = categories.filter(c => c.name.toLowerCase() === parentName.toLowerCase());
+    
+    // If multiple categories match, find one with compatible type
+    if (possibleParents.length > 1) {
+      const child = categories.find(c => c.id === childId);
+      if (child) {
+        return possibleParents.find(p => p.type === child.type) || possibleParents[0];
+      }
+    }
+    
+    return possibleParents[0] || null;
+  },
+  
+  // Move a category under a new parent (or to root if null)
+  moveCategory: async (categoryIdOrName: string, newParentIdOrName: string | null) => {
+    // Determine if we have IDs or names
+    let categoryId = categoryIdOrName;
+    let newParentId = newParentIdOrName;
+    
+    // Check if category looks like a UUID (ID) or a name
+    const isCategoryUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(categoryIdOrName);
+    
+    if (!isCategoryUUID) {
+      // It's likely a name, find the category by name
+      const category = get().findCategoryByName(categoryIdOrName);
+      if (!category) {
+        set({ error: `Category not found: ${categoryIdOrName}` });
+        return false;
+      }
+      categoryId = category.id;
+    }
+    
+    // Check if parent looks like a UUID (ID) or a name
+    if (newParentIdOrName && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(newParentIdOrName)) {
+      // It's likely a name, find the category by name
+      const category = get().findCategoryByName(newParentIdOrName);
+      if (!category) {
+        set({ error: `Parent category not found: ${newParentIdOrName}` });
+        return false;
+      }
+      newParentId = category.id;
+    }
+    
+    // This is essentially an update operation
+    return get().updateCategory(categoryId, { parent_id: newParentId });
+  },
 })); 

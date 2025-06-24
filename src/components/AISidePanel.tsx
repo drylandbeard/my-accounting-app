@@ -9,6 +9,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { X, RefreshCcw } from "lucide-react";
 import { useCategoriesStore } from "@/zustand/categoriesStore";
+import { usePayeesStore } from "@/zustand/payeesStore";
 import { useAuthStore } from "@/zustand/authStore";
 import { api } from "@/lib/api";
 import { tools } from "@/ai/tools";
@@ -84,8 +85,22 @@ What kind of business are you running? I'd love to learn more so I can continuou
     addCategory,
     updateCategory,
     deleteCategory,
-    error: storeError
+    error: storeError,
+    findCategoryByName,
+    findCategoriesByName,
+    moveCategory
   } = useCategoriesStore();
+  
+  // Use the payees store for payee operations
+  const { 
+    payees, 
+    refreshPayees: refreshPayeesFromStore,
+    addPayee,
+    updatePayee,
+    deletePayee,
+    error: payeesError
+  } = usePayeesStore();
+  
   const { currentCompany } = useAuthStore();
   
   // Create a wrapper for refreshCategories
@@ -271,7 +286,7 @@ What kind of business are you running? I'd love to learn more so I can continuou
       const content = `🔍 I noticed you've made changes to your categories! Here are some suggestions to optimize further:
 
 • **Review category hierarchy**: Would you like me to suggest better parent-child relationships?
-• **Check for duplicates**: I can help identify any similar categories that could be merged
+• **Check for duplicates**: I can help identify any similar categories that could be consolidated
 • **Optimize for reporting**: Let's ensure your categories align with your reporting needs
 
 What would you like to focus on next? I'm here to help you continuously improve your accounting structure! 💡`;
@@ -382,9 +397,10 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
     };
   }, [isResizing]);
 
-  // Function to execute confirmed actions
+  // Enhanced executeAction function to handle category operations
   async function executeAction(action: any, skipRefresh: boolean = false, customCategories?: any[]): Promise<string> {
     const categoriesToUse = customCategories || categories;
+    
     if (action.action === "categorize") {
       // Find the transaction and category by human-friendly fields
       const { date, amount, description, categoryName } = action;
@@ -440,12 +456,20 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
 
     if (action.action === "create_category") {
       try {
+        console.log('Creating category with action:', action); // Debug log
+        console.log('Current company:', currentCompany); // Debug log
+        
+        // The store now handles parent names directly, so we can pass either parentName or parent_id
+        let parentId = action.parent_id || action.parentName || null;
+        
         const categoryData = {
           name: action.name!,
           type: action.type!,
-          parent_id: action.parent_id || null,
+          parent_id: parentId,
           company_id: currentCompany!.id,
         };
+
+        console.log('Category data being sent:', categoryData); // Debug log
 
         const result = await addCategory(categoryData);
         
@@ -456,21 +480,28 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
           return `Error creating category: ${errorMessage}`;
         }
       } catch (error) {
-        return `Error creating category: ${error instanceof Error ? error : 'Unknown error'}`;
+        return `Error creating category: ${error instanceof Error ? error.message : 'Unknown error'}`;
       }
     }
 
     if (action.action === "update_category") {
       try {
+        // The store now handles both ID and name, so we can pass either directly
+        let categoryIdOrName = action.categoryId || action.categoryName;
+        
+        if (!categoryIdOrName) {
+          return 'Category ID or name is required for update';
+        }
+        
         const updates: any = {};
         if (action.name) updates.name = action.name;
         if (action.type) updates.type = action.type;
         if (action.parent_id !== undefined) updates.parent_id = action.parent_id;
 
-        const result = await updateCategory(action.categoryId!, updates);
+        const result = await updateCategory(categoryIdOrName, updates);
         
         if (result) {
-          return `Successfully updated category '${action.categoryId}'.`;
+          return `Successfully updated category '${action.categoryName || categoryIdOrName}'.`;
         } else {
           const errorMessage = storeError || 'Failed to update category';
           return `Error updating category: ${errorMessage}`;
@@ -482,10 +513,30 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
 
     if (action.action === "delete_category") {
       try {
-        const result = await deleteCategory(action.categoryId!);
+        // The store now handles both ID and name, so we can pass either directly
+        let categoryIdOrName = action.categoryId || action.categoryName;
+        
+        // Handle different possible field names for category name
+        if (!categoryIdOrName) {
+          categoryIdOrName = action.name || action.category || action.category_name;
+        }
+        
+        console.log('Delete category debug:', { 
+          action, 
+          categoryIdOrName, 
+          availableCategories: categoriesToUse.map(c => ({ id: c.id, name: c.name }))
+        }); // Debug log
+        
+        if (!categoryIdOrName) {
+          return 'Category ID or name is required for deletion';
+        }
+        
+        console.log('Deleting category:', { categoryIdOrName, action }); // Debug log
+        
+        const result = await deleteCategory(categoryIdOrName);
         
         if (result) {
-          return `Successfully deleted category '${action.categoryId}'.`;
+          return `Successfully deleted category '${categoryIdOrName}'.`;
         } else {
           const errorMessage = storeError || 'Failed to delete category';
           return `Error deleting category: ${errorMessage}`;
@@ -496,28 +547,114 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
     }
 
     if (action.action === "change_category_type") {
-      const result = await changeCategoryType(action.categoryId!, action.newType!);
+      // The store now handles both ID and name, so we can pass either directly
+      let categoryIdOrName = action.categoryId || action.categoryName;
+      
+      if (!categoryIdOrName) {
+        return 'Category ID or name is required to change type';
+      }
 
-      if (result.success) {
+      const result = await updateCategory(categoryIdOrName, { type: action.newType });
+
+      if (result) {
         if (!skipRefresh) {
           await refreshCategories();
         }
-        return `Successfully changed category '${action.categoryId}' type to '${action.newType}'.`;
+        return `Successfully changed category '${action.categoryName || categoryIdOrName}' type to '${action.newType}'.`;
       } else {
-        return `Error changing category type: ${result.error}`;
+        return `Error changing category type: ${storeError || 'Unknown error'}`;
       }
     }
 
     if (action.action === "assign_parent_category") {
-      const result = await assignParentCategory(action.childCategoryId!, action.parentCategoryId!);
+      // The store now handles both ID and name, so we can pass either directly
+      let childIdOrName = action.childCategoryId || action.childCategoryName;
+      let parentIdOrName = action.parentCategoryId || action.parentCategoryName;
+      
+      if (!childIdOrName || !parentIdOrName) {
+        return 'Both child and parent category IDs/names are required';
+      }
 
-      if (result.success) {
+      const result = await updateCategory(childIdOrName, { parent_id: parentIdOrName });
+
+      if (result) {
         if (!skipRefresh) {
           await refreshCategories();
         }
-        return `Successfully assigned category '${action.childCategoryId}' under parent category '${action.parentCategoryId}'.`;
+        return `Successfully assigned category '${action.childCategoryName || childIdOrName}' under parent category '${action.parentCategoryName || parentIdOrName}'.`;
       } else {
-        return `Error assigning category: ${result.error}`;
+        return `Error assigning category: ${storeError || 'Unknown error'}`;
+      }
+    }
+
+    if (action.action === "create_payee") {
+      try {
+        const payeeData = {
+          name: action.name.trim(),
+        };
+
+        // Call the API route
+        const response = await api.post('/api/payee', payeeData);
+        
+        if (!response.ok) {
+          const errorData = await response.json();
+          console.error('API error adding payee:', errorData.error);
+          return `Error creating payee: ${errorData.error || 'Failed to add payee'}`;
+        }
+        
+        const result = await response.json();
+        const newPayee = result.payee;
+        
+        // Refresh payees to get updated list
+        await refreshPayeesFromStore();
+        
+        return `Successfully created payee '${action.name}'.`;
+      } catch (error) {
+        return `Error creating payee: ${error instanceof Error ? error.message : 'Unknown error'}`;
+      }
+    }
+
+    if (action.action === "update_payee") {
+      try {
+        // The store handles both ID and name, so we can pass either directly
+        let payeeIdOrName = action.payeeId || action.payeeName;
+        
+        if (!payeeIdOrName) {
+          return 'Payee ID or name is required for update';
+        }
+        
+        const result = await updatePayee(payeeIdOrName, { name: action.name });
+        
+        if (result) {
+          return `Successfully updated payee '${action.payeeName || payeeIdOrName}' to '${action.name}'.`;
+        } else {
+          const errorMessage = payeesError || 'Failed to update payee';
+          return `Error updating payee: ${errorMessage}`;
+        }
+      } catch (error) {
+        return `Error updating payee: ${error instanceof Error ? error.message : 'Unknown error'}`;
+      }
+    }
+
+    if (action.action === "delete_payee") {
+      try {
+        // The store handles both ID and name, so we can pass either directly
+        let payeeIdOrName = action.payeeId || action.payeeName;
+        
+        if (!payeeIdOrName) {
+          return 'Payee ID or name is required for deletion';
+        }
+        
+        const result = await deletePayee(payeeIdOrName);
+        
+        if (result) {
+          return `Successfully deleted payee '${payeeIdOrName}'.`;
+        } else {
+          const errorMessage = payeesError || 'Failed to delete payee';
+          return `Error deleting payee: ${errorMessage}`;
+        }
+      } catch (error) {
+        return `Error deleting payee: ${error instanceof Error ? error.message : 'Unknown error'}`;
       }
     }
 
@@ -528,7 +665,7 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
   const handleConfirm = async (messageIndex: number) => {
     const message = messages[messageIndex];
     if (message.pendingAction) {
-      if (message.pendingAction.action === "batch_execute") {
+      if (message.pendingAction.action === "multi_execute") {
         // Execute all actions in the queue
         const results: string[] = [];
         let currentMessage = message.content + "\n\n✅ **Executing actions:**\n";
@@ -541,10 +678,12 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
               : msg
           )
         );
+        
+        let allSuccessful = true;
 
         // Execute each action in sequence with proper async handling
         for (let i = 0; i < pendingToolQueue.length; i++) {
-          const action = pendingToolQueue[i];
+          const toolCall = pendingToolQueue[i];
           try {
             // Update to show current action being processed
             const processingMessage = currentMessage + `\n🔄 Processing action ${i + 1}...`;
@@ -552,9 +691,20 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
               prev.map((msg, idx) => (idx === messageIndex ? { ...msg, content: processingMessage } : msg))
             );
 
+            // Convert tool call to action format
+            const functionName = toolCall.function?.name;
+            const args = JSON.parse(toolCall.function?.arguments || "{}");
+            const action = { action: functionName, ...args };
+
             const result = await executeAction(action, true, categories);
+            
             results.push(`${i + 1}. ${result}`);
             currentMessage += `${i + 1}. ${result}\n`;
+
+            // Check if operation was not successful
+            if (result.toLowerCase().includes('error') || result.toLowerCase().includes('failed') || result.toLowerCase().includes('could not')) {
+              allSuccessful = false;
+            }
 
             // Small delay to ensure UI updates are processed
             await new Promise((resolve) => setTimeout(resolve, 200));
@@ -564,6 +714,7 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
               prev.map((msg, idx) => (idx === messageIndex ? { ...msg, content: currentMessage } : msg))
             );
           } catch (error) {
+            allSuccessful = false;
             results.push(`${i + 1}. Error: ${error}`);
             currentMessage += `${i + 1}. ❌ Error: ${error}\n`;
 
@@ -576,9 +727,134 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
 
         // Clear the queue
         setPendingToolQueue([]);
+        
+        // Refresh categories
+        await refreshCategories();
 
         // Final message update
-        currentMessage += `\n🎉 **All actions completed!**`;
+        const successEmoji = allSuccessful ? '🎉' : '⚠️';
+        const statusText = allSuccessful ? "All actions completed successfully!" : "Actions completed with some issues.";
+        
+        currentMessage += `\n${successEmoji} **${statusText}**`;
+        
+        // Add follow-up suggestion based on what was done
+        if (allSuccessful) {
+          currentMessage += `\n\nIs there anything else you'd like to do with your categories or accounting setup?`;
+        } else {
+          currentMessage += `\n\nWould you like me to help fix any of the issues that occurred?`;
+        }
+        
+        setMessages((prev) =>
+          prev.map((msg, idx) => (idx === messageIndex ? { ...msg, content: currentMessage } : msg))
+        );
+      } else if (message.pendingAction.action === "batch_execute") {
+        // Execute batch operations
+        const operations = message.pendingAction.operations;
+        const results: string[] = [];
+        let currentMessage = message.content + "\n\n✅ **Executing batch operations:**\n";
+
+        // Check if we have currentCompany
+        if (!currentCompany) {
+          setMessages((prev) =>
+            prev.map((msg, idx) =>
+              idx === messageIndex
+                ? {
+                    ...msg,
+                    content: msg.content + "\n\n❌ **Error:** No company context available. Please refresh the page and try again.",
+                    showConfirmation: false,
+                    pendingAction: undefined,
+                  }
+                : msg
+            )
+          );
+          return;
+        }
+
+        console.log('Starting batch execution with company:', currentCompany.id); // Debug log
+
+        // Update message to show it's executing
+        setMessages((prev) =>
+          prev.map((msg, idx) =>
+            idx === messageIndex
+              ? { ...msg, content: currentMessage, showConfirmation: false, pendingAction: undefined }
+              : msg
+          )
+        );
+        
+        let allSuccessful = true;
+
+        // Execute each operation in sequence
+        for (let i = 0; i < operations.length; i++) {
+          const operation = operations[i];
+          try {
+            // Update to show current operation being processed
+            const processingMessage = currentMessage + `\n🔄 Processing operation ${i + 1}...`;
+            setMessages((prev) =>
+              prev.map((msg, idx) => (idx === messageIndex ? { ...msg, content: processingMessage } : msg))
+            );
+
+            // Create action from operation
+            const action = { 
+              action: operation.action, 
+              ...(operation.params || operation) 
+            };
+            
+            // Add company_id for category operations if not present
+            if (action.action === 'create_category' && !action.company_id && currentCompany) {
+              action.company_id = currentCompany.id;
+            }
+            
+            console.log('Executing batch operation:', action); // Debug log
+            console.log('Original operation:', operation); // Debug log for operation structure
+            
+            const result = await executeAction(action, true, categories);
+            
+            results.push(`${i + 1}. ${result}`);
+            currentMessage += `${i + 1}. ${result}\n`;
+
+            // Check if operation was not successful
+            if (result.toLowerCase().includes('error') || result.toLowerCase().includes('failed') || result.toLowerCase().includes('could not')) {
+              allSuccessful = false;
+            }
+
+            // Small delay to ensure UI updates are processed
+            await new Promise((resolve) => setTimeout(resolve, 200));
+
+            // Update message with progress
+            setMessages((prev) =>
+              prev.map((msg, idx) => (idx === messageIndex ? { ...msg, content: currentMessage } : msg))
+            );
+          } catch (error) {
+            allSuccessful = false;
+            results.push(`${i + 1}. Error: ${error}`);
+            currentMessage += `${i + 1}. ❌ Error: ${error}\n`;
+
+            // Update message with error
+            setMessages((prev) =>
+              prev.map((msg, idx) => (idx === messageIndex ? { ...msg, content: currentMessage } : msg))
+            );
+          }
+        }
+
+        // Clear the queue
+        setPendingToolQueue([]);
+        
+        // Refresh categories
+        await refreshCategories();
+
+        // Final message update
+        const successEmoji = allSuccessful ? '🎉' : '⚠️';
+        const statusText = allSuccessful ? "All batch operations completed successfully!" : "Batch operations completed with some issues.";
+        
+        currentMessage += `\n${successEmoji} **${statusText}**`;
+        
+        // Add follow-up suggestion based on what was done
+        if (allSuccessful) {
+          currentMessage += `\n\nIs there anything else you'd like to do with your categories or accounting setup?`;
+        } else {
+          currentMessage += `\n\nWould you like me to help fix any of the issues that occurred?`;
+        }
+        
         setMessages((prev) =>
           prev.map((msg, idx) => (idx === messageIndex ? { ...msg, content: currentMessage } : msg))
         );
@@ -619,6 +895,19 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
                 : msg
             )
           );
+          
+          // Add follow-up suggestion if successful
+          if (!result.toLowerCase().includes('error') && !result.toLowerCase().includes('failed')) {
+            setTimeout(() => {
+              setMessages(prev => [
+                ...prev,
+                {
+                  role: "assistant",
+                  content: "Is there anything else you'd like to do with your categories or accounting setup?"
+                }
+              ]);
+            }, 1000);
+          }
         } catch (error) {
           // Update the message to show the error
           setMessages((prev) =>
@@ -658,18 +947,35 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
     // Update activity time on user interaction
     updateActivityTime();
 
+    const userMessage = inputMessage.trim();
     const newMessage: Message = {
       role: "user",
-      content: inputMessage,
+      content: userMessage,
     };
+    
     setMessages((prev) => [...prev, newMessage]);
     setInputMessage("");
 
-    // Only provide categories context
+    // Check for vague prompts and handle them
+    if (isVaguePrompt(userMessage)) {
+      handleVaguePrompt(userMessage);
+      return;
+    }
+
+    // Prepare context for AI
     const contextMessages: { role: string; content: string }[] = [
       {
         role: "system",
-        content: `Available categories: ${categories.map((c) => c.name).join(", ")}`,
+        content: `Current categories in the system:
+${categories.map((c) => `- ${c.name} (${c.type})${c.parent_id ? ` - child of ${categories.find(p => p.id === c.parent_id)?.name || 'unknown parent'}` : ''}`).join('\n')}
+
+Current payees in the system:
+${payees.map((p) => `- ${p.name}`).join('\n')}
+
+Available category names: ${categories.map((c) => c.name).join(", ")}
+Available payee names: ${payees.map((p) => p.name).join(", ")}
+
+IMPORTANT: Before performing any operation that references categories or payees, check if they exist in the current lists above. If any referenced categories or payees don't exist, automatically create them first using the batch_execute tool to include both creation and main operations in the same batch.`
       },
     ];
 
@@ -682,16 +988,16 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
     setMessages((prev) => [...prev, { role: "assistant", content: "Thinking..." }]);
 
     try {
-      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      const res = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${process.env.NEXT_PUBLIC_GROQ_API_KEY}`,
+          Authorization: `Bearer ${process.env.NEXT_PUBLIC_OPENAI_API_KEY}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "llama-3.3-70b-versatile",
+          model: "gpt-3.5-turbo",
           messages: openAIMessages,
-          max_tokens: 256,
+          max_tokens: 512,
           temperature: 0.2,
           tools,
         }),
@@ -707,78 +1013,197 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
       // Handle tool calls (preferred method)
       if (toolCalls && toolCalls.length > 0) {
         // Handle multiple tool calls - queue them all up
-        const allActions: any[] = [];
-        let confirmationMessage = "";
+        if (toolCalls.length > 1) {
+          let confirmationMessage = "I will perform the following actions:\n\n";
 
         toolCalls.forEach((toolCall: any, index: number) => {
           const functionName = toolCall.function?.name;
           const args = JSON.parse(toolCall.function?.arguments || "{}");
 
           if (functionName === "create_category") {
-            allActions.push({
-              action: "create_category",
-              name: args.name,
-              type: args.type,
-            });
-            confirmationMessage += `${toolCalls.length > 1 ? `${index + 1}. ` : ""}Create category "${
-              args.name
-            }" with type "${args.type}"${toolCalls.length > 1 ? "\n" : ""}`;
-          } else if (functionName === "rename_category") {
-            allActions.push({
-              action: "rename_category",
-              oldName: args.oldName,
-              newName: args.newName,
-            });
-            confirmationMessage += `${toolCalls.length > 1 ? `${index + 1}. ` : ""}Rename category "${
-              args.oldName
-            }" to "${args.newName}"${toolCalls.length > 1 ? "\n" : ""}`;
+              confirmationMessage += `${index + 1}. Create category "${args.name}" with type "${args.type}"${
+                args.parentName ? ` under ${args.parentName}` : ''
+              }\n`;
+            } else if (functionName === "update_category") {
+              confirmationMessage += `${index + 1}. Update category "${args.categoryName || args.categoryId}"${
+                args.name ? ` to name "${args.name}"` : ''
+              }${
+                args.type ? ` and type "${args.type}"` : ''
+              }\n`;
           } else if (functionName === "delete_category") {
-            allActions.push({
-              action: "delete_category",
-              name: args.name,
-            });
-            confirmationMessage += `${toolCalls.length > 1 ? `${index + 1}. ` : ""}Delete category "${args.name}"${
-              toolCalls.length > 1 ? "\n" : ""
-            }`;
+              confirmationMessage += `${index + 1}. Delete category "${args.categoryName || args.categoryId}"\n`;
+            } else if (functionName === "assign_parent_category") {
+              confirmationMessage += `${index + 1}. Move category "${
+                args.childCategoryName || args.childCategoryId
+              }" under "${args.parentCategoryName || args.parentCategoryId}"\n`;
           } else if (functionName === "change_category_type") {
-            allActions.push({
-              action: "change_category_type",
-              categoryName: args.categoryName,
-              newType: args.newType,
-            });
-            confirmationMessage += `${toolCalls.length > 1 ? `${index + 1}. ` : ""}Change category "${
-              args.categoryName
-            }" type to "${args.newType}"${toolCalls.length > 1 ? "\n" : ""}`;
-          } else if (functionName === "assign_parent_category") {
-            allActions.push({
-              action: "assign_parent_category",
-              categoryName: args.childName,
-              parentCategoryName: args.parentName,
-            });
-            confirmationMessage += `${toolCalls.length > 1 ? `${index + 1}. ` : ""}Assign category "${
-              args.childName
-            }" under "${args.parentName}"${toolCalls.length > 1 ? "\n" : ""}`;
-          }
-        });
+              confirmationMessage += `${index + 1}. Change category "${
+                args.categoryName || args.categoryId
+              }" type to "${args.newType}"\n`;
+            } else if (functionName === "create_payee") {
+              confirmationMessage += `${index + 1}. Create payee "${args.name}"\n`;
+            } else if (functionName === "update_payee") {
+              confirmationMessage += `${index + 1}. Update payee "${args.payeeName || args.payeeId}" to "${args.name}"\n`;
+            } else if (functionName === "delete_payee") {
+              confirmationMessage += `${index + 1}. Delete payee "${args.payeeName || args.payeeId}"\n`;
+            }
+          });
 
-        if (toolCalls.length > 1) {
-          confirmationMessage =
-            "I will perform the following actions:\n\n" +
-            confirmationMessage +
-            "\nPress Confirm to execute all actions, or Cancel to abort.";
-        } else {
-          confirmationMessage = "I will " + confirmationMessage.toLowerCase() + ". Press Confirm to proceed.";
+          confirmationMessage += "\nPress Confirm to execute all actions, or Cancel to abort.";
+
+          // Set up for execution
+          setPendingToolQueue(toolCalls);
+          setMessages((prev) => [
+            ...prev.slice(0, -1), // remove 'Thinking...'
+            {
+              role: "assistant",
+              content: confirmationMessage,
+              showConfirmation: true,
+              pendingAction: { action: "multi_execute" },
+            },
+          ]);
+          return;
         }
 
-        // Set up for batch execution
-        setPendingToolQueue(allActions);
+        // Single tool call
+        const toolCall = toolCalls[0];
+        const functionName = toolCall.function?.name;
+        const args = JSON.parse(toolCall.function?.arguments || "{}");
+        
+        let confirmationMessage = '';
+        let pendingAction: any = null;
+
+        switch(functionName) {
+          case 'create_category':
+            confirmationMessage = `I'll create a new category named "${args.name}" with type "${args.type}"${
+              args.parentName ? ` under ${args.parentName}` : ''
+            }. Would you like to proceed?`;
+            pendingAction = { action: 'create_category', ...args };
+            break;
+          case 'update_category':
+            confirmationMessage = `I'll update the category "${args.categoryName || args.categoryId}"${
+              args.name ? ` to name "${args.name}"` : ''
+            }${
+              args.type ? ` with type "${args.type}"` : ''
+            }. Would you like to proceed?`;
+            pendingAction = { action: 'update_category', ...args };
+            break;
+          case 'delete_category':
+            confirmationMessage = `I'll delete the category "${args.categoryName || args.categoryId}". Would you like to proceed?`;
+            pendingAction = { action: 'delete_category', ...args };
+            break;
+          case 'assign_parent_category':
+            confirmationMessage = `I'll move category "${
+              args.childCategoryName || args.childCategoryId
+            }" under "${
+              args.parentCategoryName || args.parentCategoryId
+            }". Would you like to proceed?`;
+            pendingAction = { action: 'assign_parent_category', ...args };
+            break;
+          case 'change_category_type':
+            confirmationMessage = `I'll change category "${
+              args.categoryName || args.categoryId
+            }" type to "${args.newType}". Would you like to proceed?`;
+            pendingAction = { action: 'change_category_type', ...args };
+            break;
+          case 'create_payee':
+            confirmationMessage = `I'll create a new payee named "${args.name}". Would you like to proceed?`;
+            pendingAction = { action: 'create_payee', ...args };
+            break;
+          case 'update_payee':
+            confirmationMessage = `I'll update the payee "${args.payeeName || args.payeeId}" to "${args.name}". Would you like to proceed?`;
+            pendingAction = { action: 'update_payee', ...args };
+            break;
+          case 'delete_payee':
+            confirmationMessage = `I'll delete the payee "${args.payeeName || args.payeeId}". Would you like to proceed?`;
+            pendingAction = { action: 'delete_payee', ...args };
+            break;
+          case 'batch_execute':
+            // Handle batch execute by showing all operations
+            let batchMessage = "I'll perform the following operations:\n\n";
+            let hasAutoCreation = false;
+            
+            args.operations.forEach((op: any, index: number) => {
+              // Safely access parameters with fallbacks
+              const params = op.params || op;
+              
+              switch(op.action) {
+                case 'create_category':
+                  const categoryName = params.name || 'Unknown Category';
+                  const categoryType = params.type || 'Unknown Type';
+                  const isAutoCreation = !categories.find(c => c.name.toLowerCase() === categoryName.toLowerCase());
+                  if (isAutoCreation) {
+                    hasAutoCreation = true;
+                    batchMessage += `${index + 1}. 🔧 Auto-create category "${categoryName}" (${categoryType}) - category doesn't exist yet\n`;
+                  } else {
+                    batchMessage += `${index + 1}. Create category "${categoryName}" (${categoryType})\n`;
+                  }
+                  break;
+                case 'update_category':
+                  const updateCategoryName = params.categoryName || params.categoryId || 'Unknown Category';
+                  batchMessage += `${index + 1}. Update category "${updateCategoryName}"\n`;
+                  break;
+                case 'delete_category':
+                  const deleteCategoryName = params.categoryName || params.categoryId || 'Unknown Category';
+                  batchMessage += `${index + 1}. Delete category "${deleteCategoryName}"\n`;
+                  break;
+                case 'create_payee':
+                  const payeeName = params.name || 'Unknown Payee';
+                  batchMessage += `${index + 1}. Create payee "${payeeName}"\n`;
+                  break;
+                case 'update_payee':
+                  const updatePayeeName = params.payeeName || params.payeeId || 'Unknown Payee';
+                  const newPayeeName = params.name || 'Unknown Name';
+                  batchMessage += `${index + 1}. Update payee "${updatePayeeName}" to "${newPayeeName}"\n`;
+                  break;
+                case 'delete_payee':
+                  const deletePayeeName = params.payeeName || params.payeeId || 'Unknown Payee';
+                  batchMessage += `${index + 1}. Delete payee "${deletePayeeName}"\n`;
+                  break;
+                case 'assign_parent_category':
+                  const childName = params.childCategoryName || params.childCategoryId || 'Unknown Child';
+                  const parentName = params.parentCategoryName || params.parentCategoryId || 'Unknown Parent';
+                  batchMessage += `${index + 1}. Move "${childName}" under "${parentName}"\n`;
+                  break;
+                case 'change_category_type':
+                  const changeCategoryName = params.categoryName || params.categoryId || 'Unknown Category';
+                  const newType = params.newType || 'Unknown Type';
+                  batchMessage += `${index + 1}. Change "${changeCategoryName}" type to "${newType}"\n`;
+                  break;
+                default:
+                  batchMessage += `${index + 1}. ${op.action} operation\n`;
+              }
+            });
+            
+            if (hasAutoCreation) {
+              batchMessage += "\n💡 I detected that some categories don't exist yet, so I'll create them first before performing the main operations.";
+            }
+            
+            batchMessage += "\nWould you like to proceed with all these operations?";
+            
+            confirmationMessage = batchMessage;
+            pendingAction = { action: 'batch_execute', operations: args.operations };
+            break;
+          default:
+            // For tools that don't require confirmation
+            setMessages((prev) => [
+              ...prev.slice(0, -1), // remove 'Thinking...'
+              {
+                role: "assistant",
+                content: aiResponse || `I'll ${functionName.replace('_', ' ')} based on your request.`,
+              },
+            ]);
+            return;
+        }
+        
+        // Set confirmation message
         setMessages((prev) => [
           ...prev.slice(0, -1), // remove 'Thinking...'
           {
             role: "assistant",
             content: confirmationMessage,
             showConfirmation: true,
-            pendingAction: { action: "batch_execute" },
+            pendingAction: pendingAction,
           },
         ]);
         return;
@@ -906,13 +1331,35 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
       }
     } else if (pendingToolArgs.type === "delete_category") {
       try {
-        result = await deleteCategory(pendingToolArgs.args.categoryId);
+        // The store now handles both ID and name, so we can pass either directly
+        let categoryIdOrName = pendingToolArgs.args.categoryId || pendingToolArgs.args.categoryName;
+        
+        // Handle different possible field names for category name
+        if (!categoryIdOrName) {
+          categoryIdOrName = pendingToolArgs.args.name || pendingToolArgs.args.category || pendingToolArgs.args.category_name;
+        }
+        
+        console.log('Delete category debug:', { 
+          action: pendingToolArgs, 
+          categoryIdOrName, 
+          availableCategories: categories.map((c: any) => ({ id: c.id, name: c.name }))
+        }); // Debug log
+        
+        if (!categoryIdOrName) {
+          setMessages((prev) => [...prev, { role: "assistant", content: 'Category ID or name is required for deletion' }]);
+          return;
+        }
+        
+        console.log('Deleting category:', { categoryIdOrName, pendingToolArgs }); // Debug log
+        
+        const result = await deleteCategory(categoryIdOrName);
+        
         if (result) {
           setMessages((prev) => [
             ...prev,
             {
               role: "assistant",
-              content: `Category "${pendingToolArgs.args.categoryId}" has been deleted. Would you like to make any other changes to your categories?`,
+              content: `Category "${categoryIdOrName}" has been deleted. Would you like to make any other changes to your categories?`,
             },
           ]);
         } else {
@@ -937,6 +1384,34 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
           ...prev,
           { role: "assistant", content: `Error changing category type: ${result.error}` },
         ]);
+      }
+    } else if (pendingToolArgs.type === "update_payee") {
+      result = await updatePayee(pendingToolArgs.args.payeeId, { name: pendingToolArgs.args.name });
+      if (result) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: `Payee "${pendingToolArgs.args.payeeId}" has been updated to "${pendingToolArgs.args.name}". Would you like to make any other changes to this payee?`,
+          },
+        ]);
+      } else {
+        const errorMessage = payeesError || 'Failed to update payee';
+        setMessages((prev) => [...prev, { role: "assistant", content: `Error updating payee: ${errorMessage}` }]);
+      }
+    } else if (pendingToolArgs.type === "delete_payee") {
+      result = await deletePayee(pendingToolArgs.args.payeeId);
+      if (result) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: `Payee "${pendingToolArgs.args.payeeId}" has been deleted. Would you like to make any other changes to your payees?`,
+          },
+        ]);
+      } else {
+        const errorMessage = payeesError || 'Failed to delete payee';
+        setMessages((prev) => [...prev, { role: "assistant", content: `Error deleting payee: ${errorMessage}` }]);
       }
     }
     // Remove the first tool from the queue and set up the next one
@@ -997,6 +1472,37 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
             }" to "${JSON.parse(nextTool.function.arguments).newType}". Please press confirm.`,
           },
         ]);
+      } else if (nextTool.function?.name === "create_payee") {
+        setPendingToolArgs({ type: "create_payee", args: JSON.parse(nextTool.function.arguments) });
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: `To confirm, I will create a new payee named "${
+              JSON.parse(nextTool.function.arguments).name
+            }". Please press confirm.`,
+          },
+        ]);
+      } else if (nextTool.function?.name === "update_payee") {
+        setPendingToolArgs({ type: "update_payee", args: JSON.parse(nextTool.function.arguments) });
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: `To confirm, I will update the payee "${JSON.parse(nextTool.function.arguments).payeeId || JSON.parse(nextTool.function.arguments).payeeName}" to "${JSON.parse(nextTool.function.arguments).name}". Please press confirm.`,
+          },
+        ]);
+      } else if (nextTool.function?.name === "delete_payee") {
+        setPendingToolArgs({ type: "delete_payee", args: JSON.parse(nextTool.function.arguments) });
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: `To confirm, I will delete the payee "${
+              JSON.parse(nextTool.function.arguments).payeeId || JSON.parse(nextTool.function.arguments).payeeName
+            }". Please press confirm.`,
+          },
+        ]);
       }
     } else {
       setPendingToolArgs(null);
@@ -1018,6 +1524,116 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
       window.removeEventListener("keydown", handleGlobalKeyDown);
     };
   }, [pendingToolArgs]);
+
+  // Helper function to identify vague prompts
+  const isVaguePrompt = (message: string): boolean => {
+    const vaguePatterns = [
+      /^add\s+category$/i, // "Add category"
+      /^new\s+category$/i, // "New category"
+      /^create\s+category$/i, // "Create category"
+      /^add\s+payee$/i, // "Add payee"
+      /^new\s+payee$/i, // "New payee"
+      /^create\s+payee$/i, // "Create payee"
+      /^delete\s+(\w+)$/i, // "Delete Test", etc.
+      /^update\s+(\w+)$/i, // "Update category", etc.
+      /^change\s+(\w+)$/i, // "Change type", etc.
+      /^move\s+(\w+)$/i, // "Move category", etc.
+    ];
+    
+    return vaguePatterns.some(pattern => pattern.test(message.trim()));
+  };
+  
+  // Helper function to identify multi-action prompts
+  const isMultiActionPrompt = (message: string): boolean => {
+    // Check for multiple verbs
+    const commonVerbs = ['create', 'add', 'delete', 'remove', 'update', 'move', 'rename', 'change', 'group'];
+    
+    // Count occurrences of common verbs
+    const verbCount = commonVerbs.reduce((count, verb) => {
+      const regex = new RegExp(`\\b${verb}\\b`, 'gi');
+      const matches = message.match(regex);
+      return count + (matches ? matches.length : 0);
+    }, 0);
+    
+    // Check for and/then patterns
+    const hasConjunctions = /\band\b|\bthen\b|\bafter\b|\bwhile\b|\binto\b/i.test(message);
+    
+    // Check for commas with conjunctions
+    const hasCommaLists = /,\s*and\b/i.test(message);
+    
+    // Check for numbered lists
+    const hasNumberedList = /\d+\.|\(\d+\)/.test(message);
+    
+    // Check for multiple items in a list
+    const multipleItems = (message.match(/,/g) || []).length >= 2;
+    
+    // Check for complex patterns like "Create X, Y, and Z as Type"
+    const hasComplexList = /create\s+[^,]+(?:,\s*[^,]+)*\s+as\s+\w+/i.test(message);
+    
+    // Check for "Group X and Y under Z" patterns
+    const hasGroupPattern = /group\s+[^,]+(?:,\s*[^,]+)*\s+under\s+\w+/i.test(message);
+    
+    // Check for "Add payees: X, Y, Z" patterns
+    const hasPayeeListPattern = /add\s+payees?:\s*[^,]+(?:,\s*[^,]+)*/i.test(message);
+    
+    // Check for "Rename X to Y and move it under Z" patterns
+    const hasRenameMovePattern = /rename\s+\w+\s+to\s+\w+\s+and\s+move/i.test(message);
+    
+    // Check for "Delete X, then create Y" patterns
+    const hasDeleteThenCreate = /delete\s+\w+,\s*then\s+create/i.test(message);
+    
+    // Check for multiple category names in quotes or specific patterns
+    const hasMultipleCategories = /["'][^"']+["']\s*(?:,\s*["'][^"']+["'])+/i.test(message);
+    
+    // Check for mixed operations like "Add payee X and create category Y"
+    const hasMixedOperations = /add\s+payee\s+\w+\s+and\s+create/i.test(message);
+    
+    return (verbCount > 1) || 
+           hasConjunctions || 
+           hasCommaLists || 
+           hasNumberedList || 
+           multipleItems ||
+           hasComplexList ||
+           hasGroupPattern ||
+           hasPayeeListPattern ||
+           hasRenameMovePattern ||
+           hasDeleteThenCreate ||
+           hasMultipleCategories ||
+           hasMixedOperations;
+  };
+  
+  // Helper function to handle ambiguous or vague requests
+  const handleVaguePrompt = (userMessage: string) => {
+    let clarificationMessage = "I'd be happy to help with that, but I need a bit more information:";
+    
+    if (/add|create|new/i.test(userMessage) && /category|account/i.test(userMessage)) {
+      clarificationMessage = "I'd be happy to create a new category for you. Could you please provide:\n\n" +
+        "1. The complete name for the category\n" +
+        "2. What type it should be (Asset, Liability, Equity, Revenue, COGS, Expense)\n" +
+        "3. Should it be a subcategory under another category? If so, which one?";
+    } else if (/add|create|new/i.test(userMessage) && /payee/i.test(userMessage)) {
+      clarificationMessage = "I'd be happy to create a new payee for you. Could you please provide:\n\n" +
+        "1. The complete name for the payee\n" +
+        "2. Any additional details about the payee if relevant";
+    } else if (/delete|remove/i.test(userMessage)) {
+      clarificationMessage = "I'd be happy to delete that for you, but I need to know exactly what you want to delete:\n\n" +
+        "1. The complete name of the category or payee you want to delete\n" +
+        "2. Are you sure you want to permanently remove it?";
+    } else if (/update|change|modify/i.test(userMessage)) {
+      clarificationMessage = "I'd be happy to make that change, but I need more specifics:\n\n" +
+        "1. The exact name of the category or payee you want to change\n" +
+        "2. What specific changes would you like to make?";
+    } else if (/move/i.test(userMessage)) {
+      clarificationMessage = "I'd be happy to help move a category. Could you please specify:\n\n" +
+        "1. Which category you want to move\n" +
+        "2. Where you want to move it (under which parent category, or to the root level)";
+    }
+    
+    setMessages((prev) => [...prev, {
+      role: "assistant",
+      content: clarificationMessage
+    }]);
+  };
 
   const panelStyle = {
     width: isOpen ? panelWidth : 0,
