@@ -1,48 +1,44 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { validateCompanyContext } from "@/lib/auth-utils";
 
-export async function GET(request: NextRequest) {
+/**
+ * GET /api/automations
+ * Fetch all automations for the current company
+ */
+export async function GET(req: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
-    const companyId = searchParams.get("company_id");
-    const automationType = searchParams.get("automation_type");
-
-    if (!companyId) {
-      return NextResponse.json(
-        { error: "Company ID is required" },
-        { status: 400 }
-      );
+    // Validate company context
+    const context = validateCompanyContext(req);
+    if ("error" in context) {
+      return NextResponse.json({ error: context.error }, { status: 401 });
     }
 
-    // Build query
-    let query = supabase
+    const { companyId } = context;
+
+    // Fetch automations for the company
+    const { data: automations, error } = await supabase
       .from("automations")
-      .select("*")
+      .select("id, automation_type, condition_type, condition_value, action_value, auto_add, enabled, company_id")
       .eq("company_id", companyId)
+      .eq("enabled", true)
       .order("name");
-
-    // Filter by automation type if provided
-    if (automationType && ["payee", "category"].includes(automationType)) {
-      query = query.eq("automation_type", automationType);
-    }
-
-    const { data, error } = await query;
 
     if (error) {
       console.error("Error fetching automations:", error);
-      return NextResponse.json(
-        { error: "Failed to fetch automations" },
-        { status: 500 }
-      );
+      return NextResponse.json({ 
+        error: "Failed to fetch automations" 
+      }, { status: 500 });
     }
 
-    return NextResponse.json({ automations: data });
-  } catch (error) {
-    console.error("Error in GET /api/automations:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ 
+      automations: automations || []
+    });
+
+  } catch (err: unknown) {
+    console.error("Error in GET /api/automations:", err);
+    const errorMessage = err instanceof Error ? err.message : "Unknown error occurred";
+    return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }
 
