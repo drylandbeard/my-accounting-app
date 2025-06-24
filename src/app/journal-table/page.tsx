@@ -451,16 +451,13 @@ export default function JournalTablePage() {
     try {
       setSaving(true);
       
-      // Generate a new transaction ID for both entries
-      const transactionId = crypto.randomUUID();
-      
-      // Create journal entry
+      // Create journal entry (no transaction_id needed for manual entries)
       const journalEntry = {
         date: newEntry.date,
         description: newEntry.description,
         debit: newEntry.type === 'debit' ? amount : 0,
         credit: newEntry.type === 'credit' ? amount : 0,
-        transaction_id: transactionId,
+        transaction_id: null, // Set to null for manual journal entries
         chart_account_id: newEntry.categoryId,
         company_id: currentCompany.id
       };
