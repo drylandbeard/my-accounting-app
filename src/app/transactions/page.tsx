@@ -533,7 +533,7 @@ export default function TransactionsPage() {
           startDate = thirtyDaysAgo.toISOString().split('T')[0];
         }
 
-        const response = await api.post('/api/transactions/get-all', {
+        const response = await api.post('/api/transactions/sync', {
           access_token: item.access_token,
           item_id: item.item_id,
           start_date: startDate,
