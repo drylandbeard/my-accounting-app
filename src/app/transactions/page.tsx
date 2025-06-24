@@ -533,7 +533,7 @@ export default function TransactionsPage() {
           startDate = thirtyDaysAgo.toISOString().split('T')[0];
         }
 
-        const response = await api.post('/api/get-transactions', {
+        const response = await api.post('/api/transactions/get-all', {
           access_token: item.access_token,
           item_id: item.item_id,
           start_date: startDate,
@@ -1293,7 +1293,7 @@ export default function TransactionsPage() {
       };
 
       // Use the bulk API endpoint
-      const response = await api.post('/api/move-transactions', bulkRequest);
+      const response = await api.post('/api/transactions/move-to-added', bulkRequest);
 
       const data = await response.json();
       
@@ -1342,7 +1342,7 @@ export default function TransactionsPage() {
       }
 
       // Use the bulk undo API endpoint
-      const response = await api.post('/api/undo-transactions', {
+      const response = await api.post('/api/transactions/undo-added', {
         transaction_ids: transactions.map(tx => tx.id)
       });
 
@@ -1793,7 +1793,7 @@ export default function TransactionsPage() {
       const selectedAccountIdInCOA = selectedAccount.id;
 
       // Call the update transaction API
-      const response = await api.post('/api/update-transaction', {
+      const response = await api.post('/api/transaction/update', {
         transactionId: editModal.transaction.id,
         date: updatedTransaction.date,
         description: updatedTransaction.description,
