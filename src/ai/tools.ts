@@ -85,15 +85,43 @@ export const tools = [
   {
     type: 'function',
     function: {
-      name: 'merge_categories',
-      description: 'Merge two categories together, transferring all transactions from source to target category',
+      name: 'create_payee',
+      description: 'Create a new payee using the payeesStore',
       parameters: {
         type: 'object',
         properties: {
-          sourceCategoryId: { type: 'string', description: 'The ID of the category to merge from (will be deleted)' },
-          sourceCategoryName: { type: 'string', description: 'The name of the category to merge from (if ID is not known)' },
-          targetCategoryId: { type: 'string', description: 'The ID of the category to merge into (will be kept)' },
-          targetCategoryName: { type: 'string', description: 'The name of the category to merge into (if ID is not known)' }
+          name: { type: 'string', description: 'The name of the new payee' }
+        },
+        required: ['name'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_payee',
+      description: 'Update an existing payee name using the payeesStore',
+      parameters: {
+        type: 'object',
+        properties: {
+          payeeId: { type: 'string', description: 'The ID of the payee to update' },
+          payeeName: { type: 'string', description: 'The name of the payee to update (if ID is not known)' },
+          name: { type: 'string', description: 'The new name for the payee' }
+        },
+        required: ['name'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_payee',
+      description: 'Delete an existing payee using the payeesStore',
+      parameters: {
+        type: 'object',
+        properties: {
+          payeeId: { type: 'string', description: 'The ID of the payee to delete' },
+          payeeName: { type: 'string', description: 'The name of the payee to delete (if ID is not known)' }
         },
         required: []
       },
@@ -122,7 +150,9 @@ export const tools = [
                     'delete_category',
                     'assign_parent_category',
                     'change_category_type',
-                    'merge_categories'
+                    'create_payee',
+                    'update_payee',
+                    'delete_payee'
                   ]
                 },
                 params: {

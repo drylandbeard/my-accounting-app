@@ -27,10 +27,13 @@ interface PayeesState {
   // Actions
   refreshPayees: () => Promise<void>;
   addPayee: (payee: { name: string }) => Promise<Payee | null>;
-  updatePayee: (id: string, updates: { name: string }) => Promise<boolean>;
-  deletePayee: (id: string) => Promise<boolean>;
+  updatePayee: (idOrName: string, updates: { name: string }) => Promise<boolean>;
+  deletePayee: (idOrName: string) => Promise<boolean>;
   highlightPayee: (payeeId: string) => void;
   clearError: () => void;
+  
+  // Helper functions
+  findPayeeByName: (name: string, caseSensitive?: boolean) => Payee | null;
 }
 
 export const usePayeesStore = create<PayeesState>((set, get) => ({
@@ -111,12 +114,28 @@ export const usePayeesStore = create<PayeesState>((set, get) => ({
     }
   },
   
-  updatePayee: async (id: string, updates) => {
+  updatePayee: async (idOrName: string, updates) => {
+    // Determine if we have an ID or name
+    let payeeId = idOrName;
+    
+    // Check if it looks like a UUID (ID) or a name
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrName);
+    
+    if (!isUUID) {
+      // It's likely a name, find the payee by name
+      const payee = get().findPayeeByName(idOrName);
+      if (!payee) {
+        set({ error: `Payee not found: ${idOrName}` });
+        return false;
+      }
+      payeeId = payee.id;
+    }
+    
     try {
       // Optimistic update with proper sorting
       const { payees } = get();
       const updatedPayees = payees.map((payee) =>
-        payee.id === id ? { ...payee, ...updates } : payee
+        payee.id === payeeId ? { ...payee, ...updates } : payee
       );
       
       // Sort the payees to keep them alphabetically arranged
@@ -124,11 +143,11 @@ export const usePayeesStore = create<PayeesState>((set, get) => ({
       set({ payees: sortedPayees, error: null });
       
       // Highlight immediately with optimistic update
-      get().highlightPayee(id);
+      get().highlightPayee(payeeId);
       
       // Prepare data for API call
       const requestData = {
-        id,
+        id: payeeId,
         name: updates.name.trim()
       };
 
@@ -164,16 +183,32 @@ export const usePayeesStore = create<PayeesState>((set, get) => ({
     }
   },
   
-  deletePayee: async (id: string) => {
+  deletePayee: async (idOrName: string) => {
+    // Determine if we have an ID or name
+    let payeeId = idOrName;
+    
+    // Check if it looks like a UUID (ID) or a name
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrName);
+    
+    if (!isUUID) {
+      // It's likely a name, find the payee by name
+      const payee = get().findPayeeByName(idOrName);
+      if (!payee) {
+        set({ error: `Payee not found: ${idOrName}` });
+        return false;
+      }
+      payeeId = payee.id;
+    }
+    
     try {
       // Optimistic delete
       const { payees } = get();
-      const updatedPayees = payees.filter((payee) => payee.id !== id);
+      const updatedPayees = payees.filter((payee) => payee.id !== payeeId);
       set({ payees: updatedPayees, error: null });
       
       // Call the API route
       const response = await api.delete('/api/payee/delete', {
-        body: JSON.stringify({ payeeId: id })
+        body: JSON.stringify({ payeeId })
       });
       
       if (!response.ok) {
@@ -229,5 +264,14 @@ export const usePayeesStore = create<PayeesState>((set, get) => ({
   
   clearError: () => {
     set({ error: null });
+  },
+  
+  // Helper functions
+  findPayeeByName: (name: string, caseSensitive?: boolean) => {
+    const { payees } = get();
+    const foundPayee = payees.find((payee) =>
+      caseSensitive ? payee.name === name : payee.name.toLowerCase() === name.toLowerCase()
+    );
+    return foundPayee || null;
   }
 })); 
