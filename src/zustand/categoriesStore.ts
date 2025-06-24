@@ -137,10 +137,12 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
   },
   
   updateCategory: async (id: string, updates) => {
+    // Store original categories for potential revert
+    const originalCategories = get().categories;
+    
     try {
       // Optimistic update with proper sorting
-      const { categories } = get();
-      const updatedCategories = categories.map((cat) =>
+      const updatedCategories = originalCategories.map((cat) =>
         cat.id === id ? { ...cat, ...updates } : cat
       );
       
@@ -164,7 +166,7 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
         const errorData = await response.json();
         console.error('API error updating category:', errorData.error);
         // Revert optimistic update
-        set({ categories, error: errorData.error || 'Failed to update category' });
+        set({ categories: originalCategories, error: errorData.error || 'Failed to update category' });
         return false;
       }
 
@@ -182,18 +184,19 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
     } catch (err) {
       console.error('Error in updateCategory:', err);
       // Revert optimistic update
-      const { categories } = get();
       const errorMessage = err instanceof Error ? err.message : 'Network error occurred';
-      set({ categories, error: errorMessage });
+      set({ categories: originalCategories, error: errorMessage });
       return false;
     }
   },
   
   deleteCategory: async (id: string) => {
+    // Store original categories for potential revert
+    const originalCategories = get().categories;
+    
     try {
       // Optimistic delete
-      const { categories } = get();
-      const updatedCategories = categories.filter((cat) => cat.id !== id);
+      const updatedCategories = originalCategories.filter((cat) => cat.id !== id);
       set({ categories: updatedCategories, error: null });
       
       // Call the API route
@@ -205,7 +208,7 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
         const errorData = await response.json();
         console.error('API error deleting category:', errorData.error);
         // Revert optimistic delete
-        set({ categories, error: errorData.error || 'Failed to delete category' });
+        set({ categories: originalCategories, error: errorData.error || 'Failed to delete category' });
         return false;
       }
       
@@ -223,8 +226,7 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
     } catch (err) {
       console.error('Error in deleteCategory:', err);
       // Revert optimistic delete
-      const { categories } = get();
-      set({ categories, error: 'Failed to delete category' });
+      set({ categories: originalCategories, error: 'Failed to delete category' });
       return false;
     }
   },

@@ -952,14 +952,14 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
     setMessages((prev) => [...prev, { role: "assistant", content: "Thinking..." }]);
 
     try {
-      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      const res = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${process.env.NEXT_PUBLIC_GROQ_API_KEY}`,
+          Authorization: `Bearer ${process.env.NEXT_PUBLIC_OPENAI_API_KEY}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "llama-3.3-70b-versatile",
+          model: "gpt-4",
           messages: openAIMessages,
           max_tokens: 512,
           temperature: 0.2,

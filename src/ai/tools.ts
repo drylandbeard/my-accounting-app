@@ -45,10 +45,7 @@ export const tools = [
           categoryId: { type: 'string', description: 'The ID of the category to delete' },
           categoryName: { type: 'string', description: 'The name of the category to delete (if ID is not known)' }
         },
-        oneOf: [
-          { required: ['categoryId'] },
-          { required: ['categoryName'] }
-        ]
+        required: []
       },
     },
   },
@@ -65,12 +62,7 @@ export const tools = [
           parentCategoryId: { type: 'string', description: 'The ID of the parent category' },
           parentCategoryName: { type: 'string', description: 'The name of the parent category (if ID is not known)' }
         },
-        oneOf: [
-          { required: ['childCategoryId', 'parentCategoryId'] },
-          { required: ['childCategoryName', 'parentCategoryId'] },
-          { required: ['childCategoryId', 'parentCategoryName'] },
-          { required: ['childCategoryName', 'parentCategoryName'] }
-        ]
+        required: []
       },
     },
   },
@@ -86,10 +78,7 @@ export const tools = [
           categoryName: { type: 'string', description: 'The name of the category to change (if ID is not known)' },
           newType: { type: 'string', description: 'The new type for the category (Asset, Liability, Equity, Revenue, COGS, Expense)' }
         },
-        oneOf: [
-          { required: ['categoryId', 'newType'] },
-          { required: ['categoryName', 'newType'] }
-        ]
+        required: []
       },
     },
   },
@@ -106,12 +95,7 @@ export const tools = [
           targetCategoryId: { type: 'string', description: 'The ID of the category to merge into (will be kept)' },
           targetCategoryName: { type: 'string', description: 'The name of the category to merge into (if ID is not known)' }
         },
-        oneOf: [
-          { required: ['sourceCategoryId', 'targetCategoryId'] },
-          { required: ['sourceCategoryName', 'targetCategoryId'] },
-          { required: ['sourceCategoryId', 'targetCategoryName'] },
-          { required: ['sourceCategoryName', 'targetCategoryName'] }
-        ]
+        required: []
       },
     },
   },
