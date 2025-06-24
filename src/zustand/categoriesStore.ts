@@ -185,7 +185,7 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
     }
     
     // Handle parent_id conversion if it's provided as a name
-    let processedUpdates = { ...updates };
+    let finalParentId = updates.parent_id;
     if (updates.parent_id !== undefined && updates.parent_id !== null) {
       const parentIdOrName = updates.parent_id;
       const isParentUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(parentIdOrName);
@@ -197,9 +197,11 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
           set({ error: `Parent category not found: ${parentIdOrName}` });
           return false;
         }
-        processedUpdates.parent_id = parentCategory.id;
+        finalParentId = parentCategory.id;
       }
     }
+    
+    const processedUpdates = { ...updates, parent_id: finalParentId };
     
     console.log('Final update data:', { categoryId, categoryName, processedUpdates }); // Debug log
     
@@ -254,7 +256,7 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
   },
 
   updateCategoryWithMergeCheck: async (id: string, updates, options = {}) => {
-    const { allowMergePrompt = true, companyId } = options;
+    const { allowMergePrompt = true } = options;
     const { categories } = get();
     
     try {
@@ -268,7 +270,7 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
       if (updates.name && updates.name !== originalCategory.name) {
         const existingCategory = categories.find(cat => 
           cat.id !== id && 
-          cat.name.toLowerCase() === updates.name.toLowerCase()
+          cat.name.toLowerCase() === updates.name!.toLowerCase()
         );
 
         if (existingCategory) {
@@ -321,7 +323,6 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
     
     // Determine if we have an ID or name
     let categoryId = idOrName;
-    let categoryName = null;
     
     // Check if it looks like a UUID (ID) or a name
     const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrName);
@@ -334,7 +335,6 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
         return false;
       }
       categoryId = category.id;
-      categoryName = category.name;
     }
     
     try {

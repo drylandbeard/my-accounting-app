@@ -482,6 +482,8 @@ export default function TransactionsPage() {
   const syncTransactions = async () => {
     setIsSyncing(true);
     setNotification(null);
+    let totalNewTransactions = 0;
+    
     try {
       if (!hasCompanyContext) {
         throw new Error('No company selected. Please select a company first.');
@@ -533,7 +535,7 @@ export default function TransactionsPage() {
           startDate = thirtyDaysAgo.toISOString().split('T')[0];
         }
 
-        const response = await api.post('/api/get-transactions', {
+        const response = await api.post('/api/transactions/sync', {
           access_token: item.access_token,
           item_id: item.item_id,
           start_date: startDate,
@@ -544,12 +546,20 @@ export default function TransactionsPage() {
           const error = await response.json();
           throw new Error(error.error || 'Failed to sync transactions');
         }
+
+        const data = await response.json();
+        if (data.newTransactions) {
+          totalNewTransactions += data.newTransactions;
+        }
       }
 
       // Refresh the transactions list
       await refreshAll();
       const now = new Date();
-      setNotification({ type: 'success', message: `Sync complete! Last synced: ${formatSyncTime(now)}` });
+      const syncMessage = totalNewTransactions > 0 
+        ? `Sync complete! Found ${totalNewTransactions} new transactions. Last synced: ${formatSyncTime(now)}`
+        : `Sync complete! No new transactions found. Last synced: ${formatSyncTime(now)}`;
+      setNotification({ type: 'success', message: syncMessage });
       setTimeout(() => setNotification(null), 4000);
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to sync transactions';
@@ -1293,7 +1303,7 @@ export default function TransactionsPage() {
       };
 
       // Use the bulk API endpoint
-      const response = await api.post('/api/move-transactions', bulkRequest);
+      const response = await api.post('/api/transactions/move-to-added', bulkRequest);
 
       const data = await response.json();
       
@@ -1342,7 +1352,7 @@ export default function TransactionsPage() {
       }
 
       // Use the bulk undo API endpoint
-      const response = await api.post('/api/undo-transactions', {
+      const response = await api.post('/api/transactions/undo-added', {
         transaction_ids: transactions.map(tx => tx.id)
       });
 
@@ -1793,7 +1803,7 @@ export default function TransactionsPage() {
       const selectedAccountIdInCOA = selectedAccount.id;
 
       // Call the update transaction API
-      const response = await api.post('/api/update-transaction', {
+      const response = await api.post('/api/transaction/update', {
         transactionId: editModal.transaction.id,
         date: updatedTransaction.date,
         description: updatedTransaction.description,
@@ -1961,6 +1971,7 @@ export default function TransactionsPage() {
     try {
       const manualAccountId = uuidv4();
       const startingBalance = toFinancialAmount(manualAccountModal.startingBalance || '0');
+      const startingBalanceNum = parseFloat(manualAccountModal.startingBalance || '0');
 
       // Insert into accounts table
       const { error: accountError } = await supabase.from('accounts').insert({
@@ -1995,6 +2006,29 @@ export default function TransactionsPage() {
         return;
       }
 
+      // Create starting balance transaction if starting balance is not zero
+      if (startingBalanceNum !== 0) {
+        const spent = startingBalanceNum < 0 ? Math.abs(startingBalanceNum) : 0;
+        const received = startingBalanceNum > 0 ? startingBalanceNum : 0;
+
+        const { error: transactionError } = await supabase.from('imported_transactions').insert({
+          date: new Date().toISOString().split('T')[0], // Today's date for the starting balance
+          description: 'Starting Balance',
+          plaid_account_id: manualAccountId,
+          plaid_account_name: manualAccountModal.name.trim(),
+          item_id: 'MANUAL_ENTRY',
+          company_id: currentCompany!.id,
+          spent: toFinancialAmount(spent),
+          received: toFinancialAmount(received)
+        });
+
+        if (transactionError) {
+          console.error('Error creating starting balance transaction:', transactionError);
+          // Don't fail the entire operation for this, just log it
+          console.warn('Account created but starting balance transaction failed');
+        }
+      }
+
       setManualAccountModal({
         isOpen: false,
         name: '',
@@ -2004,7 +2038,10 @@ export default function TransactionsPage() {
 
       // Set the newly created account as selected
       setSelectedAccountId(manualAccountId);
-      setNotification({ type: 'success', message: 'Manual account created successfully!' });
+      setNotification({ 
+        type: 'success', 
+        message: `Manual account created successfully${startingBalanceNum !== 0 ? ' with starting balance transaction!' : '!'}` 
+      });
       refreshAll();
     } catch (error) {
       console.error('Error creating manual account:', error);
@@ -3025,29 +3062,29 @@ export default function TransactionsPage() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Payee
                 </label>
-                <Select
-                  options={payeeOptions}
-                  value={payeeOptions.find(opt => opt.value === editModal.transaction?.payee_id) || payeeOptions[0]}
-                  onChange={(selectedOption) => {
-                    const option = selectedOption as SelectOption | null;
-                    if (option?.value === 'add_new') {
-                      setNewPayeeModal({ 
-                        isOpen: true, 
-                        name: '', 
-                        transactionId: editModal.transaction?.id || null
-                      });
-                    } else if (editModal.transaction) {
-                      setEditModal(prev => ({
-                        ...prev,
-                        transaction: prev.transaction ? {
-                          ...prev.transaction,
-                          payee_id: option?.value || undefined
-                        } : null
-                      }));
-                    }
-                  }}
-                  isSearchable
-                />
+                                  <Select
+                    options={payeeOptions}
+                    value={payeeOptions.find(opt => opt.value === editModal.transaction?.payee_id) || payeeOptions[0]}
+                    onChange={(selectedOption) => {
+                      const option = selectedOption as SelectOption | null;
+                      if (option?.value === 'add_new') {
+                        setNewPayeeModal({ 
+                          isOpen: true, 
+                          name: '', 
+                          transactionId: editModal.transaction?.id || null
+                        });
+                      } else if (editModal.transaction) {
+                        setEditModal(prev => ({
+                          ...prev,
+                          transaction: prev.transaction ? {
+                            ...prev.transaction,
+                            payee_id: option?.value === '' ? undefined : option?.value
+                          } : null
+                        }));
+                      }
+                    }}
+                    isSearchable
+                  />
               </div>
 
               <div>

@@ -44,45 +44,33 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: errorMsg }, { status: 500 });
     }
 
-    // 3. Upsert only selected accounts and chart_of_accounts
+    // 3. Update only balance and sync-related fields for selected accounts (preserve custom names)
     for (const account of accountsResponse.data.accounts) {
       // Skip if account is not in selected_account_ids
       if (selected_account_ids && !selected_account_ids.includes(account.account_id)) {
         continue;
       }
 
-      const { account_id, name, balances, type, subtype } = account;
+      const { account_id, balances, type, subtype } = account;
 
-      // Upsert into accounts table
-      const { error: upsertError } = await supabase.from('accounts').upsert({
-        plaid_account_id: account_id,
-        name: name,
-        current_balance: toFinancialAmount(balances.current ?? 0),
-        starting_balance: toFinancialAmount(balances.current ?? 0),
-        last_synced: new Date().toISOString(),
-        plaid_item_id: item_id,
-        type: type,
-        subtype: subtype,
-        company_id: companyId
-      }, { onConflict: 'plaid_account_id,company_id' });
+      // Update only balance, sync timestamp, and account type/subtype - DO NOT update name
+      const { error: updateError } = await supabase
+        .from('accounts')
+        .update({
+          current_balance: toFinancialAmount(balances.current ?? 0),
+          last_synced: new Date().toISOString(),
+          type: type,
+          subtype: subtype
+        })
+        .eq('plaid_account_id', account_id)
+        .eq('company_id', companyId);
 
-      if (upsertError) console.error('Error upserting account:', upsertError);
-
-      // Upsert into chart_of_accounts table
-      let accountType = 'Asset';
-      if (type === 'credit' || type === 'loan' || subtype === 'credit card') {
-        accountType = 'Liability';
+      if (updateError) {
+        console.error('Error updating account balance:', updateError);
       }
 
-      const { error: coaError } = await supabase.from('chart_of_accounts').upsert([{
-        name: name,
-        type: accountType,
-        subtype: subtype,
-        plaid_account_id: account_id,
-        company_id: companyId
-      }], { onConflict: 'name,type,subtype,company_id' });
-
-      if (coaError) console.error('Error upserting chart_of_accounts:', coaError);
+      // Note: We don't update chart_of_accounts during sync operations
+      // to preserve custom account names that users have set
     }
 
     // 4. Fetch transactions from Plaid
@@ -119,6 +107,8 @@ export async function POST(req: NextRequest) {
 
     // 5. Insert new transactions into imported_transactions (only for selected accounts)
     const plaidTransactions = transactionsResponse.data.transactions;
+    let newTransactionsCount = 0;
+
     for (const tx of plaidTransactions) {
       // Skip if transaction's account is not in selected_account_ids
       if (selected_account_ids && !selected_account_ids.includes(tx.account_id)) {
@@ -127,10 +117,15 @@ export async function POST(req: NextRequest) {
 
       const { account_id, name, amount, date } = tx;
 
-      // Find the account name from the accounts response
-      const accountName = accountsResponse.data.accounts.find(
-        acc => acc.account_id === account_id
-      )?.name || null;
+      // Get the account name from our database (preserving custom names)
+      const { data: accountData } = await supabase
+        .from('accounts')
+        .select('name')
+        .eq('plaid_account_id', account_id)
+        .eq('company_id', companyId)
+        .single();
+
+      const accountName = accountData?.name || 'Unknown Account';
 
       // Use amount sign to determine spent/received with precise financial amounts
       const spentAmount = amount > 0 ? toFinancialAmount(amount) : toFinancialAmount(0);
@@ -155,14 +150,22 @@ export async function POST(req: NextRequest) {
           received: receivedAmount,
           plaid_account_id: account_id,
           item_id, // Link to plaid_items
-          plaid_account_name: accountName,
+          plaid_account_name: accountName, // Use custom name from database
           company_id: companyId
         }]);
-        if (insertError) console.error('Error inserting transaction:', insertError);
+        
+        if (insertError) {
+          console.error('Error inserting transaction:', insertError);
+        } else {
+          newTransactionsCount++;
+        }
       }
     }
 
-    return NextResponse.json({ status: 'success' });
+    return NextResponse.json({ 
+      status: 'success', 
+      newTransactions: newTransactionsCount 
+    });
   } catch (err: unknown) {
     console.error('Sync failed:', err);
     const errorMessage = err instanceof Error ? err.message : String(err);

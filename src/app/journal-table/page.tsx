@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/zustand/authStore';
+import { X } from 'lucide-react';
 import { 
   Pagination,
   PaginationContent,
@@ -43,8 +44,16 @@ type JournalEntry = {
 };
 
 type SortConfig = {
-  key: 'date' | 'description' | 'payee' | 'debit' | 'credit' | 'category' | null;
+  key: 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category' | null;
   direction: 'asc' | 'desc';
+};
+
+type NewJournalEntry = {
+  date: string;
+  description: string;
+  amount: string;
+  type: 'debit' | 'credit';
+  categoryId: string;
 };
 
 export default function JournalTablePage() {
@@ -57,6 +66,17 @@ export default function JournalTablePage() {
   const [error, setError] = useState<string | null>(null);
   const [sortConfig, setSortConfig] = useState<SortConfig>({ key: null, direction: 'asc' });
   const [searchTerm, setSearchTerm] = useState<string>('');
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newEntry, setNewEntry] = useState<NewJournalEntry>({
+    date: new Date().toISOString().split('T')[0],
+    description: '',
+    amount: '',
+    type: 'debit',
+    categoryId: ''
+  });
+  const [saving, setSaving] = useState(false);
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -68,10 +88,10 @@ export default function JournalTablePage() {
     fetchPayees();
   }, [currentCompany?.id]);
 
-  // Reset to first page when search term changes
+  // Reset to first page when search term or date filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm]);
+  }, [searchTerm, startDate, endDate]);
 
   const fetchJournalEntries = async () => {
     if (!hasCompanyContext) return;
@@ -102,7 +122,8 @@ export default function JournalTablePage() {
     const { data, error } = await supabase
       .from('chart_of_accounts')
       .select('*')
-      .eq('company_id', currentCompany?.id);
+      .eq('company_id', currentCompany?.id)
+      .order('name');
     if (!error) setAccounts(data || []);
   };
 
@@ -135,6 +156,11 @@ export default function JournalTablePage() {
     return account ? account.name : id;
   }
 
+  function getAccountType(id: string) {
+    const account = accounts.find(a => a.id === id);
+    return account ? account.type || '' : '';
+  }
+
   function getPayeeName(id: string) {
     if (!id) return '';
     const payee = payees.find(p => p.id === id);
@@ -154,6 +180,13 @@ export default function JournalTablePage() {
         return sortConfig.direction === 'asc'
           ? a.description.localeCompare(b.description)
           : b.description.localeCompare(a.description);
+      }
+      if (sortConfig.key === 'type') {
+        const aType = getAccountType(a.chart_account_id);
+        const bType = getAccountType(b.chart_account_id);
+        return sortConfig.direction === 'asc'
+          ? aType.localeCompare(bType)
+          : bType.localeCompare(aType);
       }
       if (sortConfig.key === 'payee') {
         const aPayee = getPayeeName(a.transactions?.payee_id || '');
@@ -187,7 +220,7 @@ export default function JournalTablePage() {
     });
   };
 
-  const handleSort = (key: 'date' | 'description' | 'payee' | 'debit' | 'credit' | 'category') => {
+  const handleSort = (key: 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category') => {
     setSortConfig(current => ({
       key,
       direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc'
@@ -204,9 +237,9 @@ export default function JournalTablePage() {
 
   // Define specific column order for the journal table
   const orderedColumns = [
-    { key: 'id', label: formatColumnLabel('id'), sortable: false },
     { key: 'date', label: 'Date', sortable: true },
     { key: 'description', label: 'Description', sortable: true },
+    { key: 'type', label: 'Type', isCustom: true, sortable: true },
     { key: 'payee', label: 'Payee', isCustom: true, sortable: true },
     { key: 'debit', label: 'Debit', sortable: true },
     { key: 'credit', label: 'Credit', sortable: true }
@@ -218,7 +251,14 @@ export default function JournalTablePage() {
       Object.keys(entry).forEach((k) => cols.add(k));
       return cols;
     }, new Set<string>())
-  ).filter((col): col is string => col !== 'chart_account_id' && col !== 'payee_id' && col !== 'transactions');
+  ).filter((col): col is string => 
+    col !== 'id' && 
+    col !== 'transaction_id' && 
+    col !== 'company_id' && 
+    col !== 'chart_account_id' && 
+    col !== 'payee_id' && 
+    col !== 'transactions'
+  );
 
   // Combine ordered columns with any additional columns not in our predefined list, then add category at the end
   const finalColumns = [
@@ -226,21 +266,42 @@ export default function JournalTablePage() {
     ...availableColumns
       .filter(col => !orderedColumns.some(ordCol => ordCol.key === col))
       .map(col => ({ key: col, label: formatColumnLabel(col), sortable: false })),
-    { key: 'category', label: 'Category Name', isCustom: true, sortable: true }
+    { key: 'category', label: 'Category', isCustom: true, sortable: true }
   ];
 
-  const filterEntries = (entries: JournalEntry[], searchTerm: string) => {
-    if (!searchTerm.trim()) return entries;
+  const filterEntries = (entries: JournalEntry[], searchTerm: string, startDate: string, endDate: string) => {
+    let filteredEntries = entries;
+
+    // Filter by date range
+    if (startDate || endDate) {
+      filteredEntries = filteredEntries.filter(entry => {
+        const entryDate = new Date(entry.date);
+        const start = startDate ? new Date(startDate) : null;
+        const end = endDate ? new Date(endDate) : null;
+        
+        if (start && entryDate < start) return false;
+        if (end && entryDate > end) return false;
+        
+        return true;
+      });
+    }
+
+    // Filter by search term
+    if (!searchTerm.trim()) return filteredEntries;
     
     const lowercaseSearch = searchTerm.toLowerCase();
     
-    return entries.filter(entry => {
+    return filteredEntries.filter(entry => {
       // Search in date (formatted)
       const formattedDate = formatDate(entry.date);
       if (formattedDate.toLowerCase().includes(lowercaseSearch)) return true;
       
       // Search in description
       if (entry.description.toLowerCase().includes(lowercaseSearch)) return true;
+      
+      // Search in type
+      const accountType = getAccountType(entry.chart_account_id);
+      if (accountType.toLowerCase().includes(lowercaseSearch)) return true;
       
       // Search in payee name
       const payeeName = getPayeeName(entry.transactions?.payee_id || '');
@@ -358,13 +419,78 @@ export default function JournalTablePage() {
     );
   };
 
-  // Filter entries based on search term, then sort
-  const filteredEntries = filterEntries(entries, searchTerm);
+  // Filter entries based on search term and date range, then sort
+  const filteredEntries = filterEntries(entries, searchTerm, startDate, endDate);
   const sortedAndFilteredEntries = sortEntries(filteredEntries, sortConfig);
   
   // Get paginated data
   const paginationData = getPaginatedData(sortedAndFilteredEntries, currentPage, itemsPerPage);
   const { paginatedData: displayedEntries, totalPages, totalItems } = paginationData;
+
+  const handleAddEntry = async () => {
+    if (!currentCompany?.id) return;
+    
+    // Validation
+    const amount = parseFloat(newEntry.amount || '0');
+    
+    if (!newEntry.date || !newEntry.description) {
+      alert('Please fill in date and description');
+      return;
+    }
+    
+    if (amount === 0) {
+      alert('Please enter a non-zero amount');
+      return;
+    }
+
+    if (!newEntry.categoryId) {
+      alert('Please select a category');
+      return;
+    }
+
+    try {
+      setSaving(true);
+      
+      // Generate a new transaction ID for both entries
+      const transactionId = crypto.randomUUID();
+      
+      // Create journal entry
+      const journalEntry = {
+        date: newEntry.date,
+        description: newEntry.description,
+        debit: newEntry.type === 'debit' ? amount : 0,
+        credit: newEntry.type === 'credit' ? amount : 0,
+        transaction_id: transactionId,
+        chart_account_id: newEntry.categoryId,
+        company_id: currentCompany.id
+      };
+
+      const { error } = await supabase
+        .from('journal')
+        .insert([journalEntry]);
+
+      if (error) throw error;
+
+      // Reset form and close modal
+      setNewEntry({
+        date: new Date().toISOString().split('T')[0],
+        description: '',
+        amount: '',
+        type: 'debit',
+        categoryId: ''
+      });
+      setShowAddModal(false);
+      
+      // Refresh the entries
+      await fetchJournalEntries();
+      
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
+      alert(`Failed to add journal entry: ${errorMessage}`);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   // Check if user has company context
   if (!hasCompanyContext) {
@@ -390,13 +516,37 @@ export default function JournalTablePage() {
         <div>No journal entries found.</div>
       ) : (
         <div className="space-y-4">
-          <input
-            type="text"
-            placeholder="Search journal entries..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="border px-2 py-1 w-full text-xs mb-2"
-          />
+          <div className="flex gap-2 items-center mb-2">
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-xs"
+            >
+              Add
+            </button>
+            <input
+              type="text"
+              placeholder="Search journal entries..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="border px-2 py-1 flex-1 text-xs"
+            />
+            <div className="flex gap-2 items-center">
+              <label className="text-xs whitespace-nowrap">Start Date:</label>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="border px-2 py-1 text-xs"
+              />
+              <label className="text-xs whitespace-nowrap">End Date:</label>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="border px-2 py-1 text-xs"
+              />
+            </div>
+          </div>
 
           <div className="overflow-auto max-h-[calc(100vh-170px)] border border-gray-300 rounded">
             <table className="w-full border-collapse">
@@ -408,7 +558,7 @@ export default function JournalTablePage() {
                       className={`border p-2 text-center text-xs font-medium tracking-wider whitespace-nowrap ${
                         col.sortable ? 'cursor-pointer hover:bg-gray-200' : ''
                       }`}
-                      onClick={col.sortable ? () => handleSort(col.key as 'date' | 'description' | 'payee' | 'debit' | 'credit' | 'category') : undefined}
+                      onClick={col.sortable ? () => handleSort(col.key as 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category') : undefined}
                     >
                       {col.label}
                       {col.sortable && sortConfig.key === col.key && (
@@ -431,6 +581,8 @@ export default function JournalTablePage() {
                           formatAmount(entry.debit)
                         ) : col.key === 'credit' ? (
                           formatAmount(entry.credit)
+                        ) : col.key === 'type' ? (
+                          getAccountType(entry.chart_account_id)
                         ) : col.key === 'payee' ? (
                           getPayeeName(entry.transactions?.payee_id || '')
                         ) : col.key === 'category' ? (
@@ -457,6 +609,106 @@ export default function JournalTablePage() {
                 totalPages={totalPages}
                 onPageChange={setCurrentPage}
               />
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Add Journal Entry Modal */}
+      {showAddModal && (
+        <div 
+          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
+          onClick={() => setShowAddModal(false)}
+        >
+          <div 
+            className="bg-white rounded-lg p-6 w-[600px] overflow-y-auto shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold">Add Journal Entry</h2>
+              <button
+                onClick={() => setShowAddModal(false)}
+                className="text-gray-500 hover:text-gray-700 text-xl"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            
+            <div className="grid grid-cols-4 gap-2">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
+                <input
+                  type="date"
+                  value={newEntry.date}
+                  onChange={(e) => setNewEntry(prev => ({ ...prev, date: e.target.value }))}
+                  className="w-full border px-2 py-1 rounded text-xs"
+                  required
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                <input
+                  type="text"
+                  value={newEntry.description}
+                  onChange={(e) => setNewEntry(prev => ({ ...prev, description: e.target.value }))}
+                  className="w-full border px-2 py-1 rounded text-xs"
+                  placeholder="Enter description"
+                  required
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Amount</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={newEntry.amount}
+                  onChange={(e) => setNewEntry(prev => ({ ...prev, amount: e.target.value }))}
+                  className="w-full border px-2 py-1 rounded text-xs"
+                  placeholder="0.00"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
+                <select
+                  value={newEntry.type}
+                  onChange={(e) => setNewEntry(prev => ({ ...prev, type: e.target.value as 'debit' | 'credit' }))}
+                  className="w-full border px-2 py-1 rounded text-xs"
+                >
+                  <option value="debit">Debit</option>
+                  <option value="credit">Credit</option>
+                </select>
+              </div>
+            </div>
+            
+            <div className="mt-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+                <select
+                  value={newEntry.categoryId}
+                  onChange={(e) => setNewEntry(prev => ({ ...prev, categoryId: e.target.value }))}
+                  className="w-full border px-2 py-1 rounded text-xs"
+                >
+                  <option value="">Select category...</option>
+                  {accounts.map(account => (
+                    <option key={account.id} value={account.id}>
+                      {account.name} ({account.type})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            
+            <div className="flex justify-end mt-6">
+              <button
+                onClick={handleAddEntry}
+                disabled={saving}
+                className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800 disabled:opacity-50"
+              >
+                {saving ? 'Adding...' : 'Add Entry'}
+              </button>
             </div>
           </div>
         </div>
