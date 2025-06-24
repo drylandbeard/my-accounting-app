@@ -47,6 +47,13 @@ interface CategoriesState {
   deleteCategory: (id: string) => Promise<boolean>;
   highlightCategory: (categoryId: string) => void;
   clearError: () => void;
+  
+  // New functionality
+  findCategoryByName: (name: string, caseSensitive?: boolean) => Category | null;
+  findCategoriesByName: (namePattern: string, caseSensitive?: boolean) => Category[];
+  findParentByName: (childId: string, parentName: string) => Category | null;
+  mergeCategories: (sourceId: string, targetId: string) => Promise<boolean>;
+  moveCategory: (categoryId: string, newParentId: string | null) => Promise<boolean>;
 }
 
 export const useCategoriesStore = create<CategoriesState>((set, get) => ({
@@ -247,5 +254,81 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
   
   clearError: () => {
     set({ error: null });
-  }
+  },
+  
+  // New helper functions
+  
+  // Find a category by name (case-insensitive by default)
+  findCategoryByName: (name: string, caseSensitive = false) => {
+    const { categories } = get();
+    if (caseSensitive) {
+      return categories.find((cat) => cat.name === name) || null;
+    } else {
+      return categories.find((cat) => cat.name.toLowerCase() === name.toLowerCase()) || null;
+    }
+  },
+  
+  // Find categories by partial name (case-insensitive by default)
+  findCategoriesByName: (namePattern: string, caseSensitive = false) => {
+    const { categories } = get();
+    const pattern = caseSensitive ? namePattern : namePattern.toLowerCase();
+    
+    return categories.filter((cat) => {
+      const catName = caseSensitive ? cat.name : cat.name.toLowerCase();
+      return catName.includes(pattern);
+    });
+  },
+  
+  // Find parent category by name for a specific child
+  findParentByName: (childId: string, parentName: string) => {
+    const { categories } = get();
+    const possibleParents = categories.filter(c => c.name.toLowerCase() === parentName.toLowerCase());
+    
+    // If multiple categories match, find one with compatible type
+    if (possibleParents.length > 1) {
+      const child = categories.find(c => c.id === childId);
+      if (child) {
+        return possibleParents.find(p => p.type === child.type) || possibleParents[0];
+      }
+    }
+    
+    return possibleParents[0] || null;
+  },
+  
+  // Move a category under a new parent (or to root if null)
+  moveCategory: async (categoryId: string, newParentId: string | null) => {
+    // This is essentially an update operation
+    return get().updateCategory(categoryId, { parent_id: newParentId });
+  },
+  
+  mergeCategories: async (sourceId: string, targetId: string) => {
+    try {
+      // Call the API route to merge categories
+      const response = await api.post('/api/category/merge', { sourceId, targetId });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('API error merging categories:', errorData.error);
+        set({ error: errorData.error || 'Failed to merge categories' });
+        return false;
+      }
+      
+      const result = await response.json();
+      
+      // Update the store with the sorted categories from the API if available
+      if (result.categories) {
+        set({
+          categories: result.categories,
+          error: null
+        });
+      }
+      
+      return true;
+    } catch (err) {
+      console.error('Error in mergeCategories:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to merge categories';
+      set({ error: errorMessage });
+      return false;
+    }
+  },
 })); 
