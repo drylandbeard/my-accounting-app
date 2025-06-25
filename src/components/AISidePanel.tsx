@@ -594,7 +594,7 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
         };
 
         // Call the API route
-        const response = await api.post('/api/payee', payeeData);
+        const response = await api.post('/api/payee/create', payeeData);
         
         if (!response.ok) {
           const errorData = await response.json();

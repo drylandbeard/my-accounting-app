@@ -74,7 +74,7 @@ export const usePayeesStore = create<PayeesState>((set, get) => ({
       };
 
       // Call the API route
-      const response = await api.post('/api/payee', requestData);
+      const response = await api.post('/api/payee/create', requestData);
       
       if (!response.ok) {
         const errorData = await response.json();

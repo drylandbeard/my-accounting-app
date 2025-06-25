@@ -1311,7 +1311,7 @@ export default function TransactionsPage() {
         throw new Error(data.error || 'Failed to move transactions');
       }
 
-      // No need to call sync-journal separately - it's included in the bulk operation
+      // No need to call journal/sync separately - it's included in the bulk operation
       refreshAll();
     } catch (error) {
       console.error('Error moving transactions:', error);
@@ -1822,7 +1822,7 @@ export default function TransactionsPage() {
       }
 
       // Sync journal after successful update
-      await api.post('/api/sync-journal', {});
+      await api.post('/api/journal/sync', {});
       
       setEditModal({ isOpen: false, transaction: null });
       setNotification({ type: 'success', message: 'Transaction updated successfully' });
@@ -2205,7 +2205,7 @@ export default function TransactionsPage() {
     }
 
     // Automatically sync the journal after saving
-    await api.post('/api/sync-journal', {});
+    await api.post('/api/journal/sync', {});
 
     // Reset modal and refresh data
     setJournalEntryModal({
