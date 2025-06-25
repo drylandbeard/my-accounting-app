@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { supabase } from '../../../lib/supabase'
 import { useAuthStore } from '@/zustand/authStore'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 
 type Account = {
   id: string
@@ -30,6 +31,9 @@ export default function BalanceSheetPage() {
   const [journalEntries, setJournalEntries] = useState<Transaction[]>([])
   const [asOfDate, setAsOfDate] = useState<string>('')
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null)
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set())
+  const [collapsedAccounts, setCollapsedAccounts] = useState<Set<string>>(new Set())
+  const [loading, setLoading] = useState<boolean>(true)
 
   useEffect(() => {
     setAsOfDate(new Date().toISOString().slice(0, 10))
@@ -37,26 +41,34 @@ export default function BalanceSheetPage() {
 
   useEffect(() => {
     const fetchData = async () => {
-      if (!hasCompanyContext) return;
-      
-      const { data: accountsData } = await supabase
-        .from('chart_of_accounts')
-        .select('*')
-        .eq('company_id', currentCompany!.id)
-        .in('type', ['Asset', 'Liability', 'Equity', 'Revenue', 'COGS', 'Expense'])
-      setAccounts(accountsData || [])
-
-      let journalQuery = supabase.from('journal').select('*').eq('company_id', currentCompany!.id)
-      if (asOfDate) {
-        journalQuery = journalQuery.lte('date', asOfDate)
+      if (!hasCompanyContext) {
+        setLoading(false)
+        return;
       }
-      const { data: journalData } = await journalQuery
-      setJournalEntries(journalData || [])
+      
+      setLoading(true)
+      
+      try {
+        const { data: accountsData } = await supabase
+          .from('chart_of_accounts')
+          .select('*')
+          .eq('company_id', currentCompany!.id)
+          .in('type', ['Asset', 'Liability', 'Equity', 'Revenue', 'COGS', 'Expense'])
+        setAccounts(accountsData || [])
 
-      // Debug logs
-      const assetRows = (accountsData || []).filter(a => a.type === 'Asset' && !a.parent_id)
-      console.log('DEBUG: assetRows', assetRows)
-      console.log('DEBUG: journal entries', journalData)
+        let journalQuery = supabase.from('journal').select('*').eq('company_id', currentCompany!.id)
+        if (asOfDate) {
+          journalQuery = journalQuery.lte('date', asOfDate)
+        }
+        const { data: journalData } = await journalQuery
+        setJournalEntries(journalData || [])
+
+
+      } catch (error) {
+        console.error('Error fetching balance sheet data:', error)
+      } finally {
+        setLoading(false)
+      }
     }
     if (asOfDate) fetchData()
   }, [asOfDate, currentCompany?.id, hasCompanyContext])
@@ -121,12 +133,53 @@ export default function BalanceSheetPage() {
   const getAllGroupAccountIds = (accounts: Account[]) =>
     accounts.flatMap(acc => getAllAccountIds(acc))
 
+  // Check if an account should be shown (has transactions or children with transactions)
+  const shouldShowAccount = (account: Account): boolean => {
+    // Check if account has direct transactions
+    const directTotal = calculateAccountDirectTotal(account)
+    if (directTotal !== 0) {
+      return true
+    }
+
+    // Check if any child accounts should be shown (recursive)
+    const subaccounts = getSubaccounts(account.id)
+    return subaccounts.some(shouldShowAccount)
+  }
+
+  // Filter accounts to only show those with transactions or children with transactions
+  const getVisibleAccounts = (accountsList: Account[]): Account[] => {
+    return accountsList.filter(shouldShowAccount)
+  }
+
+  // Toggle functions for collapse/expand
+  const toggleSection = (sectionName: string) => {
+    const newCollapsed = new Set(collapsedSections)
+    if (newCollapsed.has(sectionName)) {
+      newCollapsed.delete(sectionName)
+    } else {
+      newCollapsed.add(sectionName)
+    }
+    setCollapsedSections(newCollapsed)
+  }
+
+  const toggleAccount = (accountId: string) => {
+    const newCollapsed = new Set(collapsedAccounts)
+    if (newCollapsed.has(accountId)) {
+      newCollapsed.delete(accountId)
+    } else {
+      newCollapsed.add(accountId)
+    }
+    setCollapsedAccounts(newCollapsed)
+  }
+
   // Render account row and its subaccounts, with a total line for each parent
   const renderAccountRowWithTotal = (account: Account, level = 0): React.ReactElement => {
-    const subaccounts = getSubaccounts(account.id)
+    const subaccounts = getSubaccounts(account.id).filter(shouldShowAccount)
     const directTotal = calculateAccountDirectTotal(account)
     const rollupTotal = calculateAccountTotal(account)
     const isParent = subaccounts.length > 0
+    const isCollapsed = collapsedAccounts.has(account.id)
+    const isChild = level > 0
 
     // if (rollupTotal === 0) return null
 
@@ -134,43 +187,63 @@ export default function BalanceSheetPage() {
       <>
         <tr
           key={account.id}
-          className="cursor-pointer hover:bg-gray-100"
-          onClick={() => setSelectedAccount({ ...account, _viewerType: 'direct' })}
+          className={`cursor-pointer hover:bg-slate-50 transition-colors ${isChild ? "bg-slate-25" : ""}`}
+          onClick={() => setSelectedAccount({ 
+            ...account, 
+            _viewerType: (isParent && isCollapsed) ? "rollup" : "direct" 
+          })}
         >
-          <td className="border p-1" style={{ paddingLeft: `${level * 20 + 8}px` }}>
-            {account.name}
+          <td className="px-4 py-2 border-b border-slate-100" style={{ paddingLeft: `${level * 24 + 16}px` }}>
+            <div className="flex items-center">
+              {level > 0 && <span className="text-slate-400 mr-2 text-xs">└</span>}
+              {isParent ? (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleAccount(account.id);
+                  }}
+                  className="mr-2 p-1 hover:bg-slate-200 rounded transition-colors"
+                >
+                  {isCollapsed ? <ChevronRight className="w-3 h-3 text-slate-600" /> : <ChevronDown className="w-3 h-3 text-slate-600" />}
+                </button>
+              ) : (
+                !isChild && <div className="mr-2 w-5"></div>
+              )}
+              <span className={`${isChild ? "text-slate-600 text-sm" : "text-slate-800"}`}>{account.name}</span>
+            </div>
           </td>
-          <td className="border p-1 text-right">
-            {formatNumber(directTotal)}
+          <td className="px-4 py-2 text-right border-b border-slate-100 font-mono text-sm">
+            {formatNumber(isParent && isCollapsed ? rollupTotal : directTotal)}
           </td>
         </tr>
-        {subaccounts.map(sub =>
-          renderAccountRowWithTotal(sub, level + 1)
-        )}
-        {isParent && (
+        {!isCollapsed && subaccounts.map((sub) => (
+          <React.Fragment key={sub.id}>
+            {renderAccountRowWithTotal(sub, level + 1)}
+          </React.Fragment>
+        ))}
+        {isParent && !isCollapsed && (
           <tr
-            className="cursor-pointer hover:bg-blue-50"
-            onClick={() => setSelectedAccount({ ...account, _viewerType: 'rollup' })}
+            className="cursor-pointer hover:bg-blue-50 transition-colors"
+            onClick={() => setSelectedAccount({ ...account, _viewerType: "rollup" })}
           >
-            <td
-              className="border p-1 font-semibold bg-gray-50"
-              style={{ paddingLeft: `${level * 20 + 8}px` }}
-            >
-              Total {account.name}
+            <td className="px-4 py-2 font-semibold bg-slate-50 border-b border-slate-100 flex items-center" style={{ paddingLeft: `${level * 24 + 16}px` }}>
+              <div className="mr-2 w-5"></div>
+              <span className="text-sm text-slate-700">Total {account.name}</span>
             </td>
-            <td className="border p-1 text-right font-semibold bg-gray-50">
-              {formatNumber(rollupTotal)}
-            </td>
+            <td className="px-4 py-2 text-right font-semibold bg-slate-50 border-b border-slate-100 text-slate-800 font-mono text-sm">{formatNumber(rollupTotal)}</td>
           </tr>
         )}
       </>
-    )
+    );
   }
 
-  // Top-level accounts (no parent)
-  const assetRows = accounts.filter(a => a.type === 'Asset' && !a.parent_id)
-  const liabilityRows = accounts.filter(a => a.type === 'Liability' && !a.parent_id)
-  const equityRows = accounts.filter(a => a.type === 'Equity' && !a.parent_id)
+  // Top-level accounts (no parent) - filtered to only show accounts with transactions
+  const assetRows = getVisibleAccounts(accounts.filter(a => a.type === 'Asset' && !a.parent_id))
+  const liabilityRows = getVisibleAccounts(accounts.filter(a => a.type === 'Liability' && !a.parent_id))
+  
+  // For equity accounts, show them even if they have zero balances (important for balance sheet)
+  const allEquityAccounts = accounts.filter(a => a.type === 'Equity' && !a.parent_id)
+  const equityRows = allEquityAccounts // Show all equity accounts, not just those with transactions
   const revenueAccounts = accounts.filter(a => a.type === 'Revenue')
   const cogsAccounts = accounts.filter(a => a.type === 'COGS')
   const expenseAccounts = accounts.filter(a => a.type === 'Expense')
@@ -201,8 +274,13 @@ export default function BalanceSheetPage() {
   const totalAssets = assetRows.reduce((sum, a) => sum + calculateAccountTotal(a), 0)
   const totalLiabilities = liabilityRows.reduce((sum, a) => sum + calculateAccountTotal(a), 0)
   const totalEquity = equityRows.reduce((sum, a) => sum + calculateAccountTotal(a), 0)
+  
+  // Total equity with net income (proper accounting approach)
   const totalEquityWithNetIncome = totalEquity + netIncome
   const liabilitiesAndEquity = totalLiabilities + totalEquityWithNetIncome
+
+  // Calculate the actual balance sheet discrepancy
+  const balanceDifference = totalAssets - liabilitiesAndEquity
 
   // Quick view: transactions for selected account or group
   const selectedAccountTransactions = selectedAccount
@@ -240,7 +318,12 @@ export default function BalanceSheetPage() {
     : []
 
   const formatNumber = (num: number): string => {
-    return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    if (Math.abs(num) < 0.01) return '—'
+    const formatted = Math.abs(num).toLocaleString('en-US', { 
+      minimumFractionDigits: 2, 
+      maximumFractionDigits: 2 
+    })
+    return num < 0 ? `(${formatted})` : formatted
   }
 
   // Check if user has company context
@@ -257,118 +340,310 @@ export default function BalanceSheetPage() {
     );
   }
 
+
+
   return (
-    <div className="p-4 bg-white text-gray-900 font-sans text-sm space-y-4 max-w-7xl mx-auto">
-      <h1 className="text-xl font-semibold mb-4 text-center">Balance Sheet</h1>
-      <div className="space-y-2 mb-2 text-center">
-        <label className="mr-2">As of Date:</label>
-        <input
-          type="date"
-          value={asOfDate}
-          onChange={e => setAsOfDate(e.target.value)}
-          className="border px-2 py-1"
-        />
-      </div>
-      <div className="flex gap-8">
-        {/* Balance Sheet Table */}
-        <div className="w-1/2">
-          <table className="w-full border-collapse border border-gray-300">
-            <thead className="bg-gray-100">
-              <tr>
-                <th className="border p-1 text-left">Account</th>
-                <th className="border p-1 text-right">Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {/* Assets */}
-              <tr><td colSpan={2} className="border p-1 font-semibold">Assets</td></tr>
-              {assetRows.map(row => renderAccountRowWithTotal(row))}
-              <tr
-                className="cursor-pointer hover:bg-blue-50"
-                onClick={() => setSelectedAccount({ id: 'ASSET_GROUP', name: 'Total Assets', type: 'Asset', parent_id: null })}
-              >
-                <td className="border p-1 font-semibold">Total Assets</td>
-                <td className="border p-1 text-right font-semibold">{formatNumber(totalAssets)}</td>
-              </tr>
-              {/* Liabilities */}
-              <tr><td colSpan={2} className="border p-1 font-semibold">Liabilities</td></tr>
-              {liabilityRows.map(row => renderAccountRowWithTotal(row))}
-              <tr
-                className="cursor-pointer hover:bg-blue-50"
-                onClick={() => setSelectedAccount({ id: 'LIABILITY_GROUP', name: 'Total Liabilities', type: 'Liability', parent_id: null })}
-              >
-                <td className="border p-1 font-semibold">Total Liabilities</td>
-                <td className="border p-1 text-right font-semibold">{formatNumber(totalLiabilities)}</td>
-              </tr>
-              {/* Equity */}
-              <tr><td colSpan={2} className="border p-1 font-semibold">Equity</td></tr>
-              {equityRows.map(row => renderAccountRowWithTotal(row))}
-              <tr
-                className="cursor-pointer hover:bg-blue-50"
-                onClick={() => setSelectedAccount({ id: 'NET_INCOME', name: 'Net Income', type: 'Equity', parent_id: null })}
-              >
-                <td className="border p-1 font-semibold bg-gray-50">Net Income</td>
-                <td className="border p-1 text-right font-semibold bg-gray-50">{formatNumber(netIncome)}</td>
-              </tr>
-              <tr
-                className="cursor-pointer hover:bg-blue-50"
-                onClick={() => setSelectedAccount({ id: 'EQUITY_GROUP', name: 'Total Equity', type: 'Equity', parent_id: null })}
-              >
-                <td className="border p-1 font-semibold">Total Equity</td>
-                <td className="border p-1 text-right font-semibold">{formatNumber(totalEquityWithNetIncome)}</td>
-              </tr>
-              {/* Liabilities + Equity */}
-              <tr className="bg-gray-50 font-bold">
-                <td className="border p-1">Liabilities + Equity</td>
-                <td className="border p-1 text-right">{formatNumber(liabilitiesAndEquity)}</td>
-              </tr>
-            </tbody>
-          </table>
+    <div className="p-6 bg-slate-50 min-h-screen">
+      <div className="max-w-7xl mx-auto">
+        <div className="text-center mb-6">
+          <h1 className="text-2xl font-bold text-slate-800 mb-3">Balance Sheet</h1>
+          <div className="flex items-center justify-center gap-3">
+            <label className="text-sm font-medium text-slate-600">As of Date:</label>
+            <input
+              type="date"
+              value={asOfDate}
+              max={new Date().toISOString().slice(0, 10)}
+              onChange={e => setAsOfDate(e.target.value)}
+              className="border border-slate-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+            />
+          </div>
         </div>
-        {/* Quick View */}
-        <div className="w-1/2">
-          <div className="border rounded p-4 bg-gray-50 space-y-2">
-            {selectedAccount ? (
-              <>
-                <div className="font-semibold mb-2">
-                  {selectedAccount.name} Transactions
-                  <button
-                    className="ml-2 text-xs text-blue-600 underline"
-                    onClick={() => setSelectedAccount(null)}
-                  >
-                    Clear
-                  </button>
-                </div>
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr>
-                      <th className="text-left">Date</th>
-                      <th className="text-left">Description</th>
-                      <th className="text-right">Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {selectedAccountTransactions.map(tx => (
-                      <tr key={tx.id}>
-                        <td>{tx.date}</td>
-                        <td>{tx.description}</td>
-                        <td className="text-right">
-                          {tx.debit ? `-$${formatNumber(Number(tx.debit))}` : tx.credit ? `$${formatNumber(Number(tx.credit))}` : ''}
+      {/* Balance Sheet Warning */}
+      {Math.abs(balanceDifference) > 0.01 && (
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg mb-4">
+          <h3 className="text-sm font-semibold text-red-800 mb-2">Balance Sheet Out of Balance</h3>
+          <p className="text-sm text-red-700">
+            Assets ({formatNumber(totalAssets)}) do not equal Liabilities + Equity ({formatNumber(liabilitiesAndEquity)}). 
+            Difference: {formatNumber(balanceDifference)}
+          </p>
+          <p className="text-xs text-red-600 mt-2">
+            Possible causes: Missing journal entries, incorrect account classifications, unrecorded transactions, or data entry errors.
+            Review your transactions and ensure all entries are properly categorized.
+          </p>
+        </div>
+      )}
+
+      <div className="flex gap-6">
+        {/* Balance Sheet Table */}
+        <div className="w-2/3">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+            <table className="w-full border-collapse">
+              <thead className="bg-slate-50 border-b border-slate-200">
+                <tr>
+                  <th className="px-4 py-3 text-left font-semibold text-slate-700">Account</th>
+                  <th className="px-4 py-3 text-right font-semibold text-slate-700 w-32">Amount</th>
+                </tr>
+              </thead>
+            <tbody>
+              {loading ? (
+                /* Loading State */
+                <>
+                  {/* ASSETS SECTION */}
+                  <tr className="bg-slate-100 border-b border-slate-200">
+                    <td colSpan={2} className="px-4 py-3 font-bold text-slate-800 text-sm tracking-wide">ASSETS</td>
+                  </tr>
+                  <tr>
+                    <td colSpan={2} className="px-4 py-8 text-center border-b border-slate-100">
+                      <div className="flex flex-col items-center space-y-3">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                        <span className="text-sm text-slate-500">Loading accounts...</span>
+                      </div>
+                    </td>
+                  </tr>
+                  
+                  {/* SPACING ROW */}
+                  <tr>
+                    <td colSpan={2} className="py-3"></td>
+                  </tr>
+
+                  {/* LIABILITIES & EQUITY SECTION */}
+                  <tr className="bg-slate-100 border-b border-slate-200">
+                    <td colSpan={2} className="px-4 py-3 font-bold text-slate-800 text-sm tracking-wide">LIABILITIES & EQUITY</td>
+                  </tr>
+                  <tr>
+                    <td colSpan={2} className="px-4 py-8 text-center border-b border-slate-100">
+                      <div className="flex flex-col items-center space-y-3">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600"></div>
+                        <span className="text-sm text-slate-500">Loading transactions...</span>
+                      </div>
+                    </td>
+                  </tr>
+                </>
+              ) : (
+                /* Normal Content */
+                <>
+                  {/* ASSETS SECTION */}
+                  <tr className="bg-slate-100 border-b border-slate-200">
+                    <td colSpan={2} className="px-4 py-3 font-bold text-slate-800 text-sm tracking-wide">ASSETS</td>
+                  </tr>
+                  {assetRows.length > 0 && (
+                    <>
+                      <tr className="cursor-pointer hover:bg-slate-50 transition-colors">
+                        <td colSpan={2} className="px-4 py-2 border-b border-slate-100">
+                          <div className="flex items-center">
+                            <button
+                              onClick={() => toggleSection('assets')}
+                              className="mr-2 p-1 hover:bg-slate-200 rounded transition-colors"
+                            >
+                              {collapsedSections.has('assets') ? (
+                                <ChevronRight className="w-3 h-3 text-slate-600" />
+                              ) : (
+                                <ChevronDown className="w-3 h-3 text-slate-600" />
+                              )}
+                            </button>
+                            <span className="font-medium text-slate-700">Current Assets</span>
+                          </div>
                         </td>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {selectedAccountTransactions.length === 0 && (
-                  <div className="text-gray-500">No transactions in this account/group.</div>
-                )}
-              </>
-            ) : (
-              <div className="text-gray-500">Click an account or total to see its transactions.</div>
-            )}
+                      {!collapsedSections.has('assets') && (
+                        <>
+                          {assetRows.map(row => (
+                            <React.Fragment key={row.id}>
+                              {renderAccountRowWithTotal(row)}
+                            </React.Fragment>
+                          ))}
+                        </>
+                      )}
+                    </>
+                  )}
+                  {/* Total Assets */}
+                  <tr className="bg-blue-50 border-b-2 border-blue-200 cursor-pointer hover:bg-blue-100 transition-colors">
+                    <td className="px-4 py-3 font-bold text-slate-800" onClick={() => setSelectedAccount({ id: 'ASSET_GROUP', name: 'Total Assets', type: 'Asset', parent_id: null })}>
+                      TOTAL ASSETS
+                    </td>
+                    <td className="px-4 py-3 text-right font-bold text-slate-800 font-mono">{formatNumber(totalAssets)}</td>
+                  </tr>
+
+                  {/* SPACING ROW */}
+                  <tr>
+                    <td colSpan={2} className="py-3"></td>
+                  </tr>
+
+                  {/* LIABILITIES & EQUITY SECTION */}
+                  <tr className="bg-slate-100 border-b border-slate-200">
+                    <td colSpan={2} className="px-4 py-3 font-bold text-slate-800 text-sm tracking-wide">LIABILITIES & EQUITY</td>
+                  </tr>
+
+                  {/* Liabilities */}
+                  {liabilityRows.length > 0 && (
+                    <>
+                      <tr className="cursor-pointer hover:bg-slate-50 transition-colors">
+                        <td colSpan={2} className="px-4 py-2 border-b border-slate-100">
+                          <div className="flex items-center">
+                            <button
+                              onClick={() => toggleSection('liabilities')}
+                              className="mr-2 p-1 hover:bg-slate-200 rounded transition-colors"
+                            >
+                              {collapsedSections.has('liabilities') ? (
+                                <ChevronRight className="w-3 h-3 text-slate-600" />
+                              ) : (
+                                <ChevronDown className="w-3 h-3 text-slate-600" />
+                              )}
+                            </button>
+                            <span className="font-medium text-slate-700">Liabilities</span>
+                          </div>
+                        </td>
+                      </tr>
+                      {!collapsedSections.has('liabilities') && (
+                        <>
+                          {liabilityRows.map(row => (
+                            <React.Fragment key={row.id}>
+                              {renderAccountRowWithTotal(row)}
+                            </React.Fragment>
+                          ))}
+                          <tr
+                            className="cursor-pointer hover:bg-blue-50 transition-colors"
+                            onClick={() => setSelectedAccount({ id: 'LIABILITY_GROUP', name: 'Total Liabilities', type: 'Liability', parent_id: null })}
+                          >
+                            <td className="px-4 py-2 font-semibold border-b border-slate-100 text-slate-800">Total Liabilities</td>
+                            <td className="px-4 py-2 text-right font-semibold border-b border-slate-100 text-slate-800 font-mono">{formatNumber(totalLiabilities)}</td>
+                          </tr>
+                        </>
+                      )}
+                    </>
+                  )}
+                  
+                  {/* Equity */}
+                  {(equityRows.length > 0 || netIncome !== 0) && (
+                    <>
+                      <tr className="cursor-pointer hover:bg-slate-50 transition-colors">
+                        <td colSpan={2} className="px-4 py-2 border-b border-slate-100">
+                          <div className="flex items-center">
+                            <button
+                              onClick={() => toggleSection('equity')}
+                              className="mr-2 p-1 hover:bg-slate-200 rounded transition-colors"
+                            >
+                              {collapsedSections.has('equity') ? (
+                                <ChevronRight className="w-3 h-3 text-slate-600" />
+                              ) : (
+                                <ChevronDown className="w-3 h-3 text-slate-600" />
+                              )}
+                            </button>
+                            <span className="font-medium text-slate-700">Equity</span>
+                          </div>
+                        </td>
+                      </tr>
+                      {!collapsedSections.has('equity') && (
+                        <>
+                          {equityRows.map(row => (
+                            <React.Fragment key={row.id}>
+                              {renderAccountRowWithTotal(row)}
+                            </React.Fragment>
+                          ))}
+                          {netIncome !== 0 && (
+                            <tr
+                              className="cursor-pointer hover:bg-slate-100 transition-colors"
+                              onClick={() => setSelectedAccount({ id: 'NET_INCOME', name: 'Net Income', type: 'Equity', parent_id: null })}
+                            >
+                              <td className="px-4 py-2 font-semibold bg-slate-50 border-b border-slate-100">
+                                <div className="flex items-center">
+                                  <div className="mr-2 w-5"></div>
+                                  <span className="text-slate-800">Net Income</span>
+                                </div>
+                              </td>
+                              <td className="px-4 py-2 text-right font-semibold bg-slate-50 border-b border-slate-100 text-slate-800 font-mono">{formatNumber(netIncome)}</td>
+                            </tr>
+                          )}
+                          <tr
+                            className="cursor-pointer hover:bg-blue-50 transition-colors"
+                            onClick={() => setSelectedAccount({ id: 'EQUITY_GROUP', name: 'Total Equity', type: 'Equity', parent_id: null })}
+                          >
+                            <td className="px-4 py-2 font-semibold border-b border-slate-100 text-slate-800">Total Equity</td>
+                            <td className="px-4 py-2 text-right font-semibold border-b border-slate-100 text-slate-800 font-mono">{formatNumber(totalEquityWithNetIncome)}</td>
+                          </tr>
+                        </>
+                      )}
+                    </>
+                  )}
+                  
+                  {/* Total Liabilities + Equity */}
+                  <tr className={`font-bold border-b-2 ${Math.abs(balanceDifference) > 0.01 ? 'bg-red-50 border-red-200' : 'bg-blue-50 border-blue-200'}`}>
+                    <td className="px-4 py-3 font-bold text-slate-800">TOTAL LIABILITIES + EQUITY</td>
+                    <td className="px-4 py-3 text-right font-bold text-slate-800 font-mono">{formatNumber(liabilitiesAndEquity)}</td>
+                  </tr>
+
+                  {/* Show discrepancy if balance sheet doesn't balance */}
+                  {Math.abs(balanceDifference) > 0.01 && (
+                    <tr className="bg-red-100 border-b-2 border-red-300">
+                      <td className="px-4 py-3 font-bold text-red-800">OUT OF BALANCE</td>
+                      <td className="px-4 py-3 text-right font-bold text-red-800 font-mono">{formatNumber(balanceDifference)}</td>
+                    </tr>
+                  )}
+                </>
+              )}
+            </tbody>
+            </table>
+          </div>
+        </div>
+        {/* Quick View */}
+        <div className="w-1/3">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+            <div className="px-4 py-3 bg-slate-50 border-b border-slate-200">
+              <h3 className="font-semibold text-slate-700 text-sm">Transaction Details</h3>
+            </div>
+            <div className="p-4">
+              {loading ? (
+                <div className="flex flex-col items-center space-y-3 py-8">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-600"></div>
+                  <span className="text-sm text-slate-500">Preparing transaction view...</span>
+                </div>
+              ) : selectedAccount ? (
+                <>
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="font-medium text-slate-800 text-sm">{selectedAccount.name}</span>
+                    <button
+                      className="text-xs text-blue-600 hover:text-blue-800 px-2 py-1 rounded hover:bg-blue-50 transition-colors"
+                      onClick={() => setSelectedAccount(null)}
+                    >
+                      Clear
+                    </button>
+                  </div>
+                  <div className="max-h-96 overflow-y-auto">
+                    <table className="w-full text-xs">
+                      <thead className="sticky top-0 bg-slate-50">
+                        <tr>
+                          <th className="text-left py-2 px-2 font-medium text-slate-600">Date</th>
+                          <th className="text-left py-2 px-2 font-medium text-slate-600">Description</th>
+                          <th className="text-right py-2 px-2 font-medium text-slate-600">Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedAccountTransactions.map(tx => (
+                          <tr key={tx.id} className="border-b border-slate-100 hover:bg-slate-50">
+                            <td className="py-2 px-2 text-slate-600">{tx.date}</td>
+                            <td className="py-2 px-2 text-slate-700">{tx.description}</td>
+                            <td className="py-2 px-2 text-right font-mono text-slate-800">
+                              {tx.debit ? `${formatNumber(Number(tx.debit))}` : tx.credit ? `${formatNumber(Number(tx.credit))}` : '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {selectedAccountTransactions.length === 0 && (
+                    <div className="text-slate-500 text-center py-8 text-sm">No transactions found</div>
+                  )}
+                </>
+              ) : (
+                <div className="text-slate-500 text-center py-8 text-sm">
+                  Click an account or total to view transactions
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
     </div>
+  </div>
   )
 }
