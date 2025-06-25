@@ -44,6 +44,7 @@ interface CategoriesState {
   // Actions
   refreshCategories: () => Promise<void>;
   addCategory: (category: { name: string; type: string; parent_id?: string | null }) => Promise<Category | null>;
+  createCategoryForTransaction: (categoryData: { name: string; type: string; parent_id?: string | null; transactionId?: string | null; selectedTransactions?: Set<string> }) => Promise<{ category: Category | null; shouldUpdateTransactions: boolean; transactionIds: string[] }>;
   updateCategory: (id: string, updates: Partial<Category>) => Promise<boolean>;
   updateCategoryWithMergeCheck: (id: string, updates: Partial<Category>, options?: { allowMergePrompt?: boolean; companyId?: string }) => Promise<{ success: boolean; needsMerge?: boolean; existingCategory?: Category; error?: string }>;
   mergeFromRename: (originalCategoryId: string, existingCategoryId: string, companyId: string) => Promise<boolean>;
@@ -57,6 +58,11 @@ interface CategoriesState {
   findCategoriesByName: (namePattern: string, caseSensitive?: boolean) => Category[];
   findParentByName: (childId: string, parentName: string) => Category | null;
   moveCategory: (categoryIdOrName: string, newParentIdOrName: string | null) => Promise<boolean>;
+  
+  // Real-time subscriptions
+  subscriptions: ReturnType<typeof supabase.channel>[];
+  subscribeToCategories: (companyId: string) => () => void;
+  unsubscribeFromCategories: () => void;
 }
 
 export const useCategoriesStore = create<CategoriesState>((set, get) => ({
@@ -66,6 +72,7 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
   error: null,
   highlightedCategoryIds: new Set(),
   lastActionCategoryId: null,
+  subscriptions: [],
   
   // Actions
   refreshCategories: async () => {
@@ -152,6 +159,49 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
       const errorMessage = err instanceof Error ? err.message : 'Network error occurred';
       set({ error: errorMessage });
       return null;
+    }
+  },
+
+  createCategoryForTransaction: async (categoryData) => {
+    try {
+      // Create the category using the existing addCategory function
+      const newCategory = await get().addCategory({
+        name: categoryData.name,
+        type: categoryData.type,
+        parent_id: categoryData.parent_id
+      });
+
+      if (!newCategory) {
+        return { category: null, shouldUpdateTransactions: false, transactionIds: [] };
+      }
+
+      // Determine which transactions should be updated
+      let transactionIds: string[] = [];
+      let shouldUpdateTransactions = false;
+
+      if (categoryData.transactionId) {
+        // Check if this transaction is part of a multi-selection
+        if (categoryData.selectedTransactions && categoryData.selectedTransactions.has(categoryData.transactionId) && categoryData.selectedTransactions.size > 1) {
+          // Apply to all selected transactions
+          transactionIds = Array.from(categoryData.selectedTransactions);
+          shouldUpdateTransactions = true;
+        } else {
+          // Apply to single transaction
+          transactionIds = [categoryData.transactionId];
+          shouldUpdateTransactions = true;
+        }
+      }
+
+      return {
+        category: newCategory,
+        shouldUpdateTransactions,
+        transactionIds
+      };
+    } catch (err) {
+      console.error('Error in createCategoryForTransaction:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to create category';
+      set({ error: errorMessage });
+      return { category: null, shouldUpdateTransactions: false, transactionIds: [] };
     }
   },
   
@@ -652,4 +702,45 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
     // This is essentially an update operation
     return get().updateCategory(categoryId, { parent_id: newParentId });
   },
+
+  // Real-time subscription functions
+  subscribeToCategories: (companyId: string) => {
+    // Clean up existing subscriptions first
+    get().unsubscribeFromCategories();
+
+    const subscriptions: ReturnType<typeof supabase.channel>[] = [];
+
+    // Subscribe to categories changes
+    const categoriesSubscription = supabase
+      .channel('categories_changes')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'chart_of_accounts',
+        filter: `company_id=eq.${companyId}`
+      }, (payload) => {
+        console.log('Categories changed:', payload.eventType);
+        get().refreshCategories();
+      })
+      .subscribe();
+
+    subscriptions.push(categoriesSubscription);
+    set({ subscriptions });
+
+    // Return cleanup function
+    return () => {
+      subscriptions.forEach(subscription => {
+        supabase.removeChannel(subscription);
+      });
+      set({ subscriptions: [] });
+    };
+  },
+
+  unsubscribeFromCategories: () => {
+    const { subscriptions } = get();
+    subscriptions.forEach(subscription => {
+      supabase.removeChannel(subscription);
+    });
+    set({ subscriptions: [] });
+  }
 })); 

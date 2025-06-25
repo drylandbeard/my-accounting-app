@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { api } from '@/lib/api';
+import { supabase } from '@/lib/supabase';
 
 // Types
 export interface Payee {
@@ -27,6 +28,7 @@ interface PayeesState {
   // Actions
   refreshPayees: () => Promise<void>;
   addPayee: (payee: { name: string }) => Promise<Payee | null>;
+  createPayeeForTransaction: (payeeData: { name: string; transactionId?: string | null; selectedTransactions?: Set<string> }) => Promise<{ payee: Payee | null; shouldUpdateTransactions: boolean; transactionIds: string[] }>;
   updatePayee: (idOrName: string, updates: { name: string }) => Promise<boolean>;
   deletePayee: (idOrName: string) => Promise<boolean>;
   highlightPayee: (payeeId: string) => void;
@@ -34,6 +36,11 @@ interface PayeesState {
   
   // Helper functions
   findPayeeByName: (name: string, caseSensitive?: boolean) => Payee | null;
+  
+  // Real-time subscriptions
+  subscriptions: ReturnType<typeof supabase.channel>[];
+  subscribeToPayees: (companyId: string) => () => void;
+  unsubscribeFromPayees: () => void;
 }
 
 export const usePayeesStore = create<PayeesState>((set, get) => ({
@@ -43,6 +50,7 @@ export const usePayeesStore = create<PayeesState>((set, get) => ({
   error: null,
   highlightedPayeeIds: new Set(),
   lastActionPayeeId: null,
+  subscriptions: [],
   
   // Actions
   refreshPayees: async () => {
@@ -111,6 +119,47 @@ export const usePayeesStore = create<PayeesState>((set, get) => ({
       const errorMessage = err instanceof Error ? err.message : 'Network error occurred';
       set({ error: errorMessage });
       return null;
+    }
+  },
+
+  createPayeeForTransaction: async (payeeData) => {
+    try {
+      // Create the payee using the existing addPayee function
+      const newPayee = await get().addPayee({
+        name: payeeData.name
+      });
+
+      if (!newPayee) {
+        return { payee: null, shouldUpdateTransactions: false, transactionIds: [] };
+      }
+
+      // Determine which transactions should be updated
+      let transactionIds: string[] = [];
+      let shouldUpdateTransactions = false;
+
+      if (payeeData.transactionId) {
+        // Check if this transaction is part of a multi-selection
+        if (payeeData.selectedTransactions && payeeData.selectedTransactions.has(payeeData.transactionId) && payeeData.selectedTransactions.size > 1) {
+          // Apply to all selected transactions
+          transactionIds = Array.from(payeeData.selectedTransactions);
+          shouldUpdateTransactions = true;
+        } else {
+          // Apply to single transaction
+          transactionIds = [payeeData.transactionId];
+          shouldUpdateTransactions = true;
+        }
+      }
+
+      return {
+        payee: newPayee,
+        shouldUpdateTransactions,
+        transactionIds
+      };
+    } catch (err) {
+      console.error('Error in createPayeeForTransaction:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to create payee';
+      set({ error: errorMessage });
+      return { payee: null, shouldUpdateTransactions: false, transactionIds: [] };
     }
   },
   
@@ -273,5 +322,46 @@ export const usePayeesStore = create<PayeesState>((set, get) => ({
       caseSensitive ? payee.name === name : payee.name.toLowerCase() === name.toLowerCase()
     );
     return foundPayee || null;
+  },
+
+  // Real-time subscription functions
+  subscribeToPayees: (companyId: string) => {
+    // Clean up existing subscriptions first
+    get().unsubscribeFromPayees();
+
+    const subscriptions: ReturnType<typeof supabase.channel>[] = [];
+
+    // Subscribe to payees changes
+    const payeesSubscription = supabase
+      .channel('payees_changes')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'payees',
+        filter: `company_id=eq.${companyId}`
+      }, (payload) => {
+        console.log('Payees changed:', payload.eventType);
+        get().refreshPayees();
+      })
+      .subscribe();
+
+    subscriptions.push(payeesSubscription);
+    set({ subscriptions });
+
+    // Return cleanup function
+    return () => {
+      subscriptions.forEach(subscription => {
+        supabase.removeChannel(subscription);
+      });
+      set({ subscriptions: [] });
+    };
+  },
+
+  unsubscribeFromPayees: () => {
+    const { subscriptions } = get();
+    subscriptions.forEach(subscription => {
+      supabase.removeChannel(subscription);
+    });
+    set({ subscriptions: [] });
   }
 })); 
