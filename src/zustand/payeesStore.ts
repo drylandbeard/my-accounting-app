@@ -28,7 +28,7 @@ interface PayeesState {
   // Actions
   refreshPayees: () => Promise<void>;
   addPayee: (payee: { name: string }) => Promise<Payee | null>;
-  createPayeeForTransaction: (payeeData: { name: string; transactionId?: string | null; selectedTransactions?: Set<string> }) => Promise<{ payee: Payee | null; shouldUpdateTransactions: boolean; transactionIds: string[] }>;
+  createPayeeForTransaction: (payeeData: { name: string }) => Promise<{ success: boolean; payeeId?: string; error?: string }>;
   updatePayee: (idOrName: string, updates: { name: string }) => Promise<boolean>;
   deletePayee: (idOrName: string) => Promise<boolean>;
   highlightPayee: (payeeId: string) => void;
@@ -124,42 +124,49 @@ export const usePayeesStore = create<PayeesState>((set, get) => ({
 
   createPayeeForTransaction: async (payeeData) => {
     try {
-      // Create the payee using the existing addPayee function
-      const newPayee = await get().addPayee({
-        name: payeeData.name
+      set({ isLoading: true, error: null });
+
+      if (!payeeData.name.trim()) {
+        return { success: false, error: 'Payee name is required' };
+      }
+
+      // Make the API call directly like the working version in the page
+      const response = await api.post('/api/payee/create', {
+        name: payeeData.name.trim()
       });
 
-      if (!newPayee) {
-        return { payee: null, shouldUpdateTransactions: false, transactionIds: [] };
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('Error creating payee:', errorData.error);
+        set({ error: errorData.error || 'Failed to create payee' });
+        return { success: false, error: errorData.error || 'Failed to create payee' };
       }
 
-      // Determine which transactions should be updated
-      let transactionIds: string[] = [];
-      let shouldUpdateTransactions = false;
+      const data = await response.json();
+      const payeeId = data.payee.id;
 
-      if (payeeData.transactionId) {
-        // Check if this transaction is part of a multi-selection
-        if (payeeData.selectedTransactions && payeeData.selectedTransactions.has(payeeData.transactionId) && payeeData.selectedTransactions.size > 1) {
-          // Apply to all selected transactions
-          transactionIds = Array.from(payeeData.selectedTransactions);
-          shouldUpdateTransactions = true;
-        } else {
-          // Apply to single transaction
-          transactionIds = [payeeData.transactionId];
-          shouldUpdateTransactions = true;
-        }
+      // Update the store with the new payee data
+      if (data.payees) {
+        set({
+          payees: data.payees,
+          error: null
+        });
+      } else {
+        // Refresh payees to get the latest list
+        await get().refreshPayees();
       }
 
-      return {
-        payee: newPayee,
-        shouldUpdateTransactions,
-        transactionIds
-      };
-    } catch (err) {
-      console.error('Error in createPayeeForTransaction:', err);
-      const errorMessage = err instanceof Error ? err.message : 'Failed to create payee';
+      // Highlight the new payee
+      get().highlightPayee(payeeId);
+
+      return { success: true, payeeId };
+    } catch (error) {
+      console.error('Error creating payee for transaction:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to create payee';
       set({ error: errorMessage });
-      return { payee: null, shouldUpdateTransactions: false, transactionIds: [] };
+      return { success: false, error: errorMessage };
+    } finally {
+      set({ isLoading: false });
     }
   },
   

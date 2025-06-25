@@ -44,7 +44,7 @@ interface CategoriesState {
   // Actions
   refreshCategories: () => Promise<void>;
   addCategory: (category: { name: string; type: string; parent_id?: string | null }) => Promise<Category | null>;
-  createCategoryForTransaction: (categoryData: { name: string; type: string; parent_id?: string | null; transactionId?: string | null; selectedTransactions?: Set<string> }) => Promise<{ category: Category | null; shouldUpdateTransactions: boolean; transactionIds: string[] }>;
+  createCategoryForTransaction: (categoryData: { name: string; type: string; parent_id?: string }) => Promise<{ success: boolean; categoryId?: string; error?: string }>;
   updateCategory: (id: string, updates: Partial<Category>) => Promise<boolean>;
   updateCategoryWithMergeCheck: (id: string, updates: Partial<Category>, options?: { allowMergePrompt?: boolean; companyId?: string }) => Promise<{ success: boolean; needsMerge?: boolean; existingCategory?: Category; error?: string }>;
   mergeFromRename: (originalCategoryId: string, existingCategoryId: string, companyId: string) => Promise<boolean>;
@@ -164,7 +164,13 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
 
   createCategoryForTransaction: async (categoryData) => {
     try {
-      // Create the category using the existing addCategory function
+      set({ isLoading: true, error: null });
+
+      if (!categoryData.name.trim()) {
+        throw new Error('Category name is required');
+      }
+
+      // Use the existing addCategory method which properly handles API calls
       const newCategory = await get().addCategory({
         name: categoryData.name,
         type: categoryData.type,
@@ -172,36 +178,17 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
       });
 
       if (!newCategory) {
-        return { category: null, shouldUpdateTransactions: false, transactionIds: [] };
+        throw new Error('Failed to create category');
       }
 
-      // Determine which transactions should be updated
-      let transactionIds: string[] = [];
-      let shouldUpdateTransactions = false;
-
-      if (categoryData.transactionId) {
-        // Check if this transaction is part of a multi-selection
-        if (categoryData.selectedTransactions && categoryData.selectedTransactions.has(categoryData.transactionId) && categoryData.selectedTransactions.size > 1) {
-          // Apply to all selected transactions
-          transactionIds = Array.from(categoryData.selectedTransactions);
-          shouldUpdateTransactions = true;
-        } else {
-          // Apply to single transaction
-          transactionIds = [categoryData.transactionId];
-          shouldUpdateTransactions = true;
-        }
-      }
-
-      return {
-        category: newCategory,
-        shouldUpdateTransactions,
-        transactionIds
-      };
-    } catch (err) {
-      console.error('Error in createCategoryForTransaction:', err);
-      const errorMessage = err instanceof Error ? err.message : 'Failed to create category';
+      return { success: true, categoryId: newCategory.id };
+    } catch (error) {
+      console.error('Error creating category for transaction:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to create category';
       set({ error: errorMessage });
-      return { category: null, shouldUpdateTransactions: false, transactionIds: [] };
+      return { success: false, error: errorMessage };
+    } finally {
+      set({ isLoading: false });
     }
   },
   

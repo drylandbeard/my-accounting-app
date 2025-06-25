@@ -17,6 +17,24 @@ export interface StoreResult<T = void> {
   error?: StoreError;
 }
 
+// Add automation types
+export interface Automation {
+  id: string;
+  automation_type: 'payee' | 'category';
+  condition_type: 'contains' | 'is_exactly';
+  condition_value: string;
+  action_value: string;
+  auto_add?: boolean;
+  enabled: boolean;
+  name: string;
+}
+
+export interface AutomationResult {
+  appliedCategories: { [txId: string]: string };
+  appliedPayees: { [txId: string]: string };
+  autoAddTransactions: string[];
+}
+
 // Error handling utility for store operations
 const handleStoreOperation = async <T>(
   operation: () => Promise<T>,
@@ -173,6 +191,9 @@ interface TransactionsState {
   // Additional AI helper methods
   getTransactionsSafe: (companyId: string) => Promise<StoreResult<Transaction[]>>;
   getAccountsSafe: (companyId: string) => Promise<StoreResult<Account[]>>;
+  
+  // Automation functions
+  applyAutomationsToTransactions: (companyId: string, selectedAccountId: string | null, categories: { id: string; name: string }[], payees: { id: string; name: string }[]) => Promise<StoreResult<AutomationResult>>;
 }
 
 export const useTransactionsStore = create<TransactionsState>((set, get) => ({
@@ -1151,5 +1172,113 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
   getAccountsSafe: (companyId: string) => handleStoreOperation(async () => {
     await get().fetchAccounts(companyId);
     return get().accounts;
-  }, 'getAccountsSafe')
+  }, 'getAccountsSafe'),
+  
+  // Automation functions
+  applyAutomationsToTransactions: async (companyId: string, selectedAccountId: string | null, categories: { id: string; name: string }[], payees: { id: string; name: string }[]) => {
+    return handleStoreOperation(async () => {
+      if (!selectedAccountId) {
+        throw new Error('No account selected for automation');
+      }
+
+      // Fetch automations
+      const { data: automations, error: automationsError } = await supabase
+        .from('automations')
+        .select('*')
+        .eq('company_id', companyId)
+        .eq('enabled', true)
+        .order('name');
+
+      if (automationsError || !automations) {
+        throw new Error('Failed to fetch automations');
+      }
+
+      // Separate automations by type
+      const payeeAutomations = automations.filter((a: Automation) => a.automation_type === 'payee');
+      const categoryAutomations = automations.filter((a: Automation) => a.automation_type === 'category');
+
+      if (payeeAutomations.length === 0 && categoryAutomations.length === 0) {
+        return {
+          appliedCategories: {},
+          appliedPayees: {},
+          autoAddTransactions: []
+        };
+      }
+
+      // Helper function to check if description matches automation condition
+      const doesDescriptionMatch = (description: string, conditionType: string, conditionValue: string): boolean => {
+        const desc = description.toLowerCase();
+        const condition = conditionValue.toLowerCase();
+
+        switch (conditionType) {
+          case 'contains':
+            return desc.includes(condition);
+          case 'is_exactly':
+            return desc === condition;
+          default:
+            return false;
+        }
+      };
+
+      const appliedCategories: { [txId: string]: string } = {};
+      const appliedPayees: { [txId: string]: string } = {};
+      const autoAddTransactions: string[] = [];
+
+      // Apply automations to each imported transaction
+      const transactionsToProcess = get().importedTransactions
+        .filter(tx => tx.plaid_account_id === selectedAccountId);
+
+      for (const transaction of transactionsToProcess) {
+        let appliedCategoryAutomation: Automation | null = null;
+
+        // Check payee automations first
+        for (const payeeAutomation of payeeAutomations) {
+          if (doesDescriptionMatch(
+            transaction.description,
+            payeeAutomation.condition_type,
+            payeeAutomation.condition_value
+          )) {
+            // Find the payee ID by name
+            const payee = payees.find(p => 
+              p.name.toLowerCase() === payeeAutomation.action_value.toLowerCase()
+            );
+            if (payee) {
+              appliedPayees[transaction.id] = payee.id;
+              break; // Take first matching automation
+            }
+          }
+        }
+
+        // Check category automations
+        for (const categoryAutomation of categoryAutomations) {
+          if (doesDescriptionMatch(
+            transaction.description,
+            categoryAutomation.condition_type,
+            categoryAutomation.condition_value
+          )) {
+            // Find the category ID by name
+            const category = categories.find(c => 
+              c.name.toLowerCase() === categoryAutomation.action_value.toLowerCase()
+            );
+            if (category) {
+              appliedCategories[transaction.id] = category.id;
+              appliedCategoryAutomation = categoryAutomation;
+              break; // Take first matching automation
+            }
+          }
+        }
+
+        // Check if category is set and category automation has auto_add enabled
+        if (appliedCategories[transaction.id] && appliedCategoryAutomation?.auto_add === true) {
+          autoAddTransactions.push(transaction.id);
+        }
+      }
+
+      return {
+        appliedCategories,
+        appliedPayees,
+        autoAddTransactions
+      };
+    }, 'applyAutomationsToTransactions');
+  }
 }));

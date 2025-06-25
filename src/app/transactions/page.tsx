@@ -233,18 +233,21 @@ export default function TransactionsPage() {
     createManualAccount,
     saveJournalEntry,
     fetchPastJournalEntries,
+    applyAutomationsToTransactions,
     subscribeToTransactions
   } = useTransactionsStore();
   
   const { 
     categories, 
     refreshCategories,
+    createCategoryForTransaction,
     subscribeToCategories
   } = useCategoriesStore();
   
   const { 
     payees, 
     refreshPayees,
+    createPayeeForTransaction,
     subscribeToPayees
   } = usePayeesStore();
   
@@ -721,9 +724,9 @@ export default function TransactionsPage() {
 
   // Data fetching now handled by stores
 
-  // Function to apply automations to transactions (temporary state only)
-  const applyAutomationsToTransactions = async () => {
-    if (!hasCompanyContext) return;
+  // Apply automations automatically when transactions or related data changes (UI state only)
+  const runAutomationsWithStateUpdate = async () => {
+    if (!hasCompanyContext || !currentCompany?.id) return;
     
     // Prevent concurrent executions
     if (isAutomationRunning.current) {
@@ -734,216 +737,111 @@ export default function TransactionsPage() {
     setIsAutoAddRunning(true);
 
     try {
-      // Fetch automations
-      const { data: automations, error: automationsError } = await supabase
-        .from('automations')
-        .select('*')
-        .eq('company_id', currentCompany!.id)
-        .eq('enabled', true)
-        .order('name');
+      const result = await applyAutomationsToTransactions(
+        currentCompany.id,
+        selectedAccountId,
+        categories,
+        payees
+      );
 
-      if (automationsError || !automations) {
-        console.error('Error fetching automations:', automationsError);
-        return;
-      }
+      if (result.success && result.data) {
+        const { appliedCategories, appliedPayees, autoAddTransactions } = result.data;
 
-      // Separate automations by type
-      const payeeAutomations = automations.filter(a => a.automation_type === 'payee');
-      const categoryAutomations = automations.filter(a => a.automation_type === 'category');
-
-      if (payeeAutomations.length === 0 && categoryAutomations.length === 0) {
-        return; // No automations to apply
-      }
-
-      // Helper function to check if description matches automation condition
-      const doesDescriptionMatch = (description: string, conditionType: string, conditionValue: string): boolean => {
-        const desc = description.toLowerCase();
-        const condition = conditionValue.toLowerCase();
-
-        switch (conditionType) {
-          case 'contains':
-            return desc.includes(condition);
-          case 'is_exactly':
-            return desc === condition;
-          default:
-            return false;
-        }
-      };
-
-      const newSelectedCategories: { [txId: string]: string } = {};
-      const newSelectedPayees: { [txId: string]: string } = {};
-      const transactionsToAutoAdd: string[] = [];
-
-      // Apply automations to each imported transaction
-      const transactionsToProcess = importedTransactions
-        .filter(tx => tx.plaid_account_id === selectedAccountId);
-
-      for (const transaction of transactionsToProcess) {
-        // Skip if already has manual selections
-        if (selectedCategories[transaction.id] || selectedPayees[transaction.id]) {
-          continue;
+        // Update local state with automation-applied values
+        if (Object.keys(appliedCategories).length > 0) {
+          setSelectedCategories(prev => ({
+            ...prev,
+            ...appliedCategories
+          }));
         }
 
-        let appliedCategoryAutomation: { auto_add?: boolean } | null = null;
-
-        // Check payee automations first
-        for (const payeeAutomation of payeeAutomations) {
-          if (doesDescriptionMatch(
-            transaction.description,
-            payeeAutomation.condition_type,
-            payeeAutomation.condition_value
-          )) {
-            // Find the payee ID by name
-            const payee = payees.find(p => 
-              p.name.toLowerCase() === payeeAutomation.action_value.toLowerCase()
-            );
-            if (payee) {
-              newSelectedPayees[transaction.id] = payee.id;
-              break; // Take first matching automation
-            }
-          }
+        if (Object.keys(appliedPayees).length > 0) {
+          setSelectedPayees(prev => ({
+            ...prev,
+            ...appliedPayees
+          }));
         }
 
-        // Check category automations
-        for (const categoryAutomation of categoryAutomations) {
-          if (doesDescriptionMatch(
-            transaction.description,
-            categoryAutomation.condition_type,
-            categoryAutomation.condition_value
-          )) {
-            // Find the category ID by name
-            const category = categories.find(c => 
-              c.name.toLowerCase() === categoryAutomation.action_value.toLowerCase()
-            );
-            if (category) {
-              newSelectedCategories[transaction.id] = category.id;
-              appliedCategoryAutomation = categoryAutomation;
-              break; // Take first matching automation
-            }
-          }
-        }
+        // Handle auto-add transactions
+        if (autoAddTransactions.length > 0) {
+          const transactionsToProcess = importedTransactions
+            .filter(tx => tx.plaid_account_id === selectedAccountId);
 
-        // Check if category is set and category automation has auto_add enabled
-        // Note: auto_add column might not exist in remote database yet, so we handle this gracefully
-        if (newSelectedCategories[transaction.id] && appliedCategoryAutomation?.auto_add === true) {
-          transactionsToAutoAdd.push(transaction.id);
-        }
-      }
-
-      // Update state with automation-applied values
-      if (Object.keys(newSelectedCategories).length > 0) {
-        setSelectedCategories(prev => ({
-          ...prev,
-          ...newSelectedCategories
-        }));
-      }
-
-      if (Object.keys(newSelectedPayees).length > 0) {
-        setSelectedPayees(prev => ({
-          ...prev,
-          ...newSelectedPayees
-        }));
-      }
-
-      // Auto-add transactions that meet the criteria (only if not already auto-added)
-      // Filter by content hash instead of transaction ID to handle undo scenarios
-      const transactionsToActuallyAutoAdd = transactionsToAutoAdd.filter(txId => {
-        const transaction = transactionsToProcess.find(tx => tx.id === txId);
-        if (!transaction) return false;
-        const contentHash = getTransactionContentHash(transaction);
-        return !autoAddedTransactions.has(contentHash);
-      });
-      
-      if (transactionsToActuallyAutoAdd.length > 0) {
-        // Mark these transactions as being auto-added to prevent duplicates
-        setAutoAddedTransactions(prev => {
-          const newSet = new Set(prev);
-          transactionsToActuallyAutoAdd.forEach(txId => {
+          // Filter by content hash to prevent duplicates
+          const transactionsToActuallyAutoAdd = autoAddTransactions.filter(txId => {
             const transaction = transactionsToProcess.find(tx => tx.id === txId);
-            if (transaction) {
-              const contentHash = getTransactionContentHash(transaction);
-              newSet.add(contentHash);
-            }
+            if (!transaction) return false;
+            const contentHash = getTransactionContentHash(transaction);
+            return !autoAddedTransactions.has(contentHash);
           });
-          return newSet;
-        });
 
-        // Process auto-add transactions in bulk to improve performance
-        const processAutoAddTransactions = async () => {
-          const transactionRequests = transactionsToActuallyAutoAdd
-            .map(transactionId => {
-              const transaction = transactionsToProcess.find(tx => tx.id === transactionId);
-              if (transaction && newSelectedCategories[transactionId]) {
-                return {
-                  transaction,
-                  selectedCategoryId: newSelectedCategories[transactionId],
-                  selectedPayeeId: newSelectedPayees[transactionId]
-                };
-              }
-              return null;
-            })
-            .filter(req => req !== null) as {
-              transaction: Transaction;
-              selectedCategoryId: string;
-              selectedPayeeId?: string;
-            }[];
+          if (transactionsToActuallyAutoAdd.length > 0) {
+            // Mark as auto-added
+            setAutoAddedTransactions(prev => {
+              const newSet = new Set(prev);
+              transactionsToActuallyAutoAdd.forEach(txId => {
+                const transaction = transactionsToProcess.find(tx => tx.id === txId);
+                if (transaction) {
+                  const contentHash = getTransactionContentHash(transaction);
+                  newSet.add(contentHash);
+                }
+              });
+              return newSet;
+            });
 
-          if (transactionRequests.length > 0) {
-            try {
-              // Get the corresponding category ID (the account category)
-              const correspondingCategoryId = selectedAccountIdInCOA;
-              if (!correspondingCategoryId) {
-                console.error('No corresponding category ID found for selected account');
-                return;
-              }
-              
-              await addTransactions(transactionRequests, correspondingCategoryId, currentCompany!.id);
-              
-              // Clean up state for auto-added transactions
-              setSelectedCategories(prev => {
-                const copy = { ...prev };
-                transactionRequests.forEach(req => delete copy[req.transaction.id]);
-                return copy;
-              });
-              setSelectedPayees(prev => {
-                const copy = { ...prev };
-                transactionRequests.forEach(req => delete copy[req.transaction.id]);
-                return copy;
-              });
-            } catch (error) {
-              console.error('Error auto-adding transactions:', error);
-              // Remove from auto-added set if there was an error so they can be retried
-              setAutoAddedTransactions(prev => {
-                const newSet = new Set(prev);
-                transactionRequests.forEach(req => {
-                  const contentHash = getTransactionContentHash(req.transaction);
-                  newSet.delete(contentHash);
+            // Process auto-add
+            const transactionRequests = transactionsToActuallyAutoAdd
+              .map(transactionId => {
+                const transaction = transactionsToProcess.find(tx => tx.id === transactionId);
+                if (transaction && appliedCategories[transactionId]) {
+                  return {
+                    transaction,
+                    selectedCategoryId: appliedCategories[transactionId],
+                    selectedPayeeId: appliedPayees[transactionId]
+                  };
+                }
+                return null;
+              })
+              .filter(req => req !== null) as {
+                transaction: Transaction;
+                selectedCategoryId: string;
+                selectedPayeeId?: string;
+              }[];
+
+            if (transactionRequests.length > 0 && selectedAccountIdInCOA) {
+              try {
+                await addTransactions(transactionRequests, selectedAccountIdInCOA, currentCompany.id);
+                
+                // Clean up state for auto-added transactions
+                setSelectedCategories(prev => {
+                  const copy = { ...prev };
+                  transactionRequests.forEach(req => delete copy[req.transaction.id]);
+                  return copy;
                 });
-                return newSet;
-              });
+                setSelectedPayees(prev => {
+                  const copy = { ...prev };
+                  transactionRequests.forEach(req => delete copy[req.transaction.id]);
+                  return copy;
+                });
+              } catch (error) {
+                console.error('Error auto-adding transactions:', error);
+                // Remove from auto-added set if there was an error
+                setAutoAddedTransactions(prev => {
+                  const newSet = new Set(prev);
+                  transactionRequests.forEach(req => {
+                    const contentHash = getTransactionContentHash(req.transaction);
+                    newSet.delete(contentHash);
+                  });
+                  return newSet;
+                });
+              }
             }
           }
-        };
-
-        // Use a small delay to ensure state updates are processed, then run sequentially
-        setTimeout(async () => {
-          try {
-            await processAutoAddTransactions();
-          } finally {
-            // Reset the flag after auto-add completes
-            isAutomationRunning.current = false;
-            setIsAutoAddRunning(false);
-          }
-        }, 100);
-        
-        // Don't reset the flag here since the setTimeout will handle it
-        return;
+        }
       }
-
     } catch (error) {
-      console.error('Error applying automations to transactions:', error);
+      console.error('Error applying automations:', error);
     } finally {
-      // Reset the flag when automation completes (only if not auto-adding)
       isAutomationRunning.current = false;
       setIsAutoAddRunning(false);
     }
@@ -978,7 +876,7 @@ export default function TransactionsPage() {
   useEffect(() => {
     if (importedTransactions.length > 0 && categories.length > 0 && payees.length > 0 && hasCompanyContext) {
       // Apply automations immediately when data is available
-      applyAutomationsToTransactions();
+      runAutomationsWithStateUpdate();
     }
   }, [importedTransactions, categories, payees, hasCompanyContext]);
 
@@ -986,7 +884,7 @@ export default function TransactionsPage() {
   useEffect(() => {
     if (selectedAccountId && importedTransactions.length > 0 && categories.length > 0 && payees.length > 0 && hasCompanyContext) {
       // Apply automations when account selection changes
-      applyAutomationsToTransactions();
+      runAutomationsWithStateUpdate();
     }
   }, [selectedAccountId, importedTransactions, categories, payees, hasCompanyContext]);
 
@@ -1500,110 +1398,98 @@ export default function TransactionsPage() {
     refreshAll(currentCompany!.id);
   };
 
-  // Add handler for creating new category
+  // Handler for creating new category using store
   const handleCreateCategory = async () => {
-    if (!newCategoryModal.name.trim()) return;
+    if (!newCategoryModal.name.trim() || !hasCompanyContext) return;
 
-    const { data, error } = await supabase
-      .from('chart_of_accounts')
-      .insert([{
-        name: newCategoryModal.name.trim(),
-        type: newCategoryModal.type,
-        parent_id: newCategoryModal.parent_id,
-        company_id: currentCompany?.id
-      }])
-      .select()
-      .single();
+    const result = await createCategoryForTransaction({
+      name: newCategoryModal.name.trim(),
+      type: newCategoryModal.type,
+      parent_id: newCategoryModal.parent_id || undefined
+    });
 
-    if (error) {
-      console.error('Error creating category:', error);
-      return;
-    }
-
-    // After creating the category, set it as selected for the current transaction or all selected transactions
-    if (newCategoryModal.transactionId) {
-      // Check if this is for the edit modal
-      if (editModal.isOpen && editModal.transaction?.id === newCategoryModal.transactionId) {
-        setEditModal(prev => ({
-          ...prev,
-          transaction: prev.transaction ? {
-            ...prev.transaction,
-            selected_category_id: data.id
-          } : null
-        }));
+    if (result.success && result.categoryId) {
+      // After creating the category, set it as selected for the current transaction or all selected transactions
+      if (newCategoryModal.transactionId) {
+        // Check if this is for the edit modal
+        if (editModal.isOpen && editModal.transaction?.id === newCategoryModal.transactionId) {
+          setEditModal(prev => ({
+            ...prev,
+            transaction: prev.transaction ? {
+              ...prev.transaction,
+              selected_category_id: result.categoryId
+            } : null
+          }));
+        }
+        // Check if the transaction is part of a selection and apply to all selected
+        else if (selectedToAdd.has(newCategoryModal.transactionId) && selectedToAdd.size > 1) {
+          const updates: { [key: string]: string } = {};
+          selectedToAdd.forEach(selectedId => {
+            updates[selectedId] = result.categoryId || '';
+          });
+          setSelectedCategories(prev => ({
+            ...prev,
+            ...updates
+          }));
+        } else {
+          setSelectedCategories(prev => ({
+            ...prev,
+            [newCategoryModal.transactionId!]: result.categoryId || ''
+          }));
+        }
       }
-      // Check if the transaction is part of a selection and apply to all selected
-      else if (selectedToAdd.has(newCategoryModal.transactionId) && selectedToAdd.size > 1) {
-        const updates: { [key: string]: string } = {};
-        selectedToAdd.forEach(selectedId => {
-          updates[selectedId] = data.id;
-        });
-        setSelectedCategories(prev => ({
-          ...prev,
-          ...updates
-        }));
-      } else {
-        setSelectedCategories(prev => ({
-          ...prev,
-          [newCategoryModal.transactionId!]: data.id
-        }));
-      }
-    }
 
-    setNewCategoryModal({ isOpen: false, name: '', type: 'Expense', parent_id: null, transactionId: null });
-    refreshAll(currentCompany!.id);
+      setNewCategoryModal({ isOpen: false, name: '', type: 'Expense', parent_id: null, transactionId: null });
+    } else {
+      console.error('Error creating category:', result.error);
+    }
   };
 
-  // Add handler for creating new payee
+  // Handler for creating new payee using store
   const handleCreatePayee = async () => {
-    if (!newPayeeModal.name.trim()) return;
+    if (!newPayeeModal.name.trim() || !hasCompanyContext) return;
 
-    const { data, error } = await supabase
-      .from('payees')
-      .insert([{
-        name: newPayeeModal.name.trim(),
-        company_id: currentCompany?.id
-      }])
-      .select()
-      .single();
+    const result = await createPayeeForTransaction({
+      name: newPayeeModal.name.trim()
+    });
 
-    if (error) {
-      console.error('Error creating payee:', error);
-      return;
-    }
-
-    // After creating the payee, set it as selected for the current transaction or all selected transactions
-    if (newPayeeModal.transactionId) {
-      // Check if this is for the edit modal
-      if (editModal.isOpen && editModal.transaction?.id === newPayeeModal.transactionId) {
-        setEditModal(prev => ({
-          ...prev,
-          transaction: prev.transaction ? {
-            ...prev.transaction,
-            payee_id: data.id
-          } : null
-        }));
+    if (result.success && result.payeeId) {
+      // After creating the payee, set it as selected for the current transaction or all selected transactions
+      if (newPayeeModal.transactionId) {
+        // Check if this is for the edit modal
+        if (editModal.isOpen && editModal.transaction?.id === newPayeeModal.transactionId) {
+          setEditModal(prev => ({
+            ...prev,
+            transaction: prev.transaction ? {
+              ...prev.transaction,
+              payee_id: result.payeeId
+            } : null
+          }));
+        }
+        // Check if the transaction is part of a selection and apply to all selected
+        else if (selectedToAdd.has(newPayeeModal.transactionId) && selectedToAdd.size > 1) {
+          const updates: { [key: string]: string } = {};
+          selectedToAdd.forEach(selectedId => {
+            updates[selectedId] = result.payeeId || '';
+          });
+          setSelectedPayees(prev => ({
+            ...prev,
+            ...updates
+          }));
+        } else {
+          setSelectedPayees(prev => ({
+            ...prev,
+            [newPayeeModal.transactionId!]: result.payeeId || ''
+          }));
+        }
       }
-      // Check if the transaction is part of a selection and apply to all selected
-      else if (selectedToAdd.has(newPayeeModal.transactionId) && selectedToAdd.size > 1) {
-        const updates: { [key: string]: string } = {};
-        selectedToAdd.forEach(selectedId => {
-          updates[selectedId] = data.id;
-        });
-        setSelectedPayees(prev => ({
-          ...prev,
-          ...updates
-        }));
-      } else {
-        setSelectedPayees(prev => ({
-          ...prev,
-          [newPayeeModal.transactionId!]: data.id
-        }));
-      }
-    }
 
-    setNewPayeeModal({ isOpen: false, name: '', transactionId: null });
-    refreshAll(currentCompany!.id);
+      setNewPayeeModal({ isOpen: false, name: '', transactionId: null });
+      setNotification({ type: 'success', message: 'Payee created successfully' });
+    } else {
+      console.error('Error creating payee:', result.error);
+      setNotification({ type: 'error', message: result.error || 'Failed to create payee' });
+    }
   };
 
   // createManualAccount now handled by transactionsStore
