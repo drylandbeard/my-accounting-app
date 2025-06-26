@@ -5,16 +5,19 @@ and the complex interaction between multiple imported type definitions from diff
 
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
-import { supabase } from "@/lib/supabase";
-import { X, RefreshCcw } from "lucide-react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { X, RefreshCcw, ArrowUpCircle } from "lucide-react";
 import { useCategoriesStore } from "@/zustand/categoriesStore";
 import { usePayeesStore } from "@/zustand/payeesStore";
 import { useAuthStore } from "@/zustand/authStore";
+import { supabase } from "@/lib/supabase";
 import { api } from "@/lib/api";
 import { tools } from "@/ai/tools";
 import { categoryPrompt } from "@/ai/prompts";
 
+const MIN_PANEL_WIDTH = 320;
+const MAX_PANEL_WIDTH = 600;
+const DEFAULT_PANEL_WIDTH = 400;
 
 interface Message {
   role: "user" | "assistant";
@@ -28,48 +31,25 @@ interface AISidePanelProps {
   setIsOpen: (open: boolean) => void;
 }
 
-const DEFAULT_PANEL_WIDTH = 400;
-const MIN_PANEL_WIDTH = 300;
-const MAX_PANEL_WIDTH = 800;
-
 export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
   const [messages, setMessages] = useState<Message[]>(() => {
-    if (typeof window === "undefined") {
-      return [];
-    }
-    const savedMessages = localStorage.getItem("aiChatMessages");
-    if (savedMessages) {
-      try {
-        const parsedMessages = JSON.parse(savedMessages);
-        // Filter out any messages with showConfirmation or pendingAction to avoid stale confirmations
-        return parsedMessages.map((msg: Message) => ({
-          role: msg.role,
-          content: msg.content,
-        }));
-      } catch (error) {
-        console.error("Error parsing saved messages:", error);
-        localStorage.removeItem("aiChatMessages");
-        return [];
+    if (typeof window === "undefined") return [];
+    
+    try {
+      const saved = localStorage.getItem("aiChatMessages");
+      if (saved) {
+        return JSON.parse(saved);
       }
+    } catch (error) {
+      console.error("Error parsing saved messages:", error);
+      localStorage.removeItem("aiChatMessages");
+      return [];
     }
     // Return welcome message for new users
     return [
       {
         role: "assistant",
-        content: `👋 Hey there! I'm your **continuous** accounting assistant agent. I'm always monitoring your workflow and looking for ways to optimize it!
-
-🔄 **Continuous Mode**: I'll automatically suggest improvements when you make changes, monitor for new transactions, and check in periodically to help enhance your accounting setup.
-
-I can help you:
-• Create and organize chart of account categories
-• Set up category hierarchies that make sense for your business
-• Proactively suggest optimizations as you work
-• Monitor changes and offer continuous improvements
-• Answer questions about accounting structure
-
-What kind of business are you running? I'd love to learn more so I can continuously provide tailored suggestions! 💡
-
-*Tip: Toggle the "🔄 Continuous" button in the header if you prefer manual-only assistance.*`,
+        content: `How can I help?`,
       },
     ];
   });
@@ -77,6 +57,7 @@ What kind of business are you running? I'd love to learn more so I can continuou
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
   const [isResizing, setIsResizing] = useState(false);
   const resizeRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
   
   // Use the same Zustand store as the categories page for consistency
   const { 
@@ -273,85 +254,6 @@ What kind of business are you running? I'd love to learn more so I can continuou
     }, 5 * 60 * 1000);
   };
 
-  // Continuous monitoring - detect changes and proactively suggest improvements
-  useEffect(() => {
-    if (!proactiveMode || !currentCompany) return;
-
-    const categoriesHash = JSON.stringify(categories.map((c) => ({ id: c.id, name: c.name, type: c.type })));
-    const transactionsCount = transactions.length;
-
-    // Check for category changes
-    if (lastCategoriesHash && lastCategoriesHash !== categoriesHash && categoriesHash !== "[]") {
-      const messageKey = `category-changes-${Date.now()}`;
-      const content = `🔍 I noticed you've made changes to your categories! Here are some suggestions to optimize further:
-
-• **Review category hierarchy**: Would you like me to suggest better parent-child relationships?
-• **Check for duplicates**: I can help identify any similar categories that could be consolidated
-• **Optimize for reporting**: Let's ensure your categories align with your reporting needs
-
-What would you like to focus on next? I'm here to help you continuously improve your accounting structure! 💡`;
-
-      addProactiveMessage(messageKey, content, 2000);
-    }
-
-    // Check for new transactions
-    if (lastTransactionsCount > 0 && transactionsCount > lastTransactionsCount) {
-      const newTransactionsCount = transactionsCount - lastTransactionsCount;
-      const messageKey = `new-transactions-${transactionsCount}`;
-      const content = `📊 I see you have ${newTransactionsCount} new transaction${
-        newTransactionsCount > 1 ? "s" : ""
-      } to categorize!
-
-Here's how I can help optimize this:
-• **Batch categorization**: I can help you quickly categorize similar transactions
-• **Create missing categories**: Need new categories for these transactions?
-• **Set up rules**: Want me to suggest automation for recurring transactions?
-
-Ready to tackle these together? What type of transactions are these mostly? 🚀`;
-
-      addProactiveMessage(messageKey, content, 1500);
-    }
-
-    setLastCategoriesHash(categoriesHash);
-    setLastTransactionsCount(transactionsCount);
-  }, [
-    categories,
-    transactions,
-    lastCategoriesHash,
-    lastTransactionsCount,
-    proactiveMode,
-    currentCompany,
-    recentProactiveMessages,
-  ]);
-
-  // Periodic check-ins to keep AI engaged
-  useEffect(() => {
-    if (!proactiveMode) return;
-
-    const checkInInterval = setInterval(() => {
-      const timeSinceLastActivity = Date.now() - lastActivityTime;
-      const tenMinutes = 10 * 60 * 1000;
-
-      // If user hasn't interacted in 10 minutes, send a helpful check-in
-      if (timeSinceLastActivity > tenMinutes && messages.length > 1) {
-        const checkInMessages = [
-          `👋 Still working on your accounting? I'm here if you need any suggestions for optimizing your categories or workflow!`,
-          `💡 Quick question: Have you considered setting up subcategories for better expense tracking? I can help organize them!`,
-          `📈 How's your financial organization going? I noticed some areas where we could improve efficiency - want to explore them?`,
-          `🎯 Ready to take your accounting to the next level? I have some ideas for optimizing your current setup!`,
-        ];
-
-        const randomMessage = checkInMessages[Math.floor(Math.random() * checkInMessages.length)];
-        const messageKey = `check-in-${Date.now()}`;
-
-        addProactiveMessage(messageKey, randomMessage, 0);
-        setLastActivityTime(Date.now()); // Reset timer after check-in
-      }
-    }, 60000); // Check every minute
-
-    return () => clearInterval(checkInInterval);
-  }, [lastActivityTime, messages.length, proactiveMode, recentProactiveMessages]);
-
   // Update activity time on user interaction
   const updateActivityTime = () => {
     setLastActivityTime(Date.now());
@@ -359,7 +261,12 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
 
   // Function to refresh/clear chat context
   const handleRefreshContext = () => {
-    setMessages([]);
+    setMessages([
+      {
+        role: "assistant",
+        content: `How can I help?`,
+      },
+    ]);
     localStorage.removeItem("aiChatMessages");
     setPendingToolQueue([]);
     setPendingToolArgs(null);
@@ -397,580 +304,172 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
     };
   }, [isResizing]);
 
-  // Enhanced executeAction function to handle category operations
+  // Add this helper function near the top of the file (after imports)
+  function getFriendlySuccessMessage(action, details) {
+    switch (action) {
+      case "create_category":
+        return `All set! '${details.name}' has been added as an ${details.type}.`;
+      case "update_category":
+        return `Done! '${details.name}' has been updated.`;
+      case "delete_category":
+        return `'${details.name}' has been removed from your categories.`;
+      case "assign_parent_category":
+        return `Parent category assigned successfully.`;
+      case "change_category_type":
+        return `Category type changed to ${details.newType}.`;
+      case "create_payee":
+        return `Payee '${details.name}' has been added.`;
+      case "update_payee":
+        return `Payee '${details.name}' has been updated.`;
+      case "delete_payee":
+        return `Payee '${details.name}' has been removed.`;
+      case "batch_execute":
+        return `All done! Your batch of actions has been completed.`;
+      default:
+        return "Done!";
+    }
+  }
+
+  // Update executeAction to use the helper for all success cases
   async function executeAction(action: any, skipRefresh: boolean = false, customCategories?: any[]): Promise<string> {
-    const categoriesToUse = customCategories || categories;
-    
-    if (action.action === "categorize") {
-      // Find the transaction and category by human-friendly fields
-      const { date, amount, description, categoryName } = action;
-      // Try to match transaction (allow for string/number for amount)
-      const tx = transactions.find(
-        (t) =>
-          t.date === date &&
-          (t.amount === amount ||
-            t.spent === amount ||
-            t.received === amount ||
-            t.amount === Number(amount) ||
-            t.spent === Number(amount) ||
-            t.received === Number(amount)) &&
-          (description ? t.description === description : true)
-      );
-      const category = categoriesToUse.find((c) => c.name.toLowerCase() === categoryName?.toLowerCase());
-      if (!tx)
-        return `Could not find transaction with date ${date}, amount ${amount}${
-          description ? ", description '" + description + "'" : ""
-        }`;
-      if (!category) return `Could not find category with name '${categoryName}'`;
-
-      // Find the account for this transaction
-      const account = accounts.find((a) => a.plaid_account_id === tx.plaid_account_id);
-      if (!account) return `Could not find account for transaction`;
-      // Find the account in chart_of_accounts
-      const selectedAccount = categoriesToUse.find((c) => c.plaid_account_id === tx.plaid_account_id);
-      if (!selectedAccount) return `Could not find chart of account for transaction`;
-      const selectedAccountIdInCOA = selectedAccount.id;
-
-      // Insert into transactions
-      await supabase.from("transactions").insert([
-        {
-          date: tx.date,
-          description: tx.description,
-          spent: tx.spent ?? 0,
-          received: tx.received ?? 0,
-          selected_category_id: category.id,
-          corresponding_category_id: selectedAccountIdInCOA,
-          plaid_account_id: tx.plaid_account_id,
-          plaid_account_name: tx.plaid_account_name,
-        },
-      ]);
-      // Remove from imported_transactions
-      await supabase.from("imported_transactions").delete().eq("id", tx.id);
-      await api.post("/api/sync-journal", {});
-      // Refresh categories unless we're in batch mode
-      if (!skipRefresh) {
-        await refreshCategories();
-      }
-      return `Transaction "${tx.description}" categorized as "${category.name}".`;
-    }
-
-    if (action.action === "create_category") {
-      try {
-        console.log('Creating category with action:', action); // Debug log
-        console.log('Current company:', currentCompany); // Debug log
-        
-        // The store now handles parent names directly, so we can pass either parentName or parent_id
-        let parentId = action.parent_id || action.parentName || null;
-        
-        const categoryData = {
-          name: action.name!,
-          type: action.type!,
-          parent_id: parentId,
-          company_id: currentCompany!.id,
-        };
-
-        console.log('Category data being sent:', categoryData); // Debug log
-
-        const result = await addCategory(categoryData);
-        
-        if (result) {
-          return `Successfully created category '${action.name}' with type '${action.type}'.`;
-        } else {
-          const errorMessage = storeError || 'Failed to create category';
-          return `Error creating category: ${errorMessage}`;
-        }
-      } catch (error) {
-        return `Error creating category: ${error instanceof Error ? error.message : 'Unknown error'}`;
-      }
-    }
-
-    if (action.action === "update_category") {
-      try {
-        // The store now handles both ID and name, so we can pass either directly
-        let categoryIdOrName = action.categoryId || action.categoryName;
-        
-        if (!categoryIdOrName) {
-          return 'Category ID or name is required for update';
-        }
-        
-        const updates: any = {};
-        if (action.name) updates.name = action.name;
-        if (action.type) updates.type = action.type;
-        if (action.parent_id !== undefined) updates.parent_id = action.parent_id;
-
-        console.log('Executing update_category:', { categoryIdOrName, updates, action }); // Debug log
-        
-        const result = await updateCategory(categoryIdOrName, updates);
-        
-        // Wait a moment for any API errors to propagate
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
-        console.log('Update result:', result, 'Store error:', storeError); // Debug log
-        
-        if (result) {
-          // Double-check that the store error hasn't been set by API failure
-          if (storeError) {
-            console.error('Update appeared successful but store has error:', storeError); // Debug log
-            return `Error updating category: ${storeError}`;
+    try {
+      const categoriesToUse = customCategories || categories;
+      switch (action.action) {
+        case "create_category": {
+          const result = await addCategory({
+            name: action.name,
+            type: action.type,
+            company_id: currentCompany?.id || "",
+            parent_id: action.parent_id || null,
+            subtype: action.subtype || null,
+            plaid_account_id: action.plaid_account_id || null
+          });
+          if (!result) {
+            return "Sorry, I couldn't add that category. Please try again.";
           }
-          
-          // Be more specific about what was updated
-          const updateDetails = [];
-          if (updates.name) updateDetails.push(`name to "${updates.name}"`);
-          if (updates.type) updateDetails.push(`type to "${updates.type}"`);
-          if (updates.parent_id !== undefined) {
-            updateDetails.push(updates.parent_id ? `parent category` : `removed parent`);
+          if (!skipRefresh) await refreshCategories();
+          return getFriendlySuccessMessage("create_category", { name: action.name, type: action.type });
+        }
+        case "update_category": {
+          const result = await updateCategory(action.id, {
+            name: action.name,
+            type: action.type,
+            parent_id: action.parent_id,
+            subtype: action.subtype,
+            plaid_account_id: action.plaid_account_id
+          });
+          if (!result) {
+            return "Sorry, I couldn't update that category. Please try again.";
           }
-          
-          const detailsText = updateDetails.length > 0 ? ` (${updateDetails.join(', ')})` : '';
-          return `Successfully updated category "${action.categoryName || categoryIdOrName}"${detailsText}. Changes should be reflected in the database and UI.`;
-        } else {
-          const errorMessage = storeError || 'Failed to update category - no specific error available';
-          console.error('Update failed:', errorMessage); // Debug log
-          return `Error updating category "${action.categoryName || categoryIdOrName}": ${errorMessage}. Please check if the category name already exists or refresh the page.`;
+          if (!skipRefresh) await refreshCategories();
+          return getFriendlySuccessMessage("update_category", { name: action.name });
         }
-      } catch (error) {
-        console.error('Exception in update_category:', error); // Debug log
-        return `Error updating category: ${error instanceof Error ? error.message : 'Unknown error'}`;
+        case "delete_category": {
+          const result = await deleteCategory(action.id);
+          if (!result) {
+            return "Sorry, I couldn't delete that category. Please try again.";
+          }
+          if (!skipRefresh) await refreshCategories();
+          return getFriendlySuccessMessage("delete_category", { name: action.name });
+        }
+        case "assign_parent_category": {
+          const assignResult = await assignParentCategory(action.child_id, action.parent_id);
+          if (!assignResult.success) {
+            return `Sorry, I couldn't assign the parent category: ${assignResult.error}`;
+          }
+          if (!skipRefresh) await refreshCategories();
+          return getFriendlySuccessMessage("assign_parent_category", {});
+        }
+        case "change_category_type": {
+          const typeResult = await changeCategoryType(action.id, action.new_type);
+          if (!typeResult.success) {
+            return `Sorry, I couldn't change the category type: ${typeResult.error}`;
+          }
+          if (!skipRefresh) await refreshCategories();
+          return getFriendlySuccessMessage("change_category_type", { newType: action.new_type });
+        }
+        case "create_payee": {
+          const payeeResult = await addPayee({
+            name: action.name,
+            company_id: currentCompany?.id || ""
+          });
+          if (!payeeResult) {
+            return "Sorry, I couldn't add that payee. Please try again.";
+          }
+          if (!skipRefresh) await refreshPayeesFromStore();
+          return getFriendlySuccessMessage("create_payee", { name: action.name });
+        }
+        case "update_payee": {
+          const updatePayeeResult = await updatePayee(action.id, {
+            name: action.name
+          });
+          if (!updatePayeeResult) {
+            return "Sorry, I couldn't update that payee. Please try again.";
+          }
+          if (!skipRefresh) await refreshPayeesFromStore();
+          return getFriendlySuccessMessage("update_payee", { name: action.name });
+        }
+        case "delete_payee": {
+          const deletePayeeResult = await deletePayee(action.id);
+          if (!deletePayeeResult) {
+            return "Sorry, I couldn't delete that payee. Please try again.";
+          }
+          if (!skipRefresh) await refreshPayeesFromStore();
+          return getFriendlySuccessMessage("delete_payee", { name: action.name });
+        }
+        case "batch_execute": {
+          let batchResults = [];
+          for (const subAction of action.operations) {
+            const result = await executeAction(subAction, true, categoriesToUse);
+            batchResults.push(result);
+          }
+          if (!skipRefresh) {
+            await refreshCategories();
+            await refreshPayeesFromStore();
+          }
+          return getFriendlySuccessMessage("batch_execute", {});
+        }
+        default:
+          return "Sorry, I didn't recognize that action.";
       }
+    } catch (error) {
+      console.error("Error executing action:", error);
+      return `Sorry, something went wrong: ${error instanceof Error ? error.message : 'Unknown error'}`;
     }
-
-    if (action.action === "delete_category") {
-      try {
-        // The store now handles both ID and name, so we can pass either directly
-        let categoryIdOrName = action.categoryId || action.categoryName;
-        
-        // Handle different possible field names for category name
-        if (!categoryIdOrName) {
-          categoryIdOrName = action.name || action.category || action.category_name;
-        }
-        
-        console.log('Delete category debug:', { 
-          action, 
-          categoryIdOrName, 
-          availableCategories: categoriesToUse.map(c => ({ id: c.id, name: c.name }))
-        }); // Debug log
-        
-        if (!categoryIdOrName) {
-          return 'Category ID or name is required for deletion';
-        }
-        
-        console.log('Deleting category:', { categoryIdOrName, action }); // Debug log
-        
-        const result = await deleteCategory(categoryIdOrName);
-        
-        if (result) {
-          return `Successfully deleted category '${categoryIdOrName}'.`;
-        } else {
-          const errorMessage = storeError || 'Failed to delete category';
-          return `Error deleting category: ${errorMessage}`;
-        }
-      } catch (error) {
-        return `Error deleting category: ${error instanceof Error ? error.message : 'Unknown error'}`;
-      }
-    }
-
-    if (action.action === "change_category_type") {
-      // The store now handles both ID and name, so we can pass either directly
-      let categoryIdOrName = action.categoryId || action.categoryName;
-      
-      if (!categoryIdOrName) {
-        return 'Category ID or name is required to change type';
-      }
-
-      const result = await updateCategory(categoryIdOrName, { type: action.newType });
-
-      if (result) {
-        if (!skipRefresh) {
-          await refreshCategories();
-        }
-        return `Successfully changed category '${action.categoryName || categoryIdOrName}' type to '${action.newType}'.`;
-      } else {
-        return `Error changing category type: ${storeError || 'Unknown error'}`;
-      }
-    }
-
-    if (action.action === "assign_parent_category") {
-      // The store now handles both ID and name, so we can pass either directly
-      let childIdOrName = action.childCategoryId || action.childCategoryName;
-      let parentIdOrName = action.parentCategoryId || action.parentCategoryName;
-      
-      if (!childIdOrName || !parentIdOrName) {
-        return 'Both child and parent category IDs/names are required';
-      }
-
-      const result = await updateCategory(childIdOrName, { parent_id: parentIdOrName });
-
-      if (result) {
-        if (!skipRefresh) {
-          await refreshCategories();
-        }
-        return `Successfully assigned category '${action.childCategoryName || childIdOrName}' under parent category '${action.parentCategoryName || parentIdOrName}'.`;
-      } else {
-        return `Error assigning category: ${storeError || 'Unknown error'}`;
-      }
-    }
-
-    if (action.action === "create_payee") {
-      try {
-        const payeeData = {
-          name: action.name.trim(),
-        };
-
-        // Call the API route
-        const response = await api.post('/api/payee', payeeData);
-        
-        if (!response.ok) {
-          const errorData = await response.json();
-          console.error('API error adding payee:', errorData.error);
-          return `Error creating payee: ${errorData.error || 'Failed to add payee'}`;
-        }
-        
-        const result = await response.json();
-        const newPayee = result.payee;
-        
-        // Refresh payees to get updated list
-        await refreshPayeesFromStore();
-        
-        return `Successfully created payee '${action.name}'.`;
-      } catch (error) {
-        return `Error creating payee: ${error instanceof Error ? error.message : 'Unknown error'}`;
-      }
-    }
-
-    if (action.action === "update_payee") {
-      try {
-        // The store handles both ID and name, so we can pass either directly
-        let payeeIdOrName = action.payeeId || action.payeeName;
-        
-        if (!payeeIdOrName) {
-          return 'Payee ID or name is required for update';
-        }
-        
-        const result = await updatePayee(payeeIdOrName, { name: action.name });
-        
-        if (result) {
-          return `Successfully updated payee '${action.payeeName || payeeIdOrName}' to '${action.name}'.`;
-        } else {
-          const errorMessage = payeesError || 'Failed to update payee';
-          return `Error updating payee: ${errorMessage}`;
-        }
-      } catch (error) {
-        return `Error updating payee: ${error instanceof Error ? error.message : 'Unknown error'}`;
-      }
-    }
-
-    if (action.action === "delete_payee") {
-      try {
-        // The store handles both ID and name, so we can pass either directly
-        let payeeIdOrName = action.payeeId || action.payeeName;
-        
-        if (!payeeIdOrName) {
-          return 'Payee ID or name is required for deletion';
-        }
-        
-        const result = await deletePayee(payeeIdOrName);
-        
-        if (result) {
-          return `Successfully deleted payee '${payeeIdOrName}'.`;
-        } else {
-          const errorMessage = payeesError || 'Failed to delete payee';
-          return `Error deleting payee: ${errorMessage}`;
-        }
-      } catch (error) {
-        return `Error deleting payee: ${error instanceof Error ? error.message : 'Unknown error'}`;
-      }
-    }
-
-    return `Action executed: ${JSON.stringify(action)}`;
   }
 
   // Handle confirmation
   const handleConfirm = async (messageIndex: number) => {
     const message = messages[messageIndex];
-    if (message.pendingAction) {
-      if (message.pendingAction.action === "multi_execute") {
-        // Execute all actions in the queue
-        const results: string[] = [];
-        let currentMessage = message.content + "\n\n✅ **Executing actions:**\n";
+    if (!message.pendingAction) return;
 
-        // Update message to show it's executing
-        setMessages((prev) =>
-          prev.map((msg, idx) =>
-            idx === messageIndex
-              ? { ...msg, content: currentMessage, showConfirmation: false, pendingAction: undefined }
-              : msg
-          )
-        );
-        
-        let allSuccessful = true;
+    // Add user message 'Confirmed' immediately
+    setMessages(prev => [...prev, { role: "user", content: "Confirmed" }]);
 
-        // Execute each action in sequence with proper async handling
-        for (let i = 0; i < pendingToolQueue.length; i++) {
-          const toolCall = pendingToolQueue[i];
-          try {
-            // Update to show current action being processed
-            const processingMessage = currentMessage + `\n🔄 Processing action ${i + 1}...`;
-            setMessages((prev) =>
-              prev.map((msg, idx) => (idx === messageIndex ? { ...msg, content: processingMessage } : msg))
-            );
+    setMessages(prev => prev.map((msg, i) => 
+      i === messageIndex 
+        ? { ...msg, showConfirmation: false, pendingAction: undefined }
+        : msg
+    ));
 
-            // Convert tool call to action format
-            const functionName = toolCall.function?.name;
-            const args = JSON.parse(toolCall.function?.arguments || "{}");
-            const action = { action: functionName, ...args };
-
-            const result = await executeAction(action, true, categories);
-            
-            results.push(`${i + 1}. ${result}`);
-            currentMessage += `${i + 1}. ${result}\n`;
-
-            // Check if operation was not successful
-            if (result.toLowerCase().includes('error') || result.toLowerCase().includes('failed') || result.toLowerCase().includes('could not')) {
-              allSuccessful = false;
-            }
-
-            // Small delay to ensure UI updates are processed
-            await new Promise((resolve) => setTimeout(resolve, 200));
-
-            // Update message with progress
-            setMessages((prev) =>
-              prev.map((msg, idx) => (idx === messageIndex ? { ...msg, content: currentMessage } : msg))
-            );
-          } catch (error) {
-            allSuccessful = false;
-            results.push(`${i + 1}. Error: ${error}`);
-            currentMessage += `${i + 1}. ❌ Error: ${error}\n`;
-
-            // Update message with error
-            setMessages((prev) =>
-              prev.map((msg, idx) => (idx === messageIndex ? { ...msg, content: currentMessage } : msg))
-            );
-          }
-        }
-
-        // Clear the queue
-        setPendingToolQueue([]);
-        
-        // Refresh categories
-        await refreshCategories();
-
-        // Final message update
-        const successEmoji = allSuccessful ? '🎉' : '⚠️';
-        const statusText = allSuccessful ? "All actions completed successfully!" : "Actions completed with some issues.";
-        
-        currentMessage += `\n${successEmoji} **${statusText}**`;
-        
-        // Add follow-up suggestion based on what was done
-        if (allSuccessful) {
-          currentMessage += `\n\nIs there anything else you'd like to do with your categories or accounting setup?`;
-        } else {
-          currentMessage += `\n\nWould you like me to help fix any of the issues that occurred?`;
-        }
-        
-        setMessages((prev) =>
-          prev.map((msg, idx) => (idx === messageIndex ? { ...msg, content: currentMessage } : msg))
-        );
-      } else if (message.pendingAction.action === "batch_execute") {
-        // Execute batch operations
-        const operations = message.pendingAction.operations;
-        const results: string[] = [];
-        let currentMessage = message.content + "\n\n**Executing batch operations:**\n";
-
-        // Check if we have currentCompany
-        if (!currentCompany) {
-          setMessages((prev) =>
-            prev.map((msg, idx) =>
-              idx === messageIndex
-                ? {
-                    ...msg,
-                    content: msg.content + "\n\n**Error:** No company context available. Please refresh the page and try again.",
-                    showConfirmation: false,
-                    pendingAction: undefined,
-                  }
-                : msg
-            )
-          );
-          return;
-        }
-
-        console.log('Starting batch execution with company:', currentCompany.id); // Debug log
-
-        // Update message to show it's executing
-        setMessages((prev) =>
-          prev.map((msg, idx) =>
-            idx === messageIndex
-              ? { ...msg, content: currentMessage, showConfirmation: false, pendingAction: undefined }
-              : msg
-          )
-        );
-        
-        let allSuccessful = true;
-        let failedOperations: string[] = [];
-
-        // Execute each operation in sequence
-        for (let i = 0; i < operations.length; i++) {
-          const operation = operations[i];
-          try {
-            // Update to show current operation being processed
-            const processingMessage = currentMessage + `\nProcessing operation ${i + 1}...`;
-            setMessages((prev) =>
-              prev.map((msg, idx) => (idx === messageIndex ? { ...msg, content: processingMessage } : msg))
-            );
-
-            // Create action from operation
-            const action = { 
-              action: operation.action, 
-              ...(operation.params || operation) 
-            };
-            
-            // Add company_id for category operations if not present
-            if (action.action === 'create_category' && !action.company_id && currentCompany) {
-              action.company_id = currentCompany.id;
-            }
-            
-            console.log('Executing batch operation:', action); // Debug log
-            console.log('Original operation:', operation); // Debug log for operation structure
-            
-            const result = await executeAction(action, true, categories);
-            
-            results.push(`${i + 1}. ${result}`);
-            currentMessage += `${i + 1}. ${result}\n`;
-
-            // Check if operation was not successful - improved error detection
-            if (result.toLowerCase().includes('error') || 
-                result.toLowerCase().includes('failed') || 
-                result.toLowerCase().includes('could not') ||
-                result.toLowerCase().includes('required') ||
-                result.toLowerCase().includes('not found') ||
-                result.toLowerCase().includes('unable to')) {
-              allSuccessful = false;
-              failedOperations.push(`Operation ${i + 1}: ${result}`);
-            }
-
-            // Small delay to ensure UI updates are processed
-            await new Promise((resolve) => setTimeout(resolve, 200));
-
-            // Update message with progress
-            setMessages((prev) =>
-              prev.map((msg, idx) => (idx === messageIndex ? { ...msg, content: currentMessage } : msg))
-            );
-          } catch (error) {
-            allSuccessful = false;
-            const errorMessage = `Error: ${error}`;
-            results.push(`${i + 1}. ${errorMessage}`);
-            currentMessage += `${i + 1}. ${errorMessage}\n`;
-            failedOperations.push(`Operation ${i + 1}: ${errorMessage}`);
-
-            // Update message with error
-            setMessages((prev) =>
-              prev.map((msg, idx) => (idx === messageIndex ? { ...msg, content: currentMessage } : msg))
-            );
-          }
-        }
-
-        // Clear the queue
-        setPendingToolQueue([]);
-        
-        // Refresh categories
-        await refreshCategories();
-
-        // Final message update with detailed error reporting
-        if (allSuccessful) {
-          currentMessage += `\n**All batch operations completed successfully!**`;
-          currentMessage += `\n\nIs there anything else you'd like to do with your categories or accounting setup?`;
-        } else {
-          currentMessage += `\n**Batch operations completed with ${failedOperations.length} error(s):**`;
-          failedOperations.forEach(error => {
-            currentMessage += `\n- ${error}`;
-          });
-          currentMessage += `\n\nWould you like me to help fix any of the issues that occurred?`;
-        }
-        
-        setMessages((prev) =>
-          prev.map((msg, idx) => (idx === messageIndex ? { ...msg, content: currentMessage } : msg))
-        );
-      } else {
-        // Execute single action (backward compatibility)
-
-        // Show confirming message first
-        setMessages((prev) =>
-          prev.map((msg, idx) =>
-            idx === messageIndex
-              ? {
-                  ...msg,
-                  content: msg.content + `\n\n**Confirming and executing...**`,
-                  showConfirmation: false,
-                  pendingAction: undefined,
-                }
-              : msg
-          )
-        );
-
-        try {
-          const result = await executeAction(message.pendingAction);
-
-          // Force refresh categories after successful action
-          await refreshCategories();
-
-          // Update the message to show the result
-          setMessages((prev) =>
-            prev.map((msg, idx) =>
-              idx === messageIndex
-                ? {
-                    ...msg,
-                    content: msg.content.replace(
-                      "**Confirming and executing...**",
-                      `**Confirmed and executed:** ${result}`
-                    ),
-                  }
-                : msg
-            )
-          );
-          
-          // Add follow-up suggestion if successful
-          if (!result.toLowerCase().includes('error') && !result.toLowerCase().includes('failed')) {
-            setTimeout(() => {
-              setMessages(prev => [
-                ...prev,
-                {
-                  role: "assistant",
-                  content: "Is there anything else you'd like to do with your categories or accounting setup?"
-                }
-              ]);
-            }, 1000);
-          }
-        } catch (error) {
-          // Update the message to show the error
-          setMessages((prev) =>
-            prev.map((msg, idx) =>
-              idx === messageIndex
-                ? {
-                    ...msg,
-                    content: msg.content.replace("**Confirming and executing...**", `**Error:** ${error}`),
-                  }
-                : msg
-            )
-          );
-        }
-      }
-    }
+    const result = await executeAction(message.pendingAction);
+    
+    setMessages(prev => [...prev, {
+      role: "assistant",
+      content: result
+    }]);
   };
 
   // Handle cancellation
   const handleCancel = (messageIndex: number) => {
-    setMessages((prev) =>
-      prev.map((msg, idx) =>
-        idx === messageIndex
-          ? {
-              ...msg,
-              content: msg.content + "\n\n**Cancelled:** Action was not executed.",
-              showConfirmation: false,
-              pendingAction: undefined,
-            }
-          : msg
-      )
-    );
+    // Add user message 'Cancelled' immediately
+    setMessages(prev => [...prev, { role: "user", content: "Cancelled" }]);
+
+    setMessages(prev => prev.map((msg, i) => 
+      i === messageIndex 
+        ? { ...msg, showConfirmation: false, pendingAction: undefined }
+        : msg
+    ));
   };
 
   const handleSendMessage = async () => {
@@ -1646,32 +1145,23 @@ IMPORTANT: Use the appropriate tools for any data modification operations. For m
     position: "relative" as const,
   };
 
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages]);
+
   if (!isOpen) {
     return null;
   }
 
   return (
     <div style={panelStyle} className={isResizing ? "select-none" : ""}>
-      <div className="flex h-full flex-col bg-white shadow-xl text-xs">
+      <div className="flex h-full flex-col bg-white shadow-xl font-sans text-xs">
         <div className="px-4 py-6 sm:px-6 bg-gray-50 border-b border-gray-200">
           <div className="flex items-start justify-between">
-            <div className="font-semibold leading-6 text-gray-900 text-xs">🤖 Agent</div>
+            <div className="font-semibold leading-6 text-gray-900 text-xs">Agent</div>
             <div className="ml-3 flex h-7 items-center space-x-2">
-              <button
-                onClick={() => setProactiveMode(!proactiveMode)}
-                className={`px-2 py-1 rounded text-xs font-medium transition-colors border ${
-                  proactiveMode
-                    ? "bg-gray-900 text-white border-gray-900 hover:bg-gray-800"
-                    : "bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200"
-                }`}
-                title={
-                  proactiveMode
-                    ? "Continuous mode ON - I'll proactively suggest improvements"
-                    : "Continuous mode OFF - I'll only respond when asked"
-                }
-              >
-                {proactiveMode ? "🔄 Continuous" : "⏸️ Manual"}
-              </button>
               <button
                 type="button"
                 className="rounded-md bg-white text-gray-400 hover:text-gray-500 p-1"
@@ -1689,22 +1179,16 @@ IMPORTANT: Use the appropriate tools for any data modification operations. For m
             {messages.map((message, index) => (
               <div key={index} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
                 <div
-                  className={`rounded-lg px-4 py-3 max-w-[85%] shadow-sm border ${
+                  className={`rounded-lg px-4 py-3 max-w-[85%] border ${
                     message.role === "user" 
-                      ? "bg-gray-50 border-gray-200 text-gray-900" 
-                      : "bg-white border-gray-200 text-gray-800"
+                      ? "bg-white border-gray-200 text-gray-800" 
+                      : "bg-gray-50 border-gray-200 text-gray-900"
                   }`}
                 >
                   <div
-                    className={`whitespace-pre-line leading-relaxed ${
-                      message.role === "user" ? "text-sm font-medium" : "text-sm font-normal"
+                    className={`whitespace-pre-line leading-relaxed text-xs ${
+                      message.role === "user" ? "font-medium" : "font-normal"
                     }`}
-                    style={{
-                      fontFamily:
-                        message.role === "assistant"
-                          ? "ui-sans-serif, system-ui, -apple-system, sans-serif"
-                          : "inherit",
-                    }}
                   >
                     {message.content}
                   </div>
@@ -1714,13 +1198,13 @@ IMPORTANT: Use the appropriate tools for any data modification operations. For m
                     <div className="mt-4 flex gap-3 border-t border-gray-100 pt-3">
                       <button
                         onClick={() => handleConfirm(index)}
-                        className="px-4 py-2 bg-gray-900 text-white rounded-md text-sm font-medium hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-1 transition-colors duration-200 shadow-sm"
+                        className="px-4 py-2 bg-gray-900 text-white rounded-md text-xs font-medium hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-1 transition-colors duration-200 shadow-sm"
                       >
                         ✓ Confirm
                       </button>
                       <button
                         onClick={() => handleCancel(index)}
-                        className="px-4 py-2 bg-gray-100 text-gray-700 border border-gray-300 rounded-md text-sm font-medium hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-1 transition-colors duration-200 shadow-sm"
+                        className="px-4 py-2 bg-gray-100 text-gray-700 border border-gray-300 rounded-md text-xs font-medium hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-1 transition-colors duration-200 shadow-sm"
                       >
                         ✕ Cancel
                       </button>
@@ -1729,6 +1213,7 @@ IMPORTANT: Use the appropriate tools for any data modification operations. For m
                 </div>
               </div>
             ))}
+            <div ref={messagesEndRef} />
           </div>
           {/* Confirmation button for tool confirmation */}
           {pendingToolArgs && (
@@ -1748,65 +1233,30 @@ IMPORTANT: Use the appropriate tools for any data modification operations. For m
         </div>
 
         <div className="border-t border-gray-200 px-4 py-6 sm:px-6 text-xs bg-gray-50">
-          {/* Quick suggestions for new users */}
-          {messages.length <= 1 && (
-            <div className="mb-3 text-xs text-gray-600">
-              <div className="text-gray-500 mb-2">💡 Try asking:</div>
-              <div className="space-y-1">
-                <button
-                  onClick={() => {
-                    setInputMessage("What categories should I create for my business?");
-                    updateActivityTime();
-                  }}
-                  className="block w-full text-left px-2 py-1 rounded text-gray-700 hover:bg-gray-100 transition-colors border border-gray-200 bg-white"
-                >
-                  • What categories should I create for my business?
-                </button>
-                <button
-                  onClick={() => {
-                    setInputMessage("How can I organize my expense categories better?");
-                    updateActivityTime();
-                  }}
-                  className="block w-full text-left px-2 py-1 rounded text-gray-700 hover:bg-gray-100 transition-colors border border-gray-200 bg-white"
-                >
-                  • How can I organize my expense categories better?
-                </button>
-                <button
-                  onClick={() => {
-                    setInputMessage("What's the best way to structure my chart of accounts?");
-                    updateActivityTime();
-                  }}
-                  className="block w-full text-left px-2 py-1 rounded text-gray-700 hover:bg-gray-100 transition-colors border border-gray-200 bg-white"
-                >
-                  • What&apos;s the best way to structure my chart of accounts?
-                </button>
-              </div>
-            </div>
-          )}
-          <div className="flex space-x-2">
+          <div className="flex space-x-2 items-center">
             <input
               type="text"
               value={inputMessage}
               onChange={(e) => {
                 setInputMessage(e.target.value);
-                updateActivityTime();
               }}
               onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
-              placeholder="Ask me anything about your accounting setup..."
-              className="flex-1 rounded-md border border-gray-300 px-3 py-2 focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-gray-500 text-xs"
+              placeholder="Message"
+              className="flex-1 rounded-md border border-gray-300 px-3 py-2 bg-white focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-gray-500 text-xs"
             />
+            <button
+              onClick={handleSendMessage}
+              className="rounded-md bg-gray-900 px-4 py-2 text-white hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 text-xs flex items-center justify-center"
+              aria-label="Send message"
+            >
+              <ArrowUpCircle className="w-5 h-5" />
+            </button>
             <button
               onClick={handleRefreshContext}
               className="rounded-md bg-gray-100 text-gray-700 border border-gray-300 px-3 py-2 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 text-xs flex items-center"
               title="Clear chat context"
             >
               <RefreshCcw className="h-4 w-4" />
-            </button>
-            <button
-              onClick={handleSendMessage}
-              className="rounded-md bg-gray-900 px-4 py-2 text-white hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 text-xs"
-            >
-              Send
             </button>
           </div>
         </div>

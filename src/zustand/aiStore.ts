@@ -29,7 +29,6 @@ interface AIState {
   // AI Panel state
   isPanelOpen: boolean;
   messages: Message[];
-  proactiveMode: boolean;
   
   // Actions
   setCategories: (categories: Category[]) => void;
@@ -38,7 +37,6 @@ interface AIState {
   addMessage: (message: Message) => void;
   updateMessage: (index: number, message: Message) => void;
   setMessages: (messages: Message[]) => void;
-  setProactiveMode: (mode: boolean) => void;
   
   // AI specific actions
   highlightCategory: (categoryId: string) => void;
@@ -52,7 +50,6 @@ export const useAIStore = create<AIState>((set, get) => ({
   isLoadingCategories: false,
   isPanelOpen: false,
   messages: [],
-  proactiveMode: true,
   highlightedCategoryIds: new Set(),
   lastActionId: null,
   
@@ -93,11 +90,6 @@ export const useAIStore = create<AIState>((set, get) => ({
   })),
   
   setMessages: (messages) => set({ messages }),
-  
-  setProactiveMode: (mode) => {
-    set({ proactiveMode: mode });
-    localStorage.setItem("aiProactiveMode", JSON.stringify(mode));
-  },
   
   highlightCategory: (categoryId: string) => {
     const { highlightedCategoryIds } = get();
