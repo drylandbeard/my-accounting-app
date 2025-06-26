@@ -1181,8 +1181,8 @@ IMPORTANT: Use the appropriate tools for any data modification operations. For m
                 <div
                   className={`rounded-lg px-4 py-3 max-w-[85%] border ${
                     message.role === "user" 
-                      ? "bg-gray-50 border-gray-200 text-gray-900" 
-                      : "bg-white border-gray-200 text-gray-800"
+                      ? "bg-white border-gray-200 text-gray-800" 
+                      : "bg-gray-50 border-gray-200 text-gray-900"
                   }`}
                 >
                   <div
@@ -1233,38 +1233,6 @@ IMPORTANT: Use the appropriate tools for any data modification operations. For m
         </div>
 
         <div className="border-t border-gray-200 px-4 py-6 sm:px-6 text-xs bg-gray-50">
-          {/* Quick suggestions for new users */}
-          {messages.length <= 1 && (
-            <div className="mb-3 text-xs text-gray-600">
-              <div className="text-gray-500 mb-2">💡 Try asking:</div>
-              <div className="space-y-1">
-                <button
-                  onClick={() => {
-                    setInputMessage("What categories should I create for my business?");
-                  }}
-                  className="block w-full text-left px-2 py-1 rounded text-gray-700 hover:bg-gray-100 transition-colors border border-gray-200 bg-white text-xs"
-                >
-                  • What categories should I create for my business?
-                </button>
-                <button
-                  onClick={() => {
-                    setInputMessage("How can I organize my expense categories better?");
-                  }}
-                  className="block w-full text-left px-2 py-1 rounded text-gray-700 hover:bg-gray-100 transition-colors border border-gray-200 bg-white text-xs"
-                >
-                  • How can I organize my expense categories better?
-                </button>
-                <button
-                  onClick={() => {
-                    setInputMessage("What's the best way to structure my chart of accounts?");
-                  }}
-                  className="block w-full text-left px-2 py-1 rounded text-gray-700 hover:bg-gray-100 transition-colors border border-gray-200 bg-white text-xs"
-                >
-                  • What&apos;s the best way to structure my chart of accounts?
-                </button>
-              </div>
-            </div>
-          )}
           <div className="flex space-x-2 items-center">
             <input
               type="text"
