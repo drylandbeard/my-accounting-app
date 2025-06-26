@@ -331,11 +331,15 @@ export default function TransactionsPage() {
     transaction: Transaction | null;
     splits: SplitItem[];
     isSplitMode: boolean;
+    isUpdating: boolean;
+    validationError: string | null;
   }>({
     isOpen: false,
     transaction: null,
     splits: [],
-    isSplitMode: false
+    isSplitMode: false,
+    isUpdating: false,
+    validationError: null
   });
 
   // Add new state for account edit modal
@@ -1216,6 +1220,9 @@ export default function TransactionsPage() {
     if (!editModal.transaction || !hasCompanyContext) return;
 
     try {
+      // Clear previous validation errors and set loading state
+      setEditModal(prev => ({ ...prev, isUpdating: true, validationError: null }));
+
       // If in split mode, handle split transaction validation and updates
       if (editModal.isSplitMode && editModal.splits.length > 0) {
         // Validate each split item
@@ -1225,12 +1232,12 @@ export default function TransactionsPage() {
           
           // Allow both spent and received to be zero, but at least one split must have a value
           if (isZeroAmount(splitSpent) && isZeroAmount(splitReceived)) {
-            setNotification({ type: 'error', message: 'Each split item must have either a spent or received amount.' });
+            setEditModal(prev => ({ ...prev, isUpdating: false, validationError: 'Each split item must have either a spent or received amount.' }));
             return;
           }
 
           if (!split.selected_category_id) {
-            setNotification({ type: 'error', message: 'Each split item must have a category selected.' });
+            setEditModal(prev => ({ ...prev, isUpdating: false, validationError: 'Each split item must have a category selected.' }));
             return;
           }
         }
@@ -1245,10 +1252,11 @@ export default function TransactionsPage() {
         
         // Compare net amounts with precision handling
         if (compareAmounts(splitNetAmount, originalNetAmount) !== 0) {
-          setNotification({ 
-            type: 'error', 
-            message: `Split net amount (${formatAmount(splitNetAmount)}) must equal the original transaction net amount (${formatAmount(originalNetAmount)})` 
-          });
+          setEditModal(prev => ({ 
+            ...prev, 
+            isUpdating: false, 
+            validationError: `Split net amount (${formatAmount(splitNetAmount)}) must equal the original transaction net amount (${formatAmount(originalNetAmount)})` 
+          }));
           return;
         }
 
@@ -1266,50 +1274,55 @@ export default function TransactionsPage() {
         );
 
         if (success) {
-          setEditModal({ isOpen: false, transaction: null, splits: [], isSplitMode: false });
+          setEditModal({ isOpen: false, transaction: null, splits: [], isSplitMode: false, isUpdating: false, validationError: null });
           setNotification({ type: 'success', message: 'Split transaction updated successfully' });
+        } else {
+          setEditModal(prev => ({ ...prev, isUpdating: false, validationError: 'Failed to update transaction. Please try again.' }));
         }
       } else {
         // Handle regular (non-split) transaction update
-        const spent = updatedTransaction.spent ?? '0.00';
-        const received = updatedTransaction.received ?? '0.00';
-        
-        if (isPositiveAmount(spent) && isPositiveAmount(received)) {
-          setNotification({ type: 'error', message: 'A transaction cannot have both spent and received amounts. Please enter only one.' });
-          return;
-        }
+      const spent = updatedTransaction.spent ?? '0.00';
+      const received = updatedTransaction.received ?? '0.00';
+      
+      if (isPositiveAmount(spent) && isPositiveAmount(received)) {
+        setEditModal(prev => ({ ...prev, isUpdating: false, validationError: 'A transaction cannot have both spent and received amounts. Please enter only one.' }));
+        return;
+      }
 
-        if (isZeroAmount(spent) && isZeroAmount(received)) {
-          setNotification({ type: 'error', message: 'A transaction must have either a spent or received amount.' });
-          return;
-        }
+      if (isZeroAmount(spent) && isZeroAmount(received)) {
+        setEditModal(prev => ({ ...prev, isUpdating: false, validationError: 'A transaction must have either a spent or received amount.' }));
+        return;
+      }
 
-        // Find the category based on the selected category ID
-        const category = categories.find(c => c.id === updatedTransaction.selected_category_id);
-        if (!category) {
-          setNotification({ type: 'error', message: 'Selected category not found' });
-          return;
-        }
+      // Find the category based on the selected category ID
+      const category = categories.find(c => c.id === updatedTransaction.selected_category_id);
+      if (!category) {
+        setEditModal(prev => ({ ...prev, isUpdating: false, validationError: 'Selected category not found' }));
+        return;
+      }
 
-        // Use the store function to update the transaction
-        const success = await updateTransaction(
-          editModal.transaction.id,
-          updatedTransaction,
-          currentCompany!.id
-        );
+      // Use the store function to update the transaction
+      const success = await updateTransaction(
+        editModal.transaction.id,
+        updatedTransaction,
+        currentCompany!.id
+      );
 
-        if (success) {
-          setEditModal({ isOpen: false, transaction: null, splits: [], isSplitMode: false });
-          setNotification({ type: 'success', message: 'Transaction updated successfully' });
+      if (success) {
+        setEditModal({ isOpen: false, transaction: null, splits: [], isSplitMode: false, isUpdating: false, validationError: null });
+        setNotification({ type: 'success', message: 'Transaction updated successfully' });
+        } else {
+          setEditModal(prev => ({ ...prev, isUpdating: false, validationError: 'Failed to update transaction. Please try again.' }));
         }
       }
 
     } catch (error) {
       console.error('Error updating transaction:', error);
-      setNotification({ 
-        type: 'error', 
-        message: error instanceof Error ? error.message : 'Failed to update transaction' 
-      });
+      setEditModal(prev => ({ 
+        ...prev, 
+        isUpdating: false, 
+        validationError: error instanceof Error ? error.message : 'Failed to update transaction' 
+      }));
     }
   };
 
@@ -2224,7 +2237,7 @@ export default function TransactionsPage() {
       {editModal.isOpen && editModal.transaction && (
         <div 
           className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
-                          onClick={() => setEditModal({ isOpen: false, transaction: null, splits: [], isSplitMode: false })}
+                          onClick={() => setEditModal({ isOpen: false, transaction: null, splits: [], isSplitMode: false, isUpdating: false, validationError: null })}
         >
           <div 
             className="bg-white rounded-lg p-6 w-[900px] overflow-y-auto shadow-xl"
@@ -2233,12 +2246,25 @@ export default function TransactionsPage() {
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold">Edit Transaction</h2>
               <button
-                onClick={() => setEditModal({ isOpen: false, transaction: null, splits: [], isSplitMode: false })}
+                onClick={() => setEditModal({ isOpen: false, transaction: null, splits: [], isSplitMode: false, isUpdating: false, validationError: null })}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
+
+            {/* Validation Error Display */}
+            {editModal.validationError && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                <div className="flex">
+                  <div className="ml-3">
+                    <p className="text-sm text-red-700">
+                      {editModal.validationError}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-7 gap-2">
               <div>
@@ -2584,9 +2610,15 @@ export default function TransactionsPage() {
               </div>
               <button
                 onClick={() => editModal.transaction && handleEditTransaction(editModal.transaction)}
-                className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
+                disabled={editModal.isUpdating}
+                className={`px-4 py-2 text-sm rounded ${
+                  editModal.isUpdating 
+                    ? 'bg-gray-500 cursor-not-allowed' 
+                    : 'bg-gray-900 hover:bg-gray-800'
+                } text-white flex items-center space-x-2`}
               >
-                Update
+                {editModal.isUpdating && <Loader2 className="h-3 w-3 animate-spin" />}
+                <span>{editModal.isUpdating ? 'Updating...' : 'Update'}</span>
               </button>
             </div>
           </div>
@@ -3595,7 +3627,7 @@ export default function TransactionsPage() {
                 </tr>
               </thead>
               <tbody>
-                {imported.map(tx => {
+                                  {imported.map(tx => {
                   return (
                     <tr 
                       key={tx.id}
@@ -3607,7 +3639,7 @@ export default function TransactionsPage() {
                         const tdIndex = Array.from(clickedTd.parentElement!.children).indexOf(clickedTd);
                         // Allow clicks on columns 1-4 (date, description, spent, received) - skip checkbox column (0)
                         if (tdIndex >= 1 && tdIndex <= 4) {
-                          setEditModal({ isOpen: true, transaction: tx, splits: [], isSplitMode: false });
+                          setEditModal({ isOpen: true, transaction: tx, splits: [], isSplitMode: false, isUpdating: false, validationError: null });
                         }
                       }}
                       className="hover:bg-gray-50"
@@ -3933,7 +3965,7 @@ export default function TransactionsPage() {
                         const tdIndex = Array.from(clickedTd.parentElement!.children).indexOf(clickedTd);
                         // Allow clicks on columns 1-4 (date, description, spent, received) - skip checkbox column (0)
                         if (tdIndex >= 1 && tdIndex <= 4) {
-                          setEditModal({ isOpen: true, transaction: tx, splits: [], isSplitMode: false });
+                          setEditModal({ isOpen: true, transaction: tx, splits: [], isSplitMode: false, isUpdating: false, validationError: null });
                         }
                       }}
                       className="hover:bg-gray-50"
