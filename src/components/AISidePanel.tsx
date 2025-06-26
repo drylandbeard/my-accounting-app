@@ -5,16 +5,19 @@ and the complex interaction between multiple imported type definitions from diff
 
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
-import { supabase } from "@/lib/supabase";
-import { X, RefreshCcw } from "lucide-react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { X, RefreshCcw, ArrowUpCircle } from "lucide-react";
 import { useCategoriesStore } from "@/zustand/categoriesStore";
 import { usePayeesStore } from "@/zustand/payeesStore";
 import { useAuthStore } from "@/zustand/authStore";
+import { supabase } from "@/lib/supabase";
 import { api } from "@/lib/api";
 import { tools } from "@/ai/tools";
 import { categoryPrompt } from "@/ai/prompts";
 
+const MIN_PANEL_WIDTH = 320;
+const MAX_PANEL_WIDTH = 600;
+const DEFAULT_PANEL_WIDTH = 400;
 
 interface Message {
   role: "user" | "assistant";
@@ -28,48 +31,25 @@ interface AISidePanelProps {
   setIsOpen: (open: boolean) => void;
 }
 
-const DEFAULT_PANEL_WIDTH = 400;
-const MIN_PANEL_WIDTH = 300;
-const MAX_PANEL_WIDTH = 800;
-
 export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
   const [messages, setMessages] = useState<Message[]>(() => {
-    if (typeof window === "undefined") {
-      return [];
-    }
-    const savedMessages = localStorage.getItem("aiChatMessages");
-    if (savedMessages) {
-      try {
-        const parsedMessages = JSON.parse(savedMessages);
-        // Filter out any messages with showConfirmation or pendingAction to avoid stale confirmations
-        return parsedMessages.map((msg: Message) => ({
-          role: msg.role,
-          content: msg.content,
-        }));
-      } catch (error) {
-        console.error("Error parsing saved messages:", error);
-        localStorage.removeItem("aiChatMessages");
-        return [];
+    if (typeof window === "undefined") return [];
+    
+    try {
+      const saved = localStorage.getItem("aiChatMessages");
+      if (saved) {
+        return JSON.parse(saved);
       }
+    } catch (error) {
+      console.error("Error parsing saved messages:", error);
+      localStorage.removeItem("aiChatMessages");
+      return [];
     }
     // Return welcome message for new users
     return [
       {
         role: "assistant",
-        content: `👋 Hey there! I'm your **continuous** accounting assistant agent. I'm always monitoring your workflow and looking for ways to optimize it!
-
-🔄 **Continuous Mode**: I'll automatically suggest improvements when you make changes, monitor for new transactions, and check in periodically to help enhance your accounting setup.
-
-I can help you:
-• Create and organize chart of account categories
-• Set up category hierarchies that make sense for your business
-• Proactively suggest optimizations as you work
-• Monitor changes and offer continuous improvements
-• Answer questions about accounting structure
-
-What kind of business are you running? I'd love to learn more so I can continuously provide tailored suggestions! 💡
-
-*Tip: Toggle the "🔄 Continuous" button in the header if you prefer manual-only assistance.*`,
+        content: `How can I help?`,
       },
     ];
   });
@@ -359,7 +339,12 @@ Ready to tackle these together? What type of transactions are these mostly? 🚀
 
   // Function to refresh/clear chat context
   const handleRefreshContext = () => {
-    setMessages([]);
+    setMessages([
+      {
+        role: "assistant",
+        content: `How can I help?`,
+      },
+    ]);
     localStorage.removeItem("aiChatMessages");
     setPendingToolQueue([]);
     setPendingToolArgs(null);
@@ -1652,26 +1637,11 @@ IMPORTANT: Use the appropriate tools for any data modification operations. For m
 
   return (
     <div style={panelStyle} className={isResizing ? "select-none" : ""}>
-      <div className="flex h-full flex-col bg-white shadow-xl text-xs">
+      <div className="flex h-full flex-col bg-white shadow-xl font-sans text-xs">
         <div className="px-4 py-6 sm:px-6 bg-gray-50 border-b border-gray-200">
           <div className="flex items-start justify-between">
-            <div className="font-semibold leading-6 text-gray-900 text-xs">🤖 Agent</div>
+            <div className="font-semibold leading-6 text-gray-900 text-xs">Agent</div>
             <div className="ml-3 flex h-7 items-center space-x-2">
-              <button
-                onClick={() => setProactiveMode(!proactiveMode)}
-                className={`px-2 py-1 rounded text-xs font-medium transition-colors border ${
-                  proactiveMode
-                    ? "bg-gray-900 text-white border-gray-900 hover:bg-gray-800"
-                    : "bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200"
-                }`}
-                title={
-                  proactiveMode
-                    ? "Continuous mode ON - I'll proactively suggest improvements"
-                    : "Continuous mode OFF - I'll only respond when asked"
-                }
-              >
-                {proactiveMode ? "🔄 Continuous" : "⏸️ Manual"}
-              </button>
               <button
                 type="button"
                 className="rounded-md bg-white text-gray-400 hover:text-gray-500 p-1"
@@ -1689,22 +1659,16 @@ IMPORTANT: Use the appropriate tools for any data modification operations. For m
             {messages.map((message, index) => (
               <div key={index} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
                 <div
-                  className={`rounded-lg px-4 py-3 max-w-[85%] shadow-sm border ${
+                  className={`rounded-lg px-4 py-3 max-w-[85%] border ${
                     message.role === "user" 
                       ? "bg-gray-50 border-gray-200 text-gray-900" 
                       : "bg-white border-gray-200 text-gray-800"
                   }`}
                 >
                   <div
-                    className={`whitespace-pre-line leading-relaxed ${
-                      message.role === "user" ? "text-sm font-medium" : "text-sm font-normal"
+                    className={`whitespace-pre-line leading-relaxed text-xs ${
+                      message.role === "user" ? "font-medium" : "font-normal"
                     }`}
-                    style={{
-                      fontFamily:
-                        message.role === "assistant"
-                          ? "ui-sans-serif, system-ui, -apple-system, sans-serif"
-                          : "inherit",
-                    }}
                   >
                     {message.content}
                   </div>
@@ -1714,13 +1678,13 @@ IMPORTANT: Use the appropriate tools for any data modification operations. For m
                     <div className="mt-4 flex gap-3 border-t border-gray-100 pt-3">
                       <button
                         onClick={() => handleConfirm(index)}
-                        className="px-4 py-2 bg-gray-900 text-white rounded-md text-sm font-medium hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-1 transition-colors duration-200 shadow-sm"
+                        className="px-4 py-2 bg-gray-900 text-white rounded-md text-xs font-medium hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-1 transition-colors duration-200 shadow-sm"
                       >
                         ✓ Confirm
                       </button>
                       <button
                         onClick={() => handleCancel(index)}
-                        className="px-4 py-2 bg-gray-100 text-gray-700 border border-gray-300 rounded-md text-sm font-medium hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-1 transition-colors duration-200 shadow-sm"
+                        className="px-4 py-2 bg-gray-100 text-gray-700 border border-gray-300 rounded-md text-xs font-medium hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-1 transition-colors duration-200 shadow-sm"
                       >
                         ✕ Cancel
                       </button>
@@ -1756,57 +1720,54 @@ IMPORTANT: Use the appropriate tools for any data modification operations. For m
                 <button
                   onClick={() => {
                     setInputMessage("What categories should I create for my business?");
-                    updateActivityTime();
                   }}
-                  className="block w-full text-left px-2 py-1 rounded text-gray-700 hover:bg-gray-100 transition-colors border border-gray-200 bg-white"
+                  className="block w-full text-left px-2 py-1 rounded text-gray-700 hover:bg-gray-100 transition-colors border border-gray-200 bg-white text-xs"
                 >
                   • What categories should I create for my business?
                 </button>
                 <button
                   onClick={() => {
                     setInputMessage("How can I organize my expense categories better?");
-                    updateActivityTime();
                   }}
-                  className="block w-full text-left px-2 py-1 rounded text-gray-700 hover:bg-gray-100 transition-colors border border-gray-200 bg-white"
+                  className="block w-full text-left px-2 py-1 rounded text-gray-700 hover:bg-gray-100 transition-colors border border-gray-200 bg-white text-xs"
                 >
                   • How can I organize my expense categories better?
                 </button>
                 <button
                   onClick={() => {
                     setInputMessage("What's the best way to structure my chart of accounts?");
-                    updateActivityTime();
                   }}
-                  className="block w-full text-left px-2 py-1 rounded text-gray-700 hover:bg-gray-100 transition-colors border border-gray-200 bg-white"
+                  className="block w-full text-left px-2 py-1 rounded text-gray-700 hover:bg-gray-100 transition-colors border border-gray-200 bg-white text-xs"
                 >
                   • What&apos;s the best way to structure my chart of accounts?
                 </button>
               </div>
             </div>
           )}
-          <div className="flex space-x-2">
+          <div className="flex space-x-2 items-center">
             <input
               type="text"
               value={inputMessage}
               onChange={(e) => {
                 setInputMessage(e.target.value);
-                updateActivityTime();
               }}
               onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
-              placeholder="Ask me anything about your accounting setup..."
+              placeholder="Message"
               className="flex-1 rounded-md border border-gray-300 px-3 py-2 focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-gray-500 text-xs"
             />
+            <button
+              onClick={handleSendMessage}
+              className="rounded-md bg-gray-900 px-4 py-2 text-white hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 text-xs flex items-center justify-center"
+              aria-label="Send message"
+            >
+              <ArrowUpCircle className="w-5 h-5" />
+            </button>
             <button
               onClick={handleRefreshContext}
               className="rounded-md bg-gray-100 text-gray-700 border border-gray-300 px-3 py-2 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 text-xs flex items-center"
               title="Clear chat context"
             >
               <RefreshCcw className="h-4 w-4" />
-            </button>
-            <button
-              onClick={handleSendMessage}
-              className="rounded-md bg-gray-900 px-4 py-2 text-white hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 text-xs"
-            >
-              Send
             </button>
           </div>
         </div>
