@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
       selectedCategoryId,
       correspondingCategoryId,
       payeeId,
-      companyId 
+      companyId
     } = body
 
     // Validate required fields
@@ -64,15 +64,37 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Verify the transaction exists and belongs to the company
-    const { data: existingTransaction, error: fetchError } = await supabase
+    // First, check which table the transaction exists in
+    let tableName = 'transactions' // Default to transactions table
+    let existingTransaction = null
+    
+    // Check if transaction exists in transactions table (added)
+    const { data: addedTx, error: addedError } = await supabase
       .from('transactions')
       .select('id, company_id')
       .eq('id', transactionId)
       .eq('company_id', companyId)
       .single()
 
-    if (fetchError || !existingTransaction) {
+    if (!addedError && addedTx) {
+      existingTransaction = addedTx
+      tableName = 'transactions'
+    } else {
+      // Check if transaction exists in imported_transactions table (toAdd)
+      const { data: importedTx, error: importedError } = await supabase
+        .from('imported_transactions')
+        .select('id, company_id')
+        .eq('id', transactionId)
+        .eq('company_id', companyId)
+        .single()
+
+      if (!importedError && importedTx) {
+        existingTransaction = importedTx
+        tableName = 'imported_transactions'
+      }
+    }
+
+    if (!existingTransaction) {
       return NextResponse.json(
         { error: 'Transaction not found or access denied' },
         { status: 404 }
@@ -111,20 +133,27 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Prepare update data
-    const updateData = {
+    // Prepare update data - different fields for different tables
+    const baseUpdateData = {
       date,
       description,
       spent: toFinancialAmount(spent || '0.00'),
       received: toFinancialAmount(received || '0.00'),
-      selected_category_id: selectedCategoryId,
-      corresponding_category_id: correspondingCategoryId,
-      payee_id: payeeId || null
+      payee_id: payeeId || null,
+      selected_category_id: selectedCategoryId
     }
+
+    // Add category fields based on which table we're updating
+    const updateData = tableName === 'transactions' 
+      ? {
+          ...baseUpdateData,
+          corresponding_category_id: correspondingCategoryId
+        }
+      : baseUpdateData
 
     // Update the transaction
     const { error: updateError } = await supabase
-      .from('transactions')
+      .from(tableName)
       .update(updateData)
       .eq('id', transactionId)
       .eq('company_id', companyId)

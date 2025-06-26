@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { usePlaidLink } from 'react-plaid-link'
-import { supabase } from '@/lib/supabase'
+
 
 import Papa from 'papaparse'
 import { v4 as uuidv4 } from 'uuid'
@@ -234,7 +234,15 @@ export default function TransactionsPage() {
     saveJournalEntry,
     fetchPastJournalEntries,
     applyAutomationsToTransactions,
-    subscribeToTransactions
+    subscribeToTransactions,
+    updateTransaction,
+    updateAccountName,
+    updateAccountNames,
+    linkAccountsWithDates,
+    deleteAccount,
+    updateJournalEntry,
+    deleteJournalEntry,
+    importTransactionsFromCSV
   } = useTransactionsStore();
   
   const { 
@@ -552,150 +560,23 @@ export default function TransactionsPage() {
   });
 
   const handleAccountAndDateSelection = async () => {
+    if (!hasCompanyContext) return;
+
+    setImportProgress({
+      isImporting: true,
+      currentStep: 'Starting import...',
+      progress: 0,
+      totalSteps: 3
+    });
+
     try {
-      const selectedAccounts = accountSelectionModal.accounts.filter(acc => acc.selected);
-
-      if (selectedAccounts.length === 0) {
-        setNotification({ 
-          type: 'error', 
-          message: 'Please select at least one account' 
-        });
-        return;
+      const success = await linkAccountsWithDates(accountSelectionModal.accounts);
+      
+      if (success) {
+        setAccountSelectionModal({ isOpen: false, accounts: [] });
       }
-
-      // Validate dates aren't in the future
-      const today = new Date();
-      today.setHours(23, 59, 59, 999); // Set to end of today to allow today's date
-      
-      for (const account of selectedAccounts) {
-        // Parse date in local timezone to avoid timezone issues
-        const [year, month, day] = account.startDate.split('-').map(Number);
-        const selectedDate = new Date(year, month - 1, day);
-        if (selectedDate > today) {
-          setNotification({ 
-            type: 'error', 
-            message: 'Start date cannot be in the future' 
-          });
-          return;
-        }
-      }
-
-      setImportProgress({
-        isImporting: true,
-        currentStep: 'Starting import...',
-        progress: 0,
-        totalSteps: 3
-      });
-
-      const { access_token, item_id } = selectedAccounts[0];
-      
-      if (!access_token || !item_id) {
-        throw new Error('Missing access token or item ID. Please reconnect your account.');
-      }
-
-      // Helper function for API calls with error handling
-      const callAPI = async (step: string, url: string, payload: Record<string, unknown>) => {
-        const response = await api.post(url, payload);
-
-        const data = await response.json();
-        
-        if (!response.ok) {
-          const errorMessage = data?.error || data?.message || `HTTP ${response.status}`;
-          throw new Error(`${step} failed: ${errorMessage}`);
-        }
-
-        return data;
-      };
-
-      // Step 3: Store accounts in database
-      setImportProgress(prev => ({
-        ...prev,
-        currentStep: 'Storing account details...',
-        progress: 1
-      }));
-
-      const selectedAccountIds = selectedAccounts.map(acc => acc.id);
-      const accountsResult = await callAPI(
-        'Step 3',
-        '/api/3-store-plaid-accounts-as-accounts',
-        { 
-          accessToken: access_token, 
-          itemId: item_id,
-          selectedAccountIds: selectedAccountIds
-        }
-      );
-
-      // Step 4: Create chart of accounts entries
-      setImportProgress(prev => ({
-        ...prev,
-        currentStep: 'Setting up account categories...',
-        progress: 2
-      }));
-
-      await callAPI(
-        'Step 4',
-        '/api/4-store-plaid-accounts-as-categories',
-        { 
-          accessToken: access_token, 
-          itemId: item_id,
-          selectedAccountIds: selectedAccountIds
-        }
-      );
-
-      // Step 5: Import transactions
-      setImportProgress(prev => ({
-        ...prev,
-        currentStep: 'Importing transactions...',
-        progress: 3
-      }));
-
-      // Create account-to-date mapping for API
-      const accountDateMap = selectedAccounts.reduce((map, account) => {
-        map[account.id] = account.startDate;
-        return map;
-      }, {} as Record<string, string>);
-
-      const transactionsResult = await callAPI(
-        'Step 5',
-        '/api/5-import-transactions-to-categorize',
-        {
-          accessToken: access_token,
-          itemId: item_id,
-          accountDateMap: accountDateMap,
-          selectedAccountIds: selectedAccountIds
-        }
-      );
-
-      // Complete the process
-      setAccountSelectionModal({ isOpen: false, accounts: [] });
-      await refreshAll(currentCompany!.id);
-      
-      const totalAccounts = accountsResult.count || 0;
-      const totalTransactions = transactionsResult.count || 0;
-      
-      setNotification({ 
-        type: 'success', 
-        message: `Successfully linked ${totalAccounts} accounts and imported ${totalTransactions} transactions with account-specific start dates!` 
-      });
-
     } catch (error) {
-      let errorMessage = 'Failed to link accounts. ';
-      
-      if (error instanceof Error) {
-        if (error.message.includes('Step 3')) {
-          errorMessage += 'Could not save account information. ';
-        } else if (error.message.includes('Step 4')) {
-          errorMessage += 'Could not set up account categories. ';
-        } else if (error.message.includes('Step 5')) {
-          errorMessage += 'Could not import transactions. ';
-        }
-        errorMessage += error.message || 'Please try again.';
-      } else {
-        errorMessage += 'Please try again.';
-      }
-      
-      setNotification({ type: 'error', message: errorMessage });
-      
+      console.error('Error linking accounts:', error);
     } finally {
       setImportProgress({
         isImporting: false,
@@ -1317,7 +1198,7 @@ export default function TransactionsPage() {
   };
 
   const handleEditTransaction = async (updatedTransaction: Transaction) => {
-    if (!editModal.transaction) return;
+    if (!editModal.transaction || !hasCompanyContext) return;
 
     try {
       // Validate that only spent OR received has a value, not both
@@ -1341,40 +1222,17 @@ export default function TransactionsPage() {
         return;
       }
 
-      // Find the selected account in chart_of_accounts
-      const selectedAccount = categories.find(c => c.plaid_account_id === selectedAccountId);
-      if (!selectedAccount) {
-        setNotification({ type: 'error', message: 'Account not found in chart of accounts' });
-        return;
+      // Use the store function to update the transaction
+      const success = await updateTransaction(
+        editModal.transaction.id,
+        updatedTransaction,
+        currentCompany!.id
+      );
+
+      if (success) {
+        setEditModal({ isOpen: false, transaction: null });
+        setNotification({ type: 'success', message: 'Transaction updated successfully' });
       }
-
-      const selectedAccountIdInCOA = selectedAccount.id;
-
-      // Call the update transaction API
-      const response = await api.post('/api/transaction/update', {
-        transactionId: editModal.transaction.id,
-        date: updatedTransaction.date,
-        description: updatedTransaction.description,
-        spent: updatedTransaction.spent ?? 0,
-        received: updatedTransaction.received ?? 0,
-        selectedCategoryId: updatedTransaction.selected_category_id,
-        correspondingCategoryId: selectedAccountIdInCOA,
-        payeeId: updatedTransaction.payee_id || null,
-        companyId: currentCompany?.id
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to update transaction');
-      }
-
-      // Sync journal after successful update
-      await api.post('/api/journal/sync', {});
-      
-      setEditModal({ isOpen: false, transaction: null });
-      setNotification({ type: 'success', message: 'Transaction updated successfully' });
-      refreshAll(currentCompany!.id);
 
     } catch (error) {
       console.error('Error updating transaction:', error);
@@ -1387,15 +1245,17 @@ export default function TransactionsPage() {
 
   // Add handler for updating account name
   const handleUpdateAccountName = async () => {
-    if (!accountEditModal.account || !accountEditModal.newName.trim()) return;
+    if (!accountEditModal.account || !accountEditModal.newName.trim() || !hasCompanyContext) return;
 
-    await supabase
-      .from('accounts')
-      .update({ name: accountEditModal.newName.trim() })
-      .eq('plaid_account_id', accountEditModal.account.plaid_account_id);
+    const success = await updateAccountName(
+      accountEditModal.account.plaid_account_id || '',
+      accountEditModal.newName.trim(),
+      currentCompany!.id
+    );
 
-    setAccountEditModal({ isOpen: false, account: null, newName: '' });
-    refreshAll(currentCompany!.id);
+    if (success) {
+      setAccountEditModal({ isOpen: false, account: null, newName: '' });
+    }
   };
 
   // Handler for creating new category using store
@@ -1496,25 +1356,13 @@ export default function TransactionsPage() {
 
   // Add function to handle account name updates
   const handleUpdateAccountNames = async () => {
-    for (const account of accountNamesModal.accounts) {
-      if (account.id) {  // Only update if id exists
-        // Update accounts table - update both name and display_order
-        await supabase
-          .from('accounts')
-          .update({ 
-            name: account.name,
-            display_order: account.order || 0
-          })
-          .eq('plaid_account_id', account.id);
-        // Update chart_of_accounts table
-        await supabase
-          .from('chart_of_accounts')
-          .update({ name: account.name })
-          .eq('plaid_account_id', account.id);
-      }
+    if (!hasCompanyContext) return;
+
+    const success = await updateAccountNames(accountNamesModal.accounts, currentCompany!.id);
+    
+    if (success) {
+      setAccountNamesModal({ isOpen: false, accounts: [], accountToDelete: null, deleteConfirmation: '' });
     }
-    refreshAll(currentCompany!.id);
-    setAccountNamesModal({ isOpen: false, accounts: [], accountToDelete: null, deleteConfirmation: '' });
   };
 
   // @dnd-kit sensors
@@ -1550,49 +1398,29 @@ export default function TransactionsPage() {
 
   // Add function to handle account deletion
   const handleDeleteAccount = async (accountId: string) => {
+    if (!hasCompanyContext) return;
+
     try {
-      // Delete from accounts table
-      await supabase
-        .from('accounts')
-        .delete()
-        .eq('plaid_account_id', accountId);
+      const success = await deleteAccount(accountId, currentCompany!.id);
+      
+      if (success) {
+        // Remove the deleted account from the modal's accounts list
+        const updatedAccounts = accountNamesModal.accounts.filter(acc => acc.id !== accountId);
+        setAccountNamesModal(prev => ({
+          ...prev,
+          accounts: updatedAccounts,
+          accountToDelete: null,
+          deleteConfirmation: ''
+        }));
 
-      // Delete from chart_of_accounts table
-      await supabase
-        .from('chart_of_accounts')
-        .delete()
-        .eq('plaid_account_id', accountId);
-
-      // Delete related transactions
-      await supabase
-        .from('transactions')
-        .delete()
-        .eq('plaid_account_id', accountId);
-
-      // Delete related imported transactions
-      await supabase
-        .from('imported_transactions')
-        .delete()
-        .eq('plaid_account_id', accountId);
-
-      // Remove the deleted account from the modal's accounts list
-      const updatedAccounts = accountNamesModal.accounts.filter(acc => acc.id !== accountId);
-      setAccountNamesModal(prev => ({
-        ...prev,
-        accounts: updatedAccounts,
-        accountToDelete: null,
-        deleteConfirmation: ''
-      }));
-
-      // If the deleted account was selected, select the first remaining account
-      if (selectedAccountId === accountId && updatedAccounts.length > 0) {
-        setSelectedAccountId(updatedAccounts[0].id);
+        // If the deleted account was selected, select the first remaining account
+        if (selectedAccountId === accountId && updatedAccounts.length > 0) {
+          setSelectedAccountId(updatedAccounts[0].id);
+        }
       }
-
-      refreshAll(currentCompany!.id);
     } catch (error) {
       console.error('Error deleting account:', error);
-      alert('Failed to delete account. Please try again.');
+      setNotification({ type: 'error', message: 'Failed to delete account. Please try again.' });
     }
   };
 
@@ -1618,7 +1446,7 @@ export default function TransactionsPage() {
 
   // Add function to handle editing journal entry
   const handleEditJournalEntry = async () => {
-    if (!editJournalEntryModal.entry) return;
+    if (!editJournalEntryModal.entry || !hasCompanyContext) return;
 
     // Validate that debits equal credits
     const totalDebits = editJournalEntryModal.entry.transactions
@@ -1629,43 +1457,30 @@ export default function TransactionsPage() {
       .reduce((sum, tx) => sum + tx.amount, 0);
 
     if (Math.abs(totalDebits - totalCredits) > 0.01) {
-      alert('Total debits must equal total credits');
+      setNotification({ type: 'error', message: 'Total debits must equal total credits' });
       return;
     }
 
-    // Delete existing transactions
-    await supabase
-      .from('transactions')
-      .delete()
-      .eq('plaid_account_id', 'MANUAL_ENTRY')
-      .eq('date', editJournalEntryModal.entry.date)
-      .eq('description', editJournalEntryModal.entry.description);
-
-    // Create new transactions
-    for (const tx of editJournalEntryModal.entry.transactions) {
-      await supabase.from('transactions').insert([{
-        date: editJournalEntryModal.entry.date,
-        description: editJournalEntryModal.entry.description,
-        amount: tx.amount,
-        debit_account_id: tx.type === 'debit' ? tx.account_id : null,
-        credit_account_id: tx.type === 'credit' ? tx.account_id : null,
-        plaid_account_id: 'MANUAL_ENTRY',
-        plaid_account_name: 'Manual Journal Entry'
-      }]);
+    try {
+      const success = await updateJournalEntry(editJournalEntryModal.entry, currentCompany!.id);
+      
+      if (success) {
+        setEditJournalEntryModal({ isOpen: false, entry: null });
+        // Refresh past journal entries by fetching them again
+        const entries = await fetchPastJournalEntries(currentCompany!.id);
+        const entriesWithAccountNames = entries.map(entry => ({
+          ...entry,
+          transactions: entry.transactions.map(tx => ({
+            ...tx,
+            account_name: categories.find(c => c.id === tx.account_id)?.name || 'Unknown Account'
+          }))
+        }));
+        setPastJournalEntriesModal(prev => ({ ...prev, entries: entriesWithAccountNames }));
+      }
+    } catch (error) {
+      console.error('Error updating journal entry:', error);
+      setNotification({ type: 'error', message: 'Failed to update journal entry. Please try again.' });
     }
-
-    setEditJournalEntryModal({ isOpen: false, entry: null });
-    // Refresh past journal entries by fetching them again
-    const entries = await fetchPastJournalEntries(currentCompany!.id);
-    const entriesWithAccountNames = entries.map(entry => ({
-      ...entry,
-      transactions: entry.transactions.map(tx => ({
-        ...tx,
-        account_name: categories.find(c => c.id === tx.account_id)?.name || 'Unknown Account'
-      }))
-    }));
-    setPastJournalEntriesModal(prev => ({ ...prev, entries: entriesWithAccountNames }));
-    refreshAll(currentCompany!.id);
   };
 
   // Add function to remove a transaction from edit modal
@@ -2227,50 +2042,28 @@ export default function TransactionsPage() {
                                 throw new Error('No transactions selected for import.')
                               }
 
-                              // Prepare data for insertion - ensure all required fields are present
-                              const transactionsToInsert = selectedTransactions.map(tx => ({
-                                date: tx.date,
-                                description: tx.description,
-                                spent: tx.spent || 0,
-                                received: tx.received || 0,
-                                plaid_account_id: tx.plaid_account_id,
-                                plaid_account_name: tx.plaid_account_name,
-                                company_id: currentCompany.id
-                              }))
+                              // Use the store function to import CSV transactions
+                              const result = await importTransactionsFromCSV(selectedTransactions, currentCompany.id);
 
-                              // Insert selected transactions into imported_transactions
-                              const { data, error } = await supabase
-                                .from('imported_transactions')
-                                .insert(transactionsToInsert)
-                                .select()
-
-                              if (error) {
-                                console.error('Supabase error:', error)
-                                throw new Error(error.message)
+                              if (result.success) {
+                                setImportModal(prev => ({
+                                  ...prev,
+                                  isOpen: false,
+                                  isLoading: false,
+                                  error: null,
+                                  step: 'upload',
+                                  csvData: [],
+                                  selectedTransactions: new Set()
+                                }))
+                                
+                                // Show success message
+                                setNotification({ 
+                                  type: 'success', 
+                                  message: `Successfully imported ${result.count || selectedTransactions.length} transactions!` 
+                                })
+                              } else {
+                                throw new Error(result.error || 'Failed to import transactions')
                               }
-
-                              if (!data) {
-                                throw new Error('No data returned from insert')
-                              }
-
-                              setImportModal(prev => ({
-                                ...prev,
-                                isOpen: false,
-                                isLoading: false,
-                                error: null,
-                                step: 'upload',
-                                csvData: [],
-                                selectedTransactions: new Set()
-                              }))
-
-                              // Refresh the transactions list
-                              refreshAll(currentCompany!.id)
-                              
-                              // Show success message
-                              setNotification({ 
-                                type: 'success', 
-                                message: `Successfully imported ${selectedTransactions.length} transactions!` 
-                              })
                             } catch (error) {
                               console.error('Import error:', error)
                               setImportModal(prev => ({
@@ -3346,26 +3139,32 @@ export default function TransactionsPage() {
               </button>
               <button
                 onClick={async () => {
-                  if (!editJournalEntryModal.entry) return;
+                  if (!editJournalEntryModal.entry || !hasCompanyContext) return;
                   if (!window.confirm('Are you sure you want to delete this journal entry? This cannot be undone.')) return;
-                  await supabase
-                    .from('transactions')
-                    .delete()
-                    .eq('plaid_account_id', 'MANUAL_ENTRY')
-                    .eq('date', editJournalEntryModal.entry.date)
-                    .eq('description', editJournalEntryModal.entry.description);
-                  setEditJournalEntryModal({ isOpen: false, entry: null });
-                  // Refresh past journal entries by fetching them again
-                  const entries = await fetchPastJournalEntries(currentCompany!.id);
-                  const entriesWithAccountNames = entries.map(entry => ({
-                    ...entry,
-                    transactions: entry.transactions.map(tx => ({
-                      ...tx,
-                      account_name: categories.find(c => c.id === tx.account_id)?.name || 'Unknown Account'
-                    }))
-                  }));
-                  setPastJournalEntriesModal(prev => ({ ...prev, entries: entriesWithAccountNames }));
-                  refreshAll(currentCompany!.id);
+                  
+                  try {
+                    const success = await deleteJournalEntry({
+                      date: editJournalEntryModal.entry.date,
+                      description: editJournalEntryModal.entry.description
+                    }, currentCompany!.id);
+                    
+                    if (success) {
+                      setEditJournalEntryModal({ isOpen: false, entry: null });
+                      // Refresh past journal entries by fetching them again
+                      const entries = await fetchPastJournalEntries(currentCompany!.id);
+                      const entriesWithAccountNames = entries.map(entry => ({
+                        ...entry,
+                        transactions: entry.transactions.map(tx => ({
+                          ...tx,
+                          account_name: categories.find(c => c.id === tx.account_id)?.name || 'Unknown Account'
+                        }))
+                      }));
+                      setPastJournalEntriesModal(prev => ({ ...prev, entries: entriesWithAccountNames }));
+                    }
+                  } catch (error) {
+                    console.error('Error deleting journal entry:', error);
+                    setNotification({ type: 'error', message: 'Failed to delete journal entry. Please try again.' });
+                  }
                 }}
                 className="px-4 py-2 text-sm bg-red-600 text-white rounded hover:bg-red-700"
               >
@@ -3496,7 +3295,15 @@ export default function TransactionsPage() {
               <tbody>
                 {imported.map(tx => {
                   return (
-                    <tr key={tx.id}>
+                    <tr 
+                      key={tx.id}
+                      onClick={(e) => {
+                        // Only open modal if click is not in the first column
+                        if ((e.target as HTMLElement).closest('td:first-child')) return;
+                        setEditModal({ isOpen: true, transaction: tx });
+                      }}
+                      className="cursor-pointer hover:bg-gray-50"
+                    >
                       <td className="border p-1 w-8 text-center">
                         <input
                           type="checkbox"

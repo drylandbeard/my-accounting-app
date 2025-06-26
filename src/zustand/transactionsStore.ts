@@ -391,6 +391,7 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
     try {
       set({ isLoading: true, error: null });
       
+      // The API will determine which table to update based on where the transaction exists
       const response = await api.post('/api/transactions/update', {
         transactionId,
         companyId,
@@ -403,10 +404,8 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
         throw new Error(data.error || 'Failed to update transaction');
       }
       
-      // Sync journal after successful update
+      // Sync journal and refresh data
       await api.post('/api/journal/sync', {});
-      
-      // Refresh data
       await get().refreshAll(companyId);
       
       set({ 
@@ -431,71 +430,19 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
   syncTransactions: async (companyId: string) => {
     try {
       set({ isSyncing: true, error: null });
-      let totalNewTransactions = 0;
       
-      // Get all connected Plaid accounts for current company
-      const { data: plaidItems } = await supabase
-        .from('plaid_items')
-        .select('access_token, item_id')
-        .eq('company_id', companyId);
+      // Use the API route to sync all transactions for the company
+      const response = await api.post('/api/transactions/sync', {
+        companyId: companyId
+      });
 
-      if (!plaidItems || plaidItems.length === 0) {
-        throw new Error('No connected Plaid accounts found');
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to sync transactions');
       }
 
-      // Sync each item
-      for (const item of plaidItems) {
-        // Get all accounts for this item
-        const { data: itemAccounts } = await supabase
-          .from('accounts')
-          .select('plaid_account_id')
-          .eq('plaid_item_id', item.item_id)
-          .eq('company_id', companyId);
-
-        if (!itemAccounts || itemAccounts.length === 0) {
-          console.log(`No accounts found for item ${item.item_id}`);
-          continue;
-        }
-
-        const accountIds = itemAccounts.map(acc => acc.plaid_account_id);
-
-        // Find the latest transaction date for this item's accounts
-        const { data: latestTransaction } = await supabase
-          .from('imported_transactions')
-          .select('date')
-          .eq('company_id', companyId)
-          .in('plaid_account_id', accountIds)
-          .order('date', { ascending: false })
-          .limit(1)
-          .single();
-
-        // Use the latest transaction date, or default to 30 days ago if no transactions exist
-        let startDate: string;
-        if (latestTransaction) {
-          startDate = latestTransaction.date;
-        } else {
-          const thirtyDaysAgo = new Date();
-          thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-          startDate = thirtyDaysAgo.toISOString().split('T')[0];
-        }
-
-        const response = await api.post('/api/transactions/sync', {
-          access_token: item.access_token,
-          item_id: item.item_id,
-          start_date: startDate,
-          selected_account_ids: accountIds
-        });
-
-        if (!response.ok) {
-          const error = await response.json();
-          throw new Error(error.error || 'Failed to sync transactions');
-        }
-
-        const data = await response.json();
-        if (data.newTransactions) {
-          totalNewTransactions += data.newTransactions;
-        }
-      }
+      const data = await response.json();
+      const totalNewTransactions = data.newTransactions || 0;
 
       // Refresh all data
       await get().refreshAll(companyId);
@@ -684,70 +631,33 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
     try {
       set({ isLoading: true, error: null });
 
-      const manualAccountId = crypto.randomUUID();
-      const startingBalance = accountData.startingBalance || '0';
-      const startingBalanceNum = parseFloat(startingBalance);
-
-      // Insert into accounts table
-      const { error: accountError } = await supabase.from('accounts').insert({
-        plaid_account_id: manualAccountId,
+      const response = await api.post('/api/accounts/create-manual', {
         name: accountData.name.trim(),
         type: accountData.type,
-        starting_balance: startingBalance,
-        current_balance: startingBalance,
-        last_synced: new Date().toISOString(),
-        plaid_item_id: 'MANUAL_ENTRY',
-        is_manual: true,
-        company_id: companyId
+        startingBalance: accountData.startingBalance || '0'
       });
 
-      if (accountError) {
-        throw new Error(accountError.message);
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to create manual account');
       }
 
-      // Insert into chart_of_accounts table
-      const { error: coaError } = await supabase.from('chart_of_accounts').insert({
-        name: accountData.name.trim(),
-        type: accountData.type,
-        plaid_account_id: manualAccountId,
-        company_id: companyId
-      });
-
-      if (coaError) {
-        throw new Error(coaError.message);
-      }
-
-      // Create starting balance transaction if starting balance is not zero
-      if (startingBalanceNum !== 0) {
-        const spent = startingBalanceNum < 0 ? Math.abs(startingBalanceNum) : 0;
-        const received = startingBalanceNum > 0 ? startingBalanceNum : 0;
-
-        await supabase.from('imported_transactions').insert({
-          date: new Date().toISOString().split('T')[0],
-          description: 'Starting Balance',
-          plaid_account_id: manualAccountId,
-          plaid_account_name: accountData.name.trim(),
-          item_id: 'MANUAL_ENTRY',
-          company_id: companyId,
-          spent: spent.toFixed(4),
-          received: received.toFixed(4)
-        });
-      }
+      const data = await response.json();
 
       // Refresh accounts data
       await get().fetchAccounts(companyId);
       
       // Set as selected account
-      set({ selectedAccountId: manualAccountId });
+      set({ selectedAccountId: data.accountId });
 
       set({ 
         notification: { 
           type: 'success', 
-          message: `Manual account created successfully${startingBalanceNum !== 0 ? ' with starting balance transaction!' : '!'}` 
+          message: data.message || 'Manual account created successfully!' 
         } 
       });
 
-      return { success: true, accountId: manualAccountId };
+      return { success: true, accountId: data.accountId };
     } catch (error) {
       console.error('Error creating manual account:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to create manual account';
@@ -762,25 +672,17 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
     try {
       set({ isLoading: true, error: null });
 
-      for (const account of accounts) {
-        if (account.id) {
-          // Update accounts table - update both name and display_order
-          await supabase
-            .from('accounts')
-            .update({ 
-              name: account.name,
-              display_order: account.order || 0
-            })
-            .eq('plaid_account_id', account.id)
-            .eq('company_id', companyId);
+      const response = await api.put('/api/accounts/update-names', {
+        accounts: accounts.map(account => ({
+          id: account.id,
+          name: account.name,
+          order: account.order || 0
+        }))
+      });
 
-          // Update chart_of_accounts table
-          await supabase
-            .from('chart_of_accounts')
-            .update({ name: account.name })
-            .eq('plaid_account_id', account.id)
-            .eq('company_id', companyId);
-        }
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to update account names');
       }
 
       // Refresh accounts data
@@ -805,33 +707,14 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
     try {
       set({ isLoading: true, error: null });
 
-      // Delete from accounts table
-      await supabase
-        .from('accounts')
-        .delete()
-        .eq('plaid_account_id', accountId)
-        .eq('company_id', companyId);
+      const response = await api.delete('/api/accounts/delete', {
+        body: JSON.stringify({ accountId })
+      });
 
-      // Delete from chart_of_accounts table
-      await supabase
-        .from('chart_of_accounts')
-        .delete()
-        .eq('plaid_account_id', accountId)
-        .eq('company_id', companyId);
-
-      // Delete related transactions
-      await supabase
-        .from('transactions')
-        .delete()
-        .eq('plaid_account_id', accountId)
-        .eq('company_id', companyId);
-
-      // Delete related imported transactions
-      await supabase
-        .from('imported_transactions')
-        .delete()
-        .eq('plaid_account_id', accountId)
-        .eq('company_id', companyId);
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to delete account');
+      }
 
       // Refresh accounts data
       await get().fetchAccounts(companyId);
@@ -881,19 +764,16 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
         }
       }
 
-      // Insert transactions
-      for (const entry of entryData.entries) {
-        await supabase.from('transactions').insert([{
-          date: entryData.date,
-          description: entryData.description,
-          spent: entry.type === 'debit' ? entry.amount.toFixed(4) : '0.0000',
-          received: entry.type === 'credit' ? entry.amount.toFixed(4) : '0.0000',
-          selected_category_id: entry.account_id,
-          corresponding_category_id: null,
-          plaid_account_id: 'MANUAL_ENTRY',
-          plaid_account_name: 'Manual Journal Entry',
-          company_id: companyId
-        }]);
+      // Save journal entry via API
+      const response = await api.post('/api/journal/create', {
+        date: entryData.date,
+        description: entryData.description,
+        entries: entryData.entries
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to save journal entry');
       }
 
       // Automatically sync the journal after saving
@@ -919,40 +799,15 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
 
   fetchPastJournalEntries: async (companyId: string) => {
     try {
-      const { data: transactions } = await supabase
-        .from('transactions')
-        .select('*')
-        .eq('plaid_account_id', 'MANUAL_ENTRY')
-        .eq('company_id', companyId)
-        .order('date', { ascending: false });
+      const response = await api.get(`/api/journal/entries?companyId=${companyId}`);
 
-      if (transactions) {
-        // Group transactions by description and date to form journal entries
-        const groupedEntries = transactions.reduce((acc: Record<string, JournalEntry>, tx) => {
-          const key = `${tx.date}_${tx.description}`;
-          if (!acc[key]) {
-            acc[key] = {
-              id: tx.id,
-              date: tx.date,
-              description: tx.description,
-              transactions: []
-            };
-          }
-          
-          acc[key].transactions.push({
-            account_id: tx.selected_category_id || tx.corresponding_category_id,
-            account_name: 'Unknown Account', // Will be populated by caller if needed
-            amount: typeof tx.amount === 'number' ? tx.amount : (tx.spent ?? tx.received ?? 0),
-            type: tx.selected_category_id ? 'debit' : 'credit'
-          });
-          
-          return acc;
-        }, {});
-
-        return Object.values(groupedEntries);
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to fetch journal entries');
       }
 
-      return [];
+      const data = await response.json();
+      return data.entries || [];
     } catch (error) {
       console.error('Error fetching past journal entries:', error);
       set({ error: 'Failed to fetch journal entries' });
@@ -976,28 +831,17 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
         throw new Error('Total debits must equal total credits');
       }
 
-      // Delete existing transactions
-      await supabase
-        .from('transactions')
-        .delete()
-        .eq('plaid_account_id', 'MANUAL_ENTRY')
-        .eq('date', entryData.date)
-        .eq('description', entryData.description)
-        .eq('company_id', companyId);
+      // Update journal entry via API
+      const response = await api.put('/api/journal/update', {
+        id: entryData.id,
+        date: entryData.date,
+        description: entryData.description,
+        transactions: entryData.transactions
+      });
 
-      // Create new transactions
-      for (const tx of entryData.transactions) {
-        await supabase.from('transactions').insert([{
-          date: entryData.date,
-          description: entryData.description,
-          spent: tx.type === 'debit' ? tx.amount.toFixed(4) : '0.0000',
-          received: tx.type === 'credit' ? tx.amount.toFixed(4) : '0.0000',
-          selected_category_id: tx.account_id,
-          corresponding_category_id: null,
-          plaid_account_id: 'MANUAL_ENTRY',
-          plaid_account_name: 'Manual Journal Entry',
-          company_id: companyId
-        }]);
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to update journal entry');
       }
 
       // Refresh data
@@ -1022,13 +866,17 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
     try {
       set({ isLoading: true, error: null });
 
-      await supabase
-        .from('transactions')
-        .delete()
-        .eq('plaid_account_id', 'MANUAL_ENTRY')
-        .eq('date', entryData.date)
-        .eq('description', entryData.description)
-        .eq('company_id', companyId);
+      const response = await api.delete('/api/journal/delete', {
+        body: JSON.stringify({
+          date: entryData.date,
+          description: entryData.description
+        })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to delete journal entry');
+      }
 
       // Refresh data
       await get().refreshAll(companyId);
@@ -1068,15 +916,17 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
         company_id: companyId
       }));
 
-      // Insert selected transactions into imported_transactions
-      const { data, error } = await supabase
-        .from('imported_transactions')
-        .insert(transactionsToInsert)
-        .select();
+      // Import transactions via API
+      const response = await api.post('/api/transactions/import-csv', {
+        transactions: transactionsToInsert
+      });
 
-      if (error) {
-        throw new Error(error.message);
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to import transactions');
       }
+
+      const data = await response.json();
 
       if (!data) {
         throw new Error('No data returned from insert');
