@@ -1242,7 +1242,7 @@ IMPORTANT: Use the appropriate tools for any data modification operations. For m
               }}
               onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
               placeholder="Message"
-              className="flex-1 rounded-md border border-gray-300 px-3 py-2 focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-gray-500 text-xs"
+              className="flex-1 rounded-md border border-gray-300 px-3 py-2 bg-white focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-gray-500 text-xs"
             />
             <button
               onClick={handleSendMessage}
