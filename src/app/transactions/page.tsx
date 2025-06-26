@@ -29,6 +29,7 @@ import {
   toFinancialAmount, 
   calculateNetAmount, 
   sumAmounts, 
+  subtractAmounts,
   isZeroAmount,
   isPositiveAmount,
   compareAmounts 
@@ -68,6 +69,16 @@ type Transaction = {
   received?: FinancialAmount
   payee_id?: string
   company_id?: string
+}
+
+type SplitItem = {
+  id: string
+  date: string
+  description: string
+  spent?: FinancialAmount
+  received?: FinancialAmount
+  payee_id?: string
+  selected_category_id?: string
 }
 
 // Category and Payee types now come from stores
@@ -318,9 +329,13 @@ export default function TransactionsPage() {
   const [editModal, setEditModal] = useState<{
     isOpen: boolean;
     transaction: Transaction | null;
+    splits: SplitItem[];
+    isSplitMode: boolean;
   }>({
     isOpen: false,
-    transaction: null
+    transaction: null,
+    splits: [],
+    isSplitMode: false
   });
 
   // Add new state for account edit modal
@@ -1201,37 +1216,92 @@ export default function TransactionsPage() {
     if (!editModal.transaction || !hasCompanyContext) return;
 
     try {
-      // Validate that only spent OR received has a value, not both
-      const spent = updatedTransaction.spent ?? '0.00';
-      const received = updatedTransaction.received ?? '0.00';
-      
-      if (isPositiveAmount(spent) && isPositiveAmount(received)) {
-        setNotification({ type: 'error', message: 'A transaction cannot have both spent and received amounts. Please enter only one.' });
-        return;
-      }
+      // If in split mode, handle split transaction validation and updates
+      if (editModal.isSplitMode && editModal.splits.length > 0) {
+        // Validate each split item
+        for (const split of editModal.splits) {
+          const splitSpent = split.spent ?? '0.00';
+          const splitReceived = split.received ?? '0.00';
+          
+          // Allow both spent and received to be zero, but at least one split must have a value
+          if (isZeroAmount(splitSpent) && isZeroAmount(splitReceived)) {
+            setNotification({ type: 'error', message: 'Each split item must have either a spent or received amount.' });
+            return;
+          }
 
-      if (isZeroAmount(spent) && isZeroAmount(received)) {
-        setNotification({ type: 'error', message: 'A transaction must have either a spent or received amount.' });
-        return;
-      }
+          if (!split.selected_category_id) {
+            setNotification({ type: 'error', message: 'Each split item must have a category selected.' });
+            return;
+          }
+        }
 
-      // Find the category based on the selected category ID
-      const category = categories.find(c => c.id === updatedTransaction.selected_category_id);
-      if (!category) {
-        setNotification({ type: 'error', message: 'Selected category not found' });
-        return;
-      }
+        // Calculate net amounts for validation using financial.ts functions
+        const originalNetAmount = calculateNetAmount(editModal.transaction.spent, editModal.transaction.received);
+        
+        // Calculate split net amount: sum of received - sum of spent
+        const splitSpentTotal = sumAmounts(editModal.splits.map(s => s.spent ?? '0.00'));
+        const splitReceivedTotal = sumAmounts(editModal.splits.map(s => s.received ?? '0.00'));
+        const splitNetAmount = subtractAmounts(splitReceivedTotal, splitSpentTotal);
+        
+        // Compare net amounts with precision handling
+        if (compareAmounts(splitNetAmount, originalNetAmount) !== 0) {
+          setNotification({ 
+            type: 'error', 
+            message: `Split net amount (${formatAmount(splitNetAmount)}) must equal the original transaction net amount (${formatAmount(originalNetAmount)})` 
+          });
+          return;
+        }
 
-      // Use the store function to update the transaction
-      const success = await updateTransaction(
-        editModal.transaction.id,
-        updatedTransaction,
-        currentCompany!.id
-      );
+        // For now, store splits in the transaction object to pass to the store
+        const transactionWithSplits = {
+          ...updatedTransaction,
+          splits: editModal.splits
+        };
 
-      if (success) {
-        setEditModal({ isOpen: false, transaction: null });
-        setNotification({ type: 'success', message: 'Transaction updated successfully' });
+        // Use the store function to update the transaction with splits
+        const success = await updateTransaction(
+          editModal.transaction.id,
+          transactionWithSplits,
+          currentCompany!.id
+        );
+
+        if (success) {
+          setEditModal({ isOpen: false, transaction: null, splits: [], isSplitMode: false });
+          setNotification({ type: 'success', message: 'Split transaction updated successfully' });
+        }
+      } else {
+        // Handle regular (non-split) transaction update
+        const spent = updatedTransaction.spent ?? '0.00';
+        const received = updatedTransaction.received ?? '0.00';
+        
+        if (isPositiveAmount(spent) && isPositiveAmount(received)) {
+          setNotification({ type: 'error', message: 'A transaction cannot have both spent and received amounts. Please enter only one.' });
+          return;
+        }
+
+        if (isZeroAmount(spent) && isZeroAmount(received)) {
+          setNotification({ type: 'error', message: 'A transaction must have either a spent or received amount.' });
+          return;
+        }
+
+        // Find the category based on the selected category ID
+        const category = categories.find(c => c.id === updatedTransaction.selected_category_id);
+        if (!category) {
+          setNotification({ type: 'error', message: 'Selected category not found' });
+          return;
+        }
+
+        // Use the store function to update the transaction
+        const success = await updateTransaction(
+          editModal.transaction.id,
+          updatedTransaction,
+          currentCompany!.id
+        );
+
+        if (success) {
+          setEditModal({ isOpen: false, transaction: null, splits: [], isSplitMode: false });
+          setNotification({ type: 'success', message: 'Transaction updated successfully' });
+        }
       }
 
     } catch (error) {
@@ -1589,6 +1659,69 @@ export default function TransactionsPage() {
       </Pagination>
     );
   };
+
+  // Split management functions
+  const addSplitItem = () => {
+    if (!editModal.transaction || editModal.splits.length >= 30) return;
+    
+    const newSplit: SplitItem = {
+      id: uuidv4(),
+      date: editModal.transaction.date,
+      description: '',
+      spent: editModal.transaction.spent && isPositiveAmount(editModal.transaction.spent) ? '0.00' : undefined,
+      received: editModal.transaction.received && isPositiveAmount(editModal.transaction.received) ? '0.00' : undefined,
+      payee_id: undefined,
+      selected_category_id: undefined
+    };
+    
+    setEditModal(prev => ({
+      ...prev,
+      splits: [...prev.splits, newSplit]
+    }));
+  };
+
+  const removeSplitItem = (splitId: string) => {
+    setEditModal(prev => ({
+      ...prev,
+      splits: prev.splits.filter(split => split.id !== splitId)
+    }));
+  };
+
+  const updateSplitItem = (splitId: string, updates: Partial<SplitItem>) => {
+    setEditModal(prev => ({
+      ...prev,
+      splits: prev.splits.map(split => 
+        split.id === splitId ? { ...split, ...updates } : split
+      )
+    }));
+  };
+
+
+
+  const enterSplitMode = () => {
+    if (!editModal.transaction) return;
+    
+    // Create initial empty split item
+    const initialSplits: SplitItem[] = [
+      {
+        id: uuidv4(),
+        date: editModal.transaction.date,
+        description: '',
+        spent: editModal.transaction.spent && isPositiveAmount(editModal.transaction.spent) ? '0.00' : undefined,
+        received: editModal.transaction.received && isPositiveAmount(editModal.transaction.received) ? '0.00' : undefined,
+        payee_id: undefined,
+        selected_category_id: undefined
+      }
+    ];
+    
+    setEditModal(prev => ({
+      ...prev,
+      isSplitMode: true,
+      splits: initialSplits
+    }));
+  };
+
+
 
   // Add helper functions for handling Enter key on react-select
   const handlePayeeEnterKey = (inputValue: string, txId: string) => {
@@ -2091,7 +2224,7 @@ export default function TransactionsPage() {
       {editModal.isOpen && editModal.transaction && (
         <div 
           className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
-          onClick={() => setEditModal({ isOpen: false, transaction: null })}
+                          onClick={() => setEditModal({ isOpen: false, transaction: null, splits: [], isSplitMode: false })}
         >
           <div 
             className="bg-white rounded-lg p-6 w-[900px] overflow-y-auto shadow-xl"
@@ -2100,7 +2233,7 @@ export default function TransactionsPage() {
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold">Edit Transaction</h2>
               <button
-                onClick={() => setEditModal({ isOpen: false, transaction: null })}
+                onClick={() => setEditModal({ isOpen: false, transaction: null, splits: [], isSplitMode: false })}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
                 <X className="w-4 h-4" />
@@ -2212,29 +2345,34 @@ export default function TransactionsPage() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Payee
                 </label>
-                                  <Select
-                    options={payeeOptions}
-                    value={payeeOptions.find(opt => opt.value === editModal.transaction?.payee_id) || payeeOptions[0]}
-                    onChange={(selectedOption) => {
-                      const option = selectedOption as SelectOption | null;
-                      if (option?.value === 'add_new') {
-                        setNewPayeeModal({ 
-                          isOpen: true, 
-                          name: '', 
-                          transactionId: editModal.transaction?.id || null
-                        });
-                      } else if (editModal.transaction) {
-                        setEditModal(prev => ({
-                          ...prev,
-                          transaction: prev.transaction ? {
-                            ...prev.transaction,
-                            payee_id: option?.value === '' ? undefined : option?.value
-                          } : null
-                        }));
-                      }
-                    }}
-                    isSearchable
-                  />
+                                                  <Select
+                  options={payeeOptions}
+                  value={payeeOptions.find(opt => opt.value === editModal.transaction?.payee_id) || payeeOptions[0]}
+                  onChange={(selectedOption) => {
+                    const option = selectedOption as SelectOption | null;
+                    if (option?.value === 'add_new') {
+                      setNewPayeeModal({ 
+                        isOpen: true, 
+                        name: '', 
+                        transactionId: editModal.transaction?.id || null
+                      });
+                    } else if (editModal.transaction) {
+                      setEditModal(prev => ({
+                        ...prev,
+                        transaction: prev.transaction ? {
+                          ...prev.transaction,
+                          payee_id: option?.value === '' ? undefined : option?.value
+                        } : null
+                      }));
+                    }
+                  }}
+                  isSearchable
+                  menuPortalTarget={document.body}
+                  styles={{
+                    menuPortal: (base) => ({ ...base, zIndex: 9999 }),
+                    menu: (base) => ({ ...base, zIndex: 9999 })
+                  }}
+                />
               </div>
 
               <div>
@@ -2275,11 +2413,175 @@ export default function TransactionsPage() {
                     }
                   }}
                   isSearchable
+                  menuPortalTarget={document.body}
+                  styles={{
+                    menuPortal: (base) => ({ ...base, zIndex: 9999 }),
+                    menu: (base) => ({ ...base, zIndex: 9999 })
+                  }}
                 />
               </div>
             </div>
 
-            <div className="flex justify-end mt-6">
+            {/* Split Mode UI */}
+            {editModal.isSplitMode && (
+              <div className="mt-6 space-y-4">
+                                <div className="flex justify-between items-center">
+                  <h3 className="text-lg font-semibold">Split Transaction</h3>
+                </div>
+
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Spent</th>
+                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Received</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Payee</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
+                        <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                                             {editModal.splits.map((split) => (
+                        <tr key={split.id}>
+                          <td className="px-4 py-2">
+                            <input
+                              type="date"
+                              value={split.date}
+                              onChange={(e) => updateSplitItem(split.id, { date: e.target.value })}
+                              className="w-full border px-2 py-1 rounded text-xs"
+                            />
+                          </td>
+                          <td className="px-4 py-2">
+                            <input
+                              type="text"
+                              value={split.description}
+                              onChange={(e) => updateSplitItem(split.id, { description: e.target.value })}
+                              className="w-full border px-2 py-1 rounded text-xs"
+                              placeholder="Description"
+                            />
+                          </td>
+                          <td className="px-4 py-2">
+                            <input
+                              type="text"
+                              value={(() => {
+                                const spent = split.spent;
+                                return (spent && !isZeroAmount(spent)) ? spent : '';
+                              })()}
+                              onChange={(e) => {
+                                const inputValue = e.target.value;
+                                updateSplitItem(split.id, {
+                                  spent: inputValue || '0.00'
+                                });
+                              }}
+                              placeholder="0.00"
+                              className="w-full border px-2 py-1 rounded text-xs text-right"
+                            />
+                          </td>
+                          <td className="px-4 py-2">
+                            <input
+                              type="text"
+                              value={(() => {
+                                const received = split.received;
+                                return (received && !isZeroAmount(received)) ? received : '';
+                              })()}
+                              onChange={(e) => {
+                                const inputValue = e.target.value;
+                                updateSplitItem(split.id, {
+                                  received: inputValue || '0.00'
+                                });
+                              }}
+                              placeholder="0.00"
+                              className="w-full border px-2 py-1 rounded text-xs text-right"
+                            />
+                          </td>
+                          <td className="px-4 py-2" style={{ minWidth: 150 }}>
+                            <Select
+                              options={payeeOptions}
+                              value={payeeOptions.find(opt => opt.value === split.payee_id) || payeeOptions[0]}
+                              onChange={(selectedOption) => {
+                                const option = selectedOption as SelectOption | null;
+                                if (option?.value === 'add_new') {
+                                  setNewPayeeModal({ 
+                                    isOpen: true, 
+                                    name: '', 
+                                    transactionId: split.id 
+                                  });
+                                } else {
+                                  updateSplitItem(split.id, { payee_id: option?.value === '' ? undefined : option?.value });
+                                }
+                              }}
+                              isSearchable
+                              menuPortalTarget={document.body}
+                              styles={{
+                                menuPortal: (base) => ({ ...base, zIndex: 9999 }),
+                                menu: (base) => ({ ...base, zIndex: 9999 })
+                              }}
+                            />
+                          </td>
+                          <td className="px-4 py-2" style={{ minWidth: 150 }}>
+                            <Select
+                              options={categoryOptions}
+                              value={categoryOptions.find(opt => opt.value === split.selected_category_id) || categoryOptions[0]}
+                              onChange={(selectedOption) => {
+                                const option = selectedOption as SelectOption | null;
+                                if (option?.value === 'add_new') {
+                                  // Determine default category type based on split
+                                  const defaultType = split.received && isPositiveAmount(split.received) ? 'Revenue' : 'Expense';
+                                  setNewCategoryModal({ 
+                                    isOpen: true, 
+                                    name: '', 
+                                    type: defaultType, 
+                                    parent_id: null, 
+                                    transactionId: split.id 
+                                  });
+                                } else {
+                                  updateSplitItem(split.id, { selected_category_id: option?.value === '' ? undefined : option?.value });
+                                }
+                              }}
+                              isSearchable
+                              menuPortalTarget={document.body}
+                              styles={{
+                                menuPortal: (base) => ({ ...base, zIndex: 9999 }),
+                                menu: (base) => ({ ...base, zIndex: 9999 })
+                              }}
+                            />
+                          </td>
+                          <td className="px-4 py-2 text-center">
+                            <button
+                              onClick={() => removeSplitItem(split.id)}
+                              disabled={editModal.splits.length === 1}
+                              className="text-red-600 hover:text-red-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              ×
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-between mt-6">
+              <div className="flex gap-2">
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    if (!editModal.isSplitMode) {
+                      enterSplitMode();
+                    } else {
+                      addSplitItem();
+                    }
+                  }}
+                  disabled={editModal.isSplitMode && editModal.splits.length >= 30}
+                  className="px-4 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Split
+                </button>
+              </div>
               <button
                 onClick={() => editModal.transaction && handleEditTransaction(editModal.transaction)}
                 className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
@@ -3305,7 +3607,7 @@ export default function TransactionsPage() {
                         const tdIndex = Array.from(clickedTd.parentElement!.children).indexOf(clickedTd);
                         // Allow clicks on columns 1-4 (date, description, spent, received) - skip checkbox column (0)
                         if (tdIndex >= 1 && tdIndex <= 4) {
-                          setEditModal({ isOpen: true, transaction: tx });
+                          setEditModal({ isOpen: true, transaction: tx, splits: [], isSplitMode: false });
                         }
                       }}
                       className="hover:bg-gray-50"
@@ -3631,7 +3933,7 @@ export default function TransactionsPage() {
                         const tdIndex = Array.from(clickedTd.parentElement!.children).indexOf(clickedTd);
                         // Allow clicks on columns 1-4 (date, description, spent, received) - skip checkbox column (0)
                         if (tdIndex >= 1 && tdIndex <= 4) {
-                          setEditModal({ isOpen: true, transaction: tx });
+                          setEditModal({ isOpen: true, transaction: tx, splits: [], isSplitMode: false });
                         }
                       }}
                       className="hover:bg-gray-50"

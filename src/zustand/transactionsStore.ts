@@ -118,6 +118,16 @@ export interface JournalEntry {
   transactions: JournalTransaction[];
 }
 
+export interface SplitItem {
+  id: string;
+  date: string;
+  description: string;
+  spent?: string;
+  received?: string;
+  payee_id?: string;
+  selected_category_id?: string;
+}
+
 // Store interface
 interface TransactionsState {
   // Core data states
@@ -387,16 +397,42 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
   },
   
   // Update single transaction
-  updateTransaction: async (transactionId: string, updates: Partial<Transaction>, companyId: string) => {
+  updateTransaction: async (transactionId: string, updates: Partial<Transaction & { splits?: SplitItem[] }>, companyId: string) => {
     try {
       set({ isLoading: true, error: null });
-      
+
       // The API will determine which table to update based on where the transaction exists
-      const response = await api.post('/api/transactions/update', {
+      const requestData: {
+        transactionId: string;
+        companyId: string;
+        date?: string;
+        description?: string;
+        spent?: string;
+        received?: string;
+        payeeId?: string;
+        selectedCategoryId?: string;
+        correspondingCategoryId?: string;
+        isSplitTransaction?: boolean;
+        splits?: SplitItem[];
+      } = {
         transactionId,
         companyId,
-        ...updates
-      });
+        date: updates.date,
+        description: updates.description,
+        spent: updates.spent,
+        received: updates.received,
+        payeeId: updates.payee_id,
+        selectedCategoryId: updates.selected_category_id, // Fix: use correct field name
+        correspondingCategoryId: updates.corresponding_category_id
+      };
+
+      // Add split data if present
+      if (updates.splits && updates.splits.length > 0) {
+        requestData.isSplitTransaction = true;
+        requestData.splits = updates.splits;
+      }
+      
+      const response = await api.post('/api/transactions/update', requestData);
       
       const data = await response.json();
       
