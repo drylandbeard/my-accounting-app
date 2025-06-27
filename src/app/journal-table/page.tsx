@@ -27,7 +27,7 @@ import {
 // Define types specific to the journal table
 
 type SortConfig = {
-  key: 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category' | 'split_data' | null;
+  key: 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category' | null;
   direction: 'asc' | 'desc';
 };
 
@@ -227,18 +227,12 @@ export default function JournalTablePage() {
           ? aCategory.localeCompare(bCategory)
           : bCategory.localeCompare(aCategory);
       }
-      if (sortConfig.key === 'split_data') {
-        const aSplit = a.is_split_item ? 1 : 0;
-        const bSplit = b.is_split_item ? 1 : 0;
-        return sortConfig.direction === 'asc'
-          ? aSplit - bSplit
-          : bSplit - aSplit;
-      }
+
       return 0;
     });
   };
 
-  const handleSort = (key: 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category' | 'split_data') => {
+  const handleSort = (key: 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category') => {
     setSortConfig(current => ({
       key,
       direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc'
@@ -260,8 +254,7 @@ export default function JournalTablePage() {
     { key: 'type', label: 'Type', isCustom: true, sortable: true },
     { key: 'debit', label: 'Debit', sortable: true },
     { key: 'credit', label: 'Credit', sortable: true },
-    { key: 'payee', label: 'Payee', isCustom: true, sortable: true },
-    { key: 'split_data', label: 'Split Data', isCustom: true, sortable: false }
+    { key: 'payee', label: 'Payee', isCustom: true, sortable: true }
   ];
 
   // Get all available columns from journalEntries to include any additional fields
@@ -278,7 +271,8 @@ export default function JournalTablePage() {
     col !== 'payee_id' && 
     col !== 'transactions' &&
     col !== 'is_split_item' &&
-    col !== 'split_item_data'
+    col !== 'split_item_data' &&
+    col !== 'split_data'
   );
 
   // Combine ordered columns with any additional columns not in our predefined list, then add category at the end
@@ -800,7 +794,7 @@ export default function JournalTablePage() {
                       className={`border p-2 text-center text-xs font-medium tracking-wider whitespace-nowrap ${
                         col.sortable ? 'cursor-pointer hover:bg-gray-200' : ''
                       }`}
-                      onClick={col.sortable ? () => handleSort(col.key as 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category' | 'split_data') : undefined}
+                      onClick={col.sortable ? () => handleSort(col.key as 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category') : undefined}
                     >
                       {col.label}
                       {col.sortable && sortConfig.key === col.key && (
@@ -849,8 +843,7 @@ export default function JournalTablePage() {
                           getAccountType(entry.chart_account_id)
                         ) : col.key === 'payee' ? (
                           getPayeeName(entry.transactions?.payee_id || '')
-                        ) : col.key === 'split_data' ? (
-                          entry.is_split_item ? 'split_data' : ''
+
                         ) : col.key === 'category' ? (
                           // For split items, show the split category if available, otherwise show chart account
                           entry.is_split_item && entry.split_item_data?.selected_category_id 
