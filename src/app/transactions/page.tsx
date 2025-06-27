@@ -69,6 +69,7 @@ type Transaction = {
   received?: FinancialAmount
   payee_id?: string
   company_id?: string
+  split_data?: unknown
 }
 
 type SplitItem = {
@@ -3639,7 +3640,34 @@ export default function TransactionsPage() {
                         const tdIndex = Array.from(clickedTd.parentElement!.children).indexOf(clickedTd);
                         // Allow clicks on columns 1-4 (date, description, spent, received) - skip checkbox column (0)
                         if (tdIndex >= 1 && tdIndex <= 4) {
-                          setEditModal({ isOpen: true, transaction: tx, splits: [], isSplitMode: false, isUpdating: false, validationError: null });
+                          // Check if this transaction has split data
+                          const hasSplitData = tx.split_data && typeof tx.split_data === 'object' && (tx.split_data as any).splits;
+                          
+                          if (hasSplitData) {
+                            // Parse split data and enter split mode
+                            const splitData = tx.split_data as { splits: { id?: string; date?: string; description?: string; spent?: string; received?: string; payee_id?: string; selected_category_id?: string; }[] };
+                            const parsedSplits: SplitItem[] = splitData.splits.map((split) => ({
+                              id: split.id || uuidv4(),
+                              date: split.date || tx.date,
+                              description: split.description || '',
+                              spent: split.spent || '0.00',
+                              received: split.received || '0.00',
+                              payee_id: split.payee_id || undefined,
+                              selected_category_id: split.selected_category_id || undefined
+                            }));
+                            
+                            setEditModal({ 
+                              isOpen: true, 
+                              transaction: tx, 
+                              splits: parsedSplits, 
+                              isSplitMode: true, 
+                              isUpdating: false, 
+                              validationError: null 
+                            });
+                          } else {
+                            // Regular transaction
+                            setEditModal({ isOpen: true, transaction: tx, splits: [], isSplitMode: false, isUpdating: false, validationError: null });
+                          }
                         }
                       }}
                       className="hover:bg-gray-50"
@@ -3661,7 +3689,12 @@ export default function TransactionsPage() {
                         />
                       </td>
                       <td className="border p-1 w-8 text-center text-xs cursor-pointer">{formatDate(tx.date)}</td>
-                      <td className="border p-1 w-8 text-center text-xs cursor-pointer" style={{ minWidth: 250 }}>{tx.description}</td>
+                      <td className="border p-1 w-8 text-center text-xs cursor-pointer" style={{ minWidth: 250 }}>
+                        {tx.description}
+                        {tx.split_data && typeof tx.split_data === 'object' && (tx.split_data as any).splits && (
+                          <span className="ml-1 inline-block bg-blue-100 text-blue-800 text-xs px-1 rounded">Split</span>
+                        )}
+                      </td>
                       <td className="border p-1 w-8 text-center cursor-pointer">{tx.spent ? formatAmount(tx.spent) : ''}</td>
                       <td className="border p-1 w-8 text-center cursor-pointer">{tx.received ? formatAmount(tx.received) : ''}</td>
                       <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
@@ -3965,7 +3998,34 @@ export default function TransactionsPage() {
                         const tdIndex = Array.from(clickedTd.parentElement!.children).indexOf(clickedTd);
                         // Allow clicks on columns 1-4 (date, description, spent, received) - skip checkbox column (0)
                         if (tdIndex >= 1 && tdIndex <= 4) {
-                          setEditModal({ isOpen: true, transaction: tx, splits: [], isSplitMode: false, isUpdating: false, validationError: null });
+                          // Check if this transaction has split data
+                          const hasSplitData = tx.split_data && typeof tx.split_data === 'object' && tx.split_data.splits;
+                          
+                          if (hasSplitData) {
+                            // Parse split data and enter split mode
+                            const splitData = tx.split_data as { splits: { id?: string; date?: string; description?: string; spent?: string; received?: string; payee_id?: string; selected_category_id?: string; }[] };
+                            const parsedSplits: SplitItem[] = splitData.splits.map((split) => ({
+                              id: split.id || uuidv4(),
+                              date: split.date || tx.date,
+                              description: split.description || '',
+                              spent: split.spent || '0.00',
+                              received: split.received || '0.00',
+                              payee_id: split.payee_id || undefined,
+                              selected_category_id: split.selected_category_id || undefined
+                            }));
+                            
+                            setEditModal({ 
+                              isOpen: true, 
+                              transaction: tx, 
+                              splits: parsedSplits, 
+                              isSplitMode: true, 
+                              isUpdating: false, 
+                              validationError: null 
+                            });
+                          } else {
+                            // Regular transaction
+                            setEditModal({ isOpen: true, transaction: tx, splits: [], isSplitMode: false, isUpdating: false, validationError: null });
+                          }
                         }
                       }}
                       className="hover:bg-gray-50"
@@ -3987,7 +4047,12 @@ export default function TransactionsPage() {
                         />
                       </td>
                       <td className="border p-1 w-8 text-center text-xs cursor-pointer">{formatDate(tx.date)}</td>
-                      <td className="border p-1 w-8 text-center text-xs cursor-pointer" style={{ minWidth: 250 }}>{tx.description}</td>
+                      <td className="border p-1 w-8 text-center text-xs cursor-pointer" style={{ minWidth: 250 }}>
+                        {tx.description}
+                        {tx.split_data && typeof tx.split_data === 'object' && (tx.split_data as any).splits && (
+                          <span className="ml-1 inline-block bg-blue-100 text-blue-800 text-xs px-1 rounded">Split</span>
+                        )}
+                      </td>
                       <td className="border p-1 w-8 text-center cursor-pointer">{tx.spent ? formatAmount(tx.spent) : ''}</td>
                       <td className="border p-1 w-8 text-center cursor-pointer">{tx.received ? formatAmount(tx.received) : ''}</td>
                       <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
