@@ -155,7 +155,7 @@ export default function JournalTablePage() {
   };
 
   const formatAmountLocal = (amount: number) => {
-    return amount ? `$${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '';
+    return amount > 0 ? `$${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '';
   };
 
   function getAccountName(id: string) {
