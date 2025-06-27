@@ -1,54 +1,37 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
+import { validateCompanyContext } from '@/lib/auth-utils'
 
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url)
-    const companyId = searchParams.get('companyId')
-
-    if (!companyId) {
-      return NextResponse.json(
-        { error: 'Company ID is required' },
-        { status: 400 }
-      )
+    // Validate company context
+    const context = validateCompanyContext(request);
+    if ('error' in context) {
+      return NextResponse.json({ error: context.error }, { status: 401 });
     }
 
-    const { data: transactions } = await supabase
-      .from('transactions')
-      .select('*')
-      .eq('plaid_account_id', 'MANUAL_ENTRY')
+    const { companyId } = context;
+
+    // Fetch journal entries with transaction data including split_data
+    const { data: journalEntries, error } = await supabase
+      .from('journal')
+      .select(`
+        *,
+        transactions!inner(payee_id, split_data)
+      `)
       .eq('company_id', companyId)
       .order('date', { ascending: false });
-
-    const entries = []
-    if (transactions) {
-      // Group transactions by description and date to form journal entries
-      const groupedEntries = transactions.reduce((acc, tx) => {
-        const key = `${tx.date}_${tx.description}`;
-        if (!acc[key]) {
-          acc[key] = {
-            id: tx.id,
-            date: tx.date,
-            description: tx.description,
-            transactions: []
-          };
-        }
         
-        acc[key].transactions.push({
-          account_id: tx.selected_category_id || tx.corresponding_category_id,
-          account_name: 'Unknown Account', // Will be populated by caller if needed
-          amount: typeof tx.amount === 'number' ? tx.amount : (tx.spent ?? tx.received ?? 0),
-          type: tx.selected_category_id ? 'debit' : 'credit'
-        });
-        
-        return acc;
-      }, {});
-
-      entries.push(...Object.values(groupedEntries));
+    if (error) {
+      console.error('Error fetching journal entries:', error);
+      return NextResponse.json(
+        { error: 'Failed to fetch journal entries: ' + error.message },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json(
-      { entries },
+      { entries: journalEntries || [] },
       { status: 200 }
     )
 

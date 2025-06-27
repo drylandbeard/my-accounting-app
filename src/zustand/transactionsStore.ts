@@ -141,6 +141,26 @@ export interface SplitItem {
   selected_category_id?: string;
 }
 
+// Journal entry types for table display
+export interface JournalTableEntry {
+  id: string;
+  date: string;
+  description: string;
+  debit: number;
+  credit: number;
+  transaction_id: string;
+  chart_account_id: string;
+  company_id: string;
+  transactions?: {
+    payee_id?: string;
+    split_data?: SplitData;
+  };
+  // Fields for split items displayed as journal entries
+  is_split_item?: boolean;
+  split_item_data?: SplitItem;
+  [key: string]: unknown; // Allow dynamic property access for additional columns
+}
+
 // Store interface
 interface TransactionsState {
   // Core data states
@@ -149,6 +169,7 @@ interface TransactionsState {
   accounts: Account[];
   importedTransactions: Transaction[];
   transactions: Transaction[];
+  journalEntries: JournalTableEntry[];
   
   // Loading states for main operations
   isLoading: boolean;
@@ -174,6 +195,7 @@ interface TransactionsState {
   fetchAccounts: (companyId: string) => Promise<void>;
   fetchImportedTransactions: (companyId: string) => Promise<void>;
   fetchConfirmedTransactions: (companyId: string) => Promise<void>;
+  fetchJournalEntries: (companyId: string) => Promise<void>;
   refreshAll: (companyId: string) => Promise<void>;
   
   // Transaction operations
@@ -196,7 +218,7 @@ interface TransactionsState {
   saveJournalEntry: (entryData: { date: string; description: string; entries: { account_id: string; amount: number; type: 'debit' | 'credit' }[] }, companyId: string) => Promise<boolean>;
   fetchPastJournalEntries: (companyId: string) => Promise<JournalEntry[]>;
   updateJournalEntry: (entryData: { id: string; date: string; description: string; transactions: { account_id: string; account_name: string; amount: number; type: 'debit' | 'credit' }[] }, companyId: string) => Promise<boolean>;
-  deleteJournalEntry: (entryData: { date: string; description: string }, companyId: string) => Promise<boolean>;
+  deleteJournalEntry: (entryData: { id?: string; date: string; description: string }, companyId: string) => Promise<boolean>;
   
   // CSV Import
   importTransactionsFromCSV: (transactions: Transaction[], companyId: string) => Promise<{ success: boolean; count?: number; error?: string }>;
@@ -226,6 +248,7 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
   accounts: [],
   importedTransactions: [],
   transactions: [],
+  journalEntries: [],
   isLoading: false,
   isSyncing: false,
   isAddingTransactions: false,
@@ -316,13 +339,169 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
       set({ error: 'Failed to fetch confirmed transactions' });
     }
   },
+
+  // Fetch journal entries with transaction relationships and split data
+  fetchJournalEntries: async (companyId: string) => {
+    try {
+      // Process journal entries to insert split items between debit/credit pairs
+      const processEntriesWithSplits = (entries: JournalTableEntry[]): JournalTableEntry[] => {
+        const processedEntries: JournalTableEntry[] = [];
+        
+        // Group entries by transaction_id to find debit/credit pairs
+        const transactionGroups = new Map<string, JournalTableEntry[]>();
+        
+        entries.forEach(entry => {
+          const txId = entry.transaction_id;
+          if (!transactionGroups.has(txId)) {
+            transactionGroups.set(txId, []);
+          }
+          transactionGroups.get(txId)!.push(entry);
+        });
+        
+        // Process each transaction group
+        transactionGroups.forEach(txEntries => {
+          if (txEntries.length === 0) return;
+          
+          // Sort entries within transaction: debit first, then credit
+          const sortedEntries = txEntries.sort((a, b) => {
+            if (a.debit > 0 && b.credit > 0) return -1; // debit before credit
+            if (a.credit > 0 && b.debit > 0) return 1;  // credit after debit
+            return 0;
+          });
+          
+          const firstEntry = sortedEntries[0];
+          const splitData = firstEntry.transactions?.split_data;
+          
+          // Add the first entry (usually debit)
+          processedEntries.push(firstEntry);
+          
+          // Add split items if they exist
+          if (splitData?.splits && splitData.splits.length > 0) {
+            splitData.splits.forEach((split, index) => {
+              // Ensure split has required SplitItem properties
+              const splitItem: SplitItem = {
+                id: split.id || `split-${index}`,
+                date: split.date || firstEntry.date,
+                description: split.description || '',
+                spent: split.spent,
+                received: split.received,
+                payee_id: split.payee_id,
+                selected_category_id: split.selected_category_id
+              };
+
+              const splitEntry: JournalTableEntry = {
+                id: `${firstEntry.id}-split-${index}`,
+                date: splitItem.date,
+                description: `  ↳ ${splitItem.description}`, // Indent split items
+                debit: 0,
+                credit: 0,
+                transaction_id: firstEntry.transaction_id,
+                chart_account_id: splitItem.selected_category_id || '',
+                company_id: firstEntry.company_id,
+                is_split_item: true,
+                split_item_data: splitItem,
+                transactions: {
+                  payee_id: splitItem.payee_id
+                }
+              };
+              processedEntries.push(splitEntry);
+            });
+          }
+          
+          // Add remaining entries (usually credit)
+          sortedEntries.slice(1).forEach(entry => {
+            processedEntries.push(entry);
+          });
+        });
+        
+        return processedEntries;
+      };
+
+      // Fetch journal entries with transaction data via join
+      const { data: journalData, error: journalError } = await supabase
+        .from('journal')
+        .select(`
+          id,
+          date,
+          description,
+          debit,
+          credit,
+          transaction_id,
+          chart_account_id,
+          company_id,
+          transactions!inner(
+            id,
+            payee_id,
+            split_data
+          )
+        `)
+        .eq('company_id', companyId)
+        .order('date', { ascending: false });
+
+      if (journalError) throw journalError;
+
+      // Also fetch standalone journal entries (those without transaction relationships)
+      const { data: standaloneJournalData, error: standaloneError } = await supabase
+        .from('journal')
+        .select('*')
+        .eq('company_id', companyId)
+        .is('transaction_id', null)
+        .order('date', { ascending: false });
+
+      if (standaloneError) throw standaloneError;
+
+             // Convert journal entries to JournalTableEntry format
+       const journalEntries: JournalTableEntry[] = [
+         ...(journalData || []).map(journal => {
+           // Handle transaction data - journal.transactions is the joined transaction record
+           const transactionData = Array.isArray(journal.transactions) ? journal.transactions[0] : journal.transactions;
+           return {
+             id: journal.id,
+             date: journal.date,
+             description: journal.description || '',
+             debit: journal.debit ? parseFloat(journal.debit) : 0,
+             credit: journal.credit ? parseFloat(journal.credit) : 0,
+             transaction_id: journal.transaction_id || journal.id,
+             chart_account_id: journal.chart_account_id || '',
+             company_id: journal.company_id,
+             transactions: transactionData ? {
+               payee_id: transactionData.payee_id,
+               split_data: transactionData.split_data
+             } : undefined
+           };
+         }),
+        ...(standaloneJournalData || []).map(journal => ({
+          id: journal.id,
+          date: journal.date,
+          description: journal.description || '',
+          debit: journal.debit ? parseFloat(journal.debit) : 0,
+          credit: journal.credit ? parseFloat(journal.credit) : 0,
+          transaction_id: journal.transaction_id || journal.id,
+          chart_account_id: journal.chart_account_id || '',
+          company_id: journal.company_id,
+          transactions: undefined
+        }))
+      ];
+
+      // Sort by date (newest first)
+      journalEntries.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      
+      // Process entries to insert split items if they exist
+      const processedEntries = processEntriesWithSplits(journalEntries);
+      set({ journalEntries: processedEntries });
+    } catch (error) {
+      console.error('Error fetching journal entries:', error);
+      set({ error: 'Failed to fetch journal entries' });
+    }
+  },
   
   // Refresh all data
   refreshAll: async (companyId: string) => {
     await Promise.all([
       get().fetchAccounts(companyId),
       get().fetchImportedTransactions(companyId),
-      get().fetchConfirmedTransactions(companyId)
+      get().fetchConfirmedTransactions(companyId),
+      get().fetchJournalEntries(companyId)
     ]);
   },
   
@@ -813,20 +992,24 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
         }
       }
 
+      // Get the selected account ID for the journal entry
+      const { selectedAccountId } = get();
+      if (!selectedAccountId) {
+        throw new Error('No account selected for journal entry');
+      }
+
       // Save journal entry via API
       const response = await api.post('/api/journal/create', {
         date: entryData.date,
         description: entryData.description,
-        entries: entryData.entries
+        entries: entryData.entries,
+        selectedAccountId: selectedAccountId
       });
 
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.error || 'Failed to save journal entry');
       }
-
-      // Automatically sync the journal after saving
-      await api.post('/api/journal/sync', {});
 
       // Refresh data
       await get().refreshAll(companyId);
@@ -911,12 +1094,13 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
     }
   },
 
-  deleteJournalEntry: async (entryData, companyId: string) => {
+  deleteJournalEntry: async (entryData: { id?: string; date: string; description: string }, companyId: string) => {
     try {
       set({ isLoading: true, error: null });
 
       const response = await api.delete('/api/journal/delete', {
         body: JSON.stringify({
+          id: entryData.id,
           date: entryData.date,
           description: entryData.description
         })

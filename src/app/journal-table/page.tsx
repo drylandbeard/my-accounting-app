@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '@/zustand/authStore';
-import { useTransactionsStore } from '@/zustand/transactionsStore';
+import { useTransactionsStore, type JournalTableEntry } from '@/zustand/transactionsStore';
 import { useCategoriesStore, type Category } from '@/zustand/categoriesStore';
 import { usePayeesStore } from '@/zustand/payeesStore';
 import { X } from 'lucide-react';
@@ -25,39 +25,6 @@ import {
 } from '@/components/ui/pagination';
 
 // Define types specific to the journal table
-
-type SplitItem = {
-  id: string;
-  date: string;
-  description: string;
-  spent?: string;
-  received?: string;
-  payee_id?: string;
-  selected_category_id?: string;
-};
-
-type SplitData = {
-  splits: SplitItem[];
-};
-
-type JournalEntry = {
-  id: string;
-  date: string;
-  description: string;
-  debit: number;
-  credit: number;
-  transaction_id: string;
-  chart_account_id: string;
-  company_id: string;
-  transactions?: {
-    payee_id?: string;
-    split_data?: SplitData;
-  };
-  // Fields for split items displayed as journal entries
-  is_split_item?: boolean;
-  split_item_data?: SplitItem;
-  [key: string]: unknown; // Allow dynamic property access for additional columns
-};
 
 type SortConfig = {
   key: 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category' | null;
@@ -87,77 +54,13 @@ export default function JournalTablePage() {
   const hasCompanyContext = !!(currentCompany);
   
   // Store hooks
-  const { saveJournalEntry } = useTransactionsStore();
+  const { saveJournalEntry, accounts, selectedAccountId, setSelectedAccountId, fetchAccounts, journalEntries, fetchJournalEntries, isLoading, error } = useTransactionsStore();
   const { categories, refreshCategories, createCategoryForTransaction } = useCategoriesStore();
   const { payees, refreshPayees } = usePayeesStore();
   
-  // Process journal entries to insert split items between debit/credit pairs
-  const processEntriesWithSplits = (entries: JournalEntry[]): JournalEntry[] => {
-    const processedEntries: JournalEntry[] = [];
-    
-    // Group entries by transaction_id to find debit/credit pairs
-    const transactionGroups = new Map<string, JournalEntry[]>();
-    
-    entries.forEach(entry => {
-      const txId = entry.transaction_id;
-      if (!transactionGroups.has(txId)) {
-        transactionGroups.set(txId, []);
-      }
-      transactionGroups.get(txId)!.push(entry);
-    });
-    
-    // Process each transaction group
-    transactionGroups.forEach(txEntries => {
-      if (txEntries.length === 0) return;
-      
-      // Sort entries within transaction: debit first, then credit
-      const sortedEntries = txEntries.sort((a, b) => {
-        if (a.debit > 0 && b.credit > 0) return -1; // debit before credit
-        if (a.credit > 0 && b.debit > 0) return 1;  // credit after debit
-        return 0;
-      });
-      
-      const firstEntry = sortedEntries[0];
-      const splitData = firstEntry.transactions?.split_data;
-      
-      // Add the first entry (usually debit)
-      processedEntries.push(firstEntry);
-      
-      // Add split items if they exist
-      if (splitData?.splits && splitData.splits.length > 0) {
-        splitData.splits.forEach((split, index) => {
-          const splitEntry: JournalEntry = {
-            id: `${firstEntry.id}-split-${index}`,
-            date: split.date || firstEntry.date,
-            description: `  ↳ ${split.description}`, // Indent split items
-            debit: 0,
-            credit: 0,
-            transaction_id: firstEntry.transaction_id,
-            chart_account_id: split.selected_category_id || '',
-            company_id: firstEntry.company_id,
-            is_split_item: true,
-            split_item_data: split,
-            transactions: {
-              payee_id: split.payee_id
-            }
-          };
-          processedEntries.push(splitEntry);
-        });
-      }
-      
-      // Add remaining entries (usually credit)
-      sortedEntries.slice(1).forEach(entry => {
-        processedEntries.push(entry);
-      });
-    });
-    
-    return processedEntries;
-  };
+
   
   // Local state
-  const [entries, setEntries] = useState<JournalEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [sortConfig, setSortConfig] = useState<SortConfig>({ key: null, direction: 'asc' });
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [startDate, setStartDate] = useState<string>('');
@@ -212,47 +115,19 @@ export default function JournalTablePage() {
 
   useEffect(() => {
     if (hasCompanyContext) {
-      fetchJournalEntries();
+      fetchJournalEntries(currentCompany!.id);
       refreshCategories();
       refreshPayees();
+      fetchAccounts(currentCompany!.id);
     }
-  }, [currentCompany?.id, hasCompanyContext, refreshCategories, refreshPayees]);
+  }, [currentCompany?.id, hasCompanyContext, refreshCategories, refreshPayees, fetchAccounts, fetchJournalEntries]);
 
   // Reset to first page when search term or date filters change
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, startDate, endDate]);
 
-  const fetchJournalEntries = async () => {
-    if (!hasCompanyContext) return;
-    
-    try {
-      setLoading(true);
-      setError(null);
-      
-      const { supabase } = await import('@/lib/supabase');
-      
-      // Fetch journal entries with transaction data including split_data
-      const { data, error } = await supabase
-        .from('journal')
-        .select(`
-          *,
-          transactions!inner(payee_id, split_data)
-        `)
-        .eq('company_id', currentCompany?.id)
-        .order('date', { ascending: false });
-        
-      if (error) throw error;
-      
-      // Process entries to insert split items between debit/credit pairs
-      const processedEntries = processEntriesWithSplits(data || []);
-      setEntries(processedEntries);
-    } catch {
-      setError('Failed to load journal entries');
-    } finally {
-      setLoading(false);
-    }
-  };
+
 
   const formatDate = (dateString: string) => {
     // Parse the date string and create a UTC date
@@ -283,7 +158,7 @@ export default function JournalTablePage() {
     return payee ? payee.name : '';
   }
 
-  const sortEntries = (entries: JournalEntry[], sortConfig: SortConfig) => {
+  const sortEntries = (entries: JournalTableEntry[], sortConfig: SortConfig) => {
     if (!sortConfig.key) return entries;
 
     return [...entries].sort((a, b) => {
@@ -365,9 +240,9 @@ export default function JournalTablePage() {
     { key: 'payee', label: 'Payee', isCustom: true, sortable: true }
   ];
 
-  // Get all available columns from entries to include any additional fields
+  // Get all available columns from journalEntries to include any additional fields
   const availableColumns = Array.from(
-    entries.reduce((cols, entry) => {
+    journalEntries.reduce((cols, entry) => {
       Object.keys(entry).forEach((k) => cols.add(k));
       return cols;
     }, new Set<string>())
@@ -391,7 +266,7 @@ export default function JournalTablePage() {
     { key: 'category', label: 'Category', isCustom: true, sortable: true }
   ];
 
-  const filterEntries = (entries: JournalEntry[], searchTerm: string, startDate: string, endDate: string) => {
+  const filterEntries = (entries: JournalTableEntry[], searchTerm: string, startDate: string, endDate: string) => {
     let filteredEntries = entries;
 
     // Filter by date range
@@ -546,7 +421,7 @@ export default function JournalTablePage() {
   };
 
   // Filter entries based on search term and date range, then sort
-  const filteredEntries = filterEntries(entries, searchTerm, startDate, endDate);
+  const filteredEntries = filterEntries(journalEntries, searchTerm, startDate, endDate);
   const sortedAndFilteredEntries = sortEntries(filteredEntries, sortConfig);
   
   // Get paginated data
@@ -631,6 +506,11 @@ export default function JournalTablePage() {
       return;
     }
     
+    if (!selectedAccountId) {
+      alert('Please select an account');
+      return;
+    }
+    
     // Validate that we have at least one debit and one credit
     const hasDebit = newEntry.lines.some(line => line.debit && !isZeroAmount(line.debit));
     const hasCredit = newEntry.lines.some(line => line.credit && !isZeroAmount(line.credit));
@@ -711,7 +591,7 @@ export default function JournalTablePage() {
       setShowAddModal(false);
       
       // Refresh the entries
-      await fetchJournalEntries();
+      await fetchJournalEntries(currentCompany.id);
       
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
@@ -737,11 +617,11 @@ export default function JournalTablePage() {
 
   return (
     <div className="p-4">
-      {loading ? (
+      {isLoading ? (
         <div>Loading...</div>
       ) : error ? (
         <div className="text-red-600">{error}</div>
-      ) : !entries.length ? (
+      ) : !journalEntries.length ? (
         <div>No journal entries found.</div>
       ) : (
         <div className="space-y-4">
@@ -867,16 +747,40 @@ export default function JournalTablePage() {
               </button>
             </div>
             
-            {/* Date selector */}
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Date selector</label>
-              <input
-                type="date"
-                value={newEntry.date}
-                onChange={(e) => setNewEntry(prev => ({ ...prev, date: e.target.value }))}
-                className="border px-3 py-2 rounded text-sm"
-                required
-              />
+            {/* Date and Account selectors */}
+            <div className="mb-4 grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Date</label>
+                <input
+                  type="date"
+                  value={newEntry.date}
+                  onChange={(e) => setNewEntry(prev => ({ ...prev, date: e.target.value }))}
+                  className="border px-3 py-2 rounded text-sm w-full"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Account</label>
+                <Select
+                  options={[
+                    { value: '', label: 'Select account...' },
+                    ...accounts.map(account => ({
+                      value: account.plaid_account_id || '',
+                      label: account.name
+                    }))
+                  ]}
+                  value={accounts.find(acc => acc.plaid_account_id === selectedAccountId) ? 
+                    { value: selectedAccountId || '', label: accounts.find(acc => acc.plaid_account_id === selectedAccountId)?.name || '' } :
+                    { value: '', label: 'Select account...' }
+                  }
+                  onChange={(selectedOption) => {
+                    const option = selectedOption as SelectOption | null;
+                    setSelectedAccountId(option?.value === '' ? null : option?.value || null);
+                  }}
+                  isSearchable
+                  className="text-sm"
+                />
+              </div>
             </div>
             
             {/* Journal Entry Table */}
