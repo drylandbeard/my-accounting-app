@@ -82,6 +82,7 @@ export async function POST(req: NextRequest) {
       plaid_account_name: tx.plaid_account_name,
       selected_category_id: tx.selected_category_id,
       payee_id: tx.payee_id,
+      split_data: tx.split_data, // Preserve split_data when undoing transactions
       company_id: companyId
     }));
 

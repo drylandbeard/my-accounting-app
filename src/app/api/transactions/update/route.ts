@@ -14,7 +14,9 @@ export async function POST(request: NextRequest) {
       selectedCategoryId,
       correspondingCategoryId,
       payeeId,
-      companyId 
+      companyId,
+      isSplitTransaction,
+      splits
     } = body
 
     // Validate required fields
@@ -39,11 +41,31 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (!selectedCategoryId) {
-      return NextResponse.json(
-        { error: 'Category is required' },
-        { status: 400 }
-      )
+    // For split transactions, validate splits instead of requiring selectedCategoryId
+    if (isSplitTransaction) {
+      if (!splits || !Array.isArray(splits) || splits.length === 0) {
+        return NextResponse.json(
+          { error: 'Split transactions must have at least one split item' },
+          { status: 400 }
+        )
+      }
+
+      // Validate each split item
+      for (const split of splits) {
+        if (!split.selected_category_id) {
+          return NextResponse.json(
+            { error: 'Each split item must have a category' },
+            { status: 400 }
+          )
+        }
+      }
+    } else {
+      if (!selectedCategoryId) {
+        return NextResponse.json(
+          { error: 'Category is required' },
+          { status: 400 }
+        )
+      }
     }
 
     // Validate that only spent OR received has a value, not both
@@ -64,15 +86,37 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Verify the transaction exists and belongs to the company
-    const { data: existingTransaction, error: fetchError } = await supabase
+    // First, check which table the transaction exists in
+    let tableName = 'transactions' // Default to transactions table
+    let existingTransaction = null
+    
+    // Check if transaction exists in transactions table (added)
+    const { data: addedTx, error: addedError } = await supabase
       .from('transactions')
       .select('id, company_id')
       .eq('id', transactionId)
       .eq('company_id', companyId)
       .single()
 
-    if (fetchError || !existingTransaction) {
+    if (!addedError && addedTx) {
+      existingTransaction = addedTx
+      tableName = 'transactions'
+    } else {
+      // Check if transaction exists in imported_transactions table (toAdd)
+      const { data: importedTx, error: importedError } = await supabase
+        .from('imported_transactions')
+        .select('id, company_id')
+        .eq('id', transactionId)
+        .eq('company_id', companyId)
+        .single()
+
+      if (!importedError && importedTx) {
+        existingTransaction = importedTx
+        tableName = 'imported_transactions'
+      }
+    }
+
+    if (!existingTransaction) {
       return NextResponse.json(
         { error: 'Transaction not found or access denied' },
         { status: 404 }
@@ -111,30 +155,95 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Prepare update data
-    const updateData = {
-      date,
-      description,
-      spent: toFinancialAmount(spent || '0.00'),
-      received: toFinancialAmount(received || '0.00'),
-      selected_category_id: selectedCategoryId,
-      corresponding_category_id: correspondingCategoryId,
-      payee_id: payeeId || null
-    }
+    if (isSplitTransaction && splits) {
+      // For split transactions, store split data as JSON in description or create a special field
+      // For now, we'll store the split information and handle it when the transaction is moved to Added
+      interface SplitItem {
+        id: string;
+        date: string;
+        description: string;
+        spent: string;
+        received: string;
+        payee_id?: string;
+        selected_category_id: string;
+      }
 
-    // Update the transaction
-    const { error: updateError } = await supabase
-      .from('transactions')
-      .update(updateData)
-      .eq('id', transactionId)
-      .eq('company_id', companyId)
+      const splitData = {
+        splits: splits.map((split: SplitItem) => ({
+          id: split.id,
+          date: split.date,
+          description: split.description,
+          spent: split.spent ? toFinancialAmount(split.spent) : '0.00',
+          received: split.received ? toFinancialAmount(split.received) : '0.00',
+          payee_id: split.payee_id,
+          selected_category_id: split.selected_category_id
+        }))
+      };
 
-    if (updateError) {
-      console.error('Error updating transaction:', updateError)
-      return NextResponse.json(
-        { error: 'Failed to update transaction' },
-        { status: 500 }
-      )
+      // Update the transaction with split information
+      const updateData: Record<string, unknown> = {
+        date,
+        description: description,
+        spent: toFinancialAmount(spent || '0.00'),
+        received: toFinancialAmount(received || '0.00'),
+        payee_id: payeeId || null,
+        selected_category_id: selectedCategoryId,
+        // Store split data as JSONB object
+        split_data: splitData
+      };
+
+      // Add category fields based on which table we're updating
+      if (tableName === 'transactions') {
+        updateData.corresponding_category_id = correspondingCategoryId;
+      }
+
+      const { error: updateError } = await supabase
+        .from(tableName)
+        .update(updateData)
+        .eq('id', transactionId)
+        .eq('company_id', companyId)
+
+      if (updateError) {
+        console.error('Error updating split transaction:', updateError)
+        return NextResponse.json(
+          { error: 'Failed to update split transaction' },
+          { status: 500 }
+        )
+      }
+    } else {
+      // Handle regular (non-split) transaction update
+      const baseUpdateData = {
+        date,
+        description,
+        spent: toFinancialAmount(spent || '0.00'),
+        received: toFinancialAmount(received || '0.00'),
+        payee_id: payeeId || null,
+        selected_category_id: selectedCategoryId,
+        split_data: null // Clear any existing split data
+      }
+
+      // Add category fields based on which table we're updating
+      const updateData = tableName === 'transactions' 
+        ? {
+            ...baseUpdateData,
+            corresponding_category_id: correspondingCategoryId
+          }
+        : baseUpdateData
+
+      // Update the transaction
+      const { error: updateError } = await supabase
+        .from(tableName)
+        .update(updateData)
+        .eq('id', transactionId)
+        .eq('company_id', companyId)
+
+      if (updateError) {
+        console.error('Error updating transaction:', updateError)
+        return NextResponse.json(
+          { error: 'Failed to update transaction' },
+          { status: 500 }
+        )
+      }
     }
 
     return NextResponse.json(

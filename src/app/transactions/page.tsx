@@ -2,12 +2,15 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { usePlaidLink } from 'react-plaid-link'
-import { supabase } from '@/lib/supabase'
+
 
 import Papa from 'papaparse'
 import { v4 as uuidv4 } from 'uuid'
 import { X, Loader2 } from 'lucide-react'
 import { useAuthStore } from '@/zustand/authStore'
+import { useTransactionsStore, Transaction as StoreTransaction, SplitData as StoreSplitData } from '@/zustand/transactionsStore'
+import { useCategoriesStore } from '@/zustand/categoriesStore'
+import { usePayeesStore } from '@/zustand/payeesStore'
 import { api } from '@/lib/api'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Select } from '@/components/ui/select'
@@ -26,6 +29,7 @@ import {
   toFinancialAmount, 
   calculateNetAmount, 
   sumAmounts, 
+  subtractAmounts,
   isZeroAmount,
   isPositiveAmount,
   compareAmounts 
@@ -52,34 +56,28 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 
-type Transaction = {
+// Use Transaction type from store
+type Transaction = StoreTransaction
+
+type SplitItem = {
   id: string
   date: string
   description: string
-  amount?: FinancialAmount
-  plaid_account_id: string | null
-  plaid_account_name: string | null
-  selected_category_id?: string
-  corresponding_category_id?: string
   spent?: FinancialAmount
   received?: FinancialAmount
   payee_id?: string
-  company_id?: string
+  selected_category_id?: string
 }
 
-type Category = {
-  id: string
-  name: string
-  type: string
-  subtype?: string
-  plaid_account_id?: string | null
+// Type guard function to check if split_data has the expected structure
+const isSplitData = (data: unknown): data is StoreSplitData => {
+  return typeof data === 'object' && 
+         data !== null && 
+         'splits' in data && 
+         Array.isArray((data as StoreSplitData).splits);
 }
 
-type Payee = {
-  id: string
-  name: string
-  company_id: string
-}
+// Category and Payee types now come from stores
 
 type Account = {
   plaid_account_id: string | null
@@ -220,13 +218,54 @@ function SortableAccountItem({ account, onNameChange, onDelete, deleteConfirmati
 export default function TransactionsPage() {
   const { currentCompany } = useAuthStore();
   const hasCompanyContext = !!(currentCompany);
-  const [linkToken, setLinkToken] = useState<string | null>(null)
-  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null)
-  const [accounts, setAccounts] = useState<Account[]>([])
-  const [categories, setCategories] = useState<Category[]>([])
-  const [payees, setPayees] = useState<Payee[]>([])
-  const [importedTransactions, setImportedTransactions] = useState<Transaction[]>([])
-  const [transactions, setTransactions] = useState<Transaction[]>([])
+  
+  // Use stores for core data
+  const {
+    linkToken,
+    selectedAccountId,
+    accounts,
+    importedTransactions,
+    transactions,
+    isSyncing,
+    isAddingTransactions,
+    isUndoingTransactions,
+    notification,
+    setSelectedAccountId,
+    setNotification,
+    createLinkToken,
+    refreshAll,
+    addTransactions,
+    undoTransactions,
+    syncTransactions: storeSyncTransactions,
+    createManualAccount,
+    saveJournalEntry,
+    fetchPastJournalEntries,
+    applyAutomationsToTransactions,
+    subscribeToTransactions,
+    updateTransaction,
+    updateAccountName,
+    updateAccountNames,
+    linkAccountsWithDates,
+    deleteAccount,
+    updateJournalEntry,
+    deleteJournalEntry,
+    importTransactionsFromCSV
+  } = useTransactionsStore();
+  
+  const { 
+    categories, 
+    refreshCategories,
+    createCategoryForTransaction,
+    subscribeToCategories
+  } = useCategoriesStore();
+  
+  const { 
+    payees, 
+    refreshPayees,
+    createPayeeForTransaction,
+    subscribeToPayees
+  } = usePayeesStore();
+  
   // Removed unused searchQuery state
   const [toAddSearchQuery, setToAddSearchQuery] = useState('')
   const [addedSearchQuery, setAddedSearchQuery] = useState('')
@@ -260,10 +299,8 @@ export default function TransactionsPage() {
   const [selectedToAdd, setSelectedToAdd] = useState<Set<string>>(new Set());
   const [selectedAdded, setSelectedAdded] = useState<Set<string>>(new Set());
 
-  // Add loading states for bulk operations
-  const [isAddingTransactions, setIsAddingTransactions] = useState(false);
-  const [isUndoingTransactions, setIsUndoingTransactions] = useState(false);
-  const [processingTransactions, setProcessingTransactions] = useState<Set<string>>(new Set());
+  // Processing transactions state for individual transaction loading (UI only)
+  const [processingTransactions] = useState<Set<string>>(new Set());
 
   // Add sorting state
   const [toAddSortConfig, setToAddSortConfig] = useState<SortConfig>({ key: null, direction: 'asc' });
@@ -288,9 +325,17 @@ export default function TransactionsPage() {
   const [editModal, setEditModal] = useState<{
     isOpen: boolean;
     transaction: Transaction | null;
+    splits: SplitItem[];
+    isSplitMode: boolean;
+    isUpdating: boolean;
+    validationError: string | null;
   }>({
     isOpen: false,
-    transaction: null
+    transaction: null,
+    splits: [],
+    isSplitMode: false,
+    isUpdating: false,
+    validationError: null
   });
 
   // Add new state for account edit modal
@@ -431,20 +476,6 @@ export default function TransactionsPage() {
     );
   });
 
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
-  const formatSyncTime = (date: Date) => {
-    const month = (date.getMonth() + 1).toString().padStart(2, '0')
-    const day = date.getDate().toString().padStart(2, '0')
-    const year = date.getFullYear()
-    const time = date.toLocaleTimeString(undefined, {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    })
-    return `${month}-${day}-${year} ${time}`
-  }
-
   const formatLastSyncTime = (lastSynced: string | null | undefined) => {
     if (!lastSynced) return 'Never';
     const date = new Date(lastSynced);
@@ -478,125 +509,22 @@ export default function TransactionsPage() {
     </div>
   );
 
-  // Add sync function
+  // Sync function now uses store
   const syncTransactions = async () => {
-    setIsSyncing(true);
-    setNotification(null);
-    let totalNewTransactions = 0;
+    if (!hasCompanyContext) return;
     
-    try {
-      if (!hasCompanyContext) {
-        throw new Error('No company selected. Please select a company first.');
-      }
-      
-      // Get all connected Plaid accounts for current company
-      const { data: plaidItems } = await supabase
-        .from('plaid_items')
-        .select('access_token, item_id')
-        .eq('company_id', currentCompany!.id);
-
-      if (!plaidItems || plaidItems.length === 0) {
-        throw new Error('No connected Plaid accounts found');
-      }
-
-      // Sync each item
-      for (const item of plaidItems) {
-        // Get all accounts for this item
-        const { data: itemAccounts } = await supabase
-          .from('accounts')
-          .select('plaid_account_id')
-          .eq('plaid_item_id', item.item_id)
-          .eq('company_id', currentCompany!.id);
-
-        if (!itemAccounts || itemAccounts.length === 0) {
-          console.log(`No accounts found for item ${item.item_id}`);
-          continue;
-        }
-
-        const accountIds = itemAccounts.map(acc => acc.plaid_account_id);
-
-        // Find the latest transaction date for this item's accounts
-        const { data: latestTransaction } = await supabase
-          .from('imported_transactions')
-          .select('date')
-          .eq('company_id', currentCompany!.id)
-          .in('plaid_account_id', accountIds)
-          .order('date', { ascending: false })
-          .limit(1)
-          .single();
-
-        // Use the latest transaction date, or default to 30 days ago if no transactions exist
-        let startDate: string;
-        if (latestTransaction) {
-          startDate = latestTransaction.date;
-        } else {
-          const thirtyDaysAgo = new Date();
-          thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-          startDate = thirtyDaysAgo.toISOString().split('T')[0];
-        }
-
-        const response = await api.post('/api/transactions/sync', {
-          access_token: item.access_token,
-          item_id: item.item_id,
-          start_date: startDate,
-          selected_account_ids: accountIds
-        });
-
-        if (!response.ok) {
-          const error = await response.json();
-          throw new Error(error.error || 'Failed to sync transactions');
-        }
-
-        const data = await response.json();
-        if (data.newTransactions) {
-          totalNewTransactions += data.newTransactions;
-        }
-      }
-
-      // Refresh the transactions list
-      await refreshAll();
-      const now = new Date();
-      const syncMessage = totalNewTransactions > 0 
-        ? `Sync complete! Found ${totalNewTransactions} new transactions. Last synced: ${formatSyncTime(now)}`
-        : `Sync complete! No new transactions found. Last synced: ${formatSyncTime(now)}`;
-      setNotification({ type: 'success', message: syncMessage });
-      setTimeout(() => setNotification(null), 4000);
-    } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to sync transactions';
-      console.error(errorMessage);
-      setNotification({ type: 'error', message: errorMessage });
-      setTimeout(() => setNotification(null), 4000);
-    } finally {
-      setIsSyncing(false);
-    }
+    await storeSyncTransactions(currentCompany!.id);
+    
+    // Clear notification after 4 seconds
+    setTimeout(() => setNotification(null), 4000);
   };
 
-  // 1️⃣ Plaid Link Token
+  // 1️⃣ Plaid Link Token - now handled by store
   useEffect(() => {
-    const createLinkToken = async () => {
-      if (!hasCompanyContext) {
-        console.log('No company context available for Plaid integration')
-        return
-      }
-      
-      try {
-        const res = await api.get('/api/1-create-link-token')
-        const data = await res.json()
-        
-        if (data.linkToken) {
-          setLinkToken(data.linkToken)
-        } else {
-          console.error('No link token received')
-        }
-      } catch (error) {
-        console.error('Failed to create link token:', error)
-      }
-    }
-
     if (hasCompanyContext) {
-      createLinkToken()
+      createLinkToken();
     }
-  }, [hasCompanyContext])
+  }, [hasCompanyContext, createLinkToken])
 
   // Update the account selection modal state to include dates
   const [accountSelectionModal, setAccountSelectionModal] = useState<{
@@ -647,150 +575,23 @@ export default function TransactionsPage() {
   });
 
   const handleAccountAndDateSelection = async () => {
+    if (!hasCompanyContext) return;
+
+    setImportProgress({
+      isImporting: true,
+      currentStep: 'Starting import...',
+      progress: 0,
+      totalSteps: 3
+    });
+
     try {
-      const selectedAccounts = accountSelectionModal.accounts.filter(acc => acc.selected);
-
-      if (selectedAccounts.length === 0) {
-        setNotification({ 
-          type: 'error', 
-          message: 'Please select at least one account' 
-        });
-        return;
+      const success = await linkAccountsWithDates(accountSelectionModal.accounts);
+      
+      if (success) {
+        setAccountSelectionModal({ isOpen: false, accounts: [] });
       }
-
-      // Validate dates aren't in the future
-      const today = new Date();
-      today.setHours(23, 59, 59, 999); // Set to end of today to allow today's date
-      
-      for (const account of selectedAccounts) {
-        // Parse date in local timezone to avoid timezone issues
-        const [year, month, day] = account.startDate.split('-').map(Number);
-        const selectedDate = new Date(year, month - 1, day);
-        if (selectedDate > today) {
-          setNotification({ 
-            type: 'error', 
-            message: 'Start date cannot be in the future' 
-          });
-          return;
-        }
-      }
-
-      setImportProgress({
-        isImporting: true,
-        currentStep: 'Starting import...',
-        progress: 0,
-        totalSteps: 3
-      });
-
-      const { access_token, item_id } = selectedAccounts[0];
-      
-      if (!access_token || !item_id) {
-        throw new Error('Missing access token or item ID. Please reconnect your account.');
-      }
-
-      // Helper function for API calls with error handling
-      const callAPI = async (step: string, url: string, payload: Record<string, unknown>) => {
-        const response = await api.post(url, payload);
-
-        const data = await response.json();
-        
-        if (!response.ok) {
-          const errorMessage = data?.error || data?.message || `HTTP ${response.status}`;
-          throw new Error(`${step} failed: ${errorMessage}`);
-        }
-
-        return data;
-      };
-
-      // Step 3: Store accounts in database
-      setImportProgress(prev => ({
-        ...prev,
-        currentStep: 'Storing account details...',
-        progress: 1
-      }));
-
-      const selectedAccountIds = selectedAccounts.map(acc => acc.id);
-      const accountsResult = await callAPI(
-        'Step 3',
-        '/api/3-store-plaid-accounts-as-accounts',
-        { 
-          accessToken: access_token, 
-          itemId: item_id,
-          selectedAccountIds: selectedAccountIds
-        }
-      );
-
-      // Step 4: Create chart of accounts entries
-      setImportProgress(prev => ({
-        ...prev,
-        currentStep: 'Setting up account categories...',
-        progress: 2
-      }));
-
-      await callAPI(
-        'Step 4',
-        '/api/4-store-plaid-accounts-as-categories',
-        { 
-          accessToken: access_token, 
-          itemId: item_id,
-          selectedAccountIds: selectedAccountIds
-        }
-      );
-
-      // Step 5: Import transactions
-      setImportProgress(prev => ({
-        ...prev,
-        currentStep: 'Importing transactions...',
-        progress: 3
-      }));
-
-      // Create account-to-date mapping for API
-      const accountDateMap = selectedAccounts.reduce((map, account) => {
-        map[account.id] = account.startDate;
-        return map;
-      }, {} as Record<string, string>);
-
-      const transactionsResult = await callAPI(
-        'Step 5',
-        '/api/5-import-transactions-to-categorize',
-        {
-          accessToken: access_token,
-          itemId: item_id,
-          accountDateMap: accountDateMap,
-          selectedAccountIds: selectedAccountIds
-        }
-      );
-
-      // Complete the process
-      setAccountSelectionModal({ isOpen: false, accounts: [] });
-      await refreshAll();
-      
-      const totalAccounts = accountsResult.count || 0;
-      const totalTransactions = transactionsResult.count || 0;
-      
-      setNotification({ 
-        type: 'success', 
-        message: `Successfully linked ${totalAccounts} accounts and imported ${totalTransactions} transactions with account-specific start dates!` 
-      });
-
     } catch (error) {
-      let errorMessage = 'Failed to link accounts. ';
-      
-      if (error instanceof Error) {
-        if (error.message.includes('Step 3')) {
-          errorMessage += 'Could not save account information. ';
-        } else if (error.message.includes('Step 4')) {
-          errorMessage += 'Could not set up account categories. ';
-        } else if (error.message.includes('Step 5')) {
-          errorMessage += 'Could not import transactions. ';
-        }
-        errorMessage += error.message || 'Please try again.';
-      } else {
-        errorMessage += 'Please try again.';
-      }
-      
-      setNotification({ type: 'error', message: errorMessage });
-      
+      console.error('Error linking accounts:', error);
     } finally {
       setImportProgress({
         isImporting: false,
@@ -817,95 +618,11 @@ export default function TransactionsPage() {
   // Add tab state for switching between To Add and Added sections
   const [activeTab, setActiveTab] = useState<'toAdd' | 'added'>('toAdd');
 
-  // 2️⃣ Supabase Fetching
-  const fetchImportedTransactions = async () => {
-    if (!hasCompanyContext) return;
-    
-    const { data } = await supabase
-      .from('imported_transactions')
-      .select('id, date, description, spent, received, plaid_account_id, plaid_account_name, selected_category_id, payee_id, company_id')
-      .eq('company_id', currentCompany?.id)
-      .neq('plaid_account_name', null)
-    
-    if (data) {
-      setImportedTransactions(data);
-      // Clear auto-added tracking when imported transactions change
-      // Only keep content hashes that still exist in the imported list
-      setAutoAddedTransactions(prev => {
-        const importedContentHashes = new Set(data.map(tx => getTransactionContentHash(tx)));
-        const newSet = new Set<string>();
-        prev.forEach(contentHash => {
-          if (importedContentHashes.has(contentHash)) {
-            newSet.add(contentHash);
-          }
-        });
-        return newSet;
-      });
-      // Don't initialize from database values - automations will apply temporarily in UI only
-    } else {
-      setImportedTransactions([]);
-      setAutoAddedTransactions(new Set());
-    }
-  }
+  // Data fetching now handled by stores
 
-  const fetchConfirmedTransactions = async () => {
-    if (!hasCompanyContext) return;
-    
-    const { data } = await supabase
-      .from('transactions')
-      .select('id, date, description, spent, received, plaid_account_id, plaid_account_name, selected_category_id, corresponding_category_id, payee_id, company_id')
-      .eq('company_id', currentCompany?.id)
-      .neq('plaid_account_name', null)
-    setTransactions(data || [])
-  }
-
-  const fetchCategories = async () => {
-    if (!hasCompanyContext) return;
-    
-    const { data } = await supabase
-      .from('chart_of_accounts')
-      .select('id, name, type, subtype, plaid_account_id')
-      .eq('company_id', currentCompany?.id)
-    setCategories(data || [])
-  }
-
-  const fetchPayees = async () => {
-    if (!hasCompanyContext) return;
-    
-    const { data } = await supabase
-      .from('payees')
-      .select('*')
-      .eq('company_id', currentCompany?.id)
-      .order('name')
-    setPayees(data || [])
-  }
-
-  const fetchAccounts = async () => {
-    if (!hasCompanyContext) return;
-    
-    const { data } = await supabase
-      .from('accounts')
-      .select('*')
-      .eq('company_id', currentCompany?.id)
-      .order('display_order', { ascending: true, nullsFirst: false })
-      .order('created_at', { ascending: true })
-    setAccounts(data || [])
-    if (data && data.length > 0 && !selectedAccountId) {
-      setSelectedAccountId(data[0].plaid_account_id)
-    }
-  }
-
-  const refreshAll = () => {
-    fetchImportedTransactions()
-    fetchConfirmedTransactions()
-    fetchCategories()
-    fetchPayees()
-    fetchAccounts()
-  }
-
-  // Function to apply automations to transactions (temporary state only)
-  const applyAutomationsToTransactions = async () => {
-    if (!hasCompanyContext) return;
+  // Apply automations automatically when transactions or related data changes (UI state only)
+  const runAutomationsWithStateUpdate = async () => {
+    if (!hasCompanyContext || !currentCompany?.id) return;
     
     // Prevent concurrent executions
     if (isAutomationRunning.current) {
@@ -916,300 +633,146 @@ export default function TransactionsPage() {
     setIsAutoAddRunning(true);
 
     try {
-      // Fetch automations
-      const { data: automations, error: automationsError } = await supabase
-        .from('automations')
-        .select('*')
-        .eq('company_id', currentCompany!.id)
-        .eq('enabled', true)
-        .order('name');
+      const result = await applyAutomationsToTransactions(
+        currentCompany.id,
+        selectedAccountId,
+        categories,
+        payees
+      );
 
-      if (automationsError || !automations) {
-        console.error('Error fetching automations:', automationsError);
-        return;
-      }
+      if (result.success && result.data) {
+        const { appliedCategories, appliedPayees, autoAddTransactions } = result.data;
 
-      // Separate automations by type
-      const payeeAutomations = automations.filter(a => a.automation_type === 'payee');
-      const categoryAutomations = automations.filter(a => a.automation_type === 'category');
-
-      if (payeeAutomations.length === 0 && categoryAutomations.length === 0) {
-        return; // No automations to apply
-      }
-
-      // Helper function to check if description matches automation condition
-      const doesDescriptionMatch = (description: string, conditionType: string, conditionValue: string): boolean => {
-        const desc = description.toLowerCase();
-        const condition = conditionValue.toLowerCase();
-
-        switch (conditionType) {
-          case 'contains':
-            return desc.includes(condition);
-          case 'is_exactly':
-            return desc === condition;
-          default:
-            return false;
-        }
-      };
-
-      const newSelectedCategories: { [txId: string]: string } = {};
-      const newSelectedPayees: { [txId: string]: string } = {};
-      const transactionsToAutoAdd: string[] = [];
-
-      // Apply automations to each imported transaction
-      const transactionsToProcess = importedTransactions
-        .filter(tx => tx.plaid_account_id === selectedAccountId);
-
-      for (const transaction of transactionsToProcess) {
-        // Skip if already has manual selections
-        if (selectedCategories[transaction.id] || selectedPayees[transaction.id]) {
-          continue;
+        // Update local state with automation-applied values
+        if (Object.keys(appliedCategories).length > 0) {
+          setSelectedCategories(prev => ({
+            ...prev,
+            ...appliedCategories
+          }));
         }
 
-        let appliedCategoryAutomation: { auto_add?: boolean } | null = null;
-
-        // Check payee automations first
-        for (const payeeAutomation of payeeAutomations) {
-          if (doesDescriptionMatch(
-            transaction.description,
-            payeeAutomation.condition_type,
-            payeeAutomation.condition_value
-          )) {
-            // Find the payee ID by name
-            const payee = payees.find(p => 
-              p.name.toLowerCase() === payeeAutomation.action_value.toLowerCase()
-            );
-            if (payee) {
-              newSelectedPayees[transaction.id] = payee.id;
-              break; // Take first matching automation
-            }
-          }
+        if (Object.keys(appliedPayees).length > 0) {
+          setSelectedPayees(prev => ({
+            ...prev,
+            ...appliedPayees
+          }));
         }
 
-        // Check category automations
-        for (const categoryAutomation of categoryAutomations) {
-          if (doesDescriptionMatch(
-            transaction.description,
-            categoryAutomation.condition_type,
-            categoryAutomation.condition_value
-          )) {
-            // Find the category ID by name
-            const category = categories.find(c => 
-              c.name.toLowerCase() === categoryAutomation.action_value.toLowerCase()
-            );
-            if (category) {
-              newSelectedCategories[transaction.id] = category.id;
-              appliedCategoryAutomation = categoryAutomation;
-              break; // Take first matching automation
-            }
-          }
-        }
+        // Handle auto-add transactions
+        if (autoAddTransactions.length > 0) {
+          const transactionsToProcess = importedTransactions
+            .filter(tx => tx.plaid_account_id === selectedAccountId);
 
-        // Check if category is set and category automation has auto_add enabled
-        // Note: auto_add column might not exist in remote database yet, so we handle this gracefully
-        if (newSelectedCategories[transaction.id] && appliedCategoryAutomation?.auto_add === true) {
-          transactionsToAutoAdd.push(transaction.id);
-        }
-      }
-
-      // Update state with automation-applied values
-      if (Object.keys(newSelectedCategories).length > 0) {
-        setSelectedCategories(prev => ({
-          ...prev,
-          ...newSelectedCategories
-        }));
-      }
-
-      if (Object.keys(newSelectedPayees).length > 0) {
-        setSelectedPayees(prev => ({
-          ...prev,
-          ...newSelectedPayees
-        }));
-      }
-
-      // Auto-add transactions that meet the criteria (only if not already auto-added)
-      // Filter by content hash instead of transaction ID to handle undo scenarios
-      const transactionsToActuallyAutoAdd = transactionsToAutoAdd.filter(txId => {
-        const transaction = transactionsToProcess.find(tx => tx.id === txId);
-        if (!transaction) return false;
-        const contentHash = getTransactionContentHash(transaction);
-        return !autoAddedTransactions.has(contentHash);
-      });
-      
-      if (transactionsToActuallyAutoAdd.length > 0) {
-        // Mark these transactions as being auto-added to prevent duplicates
-        setAutoAddedTransactions(prev => {
-          const newSet = new Set(prev);
-          transactionsToActuallyAutoAdd.forEach(txId => {
+          // Filter by content hash to prevent duplicates
+          const transactionsToActuallyAutoAdd = autoAddTransactions.filter(txId => {
             const transaction = transactionsToProcess.find(tx => tx.id === txId);
-            if (transaction) {
-              const contentHash = getTransactionContentHash(transaction);
-              newSet.add(contentHash);
-            }
+            if (!transaction) return false;
+            const contentHash = getTransactionContentHash(transaction);
+            return !autoAddedTransactions.has(contentHash);
           });
-          return newSet;
-        });
 
-        // Process auto-add transactions in bulk to improve performance
-        const processAutoAddTransactions = async () => {
-          const transactionRequests = transactionsToActuallyAutoAdd
-            .map(transactionId => {
-              const transaction = transactionsToProcess.find(tx => tx.id === transactionId);
-              if (transaction && newSelectedCategories[transactionId]) {
-                return {
-                  transaction,
-                  selectedCategoryId: newSelectedCategories[transactionId],
-                  selectedPayeeId: newSelectedPayees[transactionId]
-                };
-              }
-              return null;
-            })
-            .filter(req => req !== null) as {
-              transaction: Transaction;
-              selectedCategoryId: string;
-              selectedPayeeId?: string;
-            }[];
+          if (transactionsToActuallyAutoAdd.length > 0) {
+            // Mark as auto-added
+            setAutoAddedTransactions(prev => {
+              const newSet = new Set(prev);
+              transactionsToActuallyAutoAdd.forEach(txId => {
+                const transaction = transactionsToProcess.find(tx => tx.id === txId);
+                if (transaction) {
+                  const contentHash = getTransactionContentHash(transaction);
+                  newSet.add(contentHash);
+                }
+              });
+              return newSet;
+            });
 
-          if (transactionRequests.length > 0) {
-            try {
-              await addTransactions(transactionRequests);
-              
-              // Clean up state for auto-added transactions
-              setSelectedCategories(prev => {
-                const copy = { ...prev };
-                transactionRequests.forEach(req => delete copy[req.transaction.id]);
-                return copy;
-              });
-              setSelectedPayees(prev => {
-                const copy = { ...prev };
-                transactionRequests.forEach(req => delete copy[req.transaction.id]);
-                return copy;
-              });
-            } catch (error) {
-              console.error('Error auto-adding transactions:', error);
-              // Remove from auto-added set if there was an error so they can be retried
-              setAutoAddedTransactions(prev => {
-                const newSet = new Set(prev);
-                transactionRequests.forEach(req => {
-                  const contentHash = getTransactionContentHash(req.transaction);
-                  newSet.delete(contentHash);
+            // Process auto-add
+            const transactionRequests = transactionsToActuallyAutoAdd
+              .map(transactionId => {
+                const transaction = transactionsToProcess.find(tx => tx.id === transactionId);
+                if (transaction && appliedCategories[transactionId]) {
+                  return {
+                    transaction,
+                    selectedCategoryId: appliedCategories[transactionId],
+                    selectedPayeeId: appliedPayees[transactionId]
+                  };
+                }
+                return null;
+              })
+              .filter(req => req !== null) as {
+                transaction: Transaction;
+                selectedCategoryId: string;
+                selectedPayeeId?: string;
+              }[];
+
+            if (transactionRequests.length > 0 && selectedAccountIdInCOA) {
+              try {
+                await addTransactions(transactionRequests, selectedAccountIdInCOA, currentCompany.id);
+                
+                // Clean up state for auto-added transactions
+                setSelectedCategories(prev => {
+                  const copy = { ...prev };
+                  transactionRequests.forEach(req => delete copy[req.transaction.id]);
+                  return copy;
                 });
-                return newSet;
-              });
+                setSelectedPayees(prev => {
+                  const copy = { ...prev };
+                  transactionRequests.forEach(req => delete copy[req.transaction.id]);
+                  return copy;
+                });
+              } catch (error) {
+                console.error('Error auto-adding transactions:', error);
+                // Remove from auto-added set if there was an error
+                setAutoAddedTransactions(prev => {
+                  const newSet = new Set(prev);
+                  transactionRequests.forEach(req => {
+                    const contentHash = getTransactionContentHash(req.transaction);
+                    newSet.delete(contentHash);
+                  });
+                  return newSet;
+                });
+              }
             }
           }
-        };
-
-        // Use a small delay to ensure state updates are processed, then run sequentially
-        setTimeout(async () => {
-          try {
-            await processAutoAddTransactions();
-          } finally {
-            // Reset the flag after auto-add completes
-            isAutomationRunning.current = false;
-            setIsAutoAddRunning(false);
-          }
-        }, 100);
-        
-        // Don't reset the flag here since the setTimeout will handle it
-        return;
+        }
       }
-
     } catch (error) {
-      console.error('Error applying automations to transactions:', error);
+      console.error('Error applying automations:', error);
     } finally {
-      // Reset the flag when automation completes (only if not auto-adding)
       isAutomationRunning.current = false;
       setIsAutoAddRunning(false);
     }
   };
 
   useEffect(() => {
-    refreshAll()
-  }, [currentCompany?.id]) // Refresh when company changes
+    if (hasCompanyContext && currentCompany?.id) {
+      refreshAll(currentCompany.id);
+      refreshCategories();
+      refreshPayees();
+    }
+  }, [currentCompany?.id, hasCompanyContext, refreshAll, refreshCategories, refreshPayees]) // Refresh when company changes
 
-  // Add real-time subscriptions for live updates
+  // Real-time subscriptions managed by stores
   useEffect(() => {
     if (!hasCompanyContext || !currentCompany?.id) return;
 
-    const subscriptions: ReturnType<typeof supabase.channel>[] = [];
+    // Set up all real-time subscriptions through stores
+    const unsubscribeTransactions = subscribeToTransactions(currentCompany.id);
+    const unsubscribeCategories = subscribeToCategories(currentCompany.id);
+    const unsubscribePayees = subscribeToPayees(currentCompany.id);
 
-    // Subscribe to imported transactions changes
-    const importedTxSubscription = supabase
-      .channel('imported_transactions_changes')
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'imported_transactions',
-        filter: `company_id=eq.${currentCompany.id}`
-      }, (payload) => {
-        console.log('Imported transactions changed:', payload.eventType);
-        fetchImportedTransactions();
-      })
-      .subscribe();
-
-    // Subscribe to confirmed transactions changes
-    const confirmedTxSubscription = supabase
-      .channel('transactions_changes')
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'transactions',
-        filter: `company_id=eq.${currentCompany.id}`
-      }, (payload) => {
-        console.log('Transactions changed:', payload.eventType);
-        fetchConfirmedTransactions();
-      })
-      .subscribe();
-
-    // Subscribe to categories changes
-    const categoriesSubscription = supabase
-      .channel('categories_changes')
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'chart_of_accounts',
-        filter: `company_id=eq.${currentCompany.id}`
-      }, (payload) => {
-        console.log('Categories changed:', payload.eventType);
-        fetchCategories();
-      })
-      .subscribe();
-
-    // Subscribe to payees changes
-    const payeesSubscription = supabase
-      .channel('payees_changes')
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'payees',
-        filter: `company_id=eq.${currentCompany.id}`
-      }, (payload) => {
-        console.log('Payees changed:', payload.eventType);
-        fetchPayees();
-      })
-      .subscribe();
-
-    subscriptions.push(
-      importedTxSubscription,
-      confirmedTxSubscription,
-      categoriesSubscription,
-      payeesSubscription
-    );
-
-    // Cleanup subscriptions on unmount or company change
+    // Cleanup function
     return () => {
-      subscriptions.forEach(subscription => {
-        supabase.removeChannel(subscription);
-      });
+      unsubscribeTransactions();
+      unsubscribeCategories();
+      unsubscribePayees();
     };
-  }, [currentCompany?.id, hasCompanyContext]);
+  }, [currentCompany?.id, hasCompanyContext, subscribeToTransactions, subscribeToCategories, subscribeToPayees]);
 
   // Apply automations automatically when transactions or related data changes (UI state only)
   useEffect(() => {
     if (importedTransactions.length > 0 && categories.length > 0 && payees.length > 0 && hasCompanyContext) {
       // Apply automations immediately when data is available
-      applyAutomationsToTransactions();
+      runAutomationsWithStateUpdate();
     }
   }, [importedTransactions, categories, payees, hasCompanyContext]);
 
@@ -1217,7 +780,7 @@ export default function TransactionsPage() {
   useEffect(() => {
     if (selectedAccountId && importedTransactions.length > 0 && categories.length > 0 && payees.length > 0 && hasCompanyContext) {
       // Apply automations when account selection changes
-      applyAutomationsToTransactions();
+      runAutomationsWithStateUpdate();
     }
   }, [selectedAccountId, importedTransactions, categories, payees, hasCompanyContext]);
 
@@ -1230,154 +793,35 @@ export default function TransactionsPage() {
     setAddedCurrentPage(1);
   }, [addedSearchQuery, selectedAccountId, addedSortConfig]);
 
-  // 3️⃣ Actions
+  // 3️⃣ Actions - now use store functions
   const addTransaction = async (tx: Transaction, selectedCategoryId: string, selectedPayeeId?: string) => {
-    // For single transactions, use bulk operation with array of one
-    await addTransactions([{
-      transaction: tx,
-      selectedCategoryId,
-      selectedPayeeId
-    }]);
-  };
-
-  const addTransactions = async (transactionRequests: {
-    transaction: Transaction;
-    selectedCategoryId: string;
-    selectedPayeeId?: string;
-  }[]) => {
-    if (transactionRequests.length === 0) return;
-
-    // Validate all transactions
-    for (const req of transactionRequests) {
-      const category = categories.find(c => c.id === req.selectedCategoryId);
-      if (!category) {
-        alert('Selected category not found. Please try again.');
-        return;
-      }
-
-      // Payee is optional - only validate if provided
-      if (req.selectedPayeeId) {
-        const payee = payees.find(p => p.id === req.selectedPayeeId);
-        if (!payee) {
-          alert('Selected payee not found. Please try again.');
-          return;
-        }
-      }
-    }
-
+    if (!hasCompanyContext) return;
+    
     // Find the selected account in chart_of_accounts by plaid_account_id
     const selectedAccount = categories.find(
       c => c.plaid_account_id === selectedAccountId
     );
 
     if (!selectedAccount) {
-      console.error('Account details:', {
-        selectedAccountId,
-        availableAccounts: categories.filter(c => c.plaid_account_id).map(c => ({
-          id: c.id,
-          name: c.name,
-          plaid_account_id: c.plaid_account_id
-        }))
-      });
       alert(`Account not found in chart of accounts. Please ensure the account "${accounts.find(a => a.plaid_account_id === selectedAccountId)?.name}" is properly set up in your chart of accounts.`);
       return;
     }
 
     const selectedAccountIdInCOA = selectedAccount.id;
-
-    try {
-      setIsAddingTransactions(true);
-      
-      // Mark transactions as processing
-      const processingIds = new Set(transactionRequests.map(req => req.transaction.id));
-      setProcessingTransactions(prev => new Set([...prev, ...processingIds]));
-
-      // Prepare bulk request
-      const bulkRequest = {
-        transactions: transactionRequests.map(req => ({
-          imported_transaction_id: req.transaction.id,
-          selected_category_id: req.selectedCategoryId,
-          corresponding_category_id: selectedAccountIdInCOA,
-          payee_id: req.selectedPayeeId
-        }))
-      };
-
-      // Use the bulk API endpoint
-      const response = await api.post('/api/transactions/move-to-added', bulkRequest);
-
-      const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to move transactions');
-      }
-
-      // No need to call sync-journal separately - it's included in the bulk operation
-      refreshAll();
-    } catch (error) {
-      console.error('Error moving transactions:', error);
-      alert(error instanceof Error ? error.message : 'Failed to move transactions. Please try again.');
-    } finally {
-      setIsAddingTransactions(false);
-      
-      // Remove transactions from processing set
-      const processingIds = new Set(transactionRequests.map(req => req.transaction.id));
-      setProcessingTransactions(prev => {
-        const newSet = new Set(prev);
-        processingIds.forEach(id => newSet.delete(id));
-        return newSet;
-      });
-    }
+    
+    // For single transactions, use bulk operation with array of one
+    await addTransactions([{
+      transaction: tx,
+      selectedCategoryId,
+      selectedPayeeId
+    }], selectedAccountIdInCOA, currentCompany!.id);
   };
 
   const undoTransaction = async (tx: Transaction) => {
+    if (!hasCompanyContext) return;
+    
     // For single transactions, use bulk operation with array of one
-    await undoTransactions([tx]);
-  };
-
-  const undoTransactions = async (transactions: Transaction[]) => {
-    if (transactions.length === 0) return;
-
-    try {
-      setIsUndoingTransactions(true);
-      
-      // Mark transactions as processing
-      const processingIds = new Set(transactions.map(tx => tx.id));
-      setProcessingTransactions(prev => new Set([...prev, ...processingIds]));
-
-      // Validate all transactions have IDs
-      for (const tx of transactions) {
-        if (!tx || !tx.id) {
-          throw new Error('Invalid transaction: missing ID');
-        }
-      }
-
-      // Use the bulk undo API endpoint
-      const response = await api.post('/api/transactions/undo-added', {
-        transaction_ids: transactions.map(tx => tx.id)
-      });
-
-      const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to undo transactions');
-      }
-
-      console.log(`Successfully undid ${transactions.length} transactions`);
-      refreshAll();
-    } catch (error) {
-      console.error('Error in undoTransactions:', error);
-      alert(error instanceof Error ? error.message : 'Failed to undo transactions. Please try again.');
-    } finally {
-      setIsUndoingTransactions(false);
-      
-      // Remove transactions from processing set
-      const processingIds = new Set(transactions.map(tx => tx.id));
-      setProcessingTransactions(prev => {
-        const newSet = new Set(prev);
-        processingIds.forEach(id => newSet.delete(id));
-        return newSet;
-      });
-    }
+    await undoTransactions([tx.id], currentCompany!.id);
   };
 
   // 4️⃣ Category dropdown
@@ -1769,307 +1213,235 @@ export default function TransactionsPage() {
   };
 
   const handleEditTransaction = async (updatedTransaction: Transaction) => {
-    if (!editModal.transaction) return;
+    if (!editModal.transaction || !hasCompanyContext) return;
 
     try {
-      // Validate that only spent OR received has a value, not both
+      // Clear previous validation errors and set loading state
+      setEditModal(prev => ({ ...prev, isUpdating: true, validationError: null }));
+
+      // If in split mode, handle split transaction validation and updates
+      if (editModal.isSplitMode && editModal.splits.length > 0) {
+        // Validate each split item
+        for (const split of editModal.splits) {
+          const splitSpent = split.spent ?? '0.00';
+          const splitReceived = split.received ?? '0.00';
+          
+          // Allow both spent and received to be zero, but at least one split must have a value
+          if (isZeroAmount(splitSpent) && isZeroAmount(splitReceived)) {
+            setEditModal(prev => ({ ...prev, isUpdating: false, validationError: 'Each split item must have either a spent or received amount.' }));
+            return;
+          }
+
+          if (!split.selected_category_id) {
+            setEditModal(prev => ({ ...prev, isUpdating: false, validationError: 'Each split item must have a category selected.' }));
+            return;
+          }
+        }
+
+        // Calculate net amounts for validation using financial.ts functions
+        const originalNetAmount = calculateNetAmount(editModal.transaction.spent, editModal.transaction.received);
+        
+        // Calculate split net amount: sum of received - sum of spent
+        const splitSpentTotal = sumAmounts(editModal.splits.map(s => s.spent ?? '0.00'));
+        const splitReceivedTotal = sumAmounts(editModal.splits.map(s => s.received ?? '0.00'));
+        const splitNetAmount = subtractAmounts(splitReceivedTotal, splitSpentTotal);
+        
+        // Compare net amounts with precision handling
+        if (compareAmounts(splitNetAmount, originalNetAmount) !== 0) {
+          setEditModal(prev => ({ 
+            ...prev, 
+            isUpdating: false, 
+            validationError: `Split net amount (${formatAmount(splitNetAmount)}) must equal the original transaction net amount (${formatAmount(originalNetAmount)})` 
+          }));
+          return;
+        }
+
+        // For now, store splits in the transaction object to pass to the store
+        const transactionWithSplits = {
+          ...updatedTransaction,
+          splits: editModal.splits
+        };
+
+        // Use the store function to update the transaction with splits
+        const success = await updateTransaction(
+          editModal.transaction.id,
+          transactionWithSplits,
+          currentCompany!.id
+        );
+
+        if (success) {
+          setEditModal({ isOpen: false, transaction: null, splits: [], isSplitMode: false, isUpdating: false, validationError: null });
+          setNotification({ type: 'success', message: 'Split transaction updated successfully' });
+        } else {
+          setEditModal(prev => ({ ...prev, isUpdating: false, validationError: 'Failed to update transaction. Please try again.' }));
+        }
+      } else {
+        // Handle regular (non-split) transaction update
       const spent = updatedTransaction.spent ?? '0.00';
       const received = updatedTransaction.received ?? '0.00';
       
       if (isPositiveAmount(spent) && isPositiveAmount(received)) {
-        setNotification({ type: 'error', message: 'A transaction cannot have both spent and received amounts. Please enter only one.' });
+        setEditModal(prev => ({ ...prev, isUpdating: false, validationError: 'A transaction cannot have both spent and received amounts. Please enter only one.' }));
         return;
       }
 
       if (isZeroAmount(spent) && isZeroAmount(received)) {
-        setNotification({ type: 'error', message: 'A transaction must have either a spent or received amount.' });
+        setEditModal(prev => ({ ...prev, isUpdating: false, validationError: 'A transaction must have either a spent or received amount.' }));
         return;
       }
 
       // Find the category based on the selected category ID
       const category = categories.find(c => c.id === updatedTransaction.selected_category_id);
       if (!category) {
-        setNotification({ type: 'error', message: 'Selected category not found' });
+        setEditModal(prev => ({ ...prev, isUpdating: false, validationError: 'Selected category not found' }));
         return;
       }
 
-      // Find the selected account in chart_of_accounts
-      const selectedAccount = categories.find(c => c.plaid_account_id === selectedAccountId);
-      if (!selectedAccount) {
-        setNotification({ type: 'error', message: 'Account not found in chart of accounts' });
-        return;
+      // Use the store function to update the transaction
+      const success = await updateTransaction(
+        editModal.transaction.id,
+        updatedTransaction,
+        currentCompany!.id
+      );
+
+      if (success) {
+        setEditModal({ isOpen: false, transaction: null, splits: [], isSplitMode: false, isUpdating: false, validationError: null });
+        setNotification({ type: 'success', message: 'Transaction updated successfully' });
+        } else {
+          setEditModal(prev => ({ ...prev, isUpdating: false, validationError: 'Failed to update transaction. Please try again.' }));
+        }
       }
-
-      const selectedAccountIdInCOA = selectedAccount.id;
-
-      // Call the update transaction API
-      const response = await api.post('/api/transaction/update', {
-        transactionId: editModal.transaction.id,
-        date: updatedTransaction.date,
-        description: updatedTransaction.description,
-        spent: updatedTransaction.spent ?? 0,
-        received: updatedTransaction.received ?? 0,
-        selectedCategoryId: updatedTransaction.selected_category_id,
-        correspondingCategoryId: selectedAccountIdInCOA,
-        payeeId: updatedTransaction.payee_id || null,
-        companyId: currentCompany?.id
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to update transaction');
-      }
-
-      // Sync journal after successful update
-      await api.post('/api/sync-journal', {});
-      
-      setEditModal({ isOpen: false, transaction: null });
-      setNotification({ type: 'success', message: 'Transaction updated successfully' });
-      refreshAll();
 
     } catch (error) {
       console.error('Error updating transaction:', error);
-      setNotification({ 
-        type: 'error', 
-        message: error instanceof Error ? error.message : 'Failed to update transaction' 
-      });
+      setEditModal(prev => ({ 
+        ...prev, 
+        isUpdating: false, 
+        validationError: error instanceof Error ? error.message : 'Failed to update transaction' 
+      }));
     }
   };
 
   // Add handler for updating account name
   const handleUpdateAccountName = async () => {
-    if (!accountEditModal.account || !accountEditModal.newName.trim()) return;
+    if (!accountEditModal.account || !accountEditModal.newName.trim() || !hasCompanyContext) return;
 
-    await supabase
-      .from('accounts')
-      .update({ name: accountEditModal.newName.trim() })
-      .eq('plaid_account_id', accountEditModal.account.plaid_account_id);
+    const success = await updateAccountName(
+      accountEditModal.account.plaid_account_id || '',
+      accountEditModal.newName.trim(),
+      currentCompany!.id
+    );
 
-    setAccountEditModal({ isOpen: false, account: null, newName: '' });
-    refreshAll();
+    if (success) {
+      setAccountEditModal({ isOpen: false, account: null, newName: '' });
+    }
   };
 
-  // Add handler for creating new category
+  // Handler for creating new category using store
   const handleCreateCategory = async () => {
-    if (!newCategoryModal.name.trim()) return;
+    if (!newCategoryModal.name.trim() || !hasCompanyContext) return;
 
-    const { data, error } = await supabase
-      .from('chart_of_accounts')
-      .insert([{
-        name: newCategoryModal.name.trim(),
-        type: newCategoryModal.type,
-        parent_id: newCategoryModal.parent_id,
-        company_id: currentCompany?.id
-      }])
-      .select()
-      .single();
+    const result = await createCategoryForTransaction({
+      name: newCategoryModal.name.trim(),
+      type: newCategoryModal.type,
+      parent_id: newCategoryModal.parent_id || undefined
+    });
 
-    if (error) {
-      console.error('Error creating category:', error);
-      return;
-    }
-
-    // After creating the category, set it as selected for the current transaction or all selected transactions
-    if (newCategoryModal.transactionId) {
-      // Check if this is for the edit modal
-      if (editModal.isOpen && editModal.transaction?.id === newCategoryModal.transactionId) {
-        setEditModal(prev => ({
-          ...prev,
-          transaction: prev.transaction ? {
-            ...prev.transaction,
-            selected_category_id: data.id
-          } : null
-        }));
-      }
-      // Check if the transaction is part of a selection and apply to all selected
-      else if (selectedToAdd.has(newCategoryModal.transactionId) && selectedToAdd.size > 1) {
-        const updates: { [key: string]: string } = {};
-        selectedToAdd.forEach(selectedId => {
-          updates[selectedId] = data.id;
-        });
-        setSelectedCategories(prev => ({
-          ...prev,
-          ...updates
-        }));
-      } else {
-        setSelectedCategories(prev => ({
-          ...prev,
-          [newCategoryModal.transactionId!]: data.id
-        }));
-      }
-    }
-
-    setNewCategoryModal({ isOpen: false, name: '', type: 'Expense', parent_id: null, transactionId: null });
-    refreshAll();
-  };
-
-  // Add handler for creating new payee
-  const handleCreatePayee = async () => {
-    if (!newPayeeModal.name.trim()) return;
-
-    const { data, error } = await supabase
-      .from('payees')
-      .insert([{
-        name: newPayeeModal.name.trim(),
-        company_id: currentCompany?.id
-      }])
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Error creating payee:', error);
-      return;
-    }
-
-    // After creating the payee, set it as selected for the current transaction or all selected transactions
-    if (newPayeeModal.transactionId) {
-      // Check if this is for the edit modal
-      if (editModal.isOpen && editModal.transaction?.id === newPayeeModal.transactionId) {
-        setEditModal(prev => ({
-          ...prev,
-          transaction: prev.transaction ? {
-            ...prev.transaction,
-            payee_id: data.id
-          } : null
-        }));
-      }
-      // Check if the transaction is part of a selection and apply to all selected
-      else if (selectedToAdd.has(newPayeeModal.transactionId) && selectedToAdd.size > 1) {
-        const updates: { [key: string]: string } = {};
-        selectedToAdd.forEach(selectedId => {
-          updates[selectedId] = data.id;
-        });
-        setSelectedPayees(prev => ({
-          ...prev,
-          ...updates
-        }));
-      } else {
-        setSelectedPayees(prev => ({
-          ...prev,
-          [newPayeeModal.transactionId!]: data.id
-        }));
-      }
-    }
-
-    setNewPayeeModal({ isOpen: false, name: '', transactionId: null });
-    refreshAll();
-  };
-
-  // Add function to create manual account
-  const createManualAccount = async () => {
-    if (!manualAccountModal.name.trim()) {
-      setNotification({ type: 'error', message: 'Account name is required' });
-      return;
-    }
-
-    if (!hasCompanyContext) {
-      setNotification({ type: 'error', message: 'No company selected. Please select a company first.' });
-      return;
-    }
-
-    try {
-      const manualAccountId = uuidv4();
-      const startingBalance = toFinancialAmount(manualAccountModal.startingBalance || '0');
-      const startingBalanceNum = parseFloat(manualAccountModal.startingBalance || '0');
-
-      // Insert into accounts table
-      const { error: accountError } = await supabase.from('accounts').insert({
-        plaid_account_id: manualAccountId,
-        name: manualAccountModal.name.trim(),
-        type: manualAccountModal.type,
-        starting_balance: startingBalance,
-        current_balance: startingBalance,
-        last_synced: new Date().toISOString(),
-        plaid_item_id: 'MANUAL_ENTRY',
-        is_manual: true,
-        company_id: currentCompany!.id
-      });
-
-      if (accountError) {
-        console.error('Error creating manual account:', accountError);
-        setNotification({ type: 'error', message: 'Failed to create account. Please try again.' });
-        return;
-      }
-
-      // Insert into chart_of_accounts table
-      const { error: coaError } = await supabase.from('chart_of_accounts').insert({
-        name: manualAccountModal.name.trim(),
-        type: manualAccountModal.type,
-        plaid_account_id: manualAccountId,
-        company_id: currentCompany!.id
-      });
-
-      if (coaError) {
-        console.error('Error creating chart of accounts entry:', coaError);
-        setNotification({ type: 'error', message: 'Failed to create chart of accounts entry. Please try again.' });
-        return;
-      }
-
-      // Create starting balance transaction if starting balance is not zero
-      if (startingBalanceNum !== 0) {
-        const spent = startingBalanceNum < 0 ? Math.abs(startingBalanceNum) : 0;
-        const received = startingBalanceNum > 0 ? startingBalanceNum : 0;
-
-        const { error: transactionError } = await supabase.from('imported_transactions').insert({
-          date: new Date().toISOString().split('T')[0], // Today's date for the starting balance
-          description: 'Starting Balance',
-          plaid_account_id: manualAccountId,
-          plaid_account_name: manualAccountModal.name.trim(),
-          item_id: 'MANUAL_ENTRY',
-          company_id: currentCompany!.id,
-          spent: toFinancialAmount(spent),
-          received: toFinancialAmount(received)
-        });
-
-        if (transactionError) {
-          console.error('Error creating starting balance transaction:', transactionError);
-          // Don't fail the entire operation for this, just log it
-          console.warn('Account created but starting balance transaction failed');
+    if (result.success && result.categoryId) {
+      // After creating the category, set it as selected for the current transaction or all selected transactions
+      if (newCategoryModal.transactionId) {
+        // Check if this is for the edit modal
+        if (editModal.isOpen && editModal.transaction?.id === newCategoryModal.transactionId) {
+          setEditModal(prev => ({
+            ...prev,
+            transaction: prev.transaction ? {
+              ...prev.transaction,
+              selected_category_id: result.categoryId
+            } : null
+          }));
+        }
+        // Check if the transaction is part of a selection and apply to all selected
+        else if (selectedToAdd.has(newCategoryModal.transactionId) && selectedToAdd.size > 1) {
+          const updates: { [key: string]: string } = {};
+          selectedToAdd.forEach(selectedId => {
+            updates[selectedId] = result.categoryId || '';
+          });
+          setSelectedCategories(prev => ({
+            ...prev,
+            ...updates
+          }));
+        } else {
+          setSelectedCategories(prev => ({
+            ...prev,
+            [newCategoryModal.transactionId!]: result.categoryId || ''
+          }));
         }
       }
 
-      setManualAccountModal({
-        isOpen: false,
-        name: '',
-        type: 'Asset',
-        startingBalance: '0'
-      });
-
-      // Set the newly created account as selected
-      setSelectedAccountId(manualAccountId);
-      setNotification({ 
-        type: 'success', 
-        message: `Manual account created successfully${startingBalanceNum !== 0 ? ' with starting balance transaction!' : '!'}` 
-      });
-      refreshAll();
-    } catch (error) {
-      console.error('Error creating manual account:', error);
-      setNotification({ type: 'error', message: 'An unexpected error occurred. Please try again.' });
+      setNewCategoryModal({ isOpen: false, name: '', type: 'Expense', parent_id: null, transactionId: null });
+    } else {
+      console.error('Error creating category:', result.error);
     }
   };
 
+  // Handler for creating new payee using store
+  const handleCreatePayee = async () => {
+    if (!newPayeeModal.name.trim() || !hasCompanyContext) return;
+
+    const result = await createPayeeForTransaction({
+      name: newPayeeModal.name.trim()
+    });
+
+    if (result.success && result.payeeId) {
+      // After creating the payee, set it as selected for the current transaction or all selected transactions
+      if (newPayeeModal.transactionId) {
+        // Check if this is for the edit modal
+        if (editModal.isOpen && editModal.transaction?.id === newPayeeModal.transactionId) {
+          setEditModal(prev => ({
+            ...prev,
+            transaction: prev.transaction ? {
+              ...prev.transaction,
+              payee_id: result.payeeId
+            } : null
+          }));
+        }
+        // Check if the transaction is part of a selection and apply to all selected
+        else if (selectedToAdd.has(newPayeeModal.transactionId) && selectedToAdd.size > 1) {
+          const updates: { [key: string]: string } = {};
+          selectedToAdd.forEach(selectedId => {
+            updates[selectedId] = result.payeeId || '';
+          });
+          setSelectedPayees(prev => ({
+            ...prev,
+            ...updates
+          }));
+        } else {
+          setSelectedPayees(prev => ({
+            ...prev,
+            [newPayeeModal.transactionId!]: result.payeeId || ''
+          }));
+        }
+      }
+
+      setNewPayeeModal({ isOpen: false, name: '', transactionId: null });
+      setNotification({ type: 'success', message: 'Payee created successfully' });
+    } else {
+      console.error('Error creating payee:', result.error);
+      setNotification({ type: 'error', message: result.error || 'Failed to create payee' });
+    }
+  };
+
+  // createManualAccount now handled by transactionsStore
+
   // Add function to handle account name updates
   const handleUpdateAccountNames = async () => {
-    for (const account of accountNamesModal.accounts) {
-      if (account.id) {  // Only update if id exists
-        // Update accounts table - update both name and display_order
-        await supabase
-          .from('accounts')
-          .update({ 
-            name: account.name,
-            display_order: account.order || 0
-          })
-          .eq('plaid_account_id', account.id);
-        // Update chart_of_accounts table
-        await supabase
-          .from('chart_of_accounts')
-          .update({ name: account.name })
-          .eq('plaid_account_id', account.id);
-      }
+    if (!hasCompanyContext) return;
+
+    const success = await updateAccountNames(accountNamesModal.accounts, currentCompany!.id);
+    
+    if (success) {
+      setAccountNamesModal({ isOpen: false, accounts: [], accountToDelete: null, deleteConfirmation: '' });
     }
-    refreshAll();
-    setAccountNamesModal({ isOpen: false, accounts: [], accountToDelete: null, deleteConfirmation: '' });
   };
 
   // @dnd-kit sensors
@@ -2105,49 +1477,29 @@ export default function TransactionsPage() {
 
   // Add function to handle account deletion
   const handleDeleteAccount = async (accountId: string) => {
+    if (!hasCompanyContext) return;
+
     try {
-      // Delete from accounts table
-      await supabase
-        .from('accounts')
-        .delete()
-        .eq('plaid_account_id', accountId);
+      const success = await deleteAccount(accountId, currentCompany!.id);
+      
+      if (success) {
+        // Remove the deleted account from the modal's accounts list
+        const updatedAccounts = accountNamesModal.accounts.filter(acc => acc.id !== accountId);
+        setAccountNamesModal(prev => ({
+          ...prev,
+          accounts: updatedAccounts,
+          accountToDelete: null,
+          deleteConfirmation: ''
+        }));
 
-      // Delete from chart_of_accounts table
-      await supabase
-        .from('chart_of_accounts')
-        .delete()
-        .eq('plaid_account_id', accountId);
-
-      // Delete related transactions
-      await supabase
-        .from('transactions')
-        .delete()
-        .eq('plaid_account_id', accountId);
-
-      // Delete related imported transactions
-      await supabase
-        .from('imported_transactions')
-        .delete()
-        .eq('plaid_account_id', accountId);
-
-      // Remove the deleted account from the modal's accounts list
-      const updatedAccounts = accountNamesModal.accounts.filter(acc => acc.id !== accountId);
-      setAccountNamesModal(prev => ({
-        ...prev,
-        accounts: updatedAccounts,
-        accountToDelete: null,
-        deleteConfirmation: ''
-      }));
-
-      // If the deleted account was selected, select the first remaining account
-      if (selectedAccountId === accountId && updatedAccounts.length > 0) {
-        setSelectedAccountId(updatedAccounts[0].id);
+        // If the deleted account was selected, select the first remaining account
+        if (selectedAccountId === accountId && updatedAccounts.length > 0) {
+          setSelectedAccountId(updatedAccounts[0].id);
+        }
       }
-
-      refreshAll();
     } catch (error) {
       console.error('Error deleting account:', error);
-      alert('Failed to delete account. Please try again.');
+      setNotification({ type: 'error', message: 'Failed to delete account. Please try again.' });
     }
   };
 
@@ -2167,110 +1519,13 @@ export default function TransactionsPage() {
     }));
   };
 
-  // Add function to save journal entry
-  const saveJournalEntry = async () => {
-    // Validate that debits equal credits
-    const totalDebits = journalEntryModal.entries
-      .filter(e => e.type === 'debit')
-      .reduce((sum, e) => sum + e.amount, 0);
-    const totalCredits = journalEntryModal.entries
-      .filter(e => e.type === 'credit')
-      .reduce((sum, e) => sum + e.amount, 0);
+  // saveJournalEntry now handled by transactionsStore
 
-    if (Math.abs(totalDebits - totalCredits) > 0.01) {
-      alert('Total debits must equal total credits');
-      return;
-    }
-
-    // Validate that both lines have account_id and nonzero amount
-    for (const entry of journalEntryModal.entries) {
-      if (!entry.account_id || !entry.amount || entry.amount <= 0) {
-        alert('Each line must have an account and a nonzero amount.');
-        return;
-      }
-    }
-
-    // Insert both lines
-    for (const entry of journalEntryModal.entries) {
-      await supabase.from('transactions').insert([{
-        date: journalEntryModal.date,
-        description: journalEntryModal.description,
-        spent: entry.type === 'debit' ? entry.amount : 0,
-        received: entry.type === 'credit' ? entry.amount : 0,
-        selected_category_id: entry.account_id,
-        corresponding_category_id: null,
-        plaid_account_id: 'MANUAL_ENTRY',
-        plaid_account_name: 'Manual Journal Entry'
-      }]);
-    }
-
-    // Automatically sync the journal after saving
-    await api.post('/api/sync-journal', {});
-
-    // Reset modal and refresh data
-    setJournalEntryModal({
-      isOpen: false,
-      date: new Date().toISOString().split('T')[0],
-      description: '',
-      entries: []
-    });
-    refreshAll();
-  };
-
-  // Add function to fetch past journal entries
-  const fetchPastJournalEntries = async () => {
-    const { data: transactions } = await supabase
-      .from('transactions')
-      .select('*')
-      .eq('plaid_account_id', 'MANUAL_ENTRY')
-      .order('date', { ascending: false });
-
-    if (transactions) {
-      // Group transactions by description and date to form journal entries
-      const groupedEntries = transactions.reduce((acc: Record<string, {
-        id: string;
-        date: string;
-        description: string;
-        transactions: {
-          account_id: string;
-          account_name: string;
-          amount: number;
-          type: 'debit' | 'credit';
-        }[];
-      }>, tx) => {
-        const key = `${tx.date}_${tx.description}`;
-        if (!acc[key]) {
-          acc[key] = {
-            id: tx.id,
-            date: tx.date,
-            description: tx.description,
-            transactions: []
-          };
-        }
-        
-        // Find the account name
-        const account = categories.find(c => c.id === (tx.selected_category_id || tx.corresponding_category_id));
-        
-        acc[key].transactions.push({
-          account_id: tx.selected_category_id || tx.corresponding_category_id,
-          account_name: account?.name || 'Unknown Account',
-          amount: typeof tx.amount === 'number' ? tx.amount : (tx.spent ?? tx.received ?? 0),
-          type: tx.selected_category_id ? 'debit' : 'credit'
-        });
-        
-        return acc;
-      }, {});
-
-      setPastJournalEntriesModal(prev => ({
-        ...prev,
-        entries: Object.values(groupedEntries)
-      }));
-    }
-  };
+  // fetchPastJournalEntries now handled by transactionsStore
 
   // Add function to handle editing journal entry
   const handleEditJournalEntry = async () => {
-    if (!editJournalEntryModal.entry) return;
+    if (!editJournalEntryModal.entry || !hasCompanyContext) return;
 
     // Validate that debits equal credits
     const totalDebits = editJournalEntryModal.entry.transactions
@@ -2281,34 +1536,30 @@ export default function TransactionsPage() {
       .reduce((sum, tx) => sum + tx.amount, 0);
 
     if (Math.abs(totalDebits - totalCredits) > 0.01) {
-      alert('Total debits must equal total credits');
+      setNotification({ type: 'error', message: 'Total debits must equal total credits' });
       return;
     }
 
-    // Delete existing transactions
-    await supabase
-      .from('transactions')
-      .delete()
-      .eq('plaid_account_id', 'MANUAL_ENTRY')
-      .eq('date', editJournalEntryModal.entry.date)
-      .eq('description', editJournalEntryModal.entry.description);
-
-    // Create new transactions
-    for (const tx of editJournalEntryModal.entry.transactions) {
-      await supabase.from('transactions').insert([{
-        date: editJournalEntryModal.entry.date,
-        description: editJournalEntryModal.entry.description,
-        amount: tx.amount,
-        debit_account_id: tx.type === 'debit' ? tx.account_id : null,
-        credit_account_id: tx.type === 'credit' ? tx.account_id : null,
-        plaid_account_id: 'MANUAL_ENTRY',
-        plaid_account_name: 'Manual Journal Entry'
-      }]);
+    try {
+      const success = await updateJournalEntry(editJournalEntryModal.entry, currentCompany!.id);
+      
+      if (success) {
+        setEditJournalEntryModal({ isOpen: false, entry: null });
+        // Refresh past journal entries by fetching them again
+        const entries = await fetchPastJournalEntries(currentCompany!.id);
+        const entriesWithAccountNames = entries.map(entry => ({
+          ...entry,
+          transactions: entry.transactions.map(tx => ({
+            ...tx,
+            account_name: categories.find(c => c.id === tx.account_id)?.name || 'Unknown Account'
+          }))
+        }));
+        setPastJournalEntriesModal(prev => ({ ...prev, entries: entriesWithAccountNames }));
+      }
+    } catch (error) {
+      console.error('Error updating journal entry:', error);
+      setNotification({ type: 'error', message: 'Failed to update journal entry. Please try again.' });
     }
-
-    setEditJournalEntryModal({ isOpen: false, entry: null });
-    fetchPastJournalEntries();
-    refreshAll();
   };
 
   // Add function to remove a transaction from edit modal
@@ -2417,6 +1668,69 @@ export default function TransactionsPage() {
       </Pagination>
     );
   };
+
+  // Split management functions
+  const addSplitItem = () => {
+    if (!editModal.transaction || editModal.splits.length >= 30) return;
+    
+    const newSplit: SplitItem = {
+      id: uuidv4(),
+      date: editModal.transaction.date,
+      description: '',
+      spent: editModal.transaction.spent && isPositiveAmount(editModal.transaction.spent) ? '0.00' : undefined,
+      received: editModal.transaction.received && isPositiveAmount(editModal.transaction.received) ? '0.00' : undefined,
+      payee_id: undefined,
+      selected_category_id: undefined
+    };
+    
+    setEditModal(prev => ({
+      ...prev,
+      splits: [...prev.splits, newSplit]
+    }));
+  };
+
+  const removeSplitItem = (splitId: string) => {
+    setEditModal(prev => ({
+      ...prev,
+      splits: prev.splits.filter(split => split.id !== splitId)
+    }));
+  };
+
+  const updateSplitItem = (splitId: string, updates: Partial<SplitItem>) => {
+    setEditModal(prev => ({
+      ...prev,
+      splits: prev.splits.map(split => 
+        split.id === splitId ? { ...split, ...updates } : split
+      )
+    }));
+  };
+
+
+
+  const enterSplitMode = () => {
+    if (!editModal.transaction) return;
+    
+    // Create initial empty split item
+    const initialSplits: SplitItem[] = [
+      {
+        id: uuidv4(),
+        date: editModal.transaction.date,
+        description: '',
+        spent: editModal.transaction.spent && isPositiveAmount(editModal.transaction.spent) ? '0.00' : undefined,
+        received: editModal.transaction.received && isPositiveAmount(editModal.transaction.received) ? '0.00' : undefined,
+        payee_id: undefined,
+        selected_category_id: undefined
+      }
+    ];
+    
+    setEditModal(prev => ({
+      ...prev,
+      isSplitMode: true,
+      splits: initialSplits
+    }));
+  };
+
+
 
   // Add helper functions for handling Enter key on react-select
   const handlePayeeEnterKey = (inputValue: string, txId: string) => {
@@ -2870,50 +2184,28 @@ export default function TransactionsPage() {
                                 throw new Error('No transactions selected for import.')
                               }
 
-                              // Prepare data for insertion - ensure all required fields are present
-                              const transactionsToInsert = selectedTransactions.map(tx => ({
-                                date: tx.date,
-                                description: tx.description,
-                                spent: tx.spent || 0,
-                                received: tx.received || 0,
-                                plaid_account_id: tx.plaid_account_id,
-                                plaid_account_name: tx.plaid_account_name,
-                                company_id: currentCompany.id
-                              }))
+                              // Use the store function to import CSV transactions
+                              const result = await importTransactionsFromCSV(selectedTransactions, currentCompany.id);
 
-                              // Insert selected transactions into imported_transactions
-                              const { data, error } = await supabase
-                                .from('imported_transactions')
-                                .insert(transactionsToInsert)
-                                .select()
-
-                              if (error) {
-                                console.error('Supabase error:', error)
-                                throw new Error(error.message)
+                              if (result.success) {
+                                setImportModal(prev => ({
+                                  ...prev,
+                                  isOpen: false,
+                                  isLoading: false,
+                                  error: null,
+                                  step: 'upload',
+                                  csvData: [],
+                                  selectedTransactions: new Set()
+                                }))
+                                
+                                // Show success message
+                                setNotification({ 
+                                  type: 'success', 
+                                  message: `Successfully imported ${result.count || selectedTransactions.length} transactions!` 
+                                })
+                              } else {
+                                throw new Error(result.error || 'Failed to import transactions')
                               }
-
-                              if (!data) {
-                                throw new Error('No data returned from insert')
-                              }
-
-                              setImportModal(prev => ({
-                                ...prev,
-                                isOpen: false,
-                                isLoading: false,
-                                error: null,
-                                step: 'upload',
-                                csvData: [],
-                                selectedTransactions: new Set()
-                              }))
-
-                              // Refresh the transactions list
-                              refreshAll()
-                              
-                              // Show success message
-                              setNotification({ 
-                                type: 'success', 
-                                message: `Successfully imported ${selectedTransactions.length} transactions!` 
-                              })
                             } catch (error) {
                               console.error('Import error:', error)
                               setImportModal(prev => ({
@@ -2941,7 +2233,7 @@ export default function TransactionsPage() {
       {editModal.isOpen && editModal.transaction && (
         <div 
           className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
-          onClick={() => setEditModal({ isOpen: false, transaction: null })}
+                          onClick={() => setEditModal({ isOpen: false, transaction: null, splits: [], isSplitMode: false, isUpdating: false, validationError: null })}
         >
           <div 
             className="bg-white rounded-lg p-6 w-[900px] overflow-y-auto shadow-xl"
@@ -2950,12 +2242,25 @@ export default function TransactionsPage() {
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold">Edit Transaction</h2>
               <button
-                onClick={() => setEditModal({ isOpen: false, transaction: null })}
+                onClick={() => setEditModal({ isOpen: false, transaction: null, splits: [], isSplitMode: false, isUpdating: false, validationError: null })}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
+
+            {/* Validation Error Display */}
+            {editModal.validationError && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                <div className="flex">
+                  <div className="ml-3">
+                    <p className="text-sm text-red-700">
+                      {editModal.validationError}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-7 gap-2">
               <div>
@@ -3062,29 +2367,34 @@ export default function TransactionsPage() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Payee
                 </label>
-                                  <Select
-                    options={payeeOptions}
-                    value={payeeOptions.find(opt => opt.value === editModal.transaction?.payee_id) || payeeOptions[0]}
-                    onChange={(selectedOption) => {
-                      const option = selectedOption as SelectOption | null;
-                      if (option?.value === 'add_new') {
-                        setNewPayeeModal({ 
-                          isOpen: true, 
-                          name: '', 
-                          transactionId: editModal.transaction?.id || null
-                        });
-                      } else if (editModal.transaction) {
-                        setEditModal(prev => ({
-                          ...prev,
-                          transaction: prev.transaction ? {
-                            ...prev.transaction,
-                            payee_id: option?.value === '' ? undefined : option?.value
-                          } : null
-                        }));
-                      }
-                    }}
-                    isSearchable
-                  />
+                                                  <Select
+                  options={payeeOptions}
+                  value={payeeOptions.find(opt => opt.value === editModal.transaction?.payee_id) || payeeOptions[0]}
+                  onChange={(selectedOption) => {
+                    const option = selectedOption as SelectOption | null;
+                    if (option?.value === 'add_new') {
+                      setNewPayeeModal({ 
+                        isOpen: true, 
+                        name: '', 
+                        transactionId: editModal.transaction?.id || null
+                      });
+                    } else if (editModal.transaction) {
+                      setEditModal(prev => ({
+                        ...prev,
+                        transaction: prev.transaction ? {
+                          ...prev.transaction,
+                          payee_id: option?.value === '' ? undefined : option?.value
+                        } : null
+                      }));
+                    }
+                  }}
+                  isSearchable
+                  menuPortalTarget={document.body}
+                  styles={{
+                    menuPortal: (base) => ({ ...base, zIndex: 9999 }),
+                    menu: (base) => ({ ...base, zIndex: 9999 })
+                  }}
+                />
               </div>
 
               <div>
@@ -3125,16 +2435,186 @@ export default function TransactionsPage() {
                     }
                   }}
                   isSearchable
+                  menuPortalTarget={document.body}
+                  styles={{
+                    menuPortal: (base) => ({ ...base, zIndex: 9999 }),
+                    menu: (base) => ({ ...base, zIndex: 9999 })
+                  }}
                 />
               </div>
             </div>
 
-            <div className="flex justify-end mt-6">
+            {/* Split Mode UI */}
+            {editModal.isSplitMode && (
+              <div className="mt-6 space-y-4">
+                                <div className="flex justify-between items-center">
+                  <h3 className="text-lg font-semibold">Split Transaction</h3>
+                </div>
+
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Spent</th>
+                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Received</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Payee</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
+                        <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                                             {editModal.splits.map((split) => (
+                        <tr key={split.id}>
+                          <td className="px-4 py-2">
+                            <input
+                              type="date"
+                              value={split.date}
+                              onChange={(e) => updateSplitItem(split.id, { date: e.target.value })}
+                              className="w-full border px-2 py-1 rounded text-xs"
+                            />
+                          </td>
+                          <td className="px-4 py-2">
+                            <input
+                              type="text"
+                              value={split.description}
+                              onChange={(e) => updateSplitItem(split.id, { description: e.target.value })}
+                              className="w-full border px-2 py-1 rounded text-xs"
+                              placeholder="Description"
+                            />
+                          </td>
+                          <td className="px-4 py-2">
+                            <input
+                              type="text"
+                              value={(() => {
+                                const spent = split.spent;
+                                return (spent && !isZeroAmount(spent)) ? spent : '';
+                              })()}
+                              onChange={(e) => {
+                                const inputValue = e.target.value;
+                                updateSplitItem(split.id, {
+                                  spent: inputValue || '0.00'
+                                });
+                              }}
+                              placeholder="0.00"
+                              className="w-full border px-2 py-1 rounded text-xs text-right"
+                            />
+                          </td>
+                          <td className="px-4 py-2">
+                            <input
+                              type="text"
+                              value={(() => {
+                                const received = split.received;
+                                return (received && !isZeroAmount(received)) ? received : '';
+                              })()}
+                              onChange={(e) => {
+                                const inputValue = e.target.value;
+                                updateSplitItem(split.id, {
+                                  received: inputValue || '0.00'
+                                });
+                              }}
+                              placeholder="0.00"
+                              className="w-full border px-2 py-1 rounded text-xs text-right"
+                            />
+                          </td>
+                          <td className="px-4 py-2" style={{ minWidth: 150 }}>
+                            <Select
+                              options={payeeOptions}
+                              value={payeeOptions.find(opt => opt.value === split.payee_id) || payeeOptions[0]}
+                              onChange={(selectedOption) => {
+                                const option = selectedOption as SelectOption | null;
+                                if (option?.value === 'add_new') {
+                                  setNewPayeeModal({ 
+                                    isOpen: true, 
+                                    name: '', 
+                                    transactionId: split.id 
+                                  });
+                                } else {
+                                  updateSplitItem(split.id, { payee_id: option?.value === '' ? undefined : option?.value });
+                                }
+                              }}
+                              isSearchable
+                              menuPortalTarget={document.body}
+                              styles={{
+                                menuPortal: (base) => ({ ...base, zIndex: 9999 }),
+                                menu: (base) => ({ ...base, zIndex: 9999 })
+                              }}
+                            />
+                          </td>
+                          <td className="px-4 py-2" style={{ minWidth: 150 }}>
+                            <Select
+                              options={categoryOptions}
+                              value={categoryOptions.find(opt => opt.value === split.selected_category_id) || categoryOptions[0]}
+                              onChange={(selectedOption) => {
+                                const option = selectedOption as SelectOption | null;
+                                if (option?.value === 'add_new') {
+                                  // Determine default category type based on split
+                                  const defaultType = split.received && isPositiveAmount(split.received) ? 'Revenue' : 'Expense';
+                                  setNewCategoryModal({ 
+                                    isOpen: true, 
+                                    name: '', 
+                                    type: defaultType, 
+                                    parent_id: null, 
+                                    transactionId: split.id 
+                                  });
+                                } else {
+                                  updateSplitItem(split.id, { selected_category_id: option?.value === '' ? undefined : option?.value });
+                                }
+                              }}
+                              isSearchable
+                              menuPortalTarget={document.body}
+                              styles={{
+                                menuPortal: (base) => ({ ...base, zIndex: 9999 }),
+                                menu: (base) => ({ ...base, zIndex: 9999 })
+                              }}
+                            />
+                          </td>
+                          <td className="px-4 py-2 text-center">
+                            <button
+                              onClick={() => removeSplitItem(split.id)}
+                              disabled={editModal.splits.length === 1}
+                              className="text-red-600 hover:text-red-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              ×
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-between mt-6">
+              <div className="flex gap-2">
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    if (!editModal.isSplitMode) {
+                      enterSplitMode();
+                    } else {
+                      addSplitItem();
+                    }
+                  }}
+                  disabled={editModal.isSplitMode && editModal.splits.length >= 30}
+                  className="px-4 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Split
+                </button>
+              </div>
               <button
                 onClick={() => editModal.transaction && handleEditTransaction(editModal.transaction)}
-                className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
+                disabled={editModal.isUpdating}
+                className={`px-4 py-2 text-sm rounded ${
+                  editModal.isUpdating 
+                    ? 'bg-gray-500 cursor-not-allowed' 
+                    : 'bg-gray-900 hover:bg-gray-800'
+                } text-white flex items-center space-x-2`}
               >
-                Update
+                {editModal.isUpdating && <Loader2 className="h-3 w-3 animate-spin" />}
+                <span>{editModal.isUpdating ? 'Updating...' : 'Update'}</span>
               </button>
             </div>
           </div>
@@ -3411,7 +2891,27 @@ export default function TransactionsPage() {
 
             <div className="flex justify-end mt-6">
               <button
-                onClick={createManualAccount}
+                onClick={async () => {
+                  if (!hasCompanyContext) return;
+                  
+                  const result = await createManualAccount({
+                    name: manualAccountModal.name,
+                    type: manualAccountModal.type,
+                    startingBalance: manualAccountModal.startingBalance
+                  }, currentCompany!.id);
+                  
+                  if (result.success) {
+                    setManualAccountModal({
+                      isOpen: false,
+                      name: '',
+                      type: 'Asset',
+                      startingBalance: '0'
+                    });
+                    if (result.accountId) {
+                      setSelectedAccountId(result.accountId);
+                    }
+                  }
+                }}
                 className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
                 disabled={!manualAccountModal.name.trim() || !manualAccountModal.type.trim()}
               >
@@ -3660,9 +3160,17 @@ export default function TransactionsPage() {
 
             <div className="flex justify-end mt-6 gap-2">
               <button
-                onClick={() => {
-                  fetchPastJournalEntries();
-                  setPastJournalEntriesModal(prev => ({ ...prev, isOpen: true }));
+                onClick={async () => {
+                  const entries = await fetchPastJournalEntries(currentCompany!.id);
+                  // Populate account names for display
+                  const entriesWithAccountNames = entries.map(entry => ({
+                    ...entry,
+                    transactions: entry.transactions.map(tx => ({
+                      ...tx,
+                      account_name: categories.find(c => c.id === tx.account_id)?.name || 'Unknown Account'
+                    }))
+                  }));
+                  setPastJournalEntriesModal(prev => ({ ...prev, entries: entriesWithAccountNames, isOpen: true }));
                 }}
                 className="px-4 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50"
               >
@@ -3675,7 +3183,24 @@ export default function TransactionsPage() {
                 Cancel
               </button>
               <button
-                onClick={saveJournalEntry}
+                onClick={async () => {
+                  if (!hasCompanyContext) return;
+                  
+                  const success = await saveJournalEntry({
+                    date: journalEntryModal.date,
+                    description: journalEntryModal.description,
+                    entries: journalEntryModal.entries
+                  }, currentCompany!.id);
+                  
+                  if (success) {
+                    setJournalEntryModal({
+                      isOpen: false,
+                      date: new Date().toISOString().split('T')[0],
+                      description: '',
+                      entries: []
+                    });
+                  }
+                }}
                 className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
                 disabled={!journalEntryModal.description.trim() || journalEntryModal.entries.length === 0}
               >
@@ -3944,17 +3469,32 @@ export default function TransactionsPage() {
               </button>
               <button
                 onClick={async () => {
-                  if (!editJournalEntryModal.entry) return;
+                  if (!editJournalEntryModal.entry || !hasCompanyContext) return;
                   if (!window.confirm('Are you sure you want to delete this journal entry? This cannot be undone.')) return;
-                  await supabase
-                    .from('transactions')
-                    .delete()
-                    .eq('plaid_account_id', 'MANUAL_ENTRY')
-                    .eq('date', editJournalEntryModal.entry.date)
-                    .eq('description', editJournalEntryModal.entry.description);
-                  setEditJournalEntryModal({ isOpen: false, entry: null });
-                  fetchPastJournalEntries();
-                  refreshAll();
+                  
+                  try {
+                    const success = await deleteJournalEntry({
+                      date: editJournalEntryModal.entry.date,
+                      description: editJournalEntryModal.entry.description
+                    }, currentCompany!.id);
+                    
+                    if (success) {
+                      setEditJournalEntryModal({ isOpen: false, entry: null });
+                      // Refresh past journal entries by fetching them again
+                      const entries = await fetchPastJournalEntries(currentCompany!.id);
+                      const entriesWithAccountNames = entries.map(entry => ({
+                        ...entry,
+                        transactions: entry.transactions.map(tx => ({
+                          ...tx,
+                          account_name: categories.find(c => c.id === tx.account_id)?.name || 'Unknown Account'
+                        }))
+                      }));
+                      setPastJournalEntriesModal(prev => ({ ...prev, entries: entriesWithAccountNames }));
+                    }
+                  } catch (error) {
+                    console.error('Error deleting journal entry:', error);
+                    setNotification({ type: 'error', message: 'Failed to delete journal entry. Please try again.' });
+                  }
                 }}
                 className="px-4 py-2 text-sm bg-red-600 text-white rounded hover:bg-red-700"
               >
@@ -4085,7 +3625,48 @@ export default function TransactionsPage() {
               <tbody>
                 {imported.map(tx => {
                   return (
-                    <tr key={tx.id}>
+                    <tr 
+                      key={tx.id}
+                      onClick={(e) => {
+                        // Only open modal if click is in columns 1-4 (date, description, spent, received)
+                        const clickedTd = (e.target as HTMLElement).closest('td');
+                        if (!clickedTd) return;
+                        
+                        const tdIndex = Array.from(clickedTd.parentElement!.children).indexOf(clickedTd);
+                        // Allow clicks on columns 1-4 (date, description, spent, received) - skip checkbox column (0)
+                        if (tdIndex >= 1 && tdIndex <= 4) {
+                          // Check if this transaction has split data
+                          const hasSplitData = isSplitData(tx.split_data);
+                          
+                          if (hasSplitData) {
+                            // Parse split data and enter split mode
+                            const splitData = tx.split_data as StoreSplitData;
+                            const parsedSplits: SplitItem[] = splitData.splits.map((split) => ({
+                              id: split.id || uuidv4(),
+                              date: split.date || tx.date,
+                              description: split.description || '',
+                              spent: split.spent || '0.00',
+                              received: split.received || '0.00',
+                              payee_id: split.payee_id || undefined,
+                              selected_category_id: split.selected_category_id || undefined
+                            }));
+                            
+                            setEditModal({ 
+                              isOpen: true, 
+                              transaction: tx, 
+                              splits: parsedSplits, 
+                              isSplitMode: true, 
+                              isUpdating: false, 
+                              validationError: null 
+                            });
+                          } else {
+                            // Regular transaction
+                            setEditModal({ isOpen: true, transaction: tx, splits: [], isSplitMode: false, isUpdating: false, validationError: null });
+                          }
+                        }
+                      }}
+                      className="hover:bg-gray-50"
+                    >
                       <td className="border p-1 w-8 text-center">
                         <input
                           type="checkbox"
@@ -4102,10 +3683,15 @@ export default function TransactionsPage() {
                           className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
                         />
                       </td>
-                      <td className="border p-1 w-8 text-center text-xs">{formatDate(tx.date)}</td>
-                      <td className="border p-1 w-8 text-center text-xs" style={{ minWidth: 250 }}>{tx.description}</td>
-                      <td className="border p-1 w-8 text-center">{tx.spent ? formatAmount(tx.spent) : ''}</td>
-                      <td className="border p-1 w-8 text-center">{tx.received ? formatAmount(tx.received) : ''}</td>
+                      <td className="border p-1 w-8 text-center text-xs cursor-pointer">{formatDate(tx.date)}</td>
+                      <td className="border p-1 w-8 text-center text-xs cursor-pointer" style={{ minWidth: 250 }}>
+                        {tx.description}
+                        {isSplitData(tx.split_data) && (
+                          <span className="ml-1 inline-block bg-blue-100 text-blue-800 text-xs px-1 rounded">Split</span>
+                        )}
+                      </td>
+                      <td className="border p-1 w-8 text-center cursor-pointer">{tx.spent ? formatAmount(tx.spent) : ''}</td>
+                      <td className="border p-1 w-8 text-center cursor-pointer">{tx.received ? formatAmount(tx.received) : ''}</td>
                       <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
                         <Select
                           options={payeeOptions}
@@ -4285,7 +3871,14 @@ export default function TransactionsPage() {
                             selectedPayeeId: selectedPayees[tx.id]
                           }));
 
-                        await addTransactions(transactionRequests);
+                        // Get the corresponding category ID (the account category)
+                        const correspondingCategoryId = selectedAccountIdInCOA;
+                        if (!correspondingCategoryId) {
+                          setNotification({ type: 'error', message: 'No account category found for selected account' });
+                          return;
+                        }
+                        
+                        await addTransactions(transactionRequests, correspondingCategoryId, currentCompany!.id);
                         
                         setSelectedCategories(prev => {
                           const copy = { ...prev };
@@ -4393,11 +3986,44 @@ export default function TransactionsPage() {
                     <tr 
                       key={tx.id}
                       onClick={(e) => {
-                        // Only open modal if click is not in the first column
-                        if ((e.target as HTMLElement).closest('td:first-child')) return;
-                        setEditModal({ isOpen: true, transaction: tx });
+                        // Only open modal if click is in columns 1-6 (date, description, spent, received, payee, category)
+                        const clickedTd = (e.target as HTMLElement).closest('td');
+                        if (!clickedTd) return;
+                        
+                        const tdIndex = Array.from(clickedTd.parentElement!.children).indexOf(clickedTd);
+                        // Allow clicks on columns 1-6 (date, description, spent, received, payee, category) - skip checkbox column (0) and action column (7)
+                        if (tdIndex >= 1 && tdIndex <= 6) {
+                          // Check if this transaction has split data
+                          const hasSplitData = isSplitData(tx.split_data);
+                          
+                          if (hasSplitData) {
+                            // Parse split data and enter split mode
+                            const splitData = tx.split_data as StoreSplitData;
+                            const parsedSplits: SplitItem[] = splitData.splits.map((split) => ({
+                              id: split.id || uuidv4(),
+                              date: split.date || tx.date,
+                              description: split.description || '',
+                              spent: split.spent || '0.00',
+                              received: split.received || '0.00',
+                              payee_id: split.payee_id || undefined,
+                              selected_category_id: split.selected_category_id || undefined
+                            }));
+                            
+                            setEditModal({ 
+                              isOpen: true, 
+                              transaction: tx, 
+                              splits: parsedSplits, 
+                              isSplitMode: true, 
+                              isUpdating: false, 
+                              validationError: null 
+                            });
+                          } else {
+                            // Regular transaction
+                            setEditModal({ isOpen: true, transaction: tx, splits: [], isSplitMode: false, isUpdating: false, validationError: null });
+                          }
+                        }
                       }}
-                      className="cursor-pointer hover:bg-gray-50"
+                      className="hover:bg-gray-50"
                     >
                       <td className="border p-1 w-8 text-center">
                         <input
@@ -4415,17 +4041,22 @@ export default function TransactionsPage() {
                           className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
                         />
                       </td>
-                      <td className="border p-1 w-8 text-center text-xs">{formatDate(tx.date)}</td>
-                      <td className="border p-1 w-8 text-center text-xs" style={{ minWidth: 250 }}>{tx.description}</td>
-                      <td className="border p-1 w-8 text-center">{tx.spent ? formatAmount(tx.spent) : ''}</td>
-                      <td className="border p-1 w-8 text-center">{tx.received ? formatAmount(tx.received) : ''}</td>
-                      <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
+                      <td className="border p-1 w-8 text-center text-xs cursor-pointer">{formatDate(tx.date)}</td>
+                      <td className="border p-1 w-8 text-center text-xs cursor-pointer" style={{ minWidth: 250 }}>
+                        {tx.description}
+                        {isSplitData(tx.split_data) && (
+                          <span className="ml-1 inline-block bg-blue-100 text-blue-800 text-xs px-1 rounded">Split</span>
+                        )}
+                      </td>
+                      <td className="border p-1 w-8 text-center cursor-pointer">{tx.spent ? formatAmount(tx.spent) : ''}</td>
+                      <td className="border p-1 w-8 text-center cursor-pointer">{tx.received ? formatAmount(tx.received) : ''}</td>
+                      <td className="border p-1 w-8 text-center cursor-pointer" style={{ minWidth: 150 }}>
                         {(() => {
                           const payee = payees.find(p => p.id === tx.payee_id);
                           return payee ? payee.name : '';
                         })()}
                       </td>
-                      <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>{category ? category.name : 'Uncategorized'}</td>
+                      <td className="border p-1 w-8 text-center cursor-pointer" style={{ minWidth: 150 }}>{category ? category.name : 'Uncategorized'}</td>
                       <td className="border p-1 w-8 text-center">
                         <button
                           onClick={e => { e.stopPropagation(); undoTransaction(tx); }}
@@ -4470,7 +4101,7 @@ export default function TransactionsPage() {
                   <div className="mt-2 flex justify-end">
                     <button
                       onClick={async () => {
-                        await undoTransactions(selectedConfirmed);
+                        await undoTransactions(selectedConfirmed.map(tx => tx.id), currentCompany!.id);
                         setSelectedAdded(new Set());
                       }}
                       className={`border px-3 py-1 rounded ${

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { api } from '@/lib/api';
+import { supabase } from '@/lib/supabase';
 
 // Types
 export interface Payee {
@@ -27,6 +28,7 @@ interface PayeesState {
   // Actions
   refreshPayees: () => Promise<void>;
   addPayee: (payee: { name: string }) => Promise<Payee | null>;
+  createPayeeForTransaction: (payeeData: { name: string }) => Promise<{ success: boolean; payeeId?: string; error?: string }>;
   updatePayee: (idOrName: string, updates: { name: string }) => Promise<boolean>;
   deletePayee: (idOrName: string) => Promise<boolean>;
   highlightPayee: (payeeId: string) => void;
@@ -34,6 +36,11 @@ interface PayeesState {
   
   // Helper functions
   findPayeeByName: (name: string, caseSensitive?: boolean) => Payee | null;
+  
+  // Real-time subscriptions
+  subscriptions: ReturnType<typeof supabase.channel>[];
+  subscribeToPayees: (companyId: string) => () => void;
+  unsubscribeFromPayees: () => void;
 }
 
 export const usePayeesStore = create<PayeesState>((set, get) => ({
@@ -43,6 +50,7 @@ export const usePayeesStore = create<PayeesState>((set, get) => ({
   error: null,
   highlightedPayeeIds: new Set(),
   lastActionPayeeId: null,
+  subscriptions: [],
   
   // Actions
   refreshPayees: async () => {
@@ -74,7 +82,7 @@ export const usePayeesStore = create<PayeesState>((set, get) => ({
       };
 
       // Call the API route
-      const response = await api.post('/api/payee', requestData);
+      const response = await api.post('/api/payee/create', requestData);
       
       if (!response.ok) {
         const errorData = await response.json();
@@ -111,6 +119,54 @@ export const usePayeesStore = create<PayeesState>((set, get) => ({
       const errorMessage = err instanceof Error ? err.message : 'Network error occurred';
       set({ error: errorMessage });
       return null;
+    }
+  },
+
+  createPayeeForTransaction: async (payeeData) => {
+    try {
+      set({ isLoading: true, error: null });
+
+      if (!payeeData.name.trim()) {
+        return { success: false, error: 'Payee name is required' };
+      }
+
+      // Make the API call directly like the working version in the page
+      const response = await api.post('/api/payee/create', {
+        name: payeeData.name.trim()
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('Error creating payee:', errorData.error);
+        set({ error: errorData.error || 'Failed to create payee' });
+        return { success: false, error: errorData.error || 'Failed to create payee' };
+      }
+
+      const data = await response.json();
+      const payeeId = data.payee.id;
+
+      // Update the store with the new payee data
+      if (data.payees) {
+        set({
+          payees: data.payees,
+          error: null
+        });
+      } else {
+        // Refresh payees to get the latest list
+        await get().refreshPayees();
+      }
+
+      // Highlight the new payee
+      get().highlightPayee(payeeId);
+
+      return { success: true, payeeId };
+    } catch (error) {
+      console.error('Error creating payee for transaction:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to create payee';
+      set({ error: errorMessage });
+      return { success: false, error: errorMessage };
+    } finally {
+      set({ isLoading: false });
     }
   },
   
@@ -273,5 +329,46 @@ export const usePayeesStore = create<PayeesState>((set, get) => ({
       caseSensitive ? payee.name === name : payee.name.toLowerCase() === name.toLowerCase()
     );
     return foundPayee || null;
+  },
+
+  // Real-time subscription functions
+  subscribeToPayees: (companyId: string) => {
+    // Clean up existing subscriptions first
+    get().unsubscribeFromPayees();
+
+    const subscriptions: ReturnType<typeof supabase.channel>[] = [];
+
+    // Subscribe to payees changes
+    const payeesSubscription = supabase
+      .channel('payees_changes')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'payees',
+        filter: `company_id=eq.${companyId}`
+      }, (payload) => {
+        console.log('Payees changed:', payload.eventType);
+        get().refreshPayees();
+      })
+      .subscribe();
+
+    subscriptions.push(payeesSubscription);
+    set({ subscriptions });
+
+    // Return cleanup function
+    return () => {
+      subscriptions.forEach(subscription => {
+        supabase.removeChannel(subscription);
+      });
+      set({ subscriptions: [] });
+    };
+  },
+
+  unsubscribeFromPayees: () => {
+    const { subscriptions } = get();
+    subscriptions.forEach(subscription => {
+      supabase.removeChannel(subscription);
+    });
+    set({ subscriptions: [] });
   }
 })); 

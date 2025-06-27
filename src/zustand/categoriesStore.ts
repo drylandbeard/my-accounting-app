@@ -44,6 +44,7 @@ interface CategoriesState {
   // Actions
   refreshCategories: () => Promise<void>;
   addCategory: (category: { name: string; type: string; parent_id?: string | null }) => Promise<Category | null>;
+  createCategoryForTransaction: (categoryData: { name: string; type: string; parent_id?: string }) => Promise<{ success: boolean; categoryId?: string; error?: string }>;
   updateCategory: (id: string, updates: Partial<Category>) => Promise<boolean>;
   updateCategoryWithMergeCheck: (id: string, updates: Partial<Category>, options?: { allowMergePrompt?: boolean; companyId?: string }) => Promise<{ success: boolean; needsMerge?: boolean; existingCategory?: Category; error?: string }>;
   mergeFromRename: (originalCategoryId: string, existingCategoryId: string, companyId: string) => Promise<boolean>;
@@ -57,6 +58,11 @@ interface CategoriesState {
   findCategoriesByName: (namePattern: string, caseSensitive?: boolean) => Category[];
   findParentByName: (childId: string, parentName: string) => Category | null;
   moveCategory: (categoryIdOrName: string, newParentIdOrName: string | null) => Promise<boolean>;
+  
+  // Real-time subscriptions
+  subscriptions: ReturnType<typeof supabase.channel>[];
+  subscribeToCategories: (companyId: string) => () => void;
+  unsubscribeFromCategories: () => void;
 }
 
 export const useCategoriesStore = create<CategoriesState>((set, get) => ({
@@ -66,6 +72,7 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
   error: null,
   highlightedCategoryIds: new Set(),
   lastActionCategoryId: null,
+  subscriptions: [],
   
   // Actions
   refreshCategories: async () => {
@@ -152,6 +159,36 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
       const errorMessage = err instanceof Error ? err.message : 'Network error occurred';
       set({ error: errorMessage });
       return null;
+    }
+  },
+
+  createCategoryForTransaction: async (categoryData) => {
+    try {
+      set({ isLoading: true, error: null });
+
+      if (!categoryData.name.trim()) {
+        throw new Error('Category name is required');
+      }
+
+      // Use the existing addCategory method which properly handles API calls
+      const newCategory = await get().addCategory({
+        name: categoryData.name,
+        type: categoryData.type,
+        parent_id: categoryData.parent_id
+      });
+
+      if (!newCategory) {
+        throw new Error('Failed to create category');
+      }
+
+      return { success: true, categoryId: newCategory.id };
+    } catch (error) {
+      console.error('Error creating category for transaction:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to create category';
+      set({ error: errorMessage });
+      return { success: false, error: errorMessage };
+    } finally {
+      set({ isLoading: false });
     }
   },
   
@@ -652,4 +689,45 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
     // This is essentially an update operation
     return get().updateCategory(categoryId, { parent_id: newParentId });
   },
+
+  // Real-time subscription functions
+  subscribeToCategories: (companyId: string) => {
+    // Clean up existing subscriptions first
+    get().unsubscribeFromCategories();
+
+    const subscriptions: ReturnType<typeof supabase.channel>[] = [];
+
+    // Subscribe to categories changes
+    const categoriesSubscription = supabase
+      .channel('categories_changes')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'chart_of_accounts',
+        filter: `company_id=eq.${companyId}`
+      }, (payload) => {
+        console.log('Categories changed:', payload.eventType);
+        get().refreshCategories();
+      })
+      .subscribe();
+
+    subscriptions.push(categoriesSubscription);
+    set({ subscriptions });
+
+    // Return cleanup function
+    return () => {
+      subscriptions.forEach(subscription => {
+        supabase.removeChannel(subscription);
+      });
+      set({ subscriptions: [] });
+    };
+  },
+
+  unsubscribeFromCategories: () => {
+    const { subscriptions } = get();
+    subscriptions.forEach(subscription => {
+      supabase.removeChannel(subscription);
+    });
+    set({ subscriptions: [] });
+  }
 })); 

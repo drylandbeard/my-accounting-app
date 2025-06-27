@@ -2,6 +2,7 @@
 and the complex interaction between multiple imported type definitions from different files. */
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-unused-vars */
 
 "use client";
 
@@ -11,7 +12,6 @@ import { useCategoriesStore } from "@/zustand/categoriesStore";
 import { usePayeesStore } from "@/zustand/payeesStore";
 import { useAuthStore } from "@/zustand/authStore";
 import { supabase } from "@/lib/supabase";
-import { api } from "@/lib/api";
 import { tools } from "@/ai/tools";
 import { categoryPrompt } from "@/ai/prompts";
 
@@ -66,10 +66,7 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
     addCategory,
     updateCategory,
     deleteCategory,
-    error: storeError,
-    findCategoryByName,
-    findCategoriesByName,
-    moveCategory
+    error: storeError
   } = useCategoriesStore();
   
   // Use the payees store for payee operations
@@ -170,14 +167,6 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
   const [pendingToolArgs, setPendingToolArgs] = useState<any | null>(null);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [accounts, setAccounts] = useState<any[]>([]);
-  const [lastActivityTime, setLastActivityTime] = useState<number>(Date.now());
-  const [proactiveMode, setProactiveMode] = useState<boolean>(() => {
-    if (typeof window === "undefined") return true;
-    const saved = localStorage.getItem("aiProactiveMode");
-    return saved !== null ? JSON.parse(saved) : true;
-  });
-  const [lastCategoriesHash, setLastCategoriesHash] = useState<string>("");
-  const [lastTransactionsCount, setLastTransactionsCount] = useState<number>(0);
   const [recentProactiveMessages, setRecentProactiveMessages] = useState<Set<string>>(new Set());
 
   // Load saved panel width from localStorage
@@ -222,10 +211,7 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
     localStorage.setItem("aiPanelWidth", panelWidth.toString());
   }, [panelWidth]);
 
-  // Save proactive mode setting
-  useEffect(() => {
-    localStorage.setItem("aiProactiveMode", JSON.stringify(proactiveMode));
-  }, [proactiveMode]);
+
 
   // Helper function to add proactive message without duplicates
   const addProactiveMessage = (messageKey: string, content: string, delay: number = 2000) => {
@@ -256,7 +242,7 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
 
   // Update activity time on user interaction
   const updateActivityTime = () => {
-    setLastActivityTime(Date.now());
+    // Activity tracking logic would go here
   };
 
   // Function to refresh/clear chat context
@@ -305,7 +291,7 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
   }, [isResizing]);
 
   // Add this helper function near the top of the file (after imports)
-  function getFriendlySuccessMessage(action, details) {
+  function getFriendlySuccessMessage(action: string, details: any): string {
     switch (action) {
       case "create_category":
         return `All set! '${details.name}' has been added as an ${details.type}.`;
@@ -339,10 +325,7 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
           const result = await addCategory({
             name: action.name,
             type: action.type,
-            company_id: currentCompany?.id || "",
-            parent_id: action.parent_id || null,
-            subtype: action.subtype || null,
-            plaid_account_id: action.plaid_account_id || null
+            parent_id: action.parent_id || null
           });
           if (!result) {
             return "Sorry, I couldn't add that category. Please try again.";
@@ -390,8 +373,7 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
         }
         case "create_payee": {
           const payeeResult = await addPayee({
-            name: action.name,
-            company_id: currentCompany?.id || ""
+            name: action.name
           });
           if (!payeeResult) {
             return "Sorry, I couldn't add that payee. Please try again.";
@@ -417,25 +399,12 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
           if (!skipRefresh) await refreshPayeesFromStore();
           return getFriendlySuccessMessage("delete_payee", { name: action.name });
         }
-        case "batch_execute": {
-          let batchResults = [];
-          for (const subAction of action.operations) {
-            const result = await executeAction(subAction, true, categoriesToUse);
-            batchResults.push(result);
-          }
-          if (!skipRefresh) {
-            await refreshCategories();
-            await refreshPayeesFromStore();
-          }
-          return getFriendlySuccessMessage("batch_execute", {});
-        }
-        default:
-          return "Sorry, I didn't recognize that action.";
       }
     } catch (error) {
-      console.error("Error executing action:", error);
-      return `Sorry, something went wrong: ${error instanceof Error ? error.message : 'Unknown error'}`;
+      return `Error executing action: ${error instanceof Error ? error.message : 'Unknown error'}`;
     }
+
+    return `Action executed: ${JSON.stringify(action)}`;
   }
 
   // Handle confirmation

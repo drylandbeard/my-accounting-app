@@ -1,9 +1,19 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/zustand/authStore';
+import { useTransactionsStore, type JournalTableEntry } from '@/zustand/transactionsStore';
+import { useCategoriesStore, type Category } from '@/zustand/categoriesStore';
+import { usePayeesStore } from '@/zustand/payeesStore';
 import { X } from 'lucide-react';
+import Select from 'react-select';
+import { 
+  parseAmount, 
+  toFinancialAmount, 
+  addAmounts, 
+  subtractAmounts, 
+  isZeroAmount
+} from '@/lib/financial';
 import { 
   Pagination,
   PaginationContent,
@@ -14,56 +24,43 @@ import {
   PaginationEllipsis,
 } from '@/components/ui/pagination';
 
-type Payee = {
-  id: string;
-  name: string;
-  company_id: string;
-};
-
-type Account = {
-  id: string;
-  name: string;
-  type: string;
-  subtype?: string;
-  company_id: string;
-};
-
-type JournalEntry = {
-  id: string;
-  date: string;
-  description: string;
-  debit: number;
-  credit: number;
-  transaction_id: string;
-  chart_account_id: string;
-  company_id: string;
-  transactions?: {
-    payee_id?: string;
-  };
-  [key: string]: unknown; // Allow dynamic property access for additional columns
-};
+// Define types specific to the journal table
 
 type SortConfig = {
   key: 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category' | null;
   direction: 'asc' | 'desc';
 };
 
+type SelectOption = {
+  value: string;
+  label: string;
+};
+
+type JournalEntryLine = {
+  id: string;
+  description: string;
+  categoryId: string;
+  debit: string;
+  credit: string;
+};
+
 type NewJournalEntry = {
   date: string;
-  description: string;
-  amount: string;
-  type: 'debit' | 'credit';
-  categoryId: string;
+  lines: JournalEntryLine[];
 };
 
 export default function JournalTablePage() {
   const { currentCompany } = useAuthStore();
   const hasCompanyContext = !!(currentCompany);
-  const [entries, setEntries] = useState<JournalEntry[]>([]);
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [payees, setPayees] = useState<Payee[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  
+  // Store hooks
+  const { saveJournalEntry, accounts, selectedAccountId, setSelectedAccountId, fetchAccounts, journalEntries, fetchJournalEntries, isLoading, error } = useTransactionsStore();
+  const { categories, refreshCategories, createCategoryForTransaction } = useCategoriesStore();
+  const { payees, refreshPayees } = usePayeesStore();
+  
+
+  
+  // Local state
   const [sortConfig, setSortConfig] = useState<SortConfig>({ key: null, direction: 'asc' });
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [startDate, setStartDate] = useState<string>('');
@@ -71,72 +68,82 @@ export default function JournalTablePage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [newEntry, setNewEntry] = useState<NewJournalEntry>({
     date: new Date().toISOString().split('T')[0],
-    description: '',
-    amount: '',
-    type: 'debit',
-    categoryId: ''
+    lines: [
+      {
+        id: '1',
+        description: '',
+        categoryId: '',
+        debit: '0.00',
+        credit: '0.00'
+      },
+      {
+        id: '2',
+        description: '',
+        categoryId: '',
+        debit: '0.00',
+        credit: '0.00'
+      }
+    ]
   });
   const [saving, setSaving] = useState(false);
+  
+  // New category modal state
+  const [newCategoryModal, setNewCategoryModal] = useState<{
+    isOpen: boolean;
+    name: string;
+    type: string;
+    parent_id: string | null;
+    lineId: string | null;
+  }>({
+    isOpen: false,
+    name: '',
+    type: 'Expense',
+    parent_id: null,
+    lineId: null
+  });
+
+  // Edit journal entry modal state
+  const [editModal, setEditModal] = useState<{
+    isOpen: boolean;
+    transactionId: string | null;
+    entries: JournalTableEntry[];
+    editEntry: NewJournalEntry;
+  }>({
+    isOpen: false,
+    transactionId: null,
+    entries: [],
+    editEntry: {
+      date: '',
+      lines: []
+    }
+  });
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(50); // Fixed items per page
 
+  // Category dropdown options
+  const categoryOptions: SelectOption[] = [
+    { value: '', label: 'Select category...' },
+    { value: 'add_new', label: '+ Add new category' },
+    ...categories.map(c => ({ value: c.id, label: c.name })),
+  ];
+
   useEffect(() => {
-    fetchJournalEntries();
-    fetchAccounts();
-    fetchPayees();
-  }, [currentCompany?.id]);
+    if (hasCompanyContext) {
+      fetchJournalEntries(currentCompany!.id);
+      refreshCategories();
+      refreshPayees();
+      fetchAccounts(currentCompany!.id);
+    }
+  }, [currentCompany?.id, hasCompanyContext, refreshCategories, refreshPayees, fetchAccounts, fetchJournalEntries]);
 
   // Reset to first page when search term or date filters change
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, startDate, endDate]);
 
-  const fetchJournalEntries = async () => {
-    if (!hasCompanyContext) return;
-    
-    try {
-      setLoading(true);
-      setError(null);
-      const { data, error } = await supabase
-        .from('journal')
-        .select(`
-          *,
-          transactions!inner(payee_id)
-        `)
-        .eq('company_id', currentCompany?.id)
-        .order('date', { ascending: false });
-      if (error) throw error;
-      setEntries(data || []);
-    } catch {
-      setError('Failed to load journal entries');
-    } finally {
-      setLoading(false);
-    }
-  };
 
-  const fetchAccounts = async () => {
-    if (!hasCompanyContext) return;
-    
-    const { data, error } = await supabase
-      .from('chart_of_accounts')
-      .select('*')
-      .eq('company_id', currentCompany?.id)
-      .order('name');
-    if (!error) setAccounts(data || []);
-  };
-
-  const fetchPayees = async () => {
-    if (!hasCompanyContext) return;
-    
-    const { data, error } = await supabase
-      .from('payees')
-      .select('*')
-      .eq('company_id', currentCompany?.id)
-      .order('name');
-    if (!error) setPayees(data || []);
-  };
 
   const formatDate = (dateString: string) => {
     // Parse the date string and create a UTC date
@@ -147,17 +154,17 @@ export default function JournalTablePage() {
     return `${formattedMonth}-${formattedDay}-${date.getUTCFullYear()}`;
   };
 
-  const formatAmount = (amount: number) => {
+  const formatAmountLocal = (amount: number) => {
     return amount ? `$${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '';
   };
 
   function getAccountName(id: string) {
-    const account = accounts.find(a => a.id === id);
+    const account = categories.find((a: Category) => a.id === id);
     return account ? account.name : id;
   }
 
   function getAccountType(id: string) {
-    const account = accounts.find(a => a.id === id);
+    const account = categories.find((a: Category) => a.id === id);
     return account ? account.type || '' : '';
   }
 
@@ -167,7 +174,7 @@ export default function JournalTablePage() {
     return payee ? payee.name : '';
   }
 
-  const sortEntries = (entries: JournalEntry[], sortConfig: SortConfig) => {
+  const sortEntries = (entries: JournalTableEntry[], sortConfig: SortConfig) => {
     if (!sortConfig.key) return entries;
 
     return [...entries].sort((a, b) => {
@@ -196,15 +203,19 @@ export default function JournalTablePage() {
           : bPayee.localeCompare(aPayee);
       }
       if (sortConfig.key === 'debit') {
-        const aDebit = a.debit ?? 0;
-        const bDebit = b.debit ?? 0;
+        const aDebit = a.is_split_item && a.split_item_data?.spent ? 
+          parseFloat(a.split_item_data.spent) : (a.debit ?? 0);
+        const bDebit = b.is_split_item && b.split_item_data?.spent ? 
+          parseFloat(b.split_item_data.spent) : (b.debit ?? 0);
         return sortConfig.direction === 'asc'
           ? aDebit - bDebit
           : bDebit - aDebit;
       }
       if (sortConfig.key === 'credit') {
-        const aCredit = a.credit ?? 0;
-        const bCredit = b.credit ?? 0;
+        const aCredit = a.is_split_item && a.split_item_data?.received ? 
+          parseFloat(a.split_item_data.received) : (a.credit ?? 0);
+        const bCredit = b.is_split_item && b.split_item_data?.received ? 
+          parseFloat(b.split_item_data.received) : (b.credit ?? 0);
         return sortConfig.direction === 'asc'
           ? aCredit - bCredit
           : bCredit - aCredit;
@@ -216,6 +227,7 @@ export default function JournalTablePage() {
           ? aCategory.localeCompare(bCategory)
           : bCategory.localeCompare(aCategory);
       }
+
       return 0;
     });
   };
@@ -240,14 +252,14 @@ export default function JournalTablePage() {
     { key: 'date', label: 'Date', sortable: true },
     { key: 'description', label: 'Description', sortable: true },
     { key: 'type', label: 'Type', isCustom: true, sortable: true },
-    { key: 'payee', label: 'Payee', isCustom: true, sortable: true },
     { key: 'debit', label: 'Debit', sortable: true },
-    { key: 'credit', label: 'Credit', sortable: true }
+    { key: 'credit', label: 'Credit', sortable: true },
+    { key: 'payee', label: 'Payee', isCustom: true, sortable: true }
   ];
 
-  // Get all available columns from entries to include any additional fields
+  // Get all available columns from journalEntries to include any additional fields
   const availableColumns = Array.from(
-    entries.reduce((cols, entry) => {
+    journalEntries.reduce((cols, entry) => {
       Object.keys(entry).forEach((k) => cols.add(k));
       return cols;
     }, new Set<string>())
@@ -257,7 +269,10 @@ export default function JournalTablePage() {
     col !== 'company_id' && 
     col !== 'chart_account_id' && 
     col !== 'payee_id' && 
-    col !== 'transactions'
+    col !== 'transactions' &&
+    col !== 'is_split_item' &&
+    col !== 'split_item_data' &&
+    col !== 'split_data'
   );
 
   // Combine ordered columns with any additional columns not in our predefined list, then add category at the end
@@ -269,7 +284,7 @@ export default function JournalTablePage() {
     { key: 'category', label: 'Category', isCustom: true, sortable: true }
   ];
 
-  const filterEntries = (entries: JournalEntry[], searchTerm: string, startDate: string, endDate: string) => {
+  const filterEntries = (entries: JournalTableEntry[], searchTerm: string, startDate: string, endDate: string) => {
     let filteredEntries = entries;
 
     // Filter by date range
@@ -296,8 +311,11 @@ export default function JournalTablePage() {
       const formattedDate = formatDate(entry.date);
       if (formattedDate.toLowerCase().includes(lowercaseSearch)) return true;
       
-      // Search in description
-      if (entry.description.toLowerCase().includes(lowercaseSearch)) return true;
+      // Search in description (including split descriptions)
+      const description = entry.is_split_item && entry.split_item_data?.description 
+        ? entry.split_item_data.description 
+        : entry.description;
+      if (description.toLowerCase().includes(lowercaseSearch)) return true;
       
       // Search in type
       const accountType = getAccountType(entry.chart_account_id);
@@ -308,15 +326,21 @@ export default function JournalTablePage() {
       if (payeeName.toLowerCase().includes(lowercaseSearch)) return true;
       
       // Search in debit amount (formatted)
-      const debitAmount = formatAmount(entry.debit);
+      const debitAmount = entry.is_split_item && entry.split_item_data?.spent 
+        ? formatAmountLocal(parseFloat(entry.split_item_data.spent))
+        : formatAmountLocal(entry.debit);
       if (debitAmount.toLowerCase().includes(lowercaseSearch)) return true;
       
       // Search in credit amount (formatted)
-      const creditAmount = formatAmount(entry.credit);
+      const creditAmount = entry.is_split_item && entry.split_item_data?.received
+        ? formatAmountLocal(parseFloat(entry.split_item_data.received))
+        : formatAmountLocal(entry.credit);
       if (creditAmount.toLowerCase().includes(lowercaseSearch)) return true;
       
-      // Search in category name
-      const categoryName = getAccountName(entry.chart_account_id);
+      // Search in category name (including split categories)
+      const categoryName = entry.is_split_item && entry.split_item_data?.selected_category_id 
+        ? getAccountName(entry.split_item_data.selected_category_id)
+        : getAccountName(entry.chart_account_id);
       if (categoryName.toLowerCase().includes(lowercaseSearch)) return true;
       
       return false;
@@ -420,66 +444,281 @@ export default function JournalTablePage() {
   };
 
   // Filter entries based on search term and date range, then sort
-  const filteredEntries = filterEntries(entries, searchTerm, startDate, endDate);
+  const filteredEntries = filterEntries(journalEntries, searchTerm, startDate, endDate);
   const sortedAndFilteredEntries = sortEntries(filteredEntries, sortConfig);
   
   // Get paginated data
   const paginationData = getPaginatedData(sortedAndFilteredEntries, currentPage, itemsPerPage);
   const { paginatedData: displayedEntries, totalPages, totalItems } = paginationData;
 
+  const addJournalLine = () => {
+    const newLineId = (newEntry.lines.length + 1).toString();
+    setNewEntry(prev => ({
+      ...prev,
+      lines: [...prev.lines, {
+        id: newLineId,
+        description: '',
+        categoryId: '',
+        debit: '0.00',
+        credit: '0.00'
+      }]
+    }));
+  };
+
+  const removeJournalLine = (lineId: string) => {
+    if (newEntry.lines.length <= 2) return; // Minimum 2 lines
+    setNewEntry(prev => ({
+      ...prev,
+      lines: prev.lines.filter(line => line.id !== lineId)
+    }));
+  };
+
+  const updateJournalLine = (lineId: string, field: keyof JournalEntryLine, value: string) => {
+    setNewEntry(prev => ({
+      ...prev,
+      lines: prev.lines.map(line =>
+        line.id === lineId ? { ...line, [field]: value } : line
+      )
+    }));
+  };
+
+  const handleAmountChange = (lineId: string, field: 'debit' | 'credit', value: string) => {
+    const inputValue = value;
+    updateJournalLine(lineId, field, inputValue || '0.00');
+    
+    // Clear the opposite field when entering an amount
+    if (inputValue) {
+      const oppositeField = field === 'debit' ? 'credit' : 'debit';
+      updateJournalLine(lineId, oppositeField, '0.00');
+    }
+  };
+
+  const handleEditJournalEntry = (entry: JournalTableEntry) => {
+    // Group all entries by transaction_id to get the complete transaction
+    const transactionEntries = journalEntries.filter(e => 
+      e.transaction_id === entry.transaction_id && !e.is_split_item
+    );
+    
+    if (transactionEntries.length === 0) return;
+
+    // Convert the grouped entries back to the editable format
+    const editLines: JournalEntryLine[] = transactionEntries.map((entry, index) => ({
+      id: (index + 1).toString(),
+      description: entry.description,
+      categoryId: entry.chart_account_id,
+      debit: entry.debit > 0 ? entry.debit.toString() : '0.00',
+      credit: entry.credit > 0 ? entry.credit.toString() : '0.00'
+    }));
+
+    // If there are split items, we need to include them as separate lines
+    const firstEntry = transactionEntries[0];
+    if (firstEntry.transactions?.split_data?.splits) {
+      firstEntry.transactions.split_data.splits.forEach((split, index) => {
+        if (split.spent && parseFloat(split.spent) > 0) {
+          editLines.push({
+            id: `split-debit-${index}`,
+            description: split.description || '',
+            categoryId: split.selected_category_id || '',
+            debit: split.spent,
+            credit: '0.00'
+          });
+        }
+        if (split.received && parseFloat(split.received) > 0) {
+          editLines.push({
+            id: `split-credit-${index}`,
+            description: split.description || '',
+            categoryId: split.selected_category_id || '',
+            debit: '0.00',
+            credit: split.received
+          });
+        }
+      });
+    }
+
+    setEditModal({
+      isOpen: true,
+      transactionId: entry.transaction_id,
+      entries: transactionEntries,
+      editEntry: {
+        date: entry.date,
+        lines: editLines
+      }
+    });
+  };
+
+  const updateEditJournalLine = (lineId: string, field: keyof JournalEntryLine, value: string) => {
+    setEditModal(prev => ({
+      ...prev,
+      editEntry: {
+        ...prev.editEntry,
+        lines: prev.editEntry.lines.map(line =>
+          line.id === lineId ? { ...line, [field]: value } : line
+        )
+      }
+    }));
+  };
+
+  const handleEditAmountChange = (lineId: string, field: 'debit' | 'credit', value: string) => {
+    const inputValue = value;
+    updateEditJournalLine(lineId, field, inputValue || '0.00');
+    
+    // Clear the opposite field when entering an amount
+    if (inputValue) {
+      const oppositeField = field === 'debit' ? 'credit' : 'debit';
+      updateEditJournalLine(lineId, oppositeField, '0.00');
+    }
+  };
+
+  const addEditJournalLine = () => {
+    setEditModal(prev => ({
+      ...prev,
+      editEntry: {
+        ...prev.editEntry,
+        lines: [...prev.editEntry.lines, {
+          id: (prev.editEntry.lines.length + 1).toString(),
+          description: '',
+          categoryId: '',
+          debit: '0.00',
+          credit: '0.00'
+        }]
+      }
+    }));
+  };
+
+  const removeEditJournalLine = (lineId: string) => {
+    setEditModal(prev => ({
+      ...prev,
+      editEntry: {
+        ...prev.editEntry,
+        lines: prev.editEntry.lines.filter(line => line.id !== lineId)
+      }
+    }));
+  };
+
+  
+  
+  const handleCreateCategory = async () => {
+    if (!newCategoryModal.name.trim() || !hasCompanyContext) return;
+
+    const result = await createCategoryForTransaction({
+      name: newCategoryModal.name.trim(),
+      type: newCategoryModal.type,
+      parent_id: newCategoryModal.parent_id || undefined
+    });
+
+    if (result.success && result.categoryId) {
+      // Set the newly created category to the journal line
+      if (newCategoryModal.lineId) {
+        updateJournalLine(newCategoryModal.lineId, 'categoryId', result.categoryId);
+      }
+
+      setNewCategoryModal({ 
+        isOpen: false, 
+        name: '', 
+        type: 'Expense', 
+        parent_id: null, 
+        lineId: null 
+      });
+    } else {
+      console.error('Error creating category:', result.error);
+    }
+  };
+
   const handleAddEntry = async () => {
     if (!currentCompany?.id) return;
     
     // Validation
-    const amount = parseFloat(newEntry.amount || '0');
-    
-    if (!newEntry.date || !newEntry.description) {
-      alert('Please fill in date and description');
+    if (!newEntry.date) {
+      alert('Please select a date');
       return;
     }
     
-    if (amount === 0) {
-      alert('Please enter a non-zero amount');
+    if (!selectedAccountId) {
+      alert('Please select an account');
       return;
     }
-
-    if (!newEntry.categoryId) {
-      alert('Please select a category');
+    
+    // Calculate totals using financial utilities
+    const totalDebits = newEntry.lines.reduce((sum, line) => 
+      addAmounts(sum, line.debit || '0.00'), toFinancialAmount('0.00'));
+    const totalCredits = newEntry.lines.reduce((sum, line) => 
+      addAmounts(sum, line.credit || '0.00'), toFinancialAmount('0.00'));
+    
+    // Validate that we have at least one debit and one credit
+    const hasDebit = newEntry.lines.some(line => line.debit && !isZeroAmount(line.debit));
+    const hasCredit = newEntry.lines.some(line => line.credit && !isZeroAmount(line.credit));
+    
+    if (!hasDebit || !hasCredit) {
+      alert('Please enter both debit and credit amounts');
       return;
+    }
+    
+    if (!isZeroAmount(subtractAmounts(totalDebits, totalCredits))) {
+      alert('Debits and credits must be equal');
+      return;
+    }
+    
+    // Validate that each line has required fields
+    for (const line of newEntry.lines) {
+      const hasAmount = (line.debit && !isZeroAmount(line.debit)) || (line.credit && !isZeroAmount(line.credit));
+      if (hasAmount && !line.categoryId) {
+        alert('Please select a category for all lines with amounts');
+        return;
+      }
+      if (hasAmount && !line.description.trim()) {
+        alert('Please enter a description for all lines with amounts');
+        return;
+      }
     }
 
     try {
       setSaving(true);
       
-      // Create journal entry (no transaction_id needed for manual entries)
-      const journalEntry = {
+      // Create journal entries for each line
+      const entries = newEntry.lines.filter(line => 
+        (line.debit && !isZeroAmount(line.debit)) || (line.credit && !isZeroAmount(line.credit))
+      ).map(line => ({
+        account_id: line.categoryId,
+        amount: (line.debit && !isZeroAmount(line.debit)) ? parseAmount(line.debit).toNumber() : parseAmount(line.credit || '0.00').toNumber(),
+        type: (line.debit && !isZeroAmount(line.debit)) ? 'debit' as const : 'credit' as const
+      }));
+
+      const entryData = {
         date: newEntry.date,
-        description: newEntry.description,
-        debit: newEntry.type === 'debit' ? amount : 0,
-        credit: newEntry.type === 'credit' ? amount : 0,
-        transaction_id: null, // Set to null for manual journal entries
-        chart_account_id: newEntry.categoryId,
-        company_id: currentCompany.id
+        description: newEntry.lines[0]?.description || 'Journal Entry',
+        entries
       };
 
-      const { error } = await supabase
-        .from('journal')
-        .insert([journalEntry]);
+      const success = await saveJournalEntry(entryData, currentCompany.id);
 
-      if (error) throw error;
+      if (!success) {
+        throw new Error('Failed to save journal entry');
+      }
 
       // Reset form and close modal
       setNewEntry({
         date: new Date().toISOString().split('T')[0],
-        description: '',
-        amount: '',
-        type: 'debit',
-        categoryId: ''
+        lines: [
+          {
+            id: '1',
+            description: '',
+            categoryId: '',
+            debit: '0.00',
+            credit: '0.00'
+          },
+          {
+            id: '2',
+            description: '',
+            categoryId: '',
+            debit: '0.00',
+            credit: '0.00'
+          }
+        ]
       });
       setShowAddModal(false);
       
       // Refresh the entries
-      await fetchJournalEntries();
+      await fetchJournalEntries(currentCompany.id);
       
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
@@ -505,11 +744,11 @@ export default function JournalTablePage() {
 
   return (
     <div className="p-4">
-      {loading ? (
+      {isLoading ? (
         <div>Loading...</div>
       ) : error ? (
         <div className="text-red-600">{error}</div>
-      ) : !entries.length ? (
+      ) : !journalEntries.length ? (
         <div>No journal entries found.</div>
       ) : (
         <div className="space-y-4">
@@ -569,21 +808,47 @@ export default function JournalTablePage() {
               </thead>
               <tbody>
                 {displayedEntries.map((entry) => (
-                  <tr key={String(entry.id)} className="hover:bg-gray-50">
+                  <tr 
+                    key={String(entry.id)} 
+                    className={`hover:bg-gray-50 cursor-pointer ${entry.is_split_item ? 'bg-blue-50' : ''}`}
+                    onClick={() => handleEditJournalEntry(entry)}
+                  >
                     {finalColumns.map((col) => (
                       <td key={col.key} className="border p-2 text-center text-xs whitespace-nowrap">
                         {col.key === 'date' ? (
                           formatDate(entry.date)
+                        ) : col.key === 'description' ? (
+                          <div className="flex items-center gap-1">
+                            <span>
+                              {entry.description}
+                            </span>
+                          </div>
                         ) : col.key === 'debit' ? (
-                          formatAmount(entry.debit)
+                          (() => {
+                            // For split items, show the split amount, otherwise show regular debit
+                            if (entry.is_split_item && entry.split_item_data?.spent) {
+                              return formatAmountLocal(parseFloat(entry.split_item_data.spent));
+                            }
+                            return formatAmountLocal(entry.debit);
+                          })()
                         ) : col.key === 'credit' ? (
-                          formatAmount(entry.credit)
+                          (() => {
+                            // For split items, show the split amount, otherwise show regular credit
+                            if (entry.is_split_item && entry.split_item_data?.received) {
+                              return formatAmountLocal(parseFloat(entry.split_item_data.received));
+                            }
+                            return formatAmountLocal(entry.credit);
+                          })()
                         ) : col.key === 'type' ? (
                           getAccountType(entry.chart_account_id)
                         ) : col.key === 'payee' ? (
                           getPayeeName(entry.transactions?.payee_id || '')
+
                         ) : col.key === 'category' ? (
-                          getAccountName(entry.chart_account_id)
+                          // For split items, show the split category if available, otherwise show chart account
+                          entry.is_split_item && entry.split_item_data?.selected_category_id 
+                            ? getAccountName(entry.split_item_data.selected_category_id)
+                            : getAccountName(entry.chart_account_id)
                         ) : (
                           String(entry[col.key] ?? '')
                         )}
@@ -618,7 +883,7 @@ export default function JournalTablePage() {
           onClick={() => setShowAddModal(false)}
         >
           <div 
-            className="bg-white rounded-lg p-6 w-[600px] overflow-y-auto shadow-xl"
+            className="bg-white rounded-lg p-6 w-[800px] overflow-y-auto shadow-xl"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex justify-between items-center mb-4">
@@ -631,80 +896,421 @@ export default function JournalTablePage() {
               </button>
             </div>
             
-            <div className="grid grid-cols-4 gap-2">
+            {/* Date and Account selectors */}
+            <div className="mb-4 grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Date</label>
                 <input
                   type="date"
                   value={newEntry.date}
                   onChange={(e) => setNewEntry(prev => ({ ...prev, date: e.target.value }))}
-                  className="w-full border px-2 py-1 rounded text-xs"
+                  className="border px-3 py-2 rounded text-sm w-full"
                   required
                 />
               </div>
-              
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                <input
-                  type="text"
-                  value={newEntry.description}
-                  onChange={(e) => setNewEntry(prev => ({ ...prev, description: e.target.value }))}
-                  className="w-full border px-2 py-1 rounded text-xs"
-                  placeholder="Enter description"
-                  required
+                <label className="block text-sm font-medium text-gray-700 mb-2">Account</label>
+                <Select
+                  options={[
+                    { value: '', label: 'Select account...' },
+                    ...accounts.map(account => ({
+                      value: account.plaid_account_id || '',
+                      label: account.name
+                    }))
+                  ]}
+                  value={accounts.find(acc => acc.plaid_account_id === selectedAccountId) ? 
+                    { value: selectedAccountId || '', label: accounts.find(acc => acc.plaid_account_id === selectedAccountId)?.name || '' } :
+                    { value: '', label: 'Select account...' }
+                  }
+                  onChange={(selectedOption) => {
+                    const option = selectedOption as SelectOption | null;
+                    setSelectedAccountId(option?.value === '' ? null : option?.value || null);
+                  }}
+                  isSearchable
+                  className="text-sm"
                 />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Amount</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={newEntry.amount}
-                  onChange={(e) => setNewEntry(prev => ({ ...prev, amount: e.target.value }))}
-                  className="w-full border px-2 py-1 rounded text-xs"
-                  placeholder="0.00"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
-                <select
-                  value={newEntry.type}
-                  onChange={(e) => setNewEntry(prev => ({ ...prev, type: e.target.value as 'debit' | 'credit' }))}
-                  className="w-full border px-2 py-1 rounded text-xs"
-                >
-                  <option value="debit">Debit</option>
-                  <option value="credit">Credit</option>
-                </select>
               </div>
             </div>
             
-            <div className="mt-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
-                <select
-                  value={newEntry.categoryId}
-                  onChange={(e) => setNewEntry(prev => ({ ...prev, categoryId: e.target.value }))}
-                  className="w-full border px-2 py-1 rounded text-xs"
-                >
-                  <option value="">Select category...</option>
-                  {accounts.map(account => (
-                    <option key={account.id} value={account.id}>
-                      {account.name} ({account.type})
-                    </option>
+            {/* Journal Entry Table */}
+            <div className="border rounded-lg overflow-hidden">
+              <table className="w-full border-collapse">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="border px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+                    <th className="border px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
+                    <th className="border px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Debit</th>
+                    <th className="border px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Credit</th>
+                    <th className="border px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-12">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white">
+                  {newEntry.lines.map((line) => (
+                    <tr key={line.id}>
+                      <td className="border px-4 py-2">
+                        <input
+                          type="text"
+                          value={line.description}
+                          onChange={(e) => updateJournalLine(line.id, 'description', e.target.value)}
+                          className="w-full border-0 px-0 py-0 text-xs focus:ring-0 focus:outline-none"
+                          placeholder="Enter description"
+                        />
+                      </td>
+                      <td className="border px-4 py-2">
+                        <Select
+                          options={categoryOptions}
+                          value={categoryOptions.find(opt => opt.value === line.categoryId) || categoryOptions[0]}
+                          onChange={(selectedOption) => {
+                            const option = selectedOption as SelectOption | null;
+                            if (option?.value === 'add_new') {
+                              setNewCategoryModal({
+                                isOpen: true,
+                                name: '',
+                                type: 'Expense',
+                                parent_id: null,
+                                lineId: line.id
+                              });
+                            } else {
+                              updateJournalLine(line.id, 'categoryId', option?.value || '');
+                            }
+                          }}
+                          isSearchable
+                          menuPortalTarget={document.body}
+                          styles={{
+                            control: (base) => ({
+                              ...base,
+                              border: 'none',
+                              boxShadow: 'none',
+                              minHeight: 'auto',
+                              fontSize: '12px',
+                              '&:hover': {
+                                border: 'none'
+                              }
+                            }),
+                            menu: (base) => ({ 
+                              ...base, 
+                              zIndex: 9999,
+                              fontSize: '12px'
+                            }),
+                            menuPortal: (base) => ({ 
+                              ...base, 
+                              zIndex: 9999 
+                            })
+                          }}
+                        />
+                      </td>
+                      <td className="border px-4 py-2">
+                        <input
+                          type="text"
+                          value={(() => {
+                            const debit = line.debit;
+                            return (debit && !isZeroAmount(debit)) ? debit : '';
+                          })()}
+                          onChange={(e) => handleAmountChange(line.id, 'debit', e.target.value)}
+                          className="w-full border-0 px-0 py-0 text-xs text-right focus:ring-0 focus:outline-none"
+                          placeholder="0.00"
+                        />
+                      </td>
+                      <td className="border px-4 py-2">
+                        <input
+                          type="text"
+                          value={(() => {
+                            const credit = line.credit;
+                            return (credit && !isZeroAmount(credit)) ? credit : '';
+                          })()}
+                          onChange={(e) => handleAmountChange(line.id, 'credit', e.target.value)}
+                          className="w-full border-0 px-0 py-0 text-xs text-right focus:ring-0 focus:outline-none"
+                          placeholder="0.00"
+                        />
+                      </td>
+                      <td className="border px-4 py-2 text-center">
+                        {newEntry.lines.length > 2 && (
+                          <button
+                            onClick={() => removeJournalLine(line.id)}
+                            className="text-red-500 hover:text-red-700 text-xs"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
                   ))}
-                </select>
-              </div>
+                </tbody>
+              </table>
             </div>
             
-            <div className="flex justify-end mt-6">
+            <div className="flex justify-between items-center mt-4">
+              <button
+                onClick={addJournalLine}
+                className="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded border"
+              >
+                Add lines
+              </button>
+              
               <button
                 onClick={handleAddEntry}
                 disabled={saving}
                 className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800 disabled:opacity-50"
               >
-                {saving ? 'Adding...' : 'Add Entry'}
+                {saving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* New Category Modal */}
+      {newCategoryModal.isOpen && (
+        <div 
+          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
+          onClick={() => setNewCategoryModal({ isOpen: false, name: '', type: 'Expense', parent_id: null, lineId: null })}
+        >
+          <div 
+            className="bg-white rounded-lg p-6 w-[400px] overflow-y-auto shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold">Add New Category</h2>
+              <button
+                onClick={() => setNewCategoryModal({ isOpen: false, name: '', type: 'Expense', parent_id: null, lineId: null })}
+                className="text-gray-500 hover:text-gray-700 text-xl"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Category Name
+                </label>
+                <input
+                  type="text"
+                  value={newCategoryModal.name}
+                  onChange={(e) => setNewCategoryModal(prev => ({
+                    ...prev,
+                    name: e.target.value
+                  }))}
+                  className="w-full border px-2 py-1 rounded"
+                  placeholder="Enter category name"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Type
+                </label>
+                <select
+                  value={newCategoryModal.type}
+                  onChange={(e) => setNewCategoryModal(prev => ({
+                    ...prev,
+                    type: e.target.value
+                  }))}
+                  className="w-full border px-2 py-1 rounded"
+                >
+                  <option value="Expense">Expense</option>
+                  <option value="Revenue">Revenue</option>
+                  <option value="Asset">Asset</option>
+                  <option value="Liability">Liability</option>
+                  <option value="Equity">Equity</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Parent Account (Optional)
+                </label>
+                <Select
+                  options={[
+                    { value: '', label: 'None' },
+                    ...categories
+                      .filter(c => c.type === newCategoryModal.type)
+                      .map(c => ({ value: c.id, label: c.name }))
+                  ]}
+                  value={newCategoryModal.parent_id ? 
+                    { value: newCategoryModal.parent_id, label: categories.find(c => c.id === newCategoryModal.parent_id)?.name || '' } :
+                    { value: '', label: 'None' }
+                  }
+                  onChange={(selectedOption) => {
+                    const option = selectedOption as SelectOption | null;
+                    setNewCategoryModal(prev => ({
+                      ...prev,
+                      parent_id: option?.value || null
+                    }));
+                  }}
+                  isSearchable
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end mt-6">
+              <button
+                onClick={handleCreateCategory}
+                className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
+              >
+                Create
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Journal Entry Modal */}
+      {editModal.isOpen && (
+        <div 
+          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
+          onClick={() => setEditModal({ isOpen: false, transactionId: null, entries: [], editEntry: { date: '', lines: [] } })}
+        >
+          <div 
+            className="bg-white rounded-lg p-6 w-[800px] overflow-y-auto shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold">Edit Journal Entry</h2>
+              <button
+                onClick={() => setEditModal({ isOpen: false, transactionId: null, entries: [], editEntry: { date: '', lines: [] } })}
+                className="text-gray-500 hover:text-gray-700 text-xl"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            
+            {/* Date selector */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Date</label>
+              <input
+                type="date"
+                value={editModal.editEntry.date}
+                onChange={(e) => setEditModal(prev => ({ 
+                  ...prev, 
+                  editEntry: { ...prev.editEntry, date: e.target.value } 
+                }))}
+                className="border px-3 py-2 rounded text-sm"
+                required
+              />
+            </div>
+            
+            {/* Journal Entry Table */}
+            <div className="border rounded-lg overflow-hidden">
+              <table className="w-full border-collapse">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="border px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+                    <th className="border px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
+                    <th className="border px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Debit</th>
+                    <th className="border px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Credit</th>
+                    <th className="border px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-12">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white">
+                  {editModal.editEntry.lines.map((line) => (
+                    <tr key={line.id}>
+                      <td className="border px-4 py-2">
+                        <input
+                          type="text"
+                          value={line.description}
+                          onChange={(e) => updateEditJournalLine(line.id, 'description', e.target.value)}
+                          className="w-full border-0 px-0 py-0 text-xs focus:ring-0 focus:outline-none"
+                          placeholder="Enter description"
+                        />
+                      </td>
+                      <td className="border px-4 py-2">
+                        <Select
+                          options={categoryOptions}
+                          value={categoryOptions.find(opt => opt.value === line.categoryId) || categoryOptions[0]}
+                          onChange={(selectedOption) => {
+                            const option = selectedOption as SelectOption | null;
+                            if (option?.value === 'add_new') {
+                              setNewCategoryModal({
+                                isOpen: true,
+                                name: '',
+                                type: 'Expense',
+                                parent_id: null,
+                                lineId: line.id
+                              });
+                            } else {
+                              updateEditJournalLine(line.id, 'categoryId', option?.value || '');
+                            }
+                          }}
+                          isSearchable
+                          menuPortalTarget={document.body}
+                          styles={{
+                            control: (base) => ({
+                              ...base,
+                              border: 'none',
+                              boxShadow: 'none',
+                              minHeight: 'auto',
+                              fontSize: '12px',
+                              '&:hover': {
+                                border: 'none'
+                              }
+                            }),
+                            menu: (base) => ({ 
+                              ...base, 
+                              zIndex: 9999,
+                              fontSize: '12px'
+                            }),
+                            menuPortal: (base) => ({ 
+                              ...base, 
+                              zIndex: 9999 
+                            })
+                          }}
+                        />
+                      </td>
+                      <td className="border px-4 py-2">
+                        <input
+                          type="text"
+                          value={(() => {
+                            const debit = line.debit;
+                            return (debit && !isZeroAmount(debit)) ? debit : '';
+                          })()}
+                          onChange={(e) => handleEditAmountChange(line.id, 'debit', e.target.value)}
+                          className="w-full border-0 px-0 py-0 text-xs text-right focus:ring-0 focus:outline-none"
+                          placeholder="0.00"
+                        />
+                      </td>
+                      <td className="border px-4 py-2">
+                        <input
+                          type="text"
+                          value={(() => {
+                            const credit = line.credit;
+                            return (credit && !isZeroAmount(credit)) ? credit : '';
+                          })()}
+                          onChange={(e) => handleEditAmountChange(line.id, 'credit', e.target.value)}
+                          className="w-full border-0 px-0 py-0 text-xs text-right focus:ring-0 focus:outline-none"
+                          placeholder="0.00"
+                        />
+                      </td>
+                      <td className="border px-4 py-2 text-center">
+                        {editModal.editEntry.lines.length > 2 && (
+                          <button
+                            onClick={() => removeEditJournalLine(line.id)}
+                            className="text-red-500 hover:text-red-700 text-xs"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            
+            <div className="flex justify-between items-center mt-4">
+              <button
+                onClick={addEditJournalLine}
+                className="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded border"
+              >
+                Add lines
+              </button>
+              
+              <button
+                onClick={() => {/* TODO: Handle update */}}
+                disabled={saving}
+                className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800 disabled:opacity-50"
+              >
+                {saving ? 'Updating...' : 'Update'}
               </button>
             </div>
           </div>
