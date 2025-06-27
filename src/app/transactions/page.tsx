@@ -456,6 +456,29 @@ export default function TransactionsPage() {
     entry: null
   });
 
+  // Add journal entry view/edit modal state
+  const [journalEntryViewModal, setJournalEntryViewModal] = useState<{
+    isOpen: boolean;
+    transaction: Transaction | null;
+    journalEntries: {
+      id: string;
+      date: string;
+      description: string;
+      debit: number;
+      credit: number;
+      chart_account_id: string;
+      chart_account_name: string;
+    }[];
+    isLoading: boolean;
+    error: string | null;
+  }>({
+    isOpen: false,
+    transaction: null,
+    journalEntries: [],
+    isLoading: false,
+    error: null
+  });
+
   // Add state for past journal entries search
   const [pastJournalEntriesSearch, setPastJournalEntriesSearch] = useState('');
 
@@ -1885,6 +1908,101 @@ export default function TransactionsPage() {
       setCategoryInputValues(prev => ({
         ...prev,
         [txId]: ''
+      }));
+    }
+  };
+
+  // Function to fetch journal entries for a transaction
+  const fetchJournalEntriesForTransaction = async (transaction: Transaction) => {
+    if (!hasCompanyContext) return;
+
+    setJournalEntryViewModal(prev => ({ ...prev, isLoading: true, error: null }));
+
+    try {
+      const response = await api.get(`/api/journal/entries?transaction_id=${transaction.id}`);
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch journal entries');
+      }
+
+      const data = await response.json();
+      
+      // Map the journal entries to include account names
+      const journalEntriesWithNames = data.entries.map((entry: any) => {
+        const category = categories.find(c => c.id === entry.chart_account_id);
+        return {
+          ...entry,
+          chart_account_name: category ? category.name : 'Unknown Account'
+        };
+      });
+
+      setJournalEntryViewModal(prev => ({
+        ...prev,
+        transaction,
+        journalEntries: journalEntriesWithNames,
+        isLoading: false
+      }));
+    } catch (error) {
+      console.error('Error fetching journal entries:', error);
+      setJournalEntryViewModal(prev => ({
+        ...prev,
+        error: 'Failed to fetch journal entries',
+        isLoading: false
+      }));
+    }
+  };
+
+  // Function to open journal entry modal
+  const openJournalEntryModal = (transaction: Transaction) => {
+    setJournalEntryViewModal(prev => ({
+      ...prev,
+      isOpen: true,
+      transaction,
+      journalEntries: [],
+      isLoading: false,
+      error: null
+    }));
+    fetchJournalEntriesForTransaction(transaction);
+  };
+
+  // Function to save journal entry changes
+  const saveJournalEntryChanges = async () => {
+    if (!journalEntryViewModal.transaction || !hasCompanyContext) return;
+
+    setJournalEntryViewModal(prev => ({ ...prev, isLoading: true, error: null }));
+
+    try {
+      // Convert journal entries back to the format expected by the update API
+      const entries = journalEntryViewModal.journalEntries.map(entry => ({
+        account_id: entry.chart_account_id,
+        amount: entry.debit > 0 ? entry.debit : entry.credit,
+        type: entry.debit > 0 ? 'debit' as const : 'credit' as const
+      }));
+
+      const response = await api.put('/api/journal/update', {
+        id: journalEntryViewModal.transaction.id, // Use the transaction id, not the journal entry id
+        date: journalEntryViewModal.transaction.date,
+        description: journalEntryViewModal.transaction.description,
+        transactions: entries
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update journal entries');
+      }
+
+      // Refresh the journal entries
+      await fetchJournalEntriesForTransaction(journalEntryViewModal.transaction);
+      
+      // Refresh all data
+      await refreshAll(currentCompany!.id);
+      
+      setNotification({ type: 'success', message: 'Journal entries updated successfully!' });
+    } catch (error) {
+      console.error('Error updating journal entries:', error);
+      setJournalEntryViewModal(prev => ({
+        ...prev,
+        error: 'Failed to update journal entries',
+        isLoading: false
       }));
     }
   };
@@ -3706,21 +3824,29 @@ export default function TransactionsPage() {
                       </td>
                       <td className="border p-1 w-8 text-center cursor-pointer" style={{ minWidth: 150 }}>{category ? category.name : 'Uncategorized'}</td>
                       <td className="border p-1 w-8 text-center">
-                        <button
-                          onClick={e => { e.stopPropagation(); undoTransaction(tx); }}
-                          className={`border px-2 py-1 rounded w-14 flex items-center justify-center mx-auto ${
-                            processingTransactions.has(tx.id) 
-                              ? 'bg-gray-50 text-gray-400 cursor-not-allowed' 
-                              : 'bg-gray-100 hover:bg-gray-200'
-                          }`}
-                          disabled={processingTransactions.has(tx.id)}
-                        >
-                          {processingTransactions.has(tx.id) ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            'Undo'
-                          )}
-                        </button>
+                        <div className="flex flex-col gap-1">
+                          <button
+                            onClick={e => { e.stopPropagation(); openJournalEntryModal(tx); }}
+                            className="border px-2 py-1 rounded w-16 flex items-center justify-center mx-auto bg-blue-100 hover:bg-blue-200 text-xs"
+                          >
+                            Journal
+                          </button>
+                          <button
+                            onClick={e => { e.stopPropagation(); undoTransaction(tx); }}
+                            className={`border px-2 py-1 rounded w-16 flex items-center justify-center mx-auto text-xs ${
+                              processingTransactions.has(tx.id) 
+                                ? 'bg-gray-50 text-gray-400 cursor-not-allowed' 
+                                : 'bg-gray-100 hover:bg-gray-200'
+                            }`}
+                            disabled={processingTransactions.has(tx.id)}
+                          >
+                            {processingTransactions.has(tx.id) ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              'Undo'
+                            )}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -3881,6 +4007,162 @@ export default function TransactionsPage() {
                   Please wait while we link your accounts and import transactions...
                 </p>
               </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Journal Entry View Modal */}
+      {journalEntryViewModal.isOpen && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-[800px] max-h-[90vh] overflow-y-auto shadow-xl">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold">Journal Entries</h2>
+              <button
+                onClick={() => setJournalEntryViewModal(prev => ({ ...prev, isOpen: false }))}
+                className="text-gray-500 hover:text-gray-700 text-xl"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {journalEntryViewModal.transaction && (
+              <div className="mb-4 p-3 bg-gray-50 rounded">
+                <h3 className="font-medium text-sm mb-2">Transaction Details</h3>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-gray-600">Date:</span> {formatDate(journalEntryViewModal.transaction.date)}
+                  </div>
+                  <div>
+                    <span className="text-gray-600">Description:</span> {journalEntryViewModal.transaction.description}
+                  </div>
+                  <div>
+                    <span className="text-gray-600">Spent:</span> {journalEntryViewModal.transaction.spent ? formatAmount(journalEntryViewModal.transaction.spent) : '-'}
+                  </div>
+                  <div>
+                    <span className="text-gray-600">Received:</span> {journalEntryViewModal.transaction.received ? formatAmount(journalEntryViewModal.transaction.received) : '-'}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {journalEntryViewModal.error && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-red-700">
+                {journalEntryViewModal.error}
+              </div>
+            )}
+
+            {journalEntryViewModal.isLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin" />
+                <span className="ml-2">Loading journal entries...</span>
+              </div>
+            ) : (
+              <>
+                <div className="mb-4">
+                  <h3 className="font-medium text-sm mb-2">Journal Entries</h3>
+                  <div className="border rounded-lg overflow-hidden">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Account</th>
+                          <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Debit</th>
+                          <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Credit</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {journalEntryViewModal.journalEntries.map((entry, index) => (
+                          <tr key={entry.id} className="hover:bg-gray-50">
+                            <td className="px-4 py-2 text-sm">
+                              <select
+                                value={entry.chart_account_id}
+                                onChange={(e) => {
+                                  const newEntries = [...journalEntryViewModal.journalEntries];
+                                  newEntries[index].chart_account_id = e.target.value;
+                                  const category = categories.find(c => c.id === e.target.value);
+                                  newEntries[index].chart_account_name = category ? category.name : 'Unknown Account';
+                                  setJournalEntryViewModal(prev => ({ ...prev, journalEntries: newEntries }));
+                                }}
+                                className="w-full border px-2 py-1 rounded text-sm"
+                              >
+                                {categories.map(category => (
+                                  <option key={category.id} value={category.id}>
+                                    {category.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
+                            <td className="px-4 py-2 text-sm text-right">
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={entry.debit || ''}
+                                onChange={(e) => {
+                                  const newEntries = [...journalEntryViewModal.journalEntries];
+                                  newEntries[index].debit = parseFloat(e.target.value) || 0;
+                                  newEntries[index].credit = 0; // Clear credit when debit is entered
+                                  setJournalEntryViewModal(prev => ({ ...prev, journalEntries: newEntries }));
+                                }}
+                                className="w-full border px-2 py-1 rounded text-sm text-right"
+                                placeholder="0.00"
+                              />
+                            </td>
+                            <td className="px-4 py-2 text-sm text-right">
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={entry.credit || ''}
+                                onChange={(e) => {
+                                  const newEntries = [...journalEntryViewModal.journalEntries];
+                                  newEntries[index].credit = parseFloat(e.target.value) || 0;
+                                  newEntries[index].debit = 0; // Clear debit when credit is entered
+                                  setJournalEntryViewModal(prev => ({ ...prev, journalEntries: newEntries }));
+                                }}
+                                className="w-full border px-2 py-1 rounded text-sm text-right"
+                                placeholder="0.00"
+                              />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot className="bg-gray-50">
+                        <tr>
+                          <td className="px-4 py-2 text-sm font-medium">Total</td>
+                          <td className="px-4 py-2 text-sm font-medium text-right">
+                            {journalEntryViewModal.journalEntries.reduce((sum, entry) => sum + (entry.debit || 0), 0).toFixed(2)}
+                          </td>
+                          <td className="px-4 py-2 text-sm font-medium text-right">
+                            {journalEntryViewModal.journalEntries.reduce((sum, entry) => sum + (entry.credit || 0), 0).toFixed(2)}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="flex justify-end space-x-3">
+                  <button
+                    onClick={() => setJournalEntryViewModal(prev => ({ ...prev, isOpen: false }))}
+                    className="px-4 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={saveJournalEntryChanges}
+                    disabled={journalEntryViewModal.isLoading}
+                    className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {journalEntryViewModal.isLoading ? (
+                      <div className="flex items-center space-x-1">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        <span>Saving...</span>
+                      </div>
+                    ) : (
+                      'Save Changes'
+                    )}
+                  </button>
+                </div>
+              </>
             )}
           </div>
         </div>

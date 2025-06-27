@@ -11,15 +11,23 @@ export async function GET(request: NextRequest) {
     }
 
     const { companyId } = context;
+    const { searchParams } = new URL(request.url);
+    const transactionId = searchParams.get('transaction_id');
 
-    // Fetch journal entries with transaction data including split_data
-    const { data: journalEntries, error } = await supabase
+    let query = supabase
       .from('journal')
       .select(`
         *,
         transactions!inner(payee_id, split_data)
       `)
-      .eq('company_id', companyId)
+      .eq('company_id', companyId);
+
+    // If transaction_id is provided, filter by it
+    if (transactionId) {
+      query = query.eq('transaction_id', transactionId);
+    }
+
+    const { data: journalEntries, error } = await query
       .order('date', { ascending: false });
         
     if (error) {
