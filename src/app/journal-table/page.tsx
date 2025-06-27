@@ -470,6 +470,8 @@ export default function JournalTablePage() {
     }
   };
 
+
+
   const handleCreateCategory = async () => {
     if (!newCategoryModal.name.trim() || !hasCompanyContext) return;
 
@@ -511,6 +513,12 @@ export default function JournalTablePage() {
       return;
     }
     
+    // Calculate totals using financial utilities
+    const totalDebits = newEntry.lines.reduce((sum, line) => 
+      addAmounts(sum, line.debit || '0.00'), toFinancialAmount('0.00'));
+    const totalCredits = newEntry.lines.reduce((sum, line) => 
+      addAmounts(sum, line.credit || '0.00'), toFinancialAmount('0.00'));
+    
     // Validate that we have at least one debit and one credit
     const hasDebit = newEntry.lines.some(line => line.debit && !isZeroAmount(line.debit));
     const hasCredit = newEntry.lines.some(line => line.credit && !isZeroAmount(line.credit));
@@ -519,12 +527,6 @@ export default function JournalTablePage() {
       alert('Please enter both debit and credit amounts');
       return;
     }
-    
-    // Calculate totals using financial utilities
-    const totalDebits = newEntry.lines.reduce((sum, line) => 
-      addAmounts(sum, line.debit || '0.00'), toFinancialAmount('0.00'));
-    const totalCredits = newEntry.lines.reduce((sum, line) => 
-      addAmounts(sum, line.credit || '0.00'), toFinancialAmount('0.00'));
     
     if (!isZeroAmount(subtractAmounts(totalDebits, totalCredits))) {
       alert('Debits and credits must be equal');
