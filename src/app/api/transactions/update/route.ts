@@ -169,7 +169,6 @@ export async function POST(request: NextRequest) {
       }
 
       const splitData = {
-        originalDescription: description,
         splits: splits.map((split: SplitItem) => ({
           id: split.id,
           date: split.date,
@@ -184,14 +183,13 @@ export async function POST(request: NextRequest) {
       // Update the transaction with split information
       const updateData: Record<string, unknown> = {
         date,
-        description: `${description} (Split Transaction)`,
+        description: description,
         spent: toFinancialAmount(spent || '0.00'),
         received: toFinancialAmount(received || '0.00'),
         payee_id: payeeId || null,
         selected_category_id: selectedCategoryId,
-        // Store split data in a JSON field (we'll need to add this to schema later)
-        // For now, append split info to description
-        split_data: JSON.stringify(splitData)
+        // Store split data as JSONB object
+        split_data: splitData
       };
 
       // Add category fields based on which table we're updating
@@ -220,7 +218,8 @@ export async function POST(request: NextRequest) {
         spent: toFinancialAmount(spent || '0.00'),
         received: toFinancialAmount(received || '0.00'),
         payee_id: payeeId || null,
-        selected_category_id: selectedCategoryId
+        selected_category_id: selectedCategoryId,
+        split_data: null // Clear any existing split data
       }
 
       // Add category fields based on which table we're updating

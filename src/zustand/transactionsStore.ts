@@ -85,6 +85,7 @@ export interface Transaction {
   received?: FinancialAmount;
   payee_id?: string;
   company_id?: string;
+  split_data?: SplitData;
 }
 
 export interface BulkTransactionRequest {
@@ -116,6 +117,18 @@ export interface JournalEntry {
   date: string;
   description: string;
   transactions: JournalTransaction[];
+}
+
+export interface SplitData {
+  splits: {
+    id?: string;
+    date?: string;
+    description?: string;
+    spent?: string;
+    received?: string;
+    payee_id?: string;
+    selected_category_id?: string;
+  }[];
 }
 
 export interface SplitItem {
@@ -277,7 +290,7 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
     try {
       const { data } = await supabase
         .from('imported_transactions')
-        .select('id, date, description, spent, received, plaid_account_id, plaid_account_name, selected_category_id, payee_id, company_id')
+        .select('id, date, description, spent, received, plaid_account_id, plaid_account_name, selected_category_id, payee_id, company_id, split_data')
         .eq('company_id', companyId)
         .neq('plaid_account_name', null);
       
@@ -293,7 +306,7 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
     try {
       const { data } = await supabase
         .from('transactions')
-        .select('id, date, description, spent, received, plaid_account_id, plaid_account_name, selected_category_id, corresponding_category_id, payee_id, company_id')
+        .select('id, date, description, spent, received, plaid_account_id, plaid_account_name, selected_category_id, corresponding_category_id, payee_id, company_id, split_data')
         .eq('company_id', companyId)
         .neq('plaid_account_name', null);
       

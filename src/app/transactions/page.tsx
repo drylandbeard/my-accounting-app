@@ -8,7 +8,7 @@ import Papa from 'papaparse'
 import { v4 as uuidv4 } from 'uuid'
 import { X, Loader2 } from 'lucide-react'
 import { useAuthStore } from '@/zustand/authStore'
-import { useTransactionsStore } from '@/zustand/transactionsStore'
+import { useTransactionsStore, Transaction as StoreTransaction, SplitData as StoreSplitData } from '@/zustand/transactionsStore'
 import { useCategoriesStore } from '@/zustand/categoriesStore'
 import { usePayeesStore } from '@/zustand/payeesStore'
 import { api } from '@/lib/api'
@@ -56,21 +56,8 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 
-type Transaction = {
-  id: string
-  date: string
-  description: string
-  amount?: FinancialAmount
-  plaid_account_id: string | null
-  plaid_account_name: string | null
-  selected_category_id?: string
-  corresponding_category_id?: string
-  spent?: FinancialAmount
-  received?: FinancialAmount
-  payee_id?: string
-  company_id?: string
-  split_data?: unknown
-}
+// Use Transaction type from store
+type Transaction = StoreTransaction
 
 type SplitItem = {
   id: string
@@ -80,6 +67,14 @@ type SplitItem = {
   received?: FinancialAmount
   payee_id?: string
   selected_category_id?: string
+}
+
+// Type guard function to check if split_data has the expected structure
+const isSplitData = (data: unknown): data is StoreSplitData => {
+  return typeof data === 'object' && 
+         data !== null && 
+         'splits' in data && 
+         Array.isArray((data as StoreSplitData).splits);
 }
 
 // Category and Payee types now come from stores
@@ -3628,7 +3623,7 @@ export default function TransactionsPage() {
                 </tr>
               </thead>
               <tbody>
-                                  {imported.map(tx => {
+                {imported.map(tx => {
                   return (
                     <tr 
                       key={tx.id}
@@ -3641,11 +3636,11 @@ export default function TransactionsPage() {
                         // Allow clicks on columns 1-4 (date, description, spent, received) - skip checkbox column (0)
                         if (tdIndex >= 1 && tdIndex <= 4) {
                           // Check if this transaction has split data
-                          const hasSplitData = tx.split_data && typeof tx.split_data === 'object' && (tx.split_data as any).splits;
+                          const hasSplitData = isSplitData(tx.split_data);
                           
                           if (hasSplitData) {
                             // Parse split data and enter split mode
-                            const splitData = tx.split_data as { splits: { id?: string; date?: string; description?: string; spent?: string; received?: string; payee_id?: string; selected_category_id?: string; }[] };
+                            const splitData = tx.split_data as StoreSplitData;
                             const parsedSplits: SplitItem[] = splitData.splits.map((split) => ({
                               id: split.id || uuidv4(),
                               date: split.date || tx.date,
@@ -3691,7 +3686,7 @@ export default function TransactionsPage() {
                       <td className="border p-1 w-8 text-center text-xs cursor-pointer">{formatDate(tx.date)}</td>
                       <td className="border p-1 w-8 text-center text-xs cursor-pointer" style={{ minWidth: 250 }}>
                         {tx.description}
-                        {tx.split_data && typeof tx.split_data === 'object' && (tx.split_data as any).splits && (
+                        {isSplitData(tx.split_data) && (
                           <span className="ml-1 inline-block bg-blue-100 text-blue-800 text-xs px-1 rounded">Split</span>
                         )}
                       </td>
@@ -3991,19 +3986,19 @@ export default function TransactionsPage() {
                     <tr 
                       key={tx.id}
                       onClick={(e) => {
-                        // Only open modal if click is in columns 1-4 (date, description, spent, received)
+                        // Only open modal if click is in columns 1-6 (date, description, spent, received, payee, category)
                         const clickedTd = (e.target as HTMLElement).closest('td');
                         if (!clickedTd) return;
                         
                         const tdIndex = Array.from(clickedTd.parentElement!.children).indexOf(clickedTd);
-                        // Allow clicks on columns 1-4 (date, description, spent, received) - skip checkbox column (0)
-                        if (tdIndex >= 1 && tdIndex <= 4) {
+                        // Allow clicks on columns 1-6 (date, description, spent, received, payee, category) - skip checkbox column (0) and action column (7)
+                        if (tdIndex >= 1 && tdIndex <= 6) {
                           // Check if this transaction has split data
-                          const hasSplitData = tx.split_data && typeof tx.split_data === 'object' && tx.split_data.splits;
+                          const hasSplitData = isSplitData(tx.split_data);
                           
                           if (hasSplitData) {
                             // Parse split data and enter split mode
-                            const splitData = tx.split_data as { splits: { id?: string; date?: string; description?: string; spent?: string; received?: string; payee_id?: string; selected_category_id?: string; }[] };
+                            const splitData = tx.split_data as StoreSplitData;
                             const parsedSplits: SplitItem[] = splitData.splits.map((split) => ({
                               id: split.id || uuidv4(),
                               date: split.date || tx.date,
@@ -4049,19 +4044,19 @@ export default function TransactionsPage() {
                       <td className="border p-1 w-8 text-center text-xs cursor-pointer">{formatDate(tx.date)}</td>
                       <td className="border p-1 w-8 text-center text-xs cursor-pointer" style={{ minWidth: 250 }}>
                         {tx.description}
-                        {tx.split_data && typeof tx.split_data === 'object' && (tx.split_data as any).splits && (
+                        {isSplitData(tx.split_data) && (
                           <span className="ml-1 inline-block bg-blue-100 text-blue-800 text-xs px-1 rounded">Split</span>
                         )}
                       </td>
                       <td className="border p-1 w-8 text-center cursor-pointer">{tx.spent ? formatAmount(tx.spent) : ''}</td>
                       <td className="border p-1 w-8 text-center cursor-pointer">{tx.received ? formatAmount(tx.received) : ''}</td>
-                      <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
+                      <td className="border p-1 w-8 text-center cursor-pointer" style={{ minWidth: 150 }}>
                         {(() => {
                           const payee = payees.find(p => p.id === tx.payee_id);
                           return payee ? payee.name : '';
                         })()}
                       </td>
-                      <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>{category ? category.name : 'Uncategorized'}</td>
+                      <td className="border p-1 w-8 text-center cursor-pointer" style={{ minWidth: 150 }}>{category ? category.name : 'Uncategorized'}</td>
                       <td className="border p-1 w-8 text-center">
                         <button
                           onClick={e => { e.stopPropagation(); undoTransaction(tx); }}
