@@ -151,9 +151,11 @@ export interface JournalTableEntry {
   transaction_id: string;
   chart_account_id: string;
   company_id: string;
+  split_data?: SplitData; // Added to track split data at journal level
   transactions?: {
     payee_id?: string;
     split_data?: SplitData;
+    description?: string;
   };
   // Fields for split items displayed as journal entries
   is_split_item?: boolean;
@@ -343,79 +345,8 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
   // Fetch journal entries with transaction relationships and split data
   fetchJournalEntries: async (companyId: string) => {
     try {
-      // Process journal entries to insert split items between debit/credit pairs
-      const processEntriesWithSplits = (entries: JournalTableEntry[]): JournalTableEntry[] => {
-        const processedEntries: JournalTableEntry[] = [];
-        
-        // Group entries by transaction_id to find debit/credit pairs
-        const transactionGroups = new Map<string, JournalTableEntry[]>();
-        
-        entries.forEach(entry => {
-          const txId = entry.transaction_id;
-          if (!transactionGroups.has(txId)) {
-            transactionGroups.set(txId, []);
-          }
-          transactionGroups.get(txId)!.push(entry);
-        });
-        
-        // Process each transaction group
-        transactionGroups.forEach(txEntries => {
-          if (txEntries.length === 0) return;
-          
-          // Sort entries within transaction: debit first, then credit
-          const sortedEntries = txEntries.sort((a, b) => {
-            if (a.debit > 0 && b.credit > 0) return -1; // debit before credit
-            if (a.credit > 0 && b.debit > 0) return 1;  // credit after debit
-            return 0;
-          });
-          
-          const firstEntry = sortedEntries[0];
-          const splitData = firstEntry.transactions?.split_data;
-          
-          // Add the first entry (usually debit)
-          processedEntries.push(firstEntry);
-          
-          // Add split items if they exist
-          if (splitData?.splits && splitData.splits.length > 0) {
-            splitData.splits.forEach((split, index) => {
-              // Ensure split has required SplitItem properties
-              const splitItem: SplitItem = {
-                id: split.id || `split-${index}`,
-                date: split.date || firstEntry.date,
-                description: split.description || '',
-                spent: split.spent,
-                received: split.received,
-                payee_id: split.payee_id,
-                selected_category_id: split.selected_category_id
-              };
+      // Process journal entries to properly display split transactions
 
-              const splitEntry: JournalTableEntry = {
-                id: `${firstEntry.id}-split-${index}`,
-                date: splitItem.date,
-                description: `  ↳ ${splitItem.description}`, // Indent split items
-                debit: 0,
-                credit: 0,
-                transaction_id: firstEntry.transaction_id,
-                chart_account_id: splitItem.selected_category_id || '',
-                company_id: firstEntry.company_id,
-                is_split_item: true,
-                split_item_data: splitItem,
-                transactions: {
-                  payee_id: splitItem.payee_id
-                }
-              };
-              processedEntries.push(splitEntry);
-            });
-          }
-          
-          // Add remaining entries (usually credit)
-          sortedEntries.slice(1).forEach(entry => {
-            processedEntries.push(entry);
-          });
-        });
-        
-        return processedEntries;
-      };
 
       // Fetch journal entries with transaction data via join
       const { data: journalData, error: journalError } = await supabase
@@ -429,10 +360,12 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
           transaction_id,
           chart_account_id,
           company_id,
+          split_data,
           transactions!inner(
             id,
             payee_id,
-            split_data
+            split_data,
+            description
           )
         `)
         .eq('company_id', companyId)
@@ -450,26 +383,27 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
 
       if (standaloneError) throw standaloneError;
 
-             // Convert journal entries to JournalTableEntry format
-       const journalEntries: JournalTableEntry[] = [
-         ...(journalData || []).map(journal => {
-           // Handle transaction data - journal.transactions is the joined transaction record
-           const transactionData = Array.isArray(journal.transactions) ? journal.transactions[0] : journal.transactions;
-           return {
-             id: journal.id,
-             date: journal.date,
-             description: journal.description || '',
-             debit: journal.debit ? parseFloat(journal.debit) : 0,
-             credit: journal.credit ? parseFloat(journal.credit) : 0,
-             transaction_id: journal.transaction_id || journal.id,
-             chart_account_id: journal.chart_account_id || '',
-             company_id: journal.company_id,
-             transactions: transactionData ? {
-               payee_id: transactionData.payee_id,
-               split_data: transactionData.split_data
-             } : undefined
-           };
-         }),
+      // Convert journal entries to JournalTableEntry format
+      const journalEntries: JournalTableEntry[] = [
+        ...(journalData || []).map(journal => {
+          // Handle transaction data - journal.transactions is the joined transaction record
+          const transactionData = Array.isArray(journal.transactions) ? journal.transactions[0] : journal.transactions;
+          return {
+            id: journal.id,
+            date: journal.date,
+            description: journal.description || '',
+            debit: journal.debit ? parseFloat(journal.debit) : 0,
+            credit: journal.credit ? parseFloat(journal.credit) : 0,
+            transaction_id: journal.transaction_id || journal.id,
+            chart_account_id: journal.chart_account_id || '',
+            company_id: journal.company_id,
+            split_data: journal.split_data,
+            transactions: transactionData ? {
+              payee_id: transactionData.payee_id,
+              split_data: transactionData.split_data
+            } : undefined
+          };
+        }),
         ...(standaloneJournalData || []).map(journal => ({
           id: journal.id,
           date: journal.date,
@@ -479,6 +413,7 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
           transaction_id: journal.transaction_id || journal.id,
           chart_account_id: journal.chart_account_id || '',
           company_id: journal.company_id,
+          split_data: journal.split_data,
           transactions: undefined
         }))
       ];
@@ -486,8 +421,120 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
       // Sort by date (newest first)
       journalEntries.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       
-      // Process entries to insert split items if they exist
-      const processedEntries = processEntriesWithSplits(journalEntries);
+      // Fetch original transaction descriptions from transactions table
+      const transactionIds = [...new Set(journalEntries.map(entry => entry.transaction_id))];
+      const { data: originalTransactions } = await supabase
+        .from('transactions')
+        .select('id, description')
+        .in('id', transactionIds)
+        .eq('company_id', companyId);
+      
+      const transactionDescriptions = new Map(
+        (originalTransactions || []).map(tx => [tx.id, tx.description])
+      );
+      
+      // Process entries to restructure split transactions for proper display
+      const processedEntries: JournalTableEntry[] = [];
+      
+      // Group entries by transaction_id
+      const transactionGroups = new Map<string, JournalTableEntry[]>();
+      journalEntries.forEach(entry => {
+        const txId = entry.transaction_id;
+        if (!transactionGroups.has(txId)) {
+          transactionGroups.set(txId, []);
+        }
+        transactionGroups.get(txId)!.push(entry);
+      });
+
+      // Process each transaction group
+      transactionGroups.forEach(txEntries => {
+        if (txEntries.length === 0) return;
+        
+        const firstEntry = txEntries[0];
+        const hasSplitData = firstEntry.transactions?.split_data?.splits && firstEntry.transactions.split_data.splits.length > 0;
+        
+        if (hasSplitData && txEntries.length > 2) {
+          // This is a split transaction
+          const splits = firstEntry.transactions!.split_data!.splits;
+          
+          // Calculate total amount from splits
+          const totalSplitAmount = splits.reduce((sum, split) => {
+            return sum + parseFloat(split.spent || split.received || '0');
+          }, 0);
+          
+          // Find expense debit entries (these are the individual split items)
+          const expenseEntries = txEntries.filter(entry => entry.debit > 0);
+          
+          // Find account credit entries (these balance the transaction)
+          const accountEntries = txEntries.filter(entry => entry.credit > 0);
+          
+          // Find the largest account credit entry (this should be the main account entry)
+          const mainAccountEntry = accountEntries.reduce((max, entry) => 
+            entry.credit > max.credit ? entry : max, accountEntries[0]);
+          
+          if (expenseEntries.length > 0 && mainAccountEntry) {
+            // Get the original transaction description from imported_transactions
+            const originalDescription = transactionDescriptions.get(firstEntry.transaction_id) || 
+              `Split Transaction (${splits.length} items)`;
+
+            processedEntries.push({
+              id: `virtual-${firstEntry.transaction_id}`,
+              date: firstEntry.date,
+              description: originalDescription,
+              debit: totalSplitAmount,
+              credit: 0,
+              transaction_id: firstEntry.transaction_id,
+              chart_account_id: expenseEntries[0].chart_account_id, // Use first expense category
+              company_id: firstEntry.company_id,
+              split_data: firstEntry.transactions?.split_data,
+              transactions: firstEntry.transactions
+            });
+            
+            // Add each split as indented credit entries
+            splits.forEach((split, index) => {
+              const splitAmount = parseFloat(split.spent || split.received || '0');
+              if (splitAmount > 0) {
+                processedEntries.push({
+                  id: `${firstEntry.id}-split-${index}`,
+                  date: firstEntry.date,
+                  description: `↳ ${split.description}`,
+                  debit: 0,
+                  credit: splitAmount,
+                  transaction_id: firstEntry.transaction_id,
+                  chart_account_id: split.selected_category_id || '',
+                  company_id: firstEntry.company_id,
+                  is_split_item: true,
+                  split_item_data: {
+                    id: split.id || `split-${index}`,
+                    date: split.date || firstEntry.date,
+                    description: split.description || '',
+                    spent: split.spent,
+                    received: split.received,
+                    payee_id: split.payee_id,
+                    selected_category_id: split.selected_category_id
+                  },
+                  transactions: {
+                    payee_id: split.payee_id
+                  }
+                });
+              }
+            });
+            
+            // Add the main account credit entry with original description and total amount
+            processedEntries.push({
+              ...mainAccountEntry,
+              description: originalDescription,
+              credit: totalSplitAmount
+            });
+          }
+        } else {
+          // Regular transaction, add all entries as-is
+          txEntries.forEach(entry => {
+            processedEntries.push(entry);
+          });
+        }
+      });
+      
       set({ journalEntries: processedEntries });
     } catch (error) {
       console.error('Error fetching journal entries:', error);

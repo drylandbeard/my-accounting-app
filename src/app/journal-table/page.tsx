@@ -27,7 +27,7 @@ import {
 // Define types specific to the journal table
 
 type SortConfig = {
-  key: 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category' | null;
+  key: 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category' | 'split_data' | null;
   direction: 'asc' | 'desc';
 };
 
@@ -100,6 +100,22 @@ export default function JournalTablePage() {
     type: 'Expense',
     parent_id: null,
     lineId: null
+  });
+
+  // Edit journal entry modal state
+  const [editModal, setEditModal] = useState<{
+    isOpen: boolean;
+    transactionId: string | null;
+    entries: JournalTableEntry[];
+    editEntry: NewJournalEntry;
+  }>({
+    isOpen: false,
+    transactionId: null,
+    entries: [],
+    editEntry: {
+      date: '',
+      lines: []
+    }
   });
   
   // Pagination state
@@ -211,11 +227,18 @@ export default function JournalTablePage() {
           ? aCategory.localeCompare(bCategory)
           : bCategory.localeCompare(aCategory);
       }
+      if (sortConfig.key === 'split_data') {
+        const aSplit = a.is_split_item ? 1 : 0;
+        const bSplit = b.is_split_item ? 1 : 0;
+        return sortConfig.direction === 'asc'
+          ? aSplit - bSplit
+          : bSplit - aSplit;
+      }
       return 0;
     });
   };
 
-  const handleSort = (key: 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category') => {
+  const handleSort = (key: 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category' | 'split_data') => {
     setSortConfig(current => ({
       key,
       direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc'
@@ -237,7 +260,8 @@ export default function JournalTablePage() {
     { key: 'type', label: 'Type', isCustom: true, sortable: true },
     { key: 'debit', label: 'Debit', sortable: true },
     { key: 'credit', label: 'Credit', sortable: true },
-    { key: 'payee', label: 'Payee', isCustom: true, sortable: true }
+    { key: 'payee', label: 'Payee', isCustom: true, sortable: true },
+    { key: 'split_data', label: 'Split Data', isCustom: true, sortable: false }
   ];
 
   // Get all available columns from journalEntries to include any additional fields
@@ -293,8 +317,11 @@ export default function JournalTablePage() {
       const formattedDate = formatDate(entry.date);
       if (formattedDate.toLowerCase().includes(lowercaseSearch)) return true;
       
-      // Search in description
-      if (entry.description.toLowerCase().includes(lowercaseSearch)) return true;
+      // Search in description (including split descriptions)
+      const description = entry.is_split_item && entry.split_item_data?.description 
+        ? entry.split_item_data.description 
+        : entry.description;
+      if (description.toLowerCase().includes(lowercaseSearch)) return true;
       
       // Search in type
       const accountType = getAccountType(entry.chart_account_id);
@@ -304,20 +331,22 @@ export default function JournalTablePage() {
       const payeeName = getPayeeName(entry.transactions?.payee_id || '');
       if (payeeName.toLowerCase().includes(lowercaseSearch)) return true;
       
-      // Search in debit amount (formatted) - handle split items
-      const debitAmount = entry.is_split_item && entry.split_item_data?.spent ? 
-        formatAmountLocal(parseFloat(entry.split_item_data.spent)) : 
-        formatAmountLocal(entry.debit);
+      // Search in debit amount (formatted)
+      const debitAmount = entry.is_split_item && entry.split_item_data?.spent 
+        ? formatAmountLocal(parseFloat(entry.split_item_data.spent))
+        : formatAmountLocal(entry.debit);
       if (debitAmount.toLowerCase().includes(lowercaseSearch)) return true;
       
-      // Search in credit amount (formatted) - handle split items
-      const creditAmount = entry.is_split_item && entry.split_item_data?.received ? 
-        formatAmountLocal(parseFloat(entry.split_item_data.received)) : 
-        formatAmountLocal(entry.credit);
+      // Search in credit amount (formatted)
+      const creditAmount = entry.is_split_item && entry.split_item_data?.received
+        ? formatAmountLocal(parseFloat(entry.split_item_data.received))
+        : formatAmountLocal(entry.credit);
       if (creditAmount.toLowerCase().includes(lowercaseSearch)) return true;
       
-      // Search in category name
-      const categoryName = getAccountName(entry.chart_account_id);
+      // Search in category name (including split categories)
+      const categoryName = entry.is_split_item && entry.split_item_data?.selected_category_id 
+        ? getAccountName(entry.split_item_data.selected_category_id)
+        : getAccountName(entry.chart_account_id);
       if (categoryName.toLowerCase().includes(lowercaseSearch)) return true;
       
       return false;
@@ -470,8 +499,110 @@ export default function JournalTablePage() {
     }
   };
 
+  const handleEditJournalEntry = (entry: JournalTableEntry) => {
+    // Group all entries by transaction_id to get the complete transaction
+    const transactionEntries = journalEntries.filter(e => 
+      e.transaction_id === entry.transaction_id && !e.is_split_item
+    );
+    
+    if (transactionEntries.length === 0) return;
 
+    // Convert the grouped entries back to the editable format
+    const editLines: JournalEntryLine[] = transactionEntries.map((entry, index) => ({
+      id: (index + 1).toString(),
+      description: entry.description,
+      categoryId: entry.chart_account_id,
+      debit: entry.debit > 0 ? entry.debit.toString() : '0.00',
+      credit: entry.credit > 0 ? entry.credit.toString() : '0.00'
+    }));
 
+    // If there are split items, we need to include them as separate lines
+    const firstEntry = transactionEntries[0];
+    if (firstEntry.transactions?.split_data?.splits) {
+      firstEntry.transactions.split_data.splits.forEach((split, index) => {
+        if (split.spent && parseFloat(split.spent) > 0) {
+          editLines.push({
+            id: `split-debit-${index}`,
+            description: split.description || '',
+            categoryId: split.selected_category_id || '',
+            debit: split.spent,
+            credit: '0.00'
+          });
+        }
+        if (split.received && parseFloat(split.received) > 0) {
+          editLines.push({
+            id: `split-credit-${index}`,
+            description: split.description || '',
+            categoryId: split.selected_category_id || '',
+            debit: '0.00',
+            credit: split.received
+          });
+        }
+      });
+    }
+
+    setEditModal({
+      isOpen: true,
+      transactionId: entry.transaction_id,
+      entries: transactionEntries,
+      editEntry: {
+        date: entry.date,
+        lines: editLines
+      }
+    });
+  };
+
+  const updateEditJournalLine = (lineId: string, field: keyof JournalEntryLine, value: string) => {
+    setEditModal(prev => ({
+      ...prev,
+      editEntry: {
+        ...prev.editEntry,
+        lines: prev.editEntry.lines.map(line =>
+          line.id === lineId ? { ...line, [field]: value } : line
+        )
+      }
+    }));
+  };
+
+  const handleEditAmountChange = (lineId: string, field: 'debit' | 'credit', value: string) => {
+    const inputValue = value;
+    updateEditJournalLine(lineId, field, inputValue || '0.00');
+    
+    // Clear the opposite field when entering an amount
+    if (inputValue) {
+      const oppositeField = field === 'debit' ? 'credit' : 'debit';
+      updateEditJournalLine(lineId, oppositeField, '0.00');
+    }
+  };
+
+  const addEditJournalLine = () => {
+    setEditModal(prev => ({
+      ...prev,
+      editEntry: {
+        ...prev.editEntry,
+        lines: [...prev.editEntry.lines, {
+          id: (prev.editEntry.lines.length + 1).toString(),
+          description: '',
+          categoryId: '',
+          debit: '0.00',
+          credit: '0.00'
+        }]
+      }
+    }));
+  };
+
+  const removeEditJournalLine = (lineId: string) => {
+    setEditModal(prev => ({
+      ...prev,
+      editEntry: {
+        ...prev.editEntry,
+        lines: prev.editEntry.lines.filter(line => line.id !== lineId)
+      }
+    }));
+  };
+
+  
+  
   const handleCreateCategory = async () => {
     if (!newCategoryModal.name.trim() || !hasCompanyContext) return;
 
@@ -669,7 +800,7 @@ export default function JournalTablePage() {
                       className={`border p-2 text-center text-xs font-medium tracking-wider whitespace-nowrap ${
                         col.sortable ? 'cursor-pointer hover:bg-gray-200' : ''
                       }`}
-                      onClick={col.sortable ? () => handleSort(col.key as 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category') : undefined}
+                      onClick={col.sortable ? () => handleSort(col.key as 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category' | 'split_data') : undefined}
                     >
                       {col.label}
                       {col.sortable && sortConfig.key === col.key && (
@@ -683,25 +814,48 @@ export default function JournalTablePage() {
               </thead>
               <tbody>
                 {displayedEntries.map((entry) => (
-                  <tr key={String(entry.id)} className={`hover:bg-gray-50 ${entry.is_split_item ? 'bg-gray-50' : ''}`}>
+                  <tr 
+                    key={String(entry.id)} 
+                    className={`hover:bg-gray-50 cursor-pointer ${entry.is_split_item ? 'bg-blue-50' : ''}`}
+                    onClick={() => handleEditJournalEntry(entry)}
+                  >
                     {finalColumns.map((col) => (
                       <td key={col.key} className="border p-2 text-center text-xs whitespace-nowrap">
                         {col.key === 'date' ? (
                           formatDate(entry.date)
+                        ) : col.key === 'description' ? (
+                          <div className="flex items-center gap-1">
+                            <span>
+                              {entry.description}
+                            </span>
+                          </div>
                         ) : col.key === 'debit' ? (
-                          entry.is_split_item && entry.split_item_data?.spent ? 
-                            formatAmountLocal(parseFloat(entry.split_item_data.spent)) : 
-                            formatAmountLocal(entry.debit)
+                          (() => {
+                            // For split items, show the split amount, otherwise show regular debit
+                            if (entry.is_split_item && entry.split_item_data?.spent) {
+                              return formatAmountLocal(parseFloat(entry.split_item_data.spent));
+                            }
+                            return formatAmountLocal(entry.debit);
+                          })()
                         ) : col.key === 'credit' ? (
-                          entry.is_split_item && entry.split_item_data?.received ? 
-                            formatAmountLocal(parseFloat(entry.split_item_data.received)) : 
-                            formatAmountLocal(entry.credit)
+                          (() => {
+                            // For split items, show the split amount, otherwise show regular credit
+                            if (entry.is_split_item && entry.split_item_data?.received) {
+                              return formatAmountLocal(parseFloat(entry.split_item_data.received));
+                            }
+                            return formatAmountLocal(entry.credit);
+                          })()
                         ) : col.key === 'type' ? (
                           getAccountType(entry.chart_account_id)
                         ) : col.key === 'payee' ? (
                           getPayeeName(entry.transactions?.payee_id || '')
+                        ) : col.key === 'split_data' ? (
+                          entry.is_split_item ? 'split_data' : ''
                         ) : col.key === 'category' ? (
-                          getAccountName(entry.chart_account_id)
+                          // For split items, show the split category if available, otherwise show chart account
+                          entry.is_split_item && entry.split_item_data?.selected_category_id 
+                            ? getAccountName(entry.split_item_data.selected_category_id)
+                            : getAccountName(entry.chart_account_id)
                         ) : (
                           String(entry[col.key] ?? '')
                         )}
@@ -1002,6 +1156,168 @@ export default function JournalTablePage() {
                 className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
               >
                 Create
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Journal Entry Modal */}
+      {editModal.isOpen && (
+        <div 
+          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
+          onClick={() => setEditModal({ isOpen: false, transactionId: null, entries: [], editEntry: { date: '', lines: [] } })}
+        >
+          <div 
+            className="bg-white rounded-lg p-6 w-[800px] overflow-y-auto shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold">Edit Journal Entry</h2>
+              <button
+                onClick={() => setEditModal({ isOpen: false, transactionId: null, entries: [], editEntry: { date: '', lines: [] } })}
+                className="text-gray-500 hover:text-gray-700 text-xl"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            
+            {/* Date selector */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Date</label>
+              <input
+                type="date"
+                value={editModal.editEntry.date}
+                onChange={(e) => setEditModal(prev => ({ 
+                  ...prev, 
+                  editEntry: { ...prev.editEntry, date: e.target.value } 
+                }))}
+                className="border px-3 py-2 rounded text-sm"
+                required
+              />
+            </div>
+            
+            {/* Journal Entry Table */}
+            <div className="border rounded-lg overflow-hidden">
+              <table className="w-full border-collapse">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="border px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+                    <th className="border px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
+                    <th className="border px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Debit</th>
+                    <th className="border px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Credit</th>
+                    <th className="border px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-12">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white">
+                  {editModal.editEntry.lines.map((line) => (
+                    <tr key={line.id}>
+                      <td className="border px-4 py-2">
+                        <input
+                          type="text"
+                          value={line.description}
+                          onChange={(e) => updateEditJournalLine(line.id, 'description', e.target.value)}
+                          className="w-full border-0 px-0 py-0 text-xs focus:ring-0 focus:outline-none"
+                          placeholder="Enter description"
+                        />
+                      </td>
+                      <td className="border px-4 py-2">
+                        <Select
+                          options={categoryOptions}
+                          value={categoryOptions.find(opt => opt.value === line.categoryId) || categoryOptions[0]}
+                          onChange={(selectedOption) => {
+                            const option = selectedOption as SelectOption | null;
+                            if (option?.value === 'add_new') {
+                              setNewCategoryModal({
+                                isOpen: true,
+                                name: '',
+                                type: 'Expense',
+                                parent_id: null,
+                                lineId: line.id
+                              });
+                            } else {
+                              updateEditJournalLine(line.id, 'categoryId', option?.value || '');
+                            }
+                          }}
+                          isSearchable
+                          menuPortalTarget={document.body}
+                          styles={{
+                            control: (base) => ({
+                              ...base,
+                              border: 'none',
+                              boxShadow: 'none',
+                              minHeight: 'auto',
+                              fontSize: '12px',
+                              '&:hover': {
+                                border: 'none'
+                              }
+                            }),
+                            menu: (base) => ({ 
+                              ...base, 
+                              zIndex: 9999,
+                              fontSize: '12px'
+                            }),
+                            menuPortal: (base) => ({ 
+                              ...base, 
+                              zIndex: 9999 
+                            })
+                          }}
+                        />
+                      </td>
+                      <td className="border px-4 py-2">
+                        <input
+                          type="text"
+                          value={(() => {
+                            const debit = line.debit;
+                            return (debit && !isZeroAmount(debit)) ? debit : '';
+                          })()}
+                          onChange={(e) => handleEditAmountChange(line.id, 'debit', e.target.value)}
+                          className="w-full border-0 px-0 py-0 text-xs text-right focus:ring-0 focus:outline-none"
+                          placeholder="0.00"
+                        />
+                      </td>
+                      <td className="border px-4 py-2">
+                        <input
+                          type="text"
+                          value={(() => {
+                            const credit = line.credit;
+                            return (credit && !isZeroAmount(credit)) ? credit : '';
+                          })()}
+                          onChange={(e) => handleEditAmountChange(line.id, 'credit', e.target.value)}
+                          className="w-full border-0 px-0 py-0 text-xs text-right focus:ring-0 focus:outline-none"
+                          placeholder="0.00"
+                        />
+                      </td>
+                      <td className="border px-4 py-2 text-center">
+                        {editModal.editEntry.lines.length > 2 && (
+                          <button
+                            onClick={() => removeEditJournalLine(line.id)}
+                            className="text-red-500 hover:text-red-700 text-xs"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            
+            <div className="flex justify-between items-center mt-4">
+              <button
+                onClick={addEditJournalLine}
+                className="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded border"
+              >
+                Add lines
+              </button>
+              
+              <button
+                onClick={() => {/* TODO: Handle update */}}
+                disabled={saving}
+                className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800 disabled:opacity-50"
+              >
+                {saving ? 'Updating...' : 'Update'}
               </button>
             </div>
           </div>
