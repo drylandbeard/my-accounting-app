@@ -123,19 +123,39 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Verify the category exists and belongs to the company
-    const { data: category, error: categoryError } = await supabase
-      .from('chart_of_accounts')
-      .select('id, name')
-      .eq('id', selectedCategoryId)
-      .eq('company_id', companyId)
-      .single()
+    // Verify categories exist and belong to the company
+    if (isSplitTransaction && splits) {
+      // For split transactions, validate each split category
+      for (const split of splits) {
+        const { data: splitCategory, error: splitCategoryError } = await supabase
+          .from('chart_of_accounts')
+          .select('id, name')
+          .eq('id', split.selected_category_id)
+          .eq('company_id', companyId)
+          .single()
 
-    if (categoryError || !category) {
-      return NextResponse.json(
-        { error: 'Selected category not found' },
-        { status: 400 }
-      )
+        if (splitCategoryError || !splitCategory) {
+          return NextResponse.json(
+            { error: `Split category not found: ${split.selected_category_id}` },
+            { status: 400 }
+          )
+        }
+      }
+    } else {
+      // For regular transactions, validate the single category
+      const { data: category, error: categoryError } = await supabase
+        .from('chart_of_accounts')
+        .select('id, name')
+        .eq('id', selectedCategoryId)
+        .eq('company_id', companyId)
+        .single()
+
+      if (categoryError || !category) {
+        return NextResponse.json(
+          { error: 'Selected category not found' },
+          { status: 400 }
+        )
+      }
     }
 
     // If payeeId is provided, verify it exists and belongs to the company

@@ -212,7 +212,8 @@ export default function NavBar({ showAccountAction, showAccountSection, isGatewa
               <NavLink href="/transactions" label="Transactions" />
               <NavLink href="/automations" label="Automations" />
               <NavLink href="/categories" label="Categories" />
-              <NavLink href="/journal-table" label="Journal Table" />
+              <NavLink href="/manual-je" label="Manual Journal" />
+              <NavLink href="/table" label="Table" />
               <NavLink href="/reports/pnl" label="Profit & Loss" />
               <NavLink href="/reports/balance-sheet" label="Balance Sheet" />
             </>
