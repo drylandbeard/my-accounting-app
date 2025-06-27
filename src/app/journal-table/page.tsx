@@ -325,7 +325,9 @@ export default function JournalTablePage() {
     col !== 'company_id' && 
     col !== 'chart_account_id' && 
     col !== 'payee_id' && 
-    col !== 'transactions'
+    col !== 'transactions' &&
+    col !== 'is_split_item' &&
+    col !== 'split_item_data'
   );
 
   // Combine ordered columns with any additional columns not in our predefined list, then add category at the end
@@ -641,7 +643,7 @@ export default function JournalTablePage() {
               </thead>
               <tbody>
                 {displayedEntries.map((entry) => (
-                  <tr key={String(entry.id)} className={`hover:bg-gray-50 ${entry.is_split_item ? 'bg-blue-50' : ''}`}>
+                  <tr key={String(entry.id)} className={`hover:bg-gray-50 ${entry.is_split_item ? 'bg-gray-50' : ''}`}>
                     {finalColumns.map((col) => (
                       <td key={col.key} className="border p-2 text-center text-xs whitespace-nowrap">
                         {col.key === 'date' ? (
