@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
       .from('journal')
       .select(`
         *,
-        transactions!inner(payee_id, split_data)
+        transactions!inner(payee_id, split_data, corresponding_category_id)
       `)
       .eq('company_id', companyId);
 

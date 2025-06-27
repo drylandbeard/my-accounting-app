@@ -86,6 +86,7 @@ export interface Transaction {
   payee_id?: string;
   company_id?: string;
   split_data?: SplitData;
+  has_split?: boolean; // Added to track if transaction has multiple journal entries
 }
 
 export interface BulkTransactionRequest {
@@ -335,212 +336,105 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
         .eq('company_id', companyId)
         .neq('plaid_account_name', null);
       
-      set({ transactions: data || [] });
+      if (data && data.length > 0) {
+        // Get journal entry counts for each transaction to detect splits
+        const transactionIds = data.map(tx => tx.id);
+        const { data: journalCounts } = await supabase
+          .from('journal')
+          .select('transaction_id')
+          .eq('company_id', companyId)
+          .in('transaction_id', transactionIds);
+        
+        // Count journal entries per transaction
+        const journalCountMap = new Map<string, number>();
+        (journalCounts || []).forEach(entry => {
+          const count = journalCountMap.get(entry.transaction_id) || 0;
+          journalCountMap.set(entry.transaction_id, count + 1);
+        });
+        
+        // Add split detection to transactions
+        const transactionsWithSplitInfo = data.map(tx => ({
+          ...tx,
+          // A transaction is split if it has more than 2 journal entries
+          has_split: (journalCountMap.get(tx.id) || 0) > 2
+        }));
+        
+        set({ transactions: transactionsWithSplitInfo });
+      } else {
+        set({ transactions: [] });
+      }
     } catch (error) {
       console.error('Error fetching confirmed transactions:', error);
       set({ error: 'Failed to fetch confirmed transactions' });
     }
   },
 
-  // Fetch transactions and convert to journal entries format for display
+  // Fetch journal entries directly from the journal table
   fetchJournalEntries: async (companyId: string) => {
     try {
-      // Fetch transactions directly instead of using journal table
-      const { data: transactions, error: txError } = await supabase
-        .from('transactions')
-        .select('*')
+      // Fetch journal entries directly from the journal table with related data
+      const { data: journalEntries, error } = await supabase
+        .from('journal')
+        .select(`
+          *,
+          transactions!inner(payee_id, split_data, corresponding_category_id)
+        `)
         .eq('company_id', companyId)
         .order('date', { ascending: false });
 
-      if (txError) throw txError;
+      if (error) throw error;
 
-      // Also fetch categories for account names (if needed for future use)
-      const { data: categories } = await supabase
-        .from('chart_of_accounts')
-        .select('id, name, type')
-        .eq('company_id', companyId);
+      // Process the journal entries to match the expected format
+      const processedEntries: JournalTableEntry[] = (journalEntries || []).map((entry: {
+        id: string;
+        date: string;
+        description: string;
+        debit: number;
+        credit: number;
+        transaction_id: string;
+        chart_account_id: string;
+        company_id: string;
+        transactions: {
+          payee_id?: string;
+          split_data?: SplitData;
+          corresponding_category_id: string;
+        };
+      }) => {
+        // Check if this journal entry is part of a split transaction
+        const hasSplitData = entry.transactions?.split_data?.splits && entry.transactions.split_data.splits.length > 0;
+        
+        if (hasSplitData) {
+          // Find the matching split item for this journal entry
+          const matchingSplit = entry.transactions.split_data!.splits.find((split) => 
+            // Match by category for expense/income journal entries, or by being the bank account entry
+            split.selected_category_id === entry.chart_account_id ||
+            entry.chart_account_id === entry.transactions.corresponding_category_id
+          );
 
-      // categoryMap available for future use if needed
-      const categoryMap = new Map((categories || []).map(cat => [cat.id, cat]));
-      // Currently unused but kept for potential future enhancements
-      console.log(`Loaded ${categoryMap.size} categories for reference`);
-
-      // Process transactions to create journal entries display
-      const processedEntries: JournalTableEntry[] = [];
-      
-      for (const tx of transactions || []) {
-        const hasSplits = tx.split_data?.splits && tx.split_data.splits.length > 0;
-        const isSpent = tx.spent && parseFloat(tx.spent) > 0;
-        const isReceived = tx.received && parseFloat(tx.received) > 0;
-        const totalAmount = parseFloat(tx.spent || tx.received || '0');
-
-        if (hasSplits) {
-          // Split transaction processing
-          const splits = tx.split_data.splits;
-
-          if (isSpent) {
-            // SPENT split transaction (like McDonald's)
-            // 1. Main expense debit
-            processedEntries.push({
-              id: `${tx.id}-main`,
-              date: tx.date,
-              description: tx.description,
-              debit: totalAmount,
-              credit: 0,
-              transaction_id: tx.id,
-              chart_account_id: tx.selected_category_id,
-              company_id: tx.company_id,
-              transactions: { payee_id: tx.payee_id, split_data: tx.split_data }
-            });
-
-            // 2. Split credits
-            splits.forEach((split: SplitItem, index: number) => {
-              const splitAmount = parseFloat(split.spent || '0');
-              if (splitAmount > 0) {
-                processedEntries.push({
-                  id: `${tx.id}-split-${index}`,
-                  date: tx.date,
-                  description: `↳ ${split.description}`,
-                  debit: 0,
-                  credit: splitAmount,
-                  transaction_id: tx.id,
-                  chart_account_id: split.selected_category_id || '',
-                  company_id: tx.company_id,
-                  is_split_item: true,
-                  split_item_data: {
-                    id: split.id || `split-${index}`,
-                    date: split.date || tx.date,
-                    description: split.description || '',
-                    spent: split.spent,
-                    received: split.received,
-                    payee_id: split.payee_id,
-                    selected_category_id: split.selected_category_id
-                  }
-                });
+          if (matchingSplit && entry.chart_account_id !== entry.transactions.corresponding_category_id) {
+            // This is a split item (not the bank account entry)
+            return {
+              ...entry,
+              is_split_item: true,
+              split_item_data: {
+                id: matchingSplit.id || entry.id,
+                date: matchingSplit.date || entry.date,
+                description: matchingSplit.description || entry.description,
+                spent: matchingSplit.spent,
+                received: matchingSplit.received,
+                payee_id: matchingSplit.payee_id,
+                selected_category_id: matchingSplit.selected_category_id
               }
-            });
-
-            // 3. Bank account credit
-            processedEntries.push({
-              id: `${tx.id}-bank`,
-              date: tx.date,
-              description: tx.description,
-              debit: 0,
-              credit: totalAmount,
-              transaction_id: tx.id,
-              chart_account_id: tx.corresponding_category_id || '',
-              company_id: tx.company_id,
-              transactions: { payee_id: tx.payee_id }
-            });
-
-          } else if (isReceived) {
-            // RECEIVED split transaction (like Client Payment)
-            // 1. Bank account debit
-            processedEntries.push({
-              id: `${tx.id}-bank`,
-              date: tx.date,
-              description: tx.description,
-              debit: totalAmount,
-              credit: 0,
-              transaction_id: tx.id,
-              chart_account_id: tx.corresponding_category_id || '',
-              company_id: tx.company_id,
-              transactions: { payee_id: tx.payee_id, split_data: tx.split_data }
-            });
-
-            // 2. Split credits
-            splits.forEach((split: SplitItem, index: number) => {
-              const splitAmount = parseFloat(split.received || '0');
-              if (splitAmount > 0) {
-                processedEntries.push({
-                  id: `${tx.id}-split-${index}`,
-                  date: tx.date,
-                  description: `↳ ${split.description}`,
-                  debit: 0,
-                  credit: splitAmount,
-                  transaction_id: tx.id,
-                  chart_account_id: split.selected_category_id || '',
-                  company_id: tx.company_id,
-                  is_split_item: true,
-                  split_item_data: {
-                    id: split.id || `split-${index}`,
-                    date: split.date || tx.date,
-                    description: split.description || '',
-                    spent: split.spent,
-                    received: split.received,
-                    payee_id: split.payee_id,
-                    selected_category_id: split.selected_category_id
-                  }
-                });
-              }
-            });
-
-            // 3. Main income credit
-            processedEntries.push({
-              id: `${tx.id}-income`,
-              date: tx.date,
-              description: tx.description,
-              debit: 0,
-              credit: totalAmount,
-              transaction_id: tx.id,
-              chart_account_id: tx.selected_category_id || '',
-              company_id: tx.company_id,
-              transactions: { payee_id: tx.payee_id }
-            });
-          }
-        } else {
-          // Regular transaction (non-split)
-          if (isSpent) {
-            // Expense debit + bank credit
-            processedEntries.push({
-              id: `${tx.id}-expense`,
-              date: tx.date,
-              description: tx.description,
-              debit: totalAmount,
-              credit: 0,
-              transaction_id: tx.id,
-              chart_account_id: tx.selected_category_id || '',
-              company_id: tx.company_id,
-              transactions: { payee_id: tx.payee_id }
-            });
-            processedEntries.push({
-              id: `${tx.id}-bank`,
-              date: tx.date,
-              description: tx.description,
-              debit: 0,
-              credit: totalAmount,
-              transaction_id: tx.id,
-              chart_account_id: tx.corresponding_category_id || '',
-              company_id: tx.company_id,
-              transactions: { payee_id: tx.payee_id }
-            });
-          } else if (isReceived) {
-            // Bank debit + income credit
-            processedEntries.push({
-              id: `${tx.id}-bank`,
-              date: tx.date,
-              description: tx.description,
-              debit: totalAmount,
-              credit: 0,
-              transaction_id: tx.id,
-              chart_account_id: tx.corresponding_category_id || '',
-              company_id: tx.company_id,
-              transactions: { payee_id: tx.payee_id }
-            });
-            processedEntries.push({
-              id: `${tx.id}-income`,
-              date: tx.date,
-              description: tx.description,
-              debit: 0,
-              credit: totalAmount,
-              transaction_id: tx.id,
-              chart_account_id: tx.selected_category_id || '',
-              company_id: tx.company_id,
-              transactions: { payee_id: tx.payee_id }
-            });
+            };
           }
         }
-      }
+
+        // Regular journal entry (no split or bank account entry)
+        return {
+          ...entry,
+          is_split_item: false
+        };
+      });
       
       set({ journalEntries: processedEntries });
     } catch (error) {
