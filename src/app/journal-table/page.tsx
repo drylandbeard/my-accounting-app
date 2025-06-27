@@ -1,8 +1,10 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/zustand/authStore';
+import { useTransactionsStore } from '@/zustand/transactionsStore';
+import { useCategoriesStore, type Category } from '@/zustand/categoriesStore';
+import { usePayeesStore } from '@/zustand/payeesStore';
 import { X } from 'lucide-react';
 import { 
   Pagination,
@@ -14,19 +16,7 @@ import {
   PaginationEllipsis,
 } from '@/components/ui/pagination';
 
-type Payee = {
-  id: string;
-  name: string;
-  company_id: string;
-};
-
-type Account = {
-  id: string;
-  name: string;
-  type: string;
-  subtype?: string;
-  company_id: string;
-};
+// Define types specific to the journal table
 
 type JournalEntry = {
   id: string;
@@ -59,9 +49,14 @@ type NewJournalEntry = {
 export default function JournalTablePage() {
   const { currentCompany } = useAuthStore();
   const hasCompanyContext = !!(currentCompany);
+  
+  // Store hooks
+  const { saveJournalEntry } = useTransactionsStore();
+  const { categories, refreshCategories } = useCategoriesStore();
+  const { payees, refreshPayees } = usePayeesStore();
+  
+  // Local state
   const [entries, setEntries] = useState<JournalEntry[]>([]);
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [payees, setPayees] = useState<Payee[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sortConfig, setSortConfig] = useState<SortConfig>({ key: null, direction: 'asc' });
@@ -83,10 +78,12 @@ export default function JournalTablePage() {
   const [itemsPerPage] = useState(50); // Fixed items per page
 
   useEffect(() => {
-    fetchJournalEntries();
-    fetchAccounts();
-    fetchPayees();
-  }, [currentCompany?.id]);
+    if (hasCompanyContext) {
+      fetchJournalEntries();
+      refreshCategories();
+      refreshPayees();
+    }
+  }, [currentCompany?.id, hasCompanyContext, refreshCategories, refreshPayees]);
 
   // Reset to first page when search term or date filters change
   useEffect(() => {
@@ -99,6 +96,11 @@ export default function JournalTablePage() {
     try {
       setLoading(true);
       setError(null);
+      
+      // We'll need to implement a direct journal fetching function since the store's
+      // fetchPastJournalEntries returns a different structure
+      // For now, keep the existing Supabase call but import supabase
+      const { supabase } = await import('@/lib/supabase');
       const { data, error } = await supabase
         .from('journal')
         .select(`
@@ -116,28 +118,6 @@ export default function JournalTablePage() {
     }
   };
 
-  const fetchAccounts = async () => {
-    if (!hasCompanyContext) return;
-    
-    const { data, error } = await supabase
-      .from('chart_of_accounts')
-      .select('*')
-      .eq('company_id', currentCompany?.id)
-      .order('name');
-    if (!error) setAccounts(data || []);
-  };
-
-  const fetchPayees = async () => {
-    if (!hasCompanyContext) return;
-    
-    const { data, error } = await supabase
-      .from('payees')
-      .select('*')
-      .eq('company_id', currentCompany?.id)
-      .order('name');
-    if (!error) setPayees(data || []);
-  };
-
   const formatDate = (dateString: string) => {
     // Parse the date string and create a UTC date
     const [year, month, day] = dateString.split('-').map(Number);
@@ -152,12 +132,12 @@ export default function JournalTablePage() {
   };
 
   function getAccountName(id: string) {
-    const account = accounts.find(a => a.id === id);
+    const account = categories.find((a: Category) => a.id === id);
     return account ? account.name : id;
   }
 
   function getAccountType(id: string) {
-    const account = accounts.find(a => a.id === id);
+    const account = categories.find((a: Category) => a.id === id);
     return account ? account.type || '' : '';
   }
 
@@ -451,22 +431,22 @@ export default function JournalTablePage() {
     try {
       setSaving(true);
       
-      // Create journal entry (no transaction_id needed for manual entries)
-      const journalEntry = {
+      // Create journal entry using the store function
+      const entryData = {
         date: newEntry.date,
         description: newEntry.description,
-        debit: newEntry.type === 'debit' ? amount : 0,
-        credit: newEntry.type === 'credit' ? amount : 0,
-        transaction_id: null, // Set to null for manual journal entries
-        chart_account_id: newEntry.categoryId,
-        company_id: currentCompany.id
+        entries: [{
+          account_id: newEntry.categoryId,
+          amount: amount,
+          type: newEntry.type
+        }]
       };
 
-      const { error } = await supabase
-        .from('journal')
-        .insert([journalEntry]);
+      const success = await saveJournalEntry(entryData, currentCompany.id);
 
-      if (error) throw error;
+      if (!success) {
+        throw new Error('Failed to save journal entry');
+      }
 
       // Reset form and close modal
       setNewEntry({
@@ -689,7 +669,7 @@ export default function JournalTablePage() {
                   className="w-full border px-2 py-1 rounded text-xs"
                 >
                   <option value="">Select category...</option>
-                  {accounts.map(account => (
+                  {categories.map((account: Category) => (
                     <option key={account.id} value={account.id}>
                       {account.name} ({account.type})
                     </option>
