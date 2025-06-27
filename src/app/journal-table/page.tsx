@@ -6,6 +6,14 @@ import { useTransactionsStore } from '@/zustand/transactionsStore';
 import { useCategoriesStore, type Category } from '@/zustand/categoriesStore';
 import { usePayeesStore } from '@/zustand/payeesStore';
 import { X } from 'lucide-react';
+import Select from 'react-select';
+import { 
+  parseAmount, 
+  toFinancialAmount, 
+  addAmounts, 
+  subtractAmounts, 
+  isZeroAmount
+} from '@/lib/financial';
 import { 
   Pagination,
   PaginationContent,
@@ -56,12 +64,22 @@ type SortConfig = {
   direction: 'asc' | 'desc';
 };
 
+type SelectOption = {
+  value: string;
+  label: string;
+};
+
+type JournalEntryLine = {
+  id: string;
+  description: string;
+  categoryId: string;
+  debit: string;
+  credit: string;
+};
+
 type NewJournalEntry = {
   date: string;
-  description: string;
-  amount: string;
-  type: 'debit' | 'credit';
-  categoryId: string;
+  lines: JournalEntryLine[];
 };
 
 export default function JournalTablePage() {
@@ -70,7 +88,7 @@ export default function JournalTablePage() {
   
   // Store hooks
   const { saveJournalEntry } = useTransactionsStore();
-  const { categories, refreshCategories } = useCategoriesStore();
+  const { categories, refreshCategories, createCategoryForTransaction } = useCategoriesStore();
   const { payees, refreshPayees } = usePayeesStore();
   
   // Process journal entries to insert split items between debit/credit pairs
@@ -147,16 +165,50 @@ export default function JournalTablePage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [newEntry, setNewEntry] = useState<NewJournalEntry>({
     date: new Date().toISOString().split('T')[0],
-    description: '',
-    amount: '',
-    type: 'debit',
-    categoryId: ''
+    lines: [
+      {
+        id: '1',
+        description: '',
+        categoryId: '',
+        debit: '0.00',
+        credit: '0.00'
+      },
+      {
+        id: '2',
+        description: '',
+        categoryId: '',
+        debit: '0.00',
+        credit: '0.00'
+      }
+    ]
   });
   const [saving, setSaving] = useState(false);
+  
+  // New category modal state
+  const [newCategoryModal, setNewCategoryModal] = useState<{
+    isOpen: boolean;
+    name: string;
+    type: string;
+    parent_id: string | null;
+    lineId: string | null;
+  }>({
+    isOpen: false,
+    name: '',
+    type: 'Expense',
+    parent_id: null,
+    lineId: null
+  });
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(50); // Fixed items per page
+
+  // Category dropdown options
+  const categoryOptions: SelectOption[] = [
+    { value: '', label: 'Select category...' },
+    { value: 'add_new', label: '+ Add new category' },
+    ...categories.map(c => ({ value: c.id, label: c.name })),
+  ];
 
   useEffect(() => {
     if (hasCompanyContext) {
@@ -211,7 +263,7 @@ export default function JournalTablePage() {
     return `${formattedMonth}-${formattedDay}-${date.getUTCFullYear()}`;
   };
 
-  const formatAmount = (amount: number) => {
+  const formatAmountLocal = (amount: number) => {
     return amount ? `$${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '';
   };
 
@@ -379,14 +431,14 @@ export default function JournalTablePage() {
       
       // Search in debit amount (formatted) - handle split items
       const debitAmount = entry.is_split_item && entry.split_item_data?.spent ? 
-        formatAmount(parseFloat(entry.split_item_data.spent)) : 
-        formatAmount(entry.debit);
+        formatAmountLocal(parseFloat(entry.split_item_data.spent)) : 
+        formatAmountLocal(entry.debit);
       if (debitAmount.toLowerCase().includes(lowercaseSearch)) return true;
       
       // Search in credit amount (formatted) - handle split items
       const creditAmount = entry.is_split_item && entry.split_item_data?.received ? 
-        formatAmount(parseFloat(entry.split_item_data.received)) : 
-        formatAmount(entry.credit);
+        formatAmountLocal(parseFloat(entry.split_item_data.received)) : 
+        formatAmountLocal(entry.credit);
       if (creditAmount.toLowerCase().includes(lowercaseSearch)) return true;
       
       // Search in category name
@@ -501,39 +553,133 @@ export default function JournalTablePage() {
   const paginationData = getPaginatedData(sortedAndFilteredEntries, currentPage, itemsPerPage);
   const { paginatedData: displayedEntries, totalPages, totalItems } = paginationData;
 
+  const addJournalLine = () => {
+    const newLineId = (newEntry.lines.length + 1).toString();
+    setNewEntry(prev => ({
+      ...prev,
+      lines: [...prev.lines, {
+        id: newLineId,
+        description: '',
+        categoryId: '',
+        debit: '0.00',
+        credit: '0.00'
+      }]
+    }));
+  };
+
+  const removeJournalLine = (lineId: string) => {
+    if (newEntry.lines.length <= 2) return; // Minimum 2 lines
+    setNewEntry(prev => ({
+      ...prev,
+      lines: prev.lines.filter(line => line.id !== lineId)
+    }));
+  };
+
+  const updateJournalLine = (lineId: string, field: keyof JournalEntryLine, value: string) => {
+    setNewEntry(prev => ({
+      ...prev,
+      lines: prev.lines.map(line =>
+        line.id === lineId ? { ...line, [field]: value } : line
+      )
+    }));
+  };
+
+  const handleAmountChange = (lineId: string, field: 'debit' | 'credit', value: string) => {
+    const inputValue = value;
+    updateJournalLine(lineId, field, inputValue || '0.00');
+    
+    // Clear the opposite field when entering an amount
+    if (inputValue) {
+      const oppositeField = field === 'debit' ? 'credit' : 'debit';
+      updateJournalLine(lineId, oppositeField, '0.00');
+    }
+  };
+
+  const handleCreateCategory = async () => {
+    if (!newCategoryModal.name.trim() || !hasCompanyContext) return;
+
+    const result = await createCategoryForTransaction({
+      name: newCategoryModal.name.trim(),
+      type: newCategoryModal.type,
+      parent_id: newCategoryModal.parent_id || undefined
+    });
+
+    if (result.success && result.categoryId) {
+      // Set the newly created category to the journal line
+      if (newCategoryModal.lineId) {
+        updateJournalLine(newCategoryModal.lineId, 'categoryId', result.categoryId);
+      }
+
+      setNewCategoryModal({ 
+        isOpen: false, 
+        name: '', 
+        type: 'Expense', 
+        parent_id: null, 
+        lineId: null 
+      });
+    } else {
+      console.error('Error creating category:', result.error);
+    }
+  };
+
   const handleAddEntry = async () => {
     if (!currentCompany?.id) return;
     
     // Validation
-    const amount = parseFloat(newEntry.amount || '0');
-    
-    if (!newEntry.date || !newEntry.description) {
-      alert('Please fill in date and description');
+    if (!newEntry.date) {
+      alert('Please select a date');
       return;
     }
     
-    if (amount === 0) {
-      alert('Please enter a non-zero amount');
+    // Validate that we have at least one debit and one credit
+    const hasDebit = newEntry.lines.some(line => line.debit && !isZeroAmount(line.debit));
+    const hasCredit = newEntry.lines.some(line => line.credit && !isZeroAmount(line.credit));
+    
+    if (!hasDebit || !hasCredit) {
+      alert('Please enter both debit and credit amounts');
       return;
     }
-
-    if (!newEntry.categoryId) {
-      alert('Please select a category');
+    
+    // Calculate totals using financial utilities
+    const totalDebits = newEntry.lines.reduce((sum, line) => 
+      addAmounts(sum, line.debit || '0.00'), toFinancialAmount('0.00'));
+    const totalCredits = newEntry.lines.reduce((sum, line) => 
+      addAmounts(sum, line.credit || '0.00'), toFinancialAmount('0.00'));
+    
+    if (!isZeroAmount(subtractAmounts(totalDebits, totalCredits))) {
+      alert('Debits and credits must be equal');
       return;
+    }
+    
+    // Validate that each line has required fields
+    for (const line of newEntry.lines) {
+      const hasAmount = (line.debit && !isZeroAmount(line.debit)) || (line.credit && !isZeroAmount(line.credit));
+      if (hasAmount && !line.categoryId) {
+        alert('Please select a category for all lines with amounts');
+        return;
+      }
+      if (hasAmount && !line.description.trim()) {
+        alert('Please enter a description for all lines with amounts');
+        return;
+      }
     }
 
     try {
       setSaving(true);
       
-      // Create journal entry using the store function
+      // Create journal entries for each line
+      const entries = newEntry.lines.filter(line => 
+        (line.debit && !isZeroAmount(line.debit)) || (line.credit && !isZeroAmount(line.credit))
+      ).map(line => ({
+        account_id: line.categoryId,
+        amount: (line.debit && !isZeroAmount(line.debit)) ? parseAmount(line.debit).toNumber() : parseAmount(line.credit || '0.00').toNumber(),
+        type: (line.debit && !isZeroAmount(line.debit)) ? 'debit' as const : 'credit' as const
+      }));
+
       const entryData = {
         date: newEntry.date,
-        description: newEntry.description,
-        entries: [{
-          account_id: newEntry.categoryId,
-          amount: amount,
-          type: newEntry.type
-        }]
+        description: newEntry.lines[0]?.description || 'Journal Entry',
+        entries
       };
 
       const success = await saveJournalEntry(entryData, currentCompany.id);
@@ -545,10 +691,22 @@ export default function JournalTablePage() {
       // Reset form and close modal
       setNewEntry({
         date: new Date().toISOString().split('T')[0],
-        description: '',
-        amount: '',
-        type: 'debit',
-        categoryId: ''
+        lines: [
+          {
+            id: '1',
+            description: '',
+            categoryId: '',
+            debit: '0.00',
+            credit: '0.00'
+          },
+          {
+            id: '2',
+            description: '',
+            categoryId: '',
+            debit: '0.00',
+            credit: '0.00'
+          }
+        ]
       });
       setShowAddModal(false);
       
@@ -650,12 +808,12 @@ export default function JournalTablePage() {
                           formatDate(entry.date)
                         ) : col.key === 'debit' ? (
                           entry.is_split_item && entry.split_item_data?.spent ? 
-                            formatAmount(parseFloat(entry.split_item_data.spent)) : 
-                            formatAmount(entry.debit)
+                            formatAmountLocal(parseFloat(entry.split_item_data.spent)) : 
+                            formatAmountLocal(entry.debit)
                         ) : col.key === 'credit' ? (
                           entry.is_split_item && entry.split_item_data?.received ? 
-                            formatAmount(parseFloat(entry.split_item_data.received)) : 
-                            formatAmount(entry.credit)
+                            formatAmountLocal(parseFloat(entry.split_item_data.received)) : 
+                            formatAmountLocal(entry.credit)
                         ) : col.key === 'type' ? (
                           getAccountType(entry.chart_account_id)
                         ) : col.key === 'payee' ? (
@@ -696,7 +854,7 @@ export default function JournalTablePage() {
           onClick={() => setShowAddModal(false)}
         >
           <div 
-            className="bg-white rounded-lg p-6 w-[600px] overflow-y-auto shadow-xl"
+            className="bg-white rounded-lg p-6 w-[800px] overflow-y-auto shadow-xl"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex justify-between items-center mb-4">
@@ -709,80 +867,235 @@ export default function JournalTablePage() {
               </button>
             </div>
             
-            <div className="grid grid-cols-4 gap-2">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
-                <input
-                  type="date"
-                  value={newEntry.date}
-                  onChange={(e) => setNewEntry(prev => ({ ...prev, date: e.target.value }))}
-                  className="w-full border px-2 py-1 rounded text-xs"
-                  required
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                <input
-                  type="text"
-                  value={newEntry.description}
-                  onChange={(e) => setNewEntry(prev => ({ ...prev, description: e.target.value }))}
-                  className="w-full border px-2 py-1 rounded text-xs"
-                  placeholder="Enter description"
-                  required
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Amount</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={newEntry.amount}
-                  onChange={(e) => setNewEntry(prev => ({ ...prev, amount: e.target.value }))}
-                  className="w-full border px-2 py-1 rounded text-xs"
-                  placeholder="0.00"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
-                <select
-                  value={newEntry.type}
-                  onChange={(e) => setNewEntry(prev => ({ ...prev, type: e.target.value as 'debit' | 'credit' }))}
-                  className="w-full border px-2 py-1 rounded text-xs"
-                >
-                  <option value="debit">Debit</option>
-                  <option value="credit">Credit</option>
-                </select>
-              </div>
+            {/* Date selector */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Date selector</label>
+              <input
+                type="date"
+                value={newEntry.date}
+                onChange={(e) => setNewEntry(prev => ({ ...prev, date: e.target.value }))}
+                className="border px-3 py-2 rounded text-sm"
+                required
+              />
             </div>
             
-            <div className="mt-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
-                <select
-                  value={newEntry.categoryId}
-                  onChange={(e) => setNewEntry(prev => ({ ...prev, categoryId: e.target.value }))}
-                  className="w-full border px-2 py-1 rounded text-xs"
-                >
-                  <option value="">Select category...</option>
-                  {categories.map((account: Category) => (
-                    <option key={account.id} value={account.id}>
-                      {account.name} ({account.type})
-                    </option>
+            {/* Journal Entry Table */}
+            <div className="border rounded-lg overflow-hidden">
+              <table className="w-full border-collapse">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="border px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+                    <th className="border px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
+                    <th className="border px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Debit</th>
+                    <th className="border px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Credit</th>
+                    <th className="border px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-12">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white">
+                  {newEntry.lines.map((line) => (
+                    <tr key={line.id}>
+                      <td className="border px-4 py-2">
+                        <input
+                          type="text"
+                          value={line.description}
+                          onChange={(e) => updateJournalLine(line.id, 'description', e.target.value)}
+                          className="w-full border-0 px-0 py-0 text-xs focus:ring-0 focus:outline-none"
+                          placeholder="Enter description"
+                        />
+                      </td>
+                      <td className="border px-4 py-2">
+                        <Select
+                          options={categoryOptions}
+                          value={categoryOptions.find(opt => opt.value === line.categoryId) || categoryOptions[0]}
+                          onChange={(selectedOption) => {
+                            const option = selectedOption as SelectOption | null;
+                            if (option?.value === 'add_new') {
+                              setNewCategoryModal({
+                                isOpen: true,
+                                name: '',
+                                type: 'Expense',
+                                parent_id: null,
+                                lineId: line.id
+                              });
+                            } else {
+                              updateJournalLine(line.id, 'categoryId', option?.value || '');
+                            }
+                          }}
+                          isSearchable
+                          menuPortalTarget={document.body}
+                          styles={{
+                            control: (base) => ({
+                              ...base,
+                              border: 'none',
+                              boxShadow: 'none',
+                              minHeight: 'auto',
+                              fontSize: '12px',
+                              '&:hover': {
+                                border: 'none'
+                              }
+                            }),
+                            menu: (base) => ({ 
+                              ...base, 
+                              zIndex: 9999,
+                              fontSize: '12px'
+                            }),
+                            menuPortal: (base) => ({ 
+                              ...base, 
+                              zIndex: 9999 
+                            })
+                          }}
+                        />
+                      </td>
+                      <td className="border px-4 py-2">
+                        <input
+                          type="text"
+                          value={(() => {
+                            const debit = line.debit;
+                            return (debit && !isZeroAmount(debit)) ? debit : '';
+                          })()}
+                          onChange={(e) => handleAmountChange(line.id, 'debit', e.target.value)}
+                          className="w-full border-0 px-0 py-0 text-xs text-right focus:ring-0 focus:outline-none"
+                          placeholder="0.00"
+                        />
+                      </td>
+                      <td className="border px-4 py-2">
+                        <input
+                          type="text"
+                          value={(() => {
+                            const credit = line.credit;
+                            return (credit && !isZeroAmount(credit)) ? credit : '';
+                          })()}
+                          onChange={(e) => handleAmountChange(line.id, 'credit', e.target.value)}
+                          className="w-full border-0 px-0 py-0 text-xs text-right focus:ring-0 focus:outline-none"
+                          placeholder="0.00"
+                        />
+                      </td>
+                      <td className="border px-4 py-2 text-center">
+                        {newEntry.lines.length > 2 && (
+                          <button
+                            onClick={() => removeJournalLine(line.id)}
+                            className="text-red-500 hover:text-red-700 text-xs"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
                   ))}
-                </select>
-              </div>
+                </tbody>
+              </table>
             </div>
             
-            <div className="flex justify-end mt-6">
+            <div className="flex justify-between items-center mt-4">
+              <button
+                onClick={addJournalLine}
+                className="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded border"
+              >
+                Add lines
+              </button>
+              
               <button
                 onClick={handleAddEntry}
                 disabled={saving}
                 className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800 disabled:opacity-50"
               >
-                {saving ? 'Adding...' : 'Add Entry'}
+                {saving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* New Category Modal */}
+      {newCategoryModal.isOpen && (
+        <div 
+          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
+          onClick={() => setNewCategoryModal({ isOpen: false, name: '', type: 'Expense', parent_id: null, lineId: null })}
+        >
+          <div 
+            className="bg-white rounded-lg p-6 w-[400px] overflow-y-auto shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold">Add New Category</h2>
+              <button
+                onClick={() => setNewCategoryModal({ isOpen: false, name: '', type: 'Expense', parent_id: null, lineId: null })}
+                className="text-gray-500 hover:text-gray-700 text-xl"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Category Name
+                </label>
+                <input
+                  type="text"
+                  value={newCategoryModal.name}
+                  onChange={(e) => setNewCategoryModal(prev => ({
+                    ...prev,
+                    name: e.target.value
+                  }))}
+                  className="w-full border px-2 py-1 rounded"
+                  placeholder="Enter category name"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Type
+                </label>
+                <select
+                  value={newCategoryModal.type}
+                  onChange={(e) => setNewCategoryModal(prev => ({
+                    ...prev,
+                    type: e.target.value
+                  }))}
+                  className="w-full border px-2 py-1 rounded"
+                >
+                  <option value="Expense">Expense</option>
+                  <option value="Revenue">Revenue</option>
+                  <option value="Asset">Asset</option>
+                  <option value="Liability">Liability</option>
+                  <option value="Equity">Equity</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Parent Account (Optional)
+                </label>
+                <Select
+                  options={[
+                    { value: '', label: 'None' },
+                    ...categories
+                      .filter(c => c.type === newCategoryModal.type)
+                      .map(c => ({ value: c.id, label: c.name }))
+                  ]}
+                  value={newCategoryModal.parent_id ? 
+                    { value: newCategoryModal.parent_id, label: categories.find(c => c.id === newCategoryModal.parent_id)?.name || '' } :
+                    { value: '', label: 'None' }
+                  }
+                  onChange={(selectedOption) => {
+                    const option = selectedOption as SelectOption | null;
+                    setNewCategoryModal(prev => ({
+                      ...prev,
+                      parent_id: option?.value || null
+                    }));
+                  }}
+                  isSearchable
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end mt-6">
+              <button
+                onClick={handleCreateCategory}
+                className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
+              >
+                Create
               </button>
             </div>
           </div>
