@@ -220,9 +220,9 @@ export default function JournalTablePage() {
     { key: 'date', label: 'Date', sortable: true },
     { key: 'description', label: 'Description', sortable: true },
     { key: 'type', label: 'Type', isCustom: true, sortable: true },
-    { key: 'payee', label: 'Payee', isCustom: true, sortable: true },
     { key: 'debit', label: 'Debit', sortable: true },
-    { key: 'credit', label: 'Credit', sortable: true }
+    { key: 'credit', label: 'Credit', sortable: true },
+    { key: 'payee', label: 'Payee', isCustom: true, sortable: true }
   ];
 
   // Get all available columns from entries to include any additional fields
