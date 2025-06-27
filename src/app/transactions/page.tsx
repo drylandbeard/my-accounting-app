@@ -1256,57 +1256,97 @@ export default function TransactionsPage() {
           return;
         }
 
-        // For now, store splits in the transaction object to pass to the store
+        // For split transactions, update with split data and then move to "Added" table
         const transactionWithSplits = {
           ...updatedTransaction,
           splits: editModal.splits
         };
 
-        // Use the store function to update the transaction with splits
-        const success = await updateTransaction(
+        // First update the transaction with split data in the "To Add" table
+        const updateSuccess = await updateTransaction(
           editModal.transaction.id,
           transactionWithSplits,
           currentCompany!.id
         );
 
-        if (success) {
-          setEditModal({ isOpen: false, transaction: null, splits: [], isSplitMode: false, isUpdating: false, validationError: null });
-          setNotification({ type: 'success', message: 'Split transaction updated successfully' });
-        } else {
+        if (!updateSuccess) {
           setEditModal(prev => ({ ...prev, isUpdating: false, validationError: 'Failed to update transaction. Please try again.' }));
+          return;
         }
+
+        // Then move the split transaction to "Added" table
+        // For split transactions, we use the first split category as the selected category
+        // The move-to-added API will handle creating proper journal entries for all splits
+        const firstSplitCategory = editModal.splits[0].selected_category_id;
+        const correspondingCategoryId = selectedAccountIdInCOA;
+
+        if (!correspondingCategoryId) {
+          setEditModal(prev => ({ ...prev, isUpdating: false, validationError: 'No account category found for selected account' }));
+          return;
+        }
+
+        const transactionRequest = {
+          transaction: { ...editModal.transaction, ...transactionWithSplits },
+          selectedCategoryId: firstSplitCategory,
+          selectedPayeeId: updatedTransaction.payee_id
+        };
+
+        await addTransactions([transactionRequest], correspondingCategoryId, currentCompany!.id);
+
+        setEditModal({ isOpen: false, transaction: null, splits: [], isSplitMode: false, isUpdating: false, validationError: null });
+        setNotification({ type: 'success', message: 'Split transaction added successfully' });
+        
+        // Remove from selected to add and clear state
+        if (selectedToAdd.has(editModal.transaction.id)) {
+          setSelectedToAdd(prev => {
+            const next = new Set(prev);
+            next.delete(editModal.transaction.id);
+            return next;
+          });
+        }
+        setSelectedCategories(prev => {
+          const copy = { ...prev };
+          delete copy[editModal.transaction.id];
+          return copy;
+        });
+        setSelectedPayees(prev => {
+          const copy = { ...prev };
+          delete copy[editModal.transaction.id];
+          return copy;
+        });
+
       } else {
         // Handle regular (non-split) transaction update
-      const spent = updatedTransaction.spent ?? '0.00';
-      const received = updatedTransaction.received ?? '0.00';
-      
-      if (isPositiveAmount(spent) && isPositiveAmount(received)) {
-        setEditModal(prev => ({ ...prev, isUpdating: false, validationError: 'A transaction cannot have both spent and received amounts. Please enter only one.' }));
-        return;
-      }
+        const spent = updatedTransaction.spent ?? '0.00';
+        const received = updatedTransaction.received ?? '0.00';
+        
+        if (isPositiveAmount(spent) && isPositiveAmount(received)) {
+          setEditModal(prev => ({ ...prev, isUpdating: false, validationError: 'A transaction cannot have both spent and received amounts. Please enter only one.' }));
+          return;
+        }
 
-      if (isZeroAmount(spent) && isZeroAmount(received)) {
-        setEditModal(prev => ({ ...prev, isUpdating: false, validationError: 'A transaction must have either a spent or received amount.' }));
-        return;
-      }
+        if (isZeroAmount(spent) && isZeroAmount(received)) {
+          setEditModal(prev => ({ ...prev, isUpdating: false, validationError: 'A transaction must have either a spent or received amount.' }));
+          return;
+        }
 
-      // Find the category based on the selected category ID
-      const category = categories.find(c => c.id === updatedTransaction.selected_category_id);
-      if (!category) {
-        setEditModal(prev => ({ ...prev, isUpdating: false, validationError: 'Selected category not found' }));
-        return;
-      }
+        // Find the category based on the selected category ID
+        const category = categories.find(c => c.id === updatedTransaction.selected_category_id);
+        if (!category) {
+          setEditModal(prev => ({ ...prev, isUpdating: false, validationError: 'Selected category not found' }));
+          return;
+        }
 
-      // Use the store function to update the transaction
-      const success = await updateTransaction(
-        editModal.transaction.id,
-        updatedTransaction,
-        currentCompany!.id
-      );
+        // Use the store function to update the transaction
+        const success = await updateTransaction(
+          editModal.transaction.id,
+          updatedTransaction,
+          currentCompany!.id
+        );
 
-      if (success) {
-        setEditModal({ isOpen: false, transaction: null, splits: [], isSplitMode: false, isUpdating: false, validationError: null });
-        setNotification({ type: 'success', message: 'Transaction updated successfully' });
+        if (success) {
+          setEditModal({ isOpen: false, transaction: null, splits: [], isSplitMode: false, isUpdating: false, validationError: null });
+          setNotification({ type: 'success', message: 'Transaction updated successfully' });
         } else {
           setEditModal(prev => ({ ...prev, isUpdating: false, validationError: 'Failed to update transaction. Please try again.' }));
         }
@@ -2225,398 +2265,6 @@ export default function TransactionsPage() {
                 )}
               </div>
             )}
-          </div>
-        </div>
-      )}
-
-      {/* Edit Transaction Modal */}
-      {editModal.isOpen && editModal.transaction && (
-        <div 
-          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
-                          onClick={() => setEditModal({ isOpen: false, transaction: null, splits: [], isSplitMode: false, isUpdating: false, validationError: null })}
-        >
-          <div 
-            className="bg-white rounded-lg p-6 w-[900px] overflow-y-auto shadow-xl"
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Edit Transaction</h2>
-              <button
-                onClick={() => setEditModal({ isOpen: false, transaction: null, splits: [], isSplitMode: false, isUpdating: false, validationError: null })}
-                className="text-gray-500 hover:text-gray-700 text-xl"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Validation Error Display */}
-            {editModal.validationError && (
-              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-                <div className="flex">
-                  <div className="ml-3">
-                    <p className="text-sm text-red-700">
-                      {editModal.validationError}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className="grid grid-cols-7 gap-2">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Date
-                </label>
-                <input
-                  type="date"
-                  value={editModal.transaction.date}
-                  onChange={(e) => setEditModal(prev => ({
-                    ...prev,
-                    transaction: prev.transaction ? {
-                      ...prev.transaction,
-                      date: e.target.value
-                    } : null
-                  }))}
-                  className="w-full border px-2 py-1 rounded text-xs"
-                />
-              </div>
-
-              <div className="col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Description
-                </label>
-                <input
-                  type="text"
-                  value={editModal.transaction.description}
-                  onChange={(e) => setEditModal(prev => ({
-                    ...prev,
-                    transaction: prev.transaction ? {
-                      ...prev.transaction,
-                      description: e.target.value
-                    } : null
-                  }))}
-                  className="w-full border px-2 py-1 rounded text-xs"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Spent
-                </label>
-                <input
-                  type="text"
-                  value={(() => {
-                    const spent = editModal.transaction.spent;
-                    return (spent && !isZeroAmount(spent)) ? spent : '';
-                  })()}
-                  onChange={(e) => {
-                    const inputValue = e.target.value;
-                    setEditModal(prev => ({
-                      ...prev,
-                      transaction: prev.transaction ? {
-                        ...prev.transaction,
-                        spent: inputValue || '0.00',
-                        // Clear received when spent has a positive value
-                        received: inputValue && isPositiveAmount(inputValue) ? '0.00' : prev.transaction.received
-                      } : null
-                    }));
-                  }}
-                  placeholder="0.00"
-                  disabled={!!(editModal.transaction.received && isPositiveAmount(editModal.transaction.received))}
-                  className={`w-full border px-2 py-1 rounded text-xs ${
-                    editModal.transaction.received && isPositiveAmount(editModal.transaction.received)
-                      ? 'bg-gray-100 text-gray-500'
-                      : ''
-                  }`}
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Received
-                </label>
-                <input
-                  type="text"
-                  value={(() => {
-                    const received = editModal.transaction.received;
-                    return (received && !isZeroAmount(received)) ? received : '';
-                  })()}
-                  onChange={(e) => {
-                    const inputValue = e.target.value;
-                    setEditModal(prev => ({
-                      ...prev,
-                      transaction: prev.transaction ? {
-                        ...prev.transaction,
-                        received: inputValue || '0.00',
-                        // Clear spent when received has a positive value
-                        spent: inputValue && isPositiveAmount(inputValue) ? '0.00' : prev.transaction.spent
-                      } : null
-                    }));
-                  }}
-                  placeholder="0.00"
-                  disabled={!!(editModal.transaction.spent && isPositiveAmount(editModal.transaction.spent))}
-                  className={`w-full border px-2 py-1 rounded text-xs ${
-                    editModal.transaction.spent && isPositiveAmount(editModal.transaction.spent)
-                      ? 'bg-gray-100 text-gray-500'
-                      : ''
-                  }`}
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Payee
-                </label>
-                                                  <Select
-                  options={payeeOptions}
-                  value={payeeOptions.find(opt => opt.value === editModal.transaction?.payee_id) || payeeOptions[0]}
-                  onChange={(selectedOption) => {
-                    const option = selectedOption as SelectOption | null;
-                    if (option?.value === 'add_new') {
-                      setNewPayeeModal({ 
-                        isOpen: true, 
-                        name: '', 
-                        transactionId: editModal.transaction?.id || null
-                      });
-                    } else if (editModal.transaction) {
-                      setEditModal(prev => ({
-                        ...prev,
-                        transaction: prev.transaction ? {
-                          ...prev.transaction,
-                          payee_id: option?.value === '' ? undefined : option?.value
-                        } : null
-                      }));
-                    }
-                  }}
-                  isSearchable
-                  menuPortalTarget={document.body}
-                  styles={{
-                    menuPortal: (base) => ({ ...base, zIndex: 9999 }),
-                    menu: (base) => ({ ...base, zIndex: 9999 })
-                  }}
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Category
-                </label>
-                <Select
-                  options={categoryOptions}
-                  value={categoryOptions.find(opt => {
-                    const isAccountDebit = editModal.transaction?.selected_category_id === selectedAccountIdInCOA;
-                    const categoryId = isAccountDebit ? editModal.transaction?.corresponding_category_id : editModal.transaction?.selected_category_id;
-                    return opt.value === categoryId;
-                  })}
-                  onChange={(selectedOption) => {
-                    const option = selectedOption as SelectOption | null;
-                    if (option?.value === 'add_new') {
-                      // Determine default category type based on transaction
-                      const defaultType = editModal.transaction?.received && isPositiveAmount(editModal.transaction.received) ? 'Revenue' : 'Expense';
-                      setNewCategoryModal({ 
-                        isOpen: true, 
-                        name: '', 
-                        type: defaultType, 
-                        parent_id: null, 
-                        transactionId: editModal.transaction?.id || null
-                      });
-                    } else if (option && editModal.transaction) {
-                      const updatedTransaction = { ...editModal.transaction };
-                      const isAccountDebit = updatedTransaction.selected_category_id === selectedAccountIdInCOA;
-                      if (isAccountDebit) {
-                        updatedTransaction.corresponding_category_id = option.value;
-                      } else {
-                        updatedTransaction.selected_category_id = option.value;
-                      }
-                      setEditModal(prev => ({
-                        ...prev,
-                        transaction: updatedTransaction
-                      }));
-                    }
-                  }}
-                  isSearchable
-                  menuPortalTarget={document.body}
-                  styles={{
-                    menuPortal: (base) => ({ ...base, zIndex: 9999 }),
-                    menu: (base) => ({ ...base, zIndex: 9999 })
-                  }}
-                />
-              </div>
-            </div>
-
-            {/* Split Mode UI */}
-            {editModal.isSplitMode && (
-              <div className="mt-6 space-y-4">
-                                <div className="flex justify-between items-center">
-                  <h3 className="text-lg font-semibold">Split Transaction</h3>
-                </div>
-
-                <div className="border rounded-lg overflow-hidden">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
-                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Spent</th>
-                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Received</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Payee</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
-                        <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                                             {editModal.splits.map((split) => (
-                        <tr key={split.id}>
-                          <td className="px-4 py-2">
-                            <input
-                              type="date"
-                              value={split.date}
-                              onChange={(e) => updateSplitItem(split.id, { date: e.target.value })}
-                              className="w-full border px-2 py-1 rounded text-xs"
-                            />
-                          </td>
-                          <td className="px-4 py-2">
-                            <input
-                              type="text"
-                              value={split.description}
-                              onChange={(e) => updateSplitItem(split.id, { description: e.target.value })}
-                              className="w-full border px-2 py-1 rounded text-xs"
-                              placeholder="Description"
-                            />
-                          </td>
-                          <td className="px-4 py-2">
-                            <input
-                              type="text"
-                              value={(() => {
-                                const spent = split.spent;
-                                return (spent && !isZeroAmount(spent)) ? spent : '';
-                              })()}
-                              onChange={(e) => {
-                                const inputValue = e.target.value;
-                                updateSplitItem(split.id, {
-                                  spent: inputValue || '0.00'
-                                });
-                              }}
-                              placeholder="0.00"
-                              className="w-full border px-2 py-1 rounded text-xs text-right"
-                            />
-                          </td>
-                          <td className="px-4 py-2">
-                            <input
-                              type="text"
-                              value={(() => {
-                                const received = split.received;
-                                return (received && !isZeroAmount(received)) ? received : '';
-                              })()}
-                              onChange={(e) => {
-                                const inputValue = e.target.value;
-                                updateSplitItem(split.id, {
-                                  received: inputValue || '0.00'
-                                });
-                              }}
-                              placeholder="0.00"
-                              className="w-full border px-2 py-1 rounded text-xs text-right"
-                            />
-                          </td>
-                          <td className="px-4 py-2" style={{ minWidth: 150 }}>
-                            <Select
-                              options={payeeOptions}
-                              value={payeeOptions.find(opt => opt.value === split.payee_id) || payeeOptions[0]}
-                              onChange={(selectedOption) => {
-                                const option = selectedOption as SelectOption | null;
-                                if (option?.value === 'add_new') {
-                                  setNewPayeeModal({ 
-                                    isOpen: true, 
-                                    name: '', 
-                                    transactionId: split.id 
-                                  });
-                                } else {
-                                  updateSplitItem(split.id, { payee_id: option?.value === '' ? undefined : option?.value });
-                                }
-                              }}
-                              isSearchable
-                              menuPortalTarget={document.body}
-                              styles={{
-                                menuPortal: (base) => ({ ...base, zIndex: 9999 }),
-                                menu: (base) => ({ ...base, zIndex: 9999 })
-                              }}
-                            />
-                          </td>
-                          <td className="px-4 py-2" style={{ minWidth: 150 }}>
-                            <Select
-                              options={categoryOptions}
-                              value={categoryOptions.find(opt => opt.value === split.selected_category_id) || categoryOptions[0]}
-                              onChange={(selectedOption) => {
-                                const option = selectedOption as SelectOption | null;
-                                if (option?.value === 'add_new') {
-                                  // Determine default category type based on split
-                                  const defaultType = split.received && isPositiveAmount(split.received) ? 'Revenue' : 'Expense';
-                                  setNewCategoryModal({ 
-                                    isOpen: true, 
-                                    name: '', 
-                                    type: defaultType, 
-                                    parent_id: null, 
-                                    transactionId: split.id 
-                                  });
-                                } else {
-                                  updateSplitItem(split.id, { selected_category_id: option?.value === '' ? undefined : option?.value });
-                                }
-                              }}
-                              isSearchable
-                              menuPortalTarget={document.body}
-                              styles={{
-                                menuPortal: (base) => ({ ...base, zIndex: 9999 }),
-                                menu: (base) => ({ ...base, zIndex: 9999 })
-                              }}
-                            />
-                          </td>
-                          <td className="px-4 py-2 text-center">
-                            <button
-                              onClick={() => removeSplitItem(split.id)}
-                              disabled={editModal.splits.length === 1}
-                              className="text-red-600 hover:text-red-800 disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              ×
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            <div className="flex justify-between mt-6">
-              <div className="flex gap-2">
-                <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    if (!editModal.isSplitMode) {
-                      enterSplitMode();
-                    } else {
-                      addSplitItem();
-                    }
-                  }}
-                  disabled={editModal.isSplitMode && editModal.splits.length >= 30}
-                  className="px-4 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50"
-                >
-                  Split
-                </button>
-              </div>
-              <button
-                onClick={() => editModal.transaction && handleEditTransaction(editModal.transaction)}
-                disabled={editModal.isUpdating}
-                className={`px-4 py-2 text-sm rounded ${
-                  editModal.isUpdating 
-                    ? 'bg-gray-500 cursor-not-allowed' 
-                    : 'bg-gray-900 hover:bg-gray-800'
-                } text-white flex items-center space-x-2`}
-              >
-                {editModal.isUpdating && <Loader2 className="h-3 w-3 animate-spin" />}
-                <span>{editModal.isUpdating ? 'Updating...' : 'Update'}</span>
-              </button>
-            </div>
           </div>
         </div>
       )}
