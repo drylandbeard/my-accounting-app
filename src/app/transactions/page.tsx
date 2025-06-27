@@ -7,13 +7,13 @@ import { usePlaidLink } from 'react-plaid-link'
 import Papa from 'papaparse'
 import { v4 as uuidv4 } from 'uuid'
 import { X, Loader2 } from 'lucide-react'
+import Select from 'react-select'
 import { useAuthStore } from '@/zustand/authStore'
 import { useTransactionsStore, Transaction as StoreTransaction, SplitData as StoreSplitData } from '@/zustand/transactionsStore'
 import { useCategoriesStore } from '@/zustand/categoriesStore'
 import { usePayeesStore } from '@/zustand/payeesStore'
 import { api } from '@/lib/api'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { Select } from '@/components/ui/select'
 import { 
   Pagination,
   PaginationContent,
@@ -447,25 +447,34 @@ export default function TransactionsPage() {
     entry: null
   });
 
-  // Add journal entry view/edit modal state
-  const [journalEntryViewModal, setJournalEntryViewModal] = useState<{
+  // Add journal entry view/edit modal state - updated to match manual-je format
+  const [editJournalModal, setEditJournalModal] = useState<{
     isOpen: boolean;
     transaction: Transaction | null;
-    journalEntries: {
-      id: string;
+    editEntry: {
       date: string;
-      description: string;
-      debit: number;
-      credit: number;
-      chart_account_id: string;
-      chart_account_name: string;
-    }[];
+      jeName: string;
+      lines: {
+        id: string;
+        description: string;
+        categoryId: string;
+        payeeId: string;
+        debit: string;
+        credit: string;
+      }[];
+    };
+    saving: boolean;
     isLoading: boolean;
     error: string | null;
   }>({
     isOpen: false,
     transaction: null,
-    journalEntries: [],
+    editEntry: {
+      date: '',
+      jeName: '',
+      lines: []
+    },
+    saving: false,
     isLoading: false,
     error: null
   });
@@ -1411,8 +1420,12 @@ export default function TransactionsPage() {
     if (result.success && result.categoryId) {
       // After creating the category, set it as selected for the current transaction or all selected transactions
       if (newCategoryModal.transactionId) {
+        // Check if this is for the edit journal modal
+        if (editJournalModal.isOpen) {
+          updateEditJournalLine(newCategoryModal.transactionId, 'categoryId', result.categoryId);
+        }
         // Check if this is for the edit modal
-        if (editModal.isOpen && editModal.transaction?.id === newCategoryModal.transactionId) {
+        else if (editModal.isOpen && editModal.transaction?.id === newCategoryModal.transactionId) {
           setEditModal(prev => ({
             ...prev,
             transaction: prev.transaction ? {
@@ -1908,11 +1921,11 @@ export default function TransactionsPage() {
     }
   };
 
-  // Function to fetch journal entries for a transaction
-  const fetchJournalEntriesForTransaction = async (transaction: Transaction) => {
+  // Function to fetch journal entries for a transaction and convert to edit format
+  const fetchJournalEntriesForEdit = async (transaction: Transaction) => {
     if (!hasCompanyContext) return;
 
-    setJournalEntryViewModal(prev => ({ ...prev, isLoading: true, error: null }));
+    setEditJournalModal(prev => ({ ...prev, isLoading: true, error: null }));
 
     try {
       const response = await api.get(`/api/journal/entries?transaction_id=${transaction.id}`);
@@ -1923,30 +1936,37 @@ export default function TransactionsPage() {
 
       const data = await response.json();
       
-      // Map the journal entries to include account names
-      const journalEntriesWithNames = data.entries.map((entry: {
+      // Convert journal entries to edit line format
+      const editLines = data.entries.map((entry: {
         id: string;
         chart_account_id: string;
         debit: number;
         credit: number;
+        description?: string;
+        transactions?: { payee_id?: string };
         [key: string]: unknown;
-      }) => {
-        const category = categories.find(c => c.id === entry.chart_account_id);
-        return {
-          ...entry,
-          chart_account_name: category ? category.name : 'Unknown Account'
-        };
-      });
+      }, index: number) => ({
+        id: (index + 1).toString(),
+        description: entry.description || transaction.description || '',
+        categoryId: entry.chart_account_id || '',
+        payeeId: entry.transactions?.payee_id || '',
+        debit: entry.debit > 0 ? entry.debit.toString() : '0.00',
+        credit: entry.credit > 0 ? entry.credit.toString() : '0.00'
+      }));
 
-      setJournalEntryViewModal(prev => ({
+      setEditJournalModal(prev => ({
         ...prev,
         transaction,
-        journalEntries: journalEntriesWithNames,
+        editEntry: {
+          date: transaction.date,
+          jeName: transaction.description || '',
+          lines: editLines
+        },
         isLoading: false
       }));
     } catch (error) {
       console.error('Error fetching journal entries:', error);
-      setJournalEntryViewModal(prev => ({
+      setEditJournalModal(prev => ({
         ...prev,
         error: 'Failed to fetch journal entries',
         isLoading: false
@@ -1956,132 +1976,159 @@ export default function TransactionsPage() {
 
   // Function to open journal entry modal
   const openJournalEntryModal = (transaction: Transaction) => {
-    setJournalEntryViewModal(prev => ({
+    setEditJournalModal(prev => ({
       ...prev,
       isOpen: true,
       transaction,
-      journalEntries: [],
+      editEntry: {
+        date: '',
+        jeName: '',
+        lines: []
+      },
+      saving: false,
       isLoading: false,
       error: null
     }));
-    fetchJournalEntriesForTransaction(transaction);
+    fetchJournalEntriesForEdit(transaction);
   };
 
   // Function to add a new journal entry line for splitting
-  const addJournalViewLine = () => {
-    setJournalEntryViewModal(prev => {
-      const entries = [...prev.journalEntries];
-      
-      // Insert new entry before the last entry (which should be the bank account)
-      // This way new lines appear between the selected category and bank account
-      const insertIndex = Math.max(0, entries.length - 1);
-      
-      const newEntry = {
-        id: `new-${Date.now()}`, // Temporary ID for new entries
-        date: prev.transaction?.date || '',
-        description: prev.transaction?.description || '',
-        debit: 0,
-        credit: 0,
-        chart_account_id: '',
-        chart_account_name: ''
-      };
-      
-      entries.splice(insertIndex, 0, newEntry);
-      
-      return {
-        ...prev,
-        journalEntries: entries
-      };
-    });
+  const addEditJournalLine = () => {
+    const newLineId = (editJournalModal.editEntry.lines.length + 1).toString();
+    setEditJournalModal(prev => ({
+      ...prev,
+      editEntry: {
+        ...prev.editEntry,
+        lines: [...prev.editEntry.lines, {
+          id: newLineId,
+          description: '',
+          categoryId: '',
+          payeeId: '',
+          debit: '0.00',
+          credit: '0.00'
+        }]
+      }
+    }));
   };
 
-  // Function to remove a journal entry line
-  const removeJournalViewLine = (index: number) => {
-    setJournalEntryViewModal(prev => ({
+  // Function to update a journal entry line
+  const updateEditJournalLine = (lineId: string, field: keyof { id: string; description: string; categoryId: string; payeeId: string; debit: string; credit: string; }, value: string) => {
+    setEditJournalModal(prev => ({
       ...prev,
-      journalEntries: prev.journalEntries.filter((_, i) => i !== index)
+      editEntry: {
+        ...prev.editEntry,
+        lines: prev.editEntry.lines.map(line =>
+          line.id === lineId ? { ...line, [field]: value } : line
+        )
+      }
     }));
+  };
+
+  // Function to handle amount changes with mutual exclusion
+  const handleEditJournalAmountChange = (lineId: string, field: 'debit' | 'credit', value: string) => {
+    const inputValue = value;
+    updateEditJournalLine(lineId, field, inputValue || '0.00');
+    
+    // Clear the opposite field when entering an amount
+    if (inputValue) {
+      const oppositeField = field === 'debit' ? 'credit' : 'debit';
+      updateEditJournalLine(lineId, oppositeField, '0.00');
+    }
+  };
+
+  // Calculate totals for edit modal validation and display
+  const calculateEditJournalTotals = () => {
+    const totalDebits = editJournalModal.editEntry.lines.reduce((sum, line) => {
+      const debit = parseFloat(line.debit) || 0;
+      return sum + debit;
+    }, 0);
+
+    const totalCredits = editJournalModal.editEntry.lines.reduce((sum, line) => {
+      const credit = parseFloat(line.credit) || 0;
+      return sum + credit;
+    }, 0);
+
+    return { totalDebits, totalCredits };
   };
 
   // Function to save journal entry changes
   const saveJournalEntryChanges = async () => {
-    if (!journalEntryViewModal.transaction || !hasCompanyContext) return;
+    if (!editJournalModal.transaction || !hasCompanyContext) return;
 
-    // Need at least one journal entry to get the journal entry ID
-    if (journalEntryViewModal.journalEntries.length === 0) {
-      setJournalEntryViewModal(prev => ({
-        ...prev,
-        error: 'No journal entries to update'
-      }));
+    // Validation
+    if (!editJournalModal.editEntry.date) {
+      setEditJournalModal(prev => ({ ...prev, error: 'Please select a date' }));
       return;
     }
-
-    // Validate that debits equal credits
-    const totalDebits = journalEntryViewModal.journalEntries.reduce((sum, entry) => sum + (entry.debit || 0), 0);
-    const totalCredits = journalEntryViewModal.journalEntries.reduce((sum, entry) => sum + (entry.credit || 0), 0);
-
-    if (Math.abs(totalDebits - totalCredits) > 0.01) {
-      setJournalEntryViewModal(prev => ({
-        ...prev,
-        error: 'Total debits must equal total credits'
-      }));
-      return;
-    }
-
-    // Validate that all entries have accounts selected
-    const invalidEntries = journalEntryViewModal.journalEntries.filter(entry => !entry.chart_account_id);
-    if (invalidEntries.length > 0) {
-      setJournalEntryViewModal(prev => ({
-        ...prev,
-        error: 'All journal entries must have an account selected'
-      }));
-      return;
-    }
-
-    setJournalEntryViewModal(prev => ({ ...prev, isLoading: true, error: null }));
 
     try {
-      // Convert journal entries back to the format expected by the update API
-      const entries = journalEntryViewModal.journalEntries.map(entry => ({
-        account_id: entry.chart_account_id,
-        amount: entry.debit > 0 ? entry.debit : entry.credit,
-        type: entry.debit > 0 ? 'debit' as const : 'credit' as const
-      }));
+      setEditJournalModal(prev => ({ ...prev, saving: true, error: null }));
+      
+      // Basic validation - at least one debit and one credit line
+      const hasValidLines = editJournalModal.editEntry.lines.some(line => 
+        (line.debit && parseFloat(line.debit) > 0) || (line.credit && parseFloat(line.credit) > 0)
+      );
+      
+      if (!hasValidLines) {
+        setEditJournalModal(prev => ({ ...prev, error: 'Please enter at least one debit or credit amount', saving: false }));
+        return;
+      }
 
-      // Check if this transaction has been split (more than 2 journal entries)
-      const hasSplit = journalEntryViewModal.journalEntries.length > 2;
+      // Validation - debits must equal credits
+      const { totalDebits, totalCredits } = calculateEditJournalTotals();
+      const isBalanced = Math.abs(totalDebits - totalCredits) < 0.01;
+      
+      if (!isBalanced) {
+        setEditJournalModal(prev => ({ ...prev, error: 'Total debits must equal total credits', saving: false }));
+        return;
+      }
 
-      // Use the first journal entry's ID (the API will update all entries for this transaction)
-      const journalEntryId = journalEntryViewModal.journalEntries[0].id;
+      // Validate that all lines with amounts have categories selected
+      const invalidLines = editJournalModal.editEntry.lines.filter(line => {
+        const hasAmount = (parseFloat(line.debit) > 0) || (parseFloat(line.credit) > 0);
+        return hasAmount && !line.categoryId;
+      });
+      
+      if (invalidLines.length > 0) {
+        setEditJournalModal(prev => ({ ...prev, error: 'All lines with amounts must have a category selected', saving: false }));
+        return;
+      }
 
+      // Convert lines back to journal entry format for API
+      const entries = editJournalModal.editEntry.lines
+        .filter(line => (parseFloat(line.debit) > 0) || (parseFloat(line.credit) > 0))
+        .map(line => ({
+          account_id: line.categoryId,
+          amount: parseFloat(line.debit) > 0 ? parseFloat(line.debit) : parseFloat(line.credit),
+          type: parseFloat(line.debit) > 0 ? 'debit' as const : 'credit' as const
+        }));
+
+      // Get the transaction ID to find the journal entry
       const response = await api.put('/api/journal/update', {
-        id: journalEntryId, // Use a journal entry ID, not the transaction ID
-        date: journalEntryViewModal.transaction.date,
-        description: journalEntryViewModal.transaction.description,
+        id: editJournalModal.transaction.id, // Use transaction ID
+        date: editJournalModal.editEntry.date,
+        description: editJournalModal.editEntry.jeName || editJournalModal.transaction.description,
         transactions: entries,
-        hasSplit: hasSplit // Pass split information to the API
+        hasSplit: entries.length > 2
       });
 
       if (!response.ok) {
         throw new Error('Failed to update journal entries');
       }
 
-      // Refresh the journal entries
-      await fetchJournalEntriesForTransaction(journalEntryViewModal.transaction);
-      
       // Refresh all data
       await refreshAll(currentCompany!.id);
       
       setNotification({ type: 'success', message: 'Journal entries updated successfully!' });
       
       // Close the modal after successful save
-      setJournalEntryViewModal(prev => ({ ...prev, isOpen: false }));
+      setEditJournalModal(prev => ({ ...prev, isOpen: false }));
     } catch (error) {
       console.error('Error updating journal entries:', error);
-      setJournalEntryViewModal(prev => ({
+      setEditJournalModal(prev => ({
         ...prev,
         error: 'Failed to update journal entries',
-        isLoading: false
+        saving: false
       }));
     }
   };
@@ -4061,193 +4108,290 @@ export default function TransactionsPage() {
         </div>
       )}
 
-      {/* Journal Entry View Modal */}
-      {journalEntryViewModal.isOpen && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50 p-4">
-          <div className="bg-white rounded-lg p-6 w-[800px] max-h-[90vh] overflow-y-auto shadow-xl">
+      {/* Edit Journal Entry Modal - Updated to match manual-je format */}
+      {editJournalModal.isOpen && (
+        <div 
+          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
+          onClick={() => setEditJournalModal(prev => ({ ...prev, isOpen: false }))}
+        >
+          <div 
+            className="bg-white rounded-lg p-6 w-[800px] overflow-y-auto shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Journal Entries</h2>
+              <h2 className="text-lg font-semibold">Edit Journal Entry</h2>
               <button
-                onClick={() => setJournalEntryViewModal(prev => ({ ...prev, isOpen: false }))}
+                onClick={() => setEditJournalModal(prev => ({ ...prev, isOpen: false }))}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
-
-            {journalEntryViewModal.transaction && (
-              <div className="mb-4 p-3 bg-gray-50 rounded">
-                <h3 className="font-medium text-sm mb-2">Transaction Details</h3>
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <span className="text-gray-600">Date:</span> {formatDate(journalEntryViewModal.transaction.date)}
-                  </div>
-                  <div>
-                    <span className="text-gray-600">Description:</span> {journalEntryViewModal.transaction.description}
-                  </div>
-                  <div>
-                    <span className="text-gray-600">Spent:</span> {journalEntryViewModal.transaction.spent ? formatAmount(journalEntryViewModal.transaction.spent) : '-'}
-                  </div>
-                  <div>
-                    <span className="text-gray-600">Received:</span> {journalEntryViewModal.transaction.received ? formatAmount(journalEntryViewModal.transaction.received) : '-'}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {journalEntryViewModal.error && (
+            
+            {editJournalModal.error && (
               <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-red-700">
-                {journalEntryViewModal.error}
+                {editJournalModal.error}
               </div>
             )}
-
-            {journalEntryViewModal.isLoading ? (
+            
+            {editJournalModal.isLoading ? (
               <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-6 w-6 animate-spin" />
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
                 <span className="ml-2">Loading journal entries...</span>
               </div>
             ) : (
               <>
-                <div className="mb-4">
-                  <h3 className="font-medium text-sm mb-2">Journal Entries</h3>
-                  <div className="border rounded-lg overflow-hidden">
-                    <table className="min-w-full divide-y divide-gray-200">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Account</th>
-                          <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Debit</th>
-                          <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Credit</th>
-                          <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-16"></th>
-                        </tr>
-                      </thead>
-                      <tbody className="bg-white divide-y divide-gray-200">
-                        {journalEntryViewModal.journalEntries.map((entry, index) => {
-                          // Check if this entry is for the bank account (should be read-only)
-                          const isBankAccount = entry.chart_account_id === selectedAccountIdInCOA;
-                          
-                          return (
-                            <tr key={entry.id} className={`${isBankAccount ? 'bg-gray-100' : 'hover:bg-gray-50'}`}>
-                              <td className={`px-4 py-2 text-sm`}>
-                                {isBankAccount ? (
-                                  <div className="flex items-center border rounded-md p-1">
-                                    <span className="text-gray-700 font-medium text-sm mx-2">{entry.chart_account_name}</span>
-                                  </div>
-                                ) : (
-                                  <select
-                                    value={entry.chart_account_id}
-                                    onChange={(e) => {
-                                      const newEntries = [...journalEntryViewModal.journalEntries];
-                                      newEntries[index].chart_account_id = e.target.value;
-                                      const category = categories.find(c => c.id === e.target.value);
-                                      newEntries[index].chart_account_name = category ? category.name : 'Unknown Account';
-                                      setJournalEntryViewModal(prev => ({ ...prev, journalEntries: newEntries }));
-                                    }}
-                                    className="w-full border px-2 py-1 rounded text-sm"
-                                  >
-                                    <option value="">Select Category</option>
-                                    {categories.map(category => (
-                                      <option key={category.id} value={category.id}>
-                                        {category.name}
-                                      </option>
-                                    ))}
-                                  </select>
-                                )}
-                              </td>
-                              <td className="px-4 py-2 text-sm text-right">
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  value={entry.debit || ''}
-                                  onChange={(e) => {
-                                    if (isBankAccount) return; // Prevent editing bank account amounts
-                                    const newEntries = [...journalEntryViewModal.journalEntries];
-                                    newEntries[index].debit = parseFloat(e.target.value) || 0;
-                                    newEntries[index].credit = 0; // Clear credit when debit is entered
-                                    setJournalEntryViewModal(prev => ({ ...prev, journalEntries: newEntries }));
-                                  }}
-                                  className={`w-full border px-2 py-1 rounded text-sm text-right ${
-                                    isBankAccount ? 'bg-gray-100 cursor-not-allowed' : ''
-                                  }`}
-                                  placeholder="0.00"
-                                  readOnly={isBankAccount}
-                                />
-                              </td>
-                              <td className="px-4 py-2 text-sm text-right">
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  value={entry.credit || ''}
-                                  onChange={(e) => {
-                                    if (isBankAccount) return; // Prevent editing bank account amounts
-                                    const newEntries = [...journalEntryViewModal.journalEntries];
-                                    newEntries[index].credit = parseFloat(e.target.value) || 0;
-                                    newEntries[index].debit = 0; // Clear debit when credit is entered
-                                    setJournalEntryViewModal(prev => ({ ...prev, journalEntries: newEntries }));
-                                  }}
-                                  className={`w-full border px-2 py-1 rounded text-sm text-right ${
-                                    isBankAccount ? 'bg-gray-100 cursor-not-allowed' : ''
-                                  }`}
-                                  placeholder="0.00"
-                                  readOnly={isBankAccount}
-                                />
-                              </td>
-                              <td className="px-4 py-2 text-center">
-                                {!isBankAccount && journalEntryViewModal.journalEntries.length > 2 && (
-                                  <button
-                                    onClick={() => removeJournalViewLine(index)}
-                                    className="text-red-600 hover:text-red-800 text-sm"
-                                  >
-                                    ×
-                                  </button>
-                                )}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                      <tfoot className="bg-gray-50">
-                        <tr>
-                          <td className="px-4 py-2 text-sm font-medium">Total</td>
-                          <td className="px-4 py-2 text-sm font-medium text-right">
-                            {journalEntryViewModal.journalEntries.reduce((sum, entry) => sum + (entry.debit || 0), 0).toFixed(2)}
-                          </td>
-                          <td className="px-4 py-2 text-sm font-medium text-right">
-                            {journalEntryViewModal.journalEntries.reduce((sum, entry) => sum + (entry.credit || 0), 0).toFixed(2)}
-                          </td>
-                          <td className="px-4 py-2"></td>
-                        </tr>
-                      </tfoot>
-                    </table>
+                {/* Date and JE Name selectors */}
+                <div className="mb-4 grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Date</label>
+                    <input
+                      type="date"
+                      value={editJournalModal.editEntry.date}
+                      onChange={(e) => setEditJournalModal(prev => ({
+                        ...prev,
+                        editEntry: { ...prev.editEntry, date: e.target.value }
+                      }))}
+                      className="border px-3 py-2 rounded text-sm w-full"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">JE Name</label>
+                    <input
+                      type="text"
+                      value={editJournalModal.editEntry.jeName}
+                      onChange={(e) => setEditJournalModal(prev => ({
+                        ...prev,
+                        editEntry: { ...prev.editEntry, jeName: e.target.value }
+                      }))}
+                      className="border px-3 py-2 rounded text-sm w-full"
+                      placeholder="Enter journal entry name"
+                    />
                   </div>
                 </div>
-
-                <div className="flex justify-between items-center">
+                
+                {/* Journal Entry Table */}
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="w-full border-collapse">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="border px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+                        <th className="border px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Payee</th>
+                        <th className="border px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
+                        <th className="border px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Debit</th>
+                        <th className="border px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Credit</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white">
+                      {editJournalModal.editEntry.lines.map((line) => (
+                        <tr key={line.id}>
+                          <td className="border px-4 py-2">
+                            <input
+                              type="text"
+                              value={line.description}
+                              onChange={(e) => updateEditJournalLine(line.id, 'description', e.target.value)}
+                              className="w-full border-0 px-0 py-0 text-xs focus:ring-0 focus:outline-none"
+                              placeholder="Enter description"
+                            />
+                          </td>
+                          <td className="border px-4 py-2">
+                            <Select
+                              options={[
+                                { value: '', label: 'Select payee...' },
+                                ...payees.map(payee => ({ value: payee.id, label: payee.name }))
+                              ]}
+                              value={payees.find(p => p.id === line.payeeId) ? 
+                                { value: line.payeeId, label: payees.find(p => p.id === line.payeeId)?.name || '' } :
+                                { value: '', label: 'Select payee...' }
+                              }
+                              onChange={(selectedOption) => {
+                                const option = selectedOption as { value: string; label: string } | null;
+                                updateEditJournalLine(line.id, 'payeeId', option?.value || '');
+                              }}
+                              isSearchable
+                              menuPortalTarget={document.body}
+                              styles={{
+                                control: (base) => ({
+                                  ...base,
+                                  border: 'none',
+                                  boxShadow: 'none',
+                                  minHeight: 'auto',
+                                  fontSize: '12px',
+                                  '&:hover': {
+                                    border: 'none'
+                                  }
+                                }),
+                                menu: (base) => ({ 
+                                  ...base, 
+                                  zIndex: 9999,
+                                  fontSize: '12px'
+                                }),
+                                menuPortal: (base) => ({ 
+                                  ...base, 
+                                  zIndex: 9999 
+                                })
+                              }}
+                            />
+                          </td>
+                          <td className="border px-4 py-2">
+                            <Select
+                              options={[
+                                { value: '', label: 'Select category...' },
+                                { value: 'add_new', label: '+ Add new category' },
+                                ...categories.map(c => ({ value: c.id, label: c.name }))
+                              ]}
+                              value={categories.find(c => c.id === line.categoryId) ? 
+                                { value: line.categoryId, label: categories.find(c => c.id === line.categoryId)?.name || '' } :
+                                { value: '', label: 'Select category...' }
+                              }
+                              onChange={(selectedOption) => {
+                                const option = selectedOption as { value: string; label: string } | null;
+                                if (option?.value === 'add_new') {
+                                  setNewCategoryModal({
+                                    isOpen: true,
+                                    name: '',
+                                    type: 'Expense',
+                                    parent_id: null,
+                                    transactionId: line.id
+                                  });
+                                } else {
+                                  updateEditJournalLine(line.id, 'categoryId', option?.value || '');
+                                }
+                              }}
+                              isSearchable
+                              menuPortalTarget={document.body}
+                              styles={{
+                                control: (base) => ({
+                                  ...base,
+                                  border: 'none',
+                                  boxShadow: 'none',
+                                  minHeight: 'auto',
+                                  fontSize: '12px',
+                                  '&:hover': {
+                                    border: 'none'
+                                  }
+                                }),
+                                menu: (base) => ({ 
+                                  ...base, 
+                                  zIndex: 9999,
+                                  fontSize: '12px'
+                                }),
+                                menuPortal: (base) => ({ 
+                                  ...base, 
+                                  zIndex: 9999 
+                                })
+                              }}
+                            />
+                          </td>
+                          <td className="border px-4 py-2">
+                            <input
+                              type="text"
+                              value={(() => {
+                                const debit = line.debit;
+                                return (debit && parseFloat(debit) > 0) ? debit : '';
+                              })()}
+                              onChange={(e) => handleEditJournalAmountChange(line.id, 'debit', e.target.value)}
+                              className="w-full border-0 px-0 py-0 text-xs text-right focus:ring-0 focus:outline-none"
+                              placeholder="0.00"
+                            />
+                          </td>
+                          <td className="border px-4 py-2">
+                            <input
+                              type="text"
+                              value={(() => {
+                                const credit = line.credit;
+                                return (credit && parseFloat(credit) > 0) ? credit : '';
+                              })()}
+                              onChange={(e) => handleEditJournalAmountChange(line.id, 'credit', e.target.value)}
+                              className="w-full border-0 px-0 py-0 text-xs text-right focus:ring-0 focus:outline-none"
+                              placeholder="0.00"
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="bg-gray-50">
+                      <tr>
+                        <td className="border px-4 py-2 text-sm font-medium" colSpan={3}>
+                          Total
+                        </td>
+                        <td className={`border px-4 py-2 text-sm font-medium text-right ${
+                          (() => {
+                            const { totalDebits, totalCredits } = calculateEditJournalTotals();
+                            const isBalanced = Math.abs(totalDebits - totalCredits) < 0.01;
+                            return !isBalanced ? 'text-red-600' : 'text-gray-900';
+                          })()
+                        }`}>
+                          ${(() => {
+                            const { totalDebits } = calculateEditJournalTotals();
+                            return totalDebits.toFixed(2);
+                          })()}
+                        </td>
+                        <td className={`border px-4 py-2 text-sm font-medium text-right ${
+                          (() => {
+                            const { totalDebits, totalCredits } = calculateEditJournalTotals();
+                            const isBalanced = Math.abs(totalDebits - totalCredits) < 0.01;
+                            return !isBalanced ? 'text-red-600' : 'text-gray-900';
+                          })()
+                        }`}>
+                          ${(() => {
+                            const { totalCredits } = calculateEditJournalTotals();
+                            return totalCredits.toFixed(2);
+                          })()}
+                        </td>
+                      </tr>
+                      {(() => {
+                        const { totalDebits, totalCredits } = calculateEditJournalTotals();
+                        const isBalanced = Math.abs(totalDebits - totalCredits) < 0.01;
+                        return !isBalanced && (
+                          <tr>
+                            <td colSpan={5} className="border px-4 py-1 text-xs text-red-600 text-center bg-red-50">
+                              ⚠️ Total debits must equal total credits
+                            </td>
+                          </tr>
+                        );
+                      })()}
+                    </tfoot>
+                  </table>
+                </div>
+                
+                <div className="flex justify-between items-center mt-4">
                   <button
-                    onClick={addJournalViewLine}
-                    className="px-4 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50"
+                    onClick={addEditJournalLine}
+                    className="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded border"
                   >
-                    Add line
+                    Add lines
                   </button>
+                  
                   <div className="flex space-x-3">
                     <button
-                      onClick={() => setJournalEntryViewModal(prev => ({ ...prev, isOpen: false }))}
+                      onClick={() => setEditJournalModal(prev => ({ ...prev, isOpen: false }))}
                       className="px-4 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50"
                     >
                       Cancel
                     </button>
                     <button
                       onClick={saveJournalEntryChanges}
-                      disabled={journalEntryViewModal.isLoading}
-                      className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      disabled={editJournalModal.saving || (() => {
+                        const { totalDebits, totalCredits } = calculateEditJournalTotals();
+                        return Math.abs(totalDebits - totalCredits) >= 0.01;
+                      })()}
+                      className={`px-4 py-2 text-sm rounded disabled:opacity-50 ${
+                        (() => {
+                          const { totalDebits, totalCredits } = calculateEditJournalTotals();
+                          const isBalanced = Math.abs(totalDebits - totalCredits) < 0.01;
+                          return !isBalanced 
+                            ? 'bg-gray-400 text-gray-200 cursor-not-allowed' 
+                            : 'bg-gray-900 text-white hover:bg-gray-800';
+                        })()
+                      }`}
                     >
-                      {journalEntryViewModal.isLoading ? (
-                        <div className="flex items-center space-x-1">
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                          <span>Saving...</span>
-                        </div>
-                      ) : (
-                        'Save'
-                      )}
+                      {editJournalModal.saving ? 'Saving...' : (() => {
+                        const { totalDebits, totalCredits } = calculateEditJournalTotals();
+                        const isBalanced = Math.abs(totalDebits - totalCredits) < 0.01;
+                        return !isBalanced ? 'Must Balance' : 'Save';
+                      })()}
                     </button>
                   </div>
                 </div>
