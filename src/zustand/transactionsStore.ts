@@ -164,6 +164,27 @@ export interface JournalTableEntry {
   [key: string]: unknown; // Allow dynamic property access for additional columns
 }
 
+export interface ManualJournalEntry {
+  id: string;
+  date: string;
+  description: string;
+  debit: number;
+  credit: number;
+  chart_account_id: string;
+  payee_id?: string;
+  company_id: string;
+  reference_number: string;
+  je_name?: string;
+  created_at: string;
+  updated_at: string;
+  chart_of_accounts?: {
+    id: string;
+    name: string;
+    type: string;
+    subtype?: string;
+  };
+}
+
 // Store interface
 interface TransactionsState {
   // Core data states
@@ -173,6 +194,7 @@ interface TransactionsState {
   importedTransactions: Transaction[];
   transactions: Transaction[];
   journalEntries: JournalTableEntry[];
+  manualJournalEntries: ManualJournalEntry[];
   
   // Loading states for main operations
   isLoading: boolean;
@@ -223,6 +245,12 @@ interface TransactionsState {
   updateJournalEntry: (entryData: { id: string; date: string; description: string; transactions: { account_id: string; account_name: string; amount: number; type: 'debit' | 'credit' }[] }, companyId: string) => Promise<boolean>;
   deleteJournalEntry: (entryData: { id?: string; date: string; description: string }, companyId: string) => Promise<boolean>;
   
+  // Manual Journal operations
+  fetchManualJournalEntries: (companyId: string) => Promise<void>;
+  saveManualJournalEntry: (entryData: { date: string; jeName?: string; lines: { description: string; categoryId: string; payeeId?: string; debit: string; credit: string }[]; referenceNumber?: string }, companyId: string) => Promise<{ success: boolean; referenceNumber?: string; error?: string }>;
+  updateManualJournalEntry: (entryData: { referenceNumber: string; date: string; jeName?: string; lines: { description: string; categoryId: string; payeeId?: string; debit: string; credit: string }[] }, companyId: string) => Promise<boolean>;
+  deleteManualJournalEntry: (referenceNumber: string, companyId: string) => Promise<boolean>;
+  
   // CSV Import
   importTransactionsFromCSV: (transactions: Transaction[], companyId: string) => Promise<{ success: boolean; count?: number; error?: string }>;
   
@@ -252,6 +280,7 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
   importedTransactions: [],
   transactions: [],
   journalEntries: [],
+  manualJournalEntries: [],
   isLoading: false,
   isSyncing: false,
   isAddingTransactions: false,
@@ -1186,6 +1215,106 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
       supabase.removeChannel(subscription);
     });
     set({ subscriptions: [] });
+  },
+
+  // Manual Journal operations
+  fetchManualJournalEntries: async (companyId: string) => {
+    try {
+      set({ isLoading: true, error: null });
+      
+      const response = await api.get(`/api/manual-journal?company_id=${companyId}`);
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch manual journal entries');
+      }
+      
+      const data = await response.json();
+      set({ manualJournalEntries: data.entries || [], isLoading: false });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      set({ error: errorMessage, isLoading: false });
+      console.error('Error fetching manual journal entries:', error);
+    }
+  },
+
+  saveManualJournalEntry: async (entryData, companyId: string) => {
+    try {
+      const response = await api.post('/api/manual-journal', {
+        companyId,
+        date: entryData.date,
+        jeName: entryData.jeName,
+        lines: entryData.lines,
+        referenceNumber: entryData.referenceNumber
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        return { 
+          success: false, 
+          error: errorData.error || 'Failed to save manual journal entry' 
+        };
+      }
+
+      const data = await response.json();
+      
+      // Refresh manual journal entries
+      await get().fetchManualJournalEntries(companyId);
+      
+      return { 
+        success: true, 
+        referenceNumber: data.referenceNumber 
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      return { success: false, error: errorMessage };
+    }
+  },
+
+  updateManualJournalEntry: async (entryData, companyId: string) => {
+    try {
+      const response = await api.put('/api/manual-journal/update', {
+        companyId,
+        referenceNumber: entryData.referenceNumber,
+        date: entryData.date,
+        jeName: entryData.jeName,
+        lines: entryData.lines
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update manual journal entry');
+      }
+
+      // Refresh manual journal entries
+      await get().fetchManualJournalEntries(companyId);
+      
+      return true;
+    } catch (error) {
+      console.error('Error updating manual journal entry:', error);
+      return false;
+    }
+  },
+
+  deleteManualJournalEntry: async (referenceNumber: string, companyId: string) => {
+    try {
+      const response = await api.delete('/api/manual-journal/delete', {
+        body: JSON.stringify({
+          companyId,
+          referenceNumber
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to delete manual journal entry');
+      }
+
+      // Refresh manual journal entries
+      await get().fetchManualJournalEntries(companyId);
+      
+      return true;
+    } catch (error) {
+      console.error('Error deleting manual journal entry:', error);
+      return false;
+    }
   },
   
   // Enhanced AI-friendly methods that return StoreResult
