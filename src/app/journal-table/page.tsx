@@ -18,6 +18,20 @@ import {
 
 // Define types specific to the journal table
 
+type SplitItem = {
+  id: string;
+  date: string;
+  description: string;
+  spent?: string;
+  received?: string;
+  payee_id?: string;
+  selected_category_id?: string;
+};
+
+type SplitData = {
+  splits: SplitItem[];
+};
+
 type JournalEntry = {
   id: string;
   date: string;
@@ -29,7 +43,11 @@ type JournalEntry = {
   company_id: string;
   transactions?: {
     payee_id?: string;
+    split_data?: SplitData;
   };
+  // Fields for split items displayed as journal entries
+  is_split_item?: boolean;
+  split_item_data?: SplitItem;
   [key: string]: unknown; // Allow dynamic property access for additional columns
 };
 
@@ -54,6 +72,69 @@ export default function JournalTablePage() {
   const { saveJournalEntry } = useTransactionsStore();
   const { categories, refreshCategories } = useCategoriesStore();
   const { payees, refreshPayees } = usePayeesStore();
+  
+  // Process journal entries to insert split items between debit/credit pairs
+  const processEntriesWithSplits = (entries: JournalEntry[]): JournalEntry[] => {
+    const processedEntries: JournalEntry[] = [];
+    
+    // Group entries by transaction_id to find debit/credit pairs
+    const transactionGroups = new Map<string, JournalEntry[]>();
+    
+    entries.forEach(entry => {
+      const txId = entry.transaction_id;
+      if (!transactionGroups.has(txId)) {
+        transactionGroups.set(txId, []);
+      }
+      transactionGroups.get(txId)!.push(entry);
+    });
+    
+    // Process each transaction group
+    transactionGroups.forEach(txEntries => {
+      if (txEntries.length === 0) return;
+      
+      // Sort entries within transaction: debit first, then credit
+      const sortedEntries = txEntries.sort((a, b) => {
+        if (a.debit > 0 && b.credit > 0) return -1; // debit before credit
+        if (a.credit > 0 && b.debit > 0) return 1;  // credit after debit
+        return 0;
+      });
+      
+      const firstEntry = sortedEntries[0];
+      const splitData = firstEntry.transactions?.split_data;
+      
+      // Add the first entry (usually debit)
+      processedEntries.push(firstEntry);
+      
+      // Add split items if they exist
+      if (splitData?.splits && splitData.splits.length > 0) {
+        splitData.splits.forEach((split, index) => {
+          const splitEntry: JournalEntry = {
+            id: `${firstEntry.id}-split-${index}`,
+            date: split.date || firstEntry.date,
+            description: `  ↳ ${split.description}`, // Indent split items
+            debit: 0,
+            credit: 0,
+            transaction_id: firstEntry.transaction_id,
+            chart_account_id: split.selected_category_id || '',
+            company_id: firstEntry.company_id,
+            is_split_item: true,
+            split_item_data: split,
+            transactions: {
+              payee_id: split.payee_id
+            }
+          };
+          processedEntries.push(splitEntry);
+        });
+      }
+      
+      // Add remaining entries (usually credit)
+      sortedEntries.slice(1).forEach(entry => {
+        processedEntries.push(entry);
+      });
+    });
+    
+    return processedEntries;
+  };
   
   // Local state
   const [entries, setEntries] = useState<JournalEntry[]>([]);
@@ -97,20 +178,23 @@ export default function JournalTablePage() {
       setLoading(true);
       setError(null);
       
-      // We'll need to implement a direct journal fetching function since the store's
-      // fetchPastJournalEntries returns a different structure
-      // For now, keep the existing Supabase call but import supabase
       const { supabase } = await import('@/lib/supabase');
+      
+      // Fetch journal entries with transaction data including split_data
       const { data, error } = await supabase
         .from('journal')
         .select(`
           *,
-          transactions!inner(payee_id)
+          transactions!inner(payee_id, split_data)
         `)
         .eq('company_id', currentCompany?.id)
         .order('date', { ascending: false });
+        
       if (error) throw error;
-      setEntries(data || []);
+      
+      // Process entries to insert split items between debit/credit pairs
+      const processedEntries = processEntriesWithSplits(data || []);
+      setEntries(processedEntries);
     } catch {
       setError('Failed to load journal entries');
     } finally {
@@ -176,15 +260,19 @@ export default function JournalTablePage() {
           : bPayee.localeCompare(aPayee);
       }
       if (sortConfig.key === 'debit') {
-        const aDebit = a.debit ?? 0;
-        const bDebit = b.debit ?? 0;
+        const aDebit = a.is_split_item && a.split_item_data?.spent ? 
+          parseFloat(a.split_item_data.spent) : (a.debit ?? 0);
+        const bDebit = b.is_split_item && b.split_item_data?.spent ? 
+          parseFloat(b.split_item_data.spent) : (b.debit ?? 0);
         return sortConfig.direction === 'asc'
           ? aDebit - bDebit
           : bDebit - aDebit;
       }
       if (sortConfig.key === 'credit') {
-        const aCredit = a.credit ?? 0;
-        const bCredit = b.credit ?? 0;
+        const aCredit = a.is_split_item && a.split_item_data?.received ? 
+          parseFloat(a.split_item_data.received) : (a.credit ?? 0);
+        const bCredit = b.is_split_item && b.split_item_data?.received ? 
+          parseFloat(b.split_item_data.received) : (b.credit ?? 0);
         return sortConfig.direction === 'asc'
           ? aCredit - bCredit
           : bCredit - aCredit;
@@ -287,12 +375,16 @@ export default function JournalTablePage() {
       const payeeName = getPayeeName(entry.transactions?.payee_id || '');
       if (payeeName.toLowerCase().includes(lowercaseSearch)) return true;
       
-      // Search in debit amount (formatted)
-      const debitAmount = formatAmount(entry.debit);
+      // Search in debit amount (formatted) - handle split items
+      const debitAmount = entry.is_split_item && entry.split_item_data?.spent ? 
+        formatAmount(parseFloat(entry.split_item_data.spent)) : 
+        formatAmount(entry.debit);
       if (debitAmount.toLowerCase().includes(lowercaseSearch)) return true;
       
-      // Search in credit amount (formatted)
-      const creditAmount = formatAmount(entry.credit);
+      // Search in credit amount (formatted) - handle split items
+      const creditAmount = entry.is_split_item && entry.split_item_data?.received ? 
+        formatAmount(parseFloat(entry.split_item_data.received)) : 
+        formatAmount(entry.credit);
       if (creditAmount.toLowerCase().includes(lowercaseSearch)) return true;
       
       // Search in category name
@@ -549,15 +641,19 @@ export default function JournalTablePage() {
               </thead>
               <tbody>
                 {displayedEntries.map((entry) => (
-                  <tr key={String(entry.id)} className="hover:bg-gray-50">
+                  <tr key={String(entry.id)} className={`hover:bg-gray-50 ${entry.is_split_item ? 'bg-blue-50' : ''}`}>
                     {finalColumns.map((col) => (
                       <td key={col.key} className="border p-2 text-center text-xs whitespace-nowrap">
                         {col.key === 'date' ? (
                           formatDate(entry.date)
                         ) : col.key === 'debit' ? (
-                          formatAmount(entry.debit)
+                          entry.is_split_item && entry.split_item_data?.spent ? 
+                            formatAmount(parseFloat(entry.split_item_data.spent)) : 
+                            formatAmount(entry.debit)
                         ) : col.key === 'credit' ? (
-                          formatAmount(entry.credit)
+                          entry.is_split_item && entry.split_item_data?.received ? 
+                            formatAmount(parseFloat(entry.split_item_data.received)) : 
+                            formatAmount(entry.credit)
                         ) : col.key === 'type' ? (
                           getAccountType(entry.chart_account_id)
                         ) : col.key === 'payee' ? (
