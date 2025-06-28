@@ -76,7 +76,7 @@ type AutomationCSVRow = {
 
 export default function AutomationsPage() {
   const { currentCompany } = useAuthStore();
-  const hasCompanyContext = !!(currentCompany);
+  const hasCompanyContext = !!currentCompany;
 
   // State for payee automations
   const [payeeAutomations, setPayeeAutomations] = useState<PayeeAutomation[]>([]);
@@ -177,6 +177,32 @@ export default function AutomationsPage() {
 
   // Note: Automation application is now handled in the transactions page
   // Function removed - automations are applied as temporary UI state in transactions page only
+
+  // Add new state for category creation modal
+  const [newCategoryModal, setNewCategoryModal] = useState<{
+    isOpen: boolean;
+    name: string;
+    type: string;
+    parent_id: string | null;
+    automationType: string | null; // Track which automation type this is for
+  }>({
+    isOpen: false,
+    name: "",
+    type: "Expense",
+    parent_id: null,
+    automationType: null,
+  });
+
+  // Add new state for payee creation modal
+  const [newPayeeModal, setNewPayeeModal] = useState<{
+    isOpen: boolean;
+    name: string;
+    automationType: string | null; // Track which automation type this is for
+  }>({
+    isOpen: false,
+    name: "",
+    automationType: null,
+  });
 
   useEffect(() => {
     if (hasCompanyContext) {
@@ -858,11 +884,209 @@ export default function AutomationsPage() {
     );
   }
 
+  // Add handler for creating new category
+  const handleCreateCategory = async () => {
+    if (!newCategoryModal.name.trim() || !hasCompanyContext) return;
+
+    try {
+      const { error } = await supabase.from("chart_of_accounts").insert([
+        {
+          name: newCategoryModal.name.trim(),
+          type: newCategoryModal.type,
+          parent_id: newCategoryModal.parent_id || null,
+          company_id: currentCompany!.id,
+        },
+      ]);
+
+      if (error) {
+        console.error("Error creating category:", error);
+        return;
+      }
+
+      // Refresh available categories
+      await fetchAvailableCategories();
+
+      // Update the appropriate automation modal with the new category
+      if (newCategoryModal.automationType === "payee") {
+        setPayeeAutomationModal((prev) => ({
+          ...prev,
+          action: newCategoryModal.name.trim(),
+        }));
+      } else if (newCategoryModal.automationType === "category") {
+        setCategoryAutomationModal((prev) => ({
+          ...prev,
+          action: newCategoryModal.name.trim(),
+        }));
+      }
+
+      setNewCategoryModal({
+        isOpen: false,
+        name: "",
+        type: "Expense",
+        parent_id: null,
+        automationType: null,
+      });
+    } catch (error) {
+      console.error("Error creating category:", error);
+    }
+  };
+
+  // Add handler for creating new payee
+  const handleCreatePayee = async () => {
+    if (!newPayeeModal.name.trim() || !hasCompanyContext) return;
+
+    try {
+      const { error } = await supabase.from("payees").insert([
+        {
+          name: newPayeeModal.name.trim(),
+          company_id: currentCompany!.id,
+        },
+      ]);
+
+      if (error) {
+        console.error("Error creating payee:", error);
+        return;
+      }
+
+      // Refresh available payees
+      await fetchAvailablePayees();
+
+      // Update the appropriate automation modal with the new payee
+      if (newPayeeModal.automationType === "payee") {
+        setPayeeAutomationModal((prev) => ({
+          ...prev,
+          action: newPayeeModal.name.trim(),
+        }));
+      } else if (newPayeeModal.automationType === "category") {
+        setCategoryAutomationModal((prev) => ({
+          ...prev,
+          action: newPayeeModal.name.trim(),
+        }));
+      }
+
+      setNewPayeeModal({
+        isOpen: false,
+        name: "",
+        automationType: null,
+      });
+    } catch (error) {
+      console.error("Error creating payee:", error);
+    }
+  };
+
+  // Add conflict detection function
+  const detectConflicts = () => {
+    const conflicts: Array<{
+      type: "category" | "payee";
+      conflictingRules: Array<{
+        id: string;
+        name: string;
+        condition: string;
+        action: string;
+      }>;
+      description: string;
+    }> = [];
+
+    // Check for conflicting category automations
+    const categoryConflicts = new Map<string, Array<CategoryAutomation>>();
+    categoryAutomations.forEach((automation) => {
+      const key = `${automation.condition_type}_${automation.condition_value.toLowerCase()}`;
+      if (!categoryConflicts.has(key)) {
+        categoryConflicts.set(key, []);
+      }
+      categoryConflicts.get(key)!.push(automation);
+    });
+
+    categoryConflicts.forEach((rules) => {
+      if (rules.length > 1) {
+        // Check if they have different actions
+        const uniqueActions = new Set(rules.map((r) => r.category_name.toLowerCase()));
+        if (uniqueActions.size > 1) {
+          conflicts.push({
+            type: "category",
+            conflictingRules: rules.map((rule) => ({
+              id: rule.id,
+              name: rule.name,
+              condition: formatConditionDisplay(rule.condition_type, rule.condition_value),
+              action: rule.category_name,
+            })),
+            description: formatConditionDisplay(rules[0].condition_type, rules[0].condition_value),
+          });
+        }
+      }
+    });
+
+    // Check for conflicting payee automations
+    const payeeConflicts = new Map<string, Array<PayeeAutomation>>();
+    payeeAutomations.forEach((automation) => {
+      const key = `${automation.condition_type}_${automation.condition_value.toLowerCase()}`;
+      if (!payeeConflicts.has(key)) {
+        payeeConflicts.set(key, []);
+      }
+      payeeConflicts.get(key)!.push(automation);
+    });
+
+    payeeConflicts.forEach((rules) => {
+      if (rules.length > 1) {
+        // Check if they have different actions
+        const uniqueActions = new Set(rules.map((r) => r.payee_name.toLowerCase()));
+        if (uniqueActions.size > 1) {
+          conflicts.push({
+            type: "payee",
+            conflictingRules: rules.map((rule) => ({
+              id: rule.id,
+              name: rule.name,
+              condition: formatConditionDisplay(rule.condition_type, rule.condition_value),
+              action: rule.payee_name,
+            })),
+            description: formatConditionDisplay(rules[0].condition_type, rules[0].condition_value),
+          });
+        }
+      }
+    });
+
+    return conflicts;
+  };
+
+  const conflicts = detectConflicts();
+
   return (
-    <div className="p-4 max-w-7xl mx-auto font-sans text-gray-900">
-      <div className="flex gap-8">
+    <div className="p-6 w-full font-sans text-gray-900">
+      {/* Conflicts Warning */}
+      {conflicts.length > 0 && (
+        <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+          <h3 className="text-sm font-semibold text-yellow-800 mb-2">⚠️ Conflicting Rules Detected</h3>
+          <p className="text-sm text-yellow-700 mb-3">
+            You have automation rules with the same conditions but different actions. Only the first rule alphabetically
+            will be applied.
+          </p>
+          <div className="space-y-2">
+            {conflicts.map((conflict, index) => (
+              <div key={index} className="bg-white border border-yellow-300 rounded p-3">
+                <div className="text-sm font-medium text-gray-800 mb-2">
+                  Conflict for transactions that {conflict.description}:
+                </div>
+                <div className="space-y-1">
+                  {conflict.conflictingRules.map((rule, ruleIndex) => (
+                    <div key={rule.id} className="text-xs">
+                      <span className={`font-medium ${ruleIndex === 0 ? "text-green-700" : "text-red-700"}`}>
+                        {ruleIndex === 0 ? "✓ Applied: " : "✗ Ignored: "}
+                      </span>
+                      <span className="text-gray-600">
+                        &quot;{rule.name}&quot; → {rule.action}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-8">
         {/* Payee Automations Section - Left Side */}
-        <div className="flex-1">
+        <div className="w-full">
           <div className="flex justify-between items-center mb-4">
             <button
               onClick={() =>
@@ -903,13 +1127,13 @@ export default function AutomationsPage() {
 
           {/* Payee Automations Table */}
           <div className="bg-white rounded shadow-sm">
-            <table className="w-full border-collapse border border-gray-300 text-xs">
+            <table className="w-full border-collapse border border-gray-300 text-sm">
               <thead className="bg-gray-100">
                 <tr>
-                  <th className="border p-1 text-center font-semibold">Name</th>
-                  <th className="border p-1 text-center font-semibold">If</th>
-                  <th className="border p-1 text-center font-semibold">Then</th>
-                  <th className="border p-1 text-center font-semibold">Action</th>
+                  <th className="border p-1 text-center font-semibold w-1/5">Name</th>
+                  <th className="border p-1 text-center font-semibold w-1/4">If</th>
+                  <th className="border p-1 text-center font-semibold w-2/5">Then</th>
+                  <th className="border p-1 text-center font-semibold w-1/6">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -935,7 +1159,7 @@ export default function AutomationsPage() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={4} className="text-center p-2 text-gray-500 text-xs">
+                    <td colSpan={4} className="text-center p-6 text-gray-500 text-sm">
                       No payee automations found.
                     </td>
                   </tr>
@@ -946,7 +1170,7 @@ export default function AutomationsPage() {
         </div>
 
         {/* Category Automations Section - Right Side */}
-        <div className="flex-1">
+        <div className="w-full">
           <div className="flex justify-between items-center mb-4">
             <button
               onClick={() =>
@@ -987,14 +1211,14 @@ export default function AutomationsPage() {
 
           {/* Category Automations Table */}
           <div className="bg-white rounded shadow-sm">
-            <table className="w-full border-collapse border border-gray-300 text-xs">
+            <table className="w-full border-collapse border border-gray-300 text-sm">
               <thead className="bg-gray-100">
                 <tr>
-                  <th className="border p-1 text-center font-semibold">Name</th>
-                  <th className="border p-1 text-center font-semibold">If</th>
-                  <th className="border p-1 text-center font-semibold">Then</th>
-                  <th className="border p-1 text-center font-semibold">Auto-Add</th>
-                  <th className="border p-1 text-center font-semibold">Action</th>
+                  <th className="border p-1 text-center font-semibold w-1/6">Name</th>
+                  <th className="border p-1 text-center font-semibold w-1/5">If</th>
+                  <th className="border p-1 text-center font-semibold w-1/3">Then</th>
+                  <th className="border p-1 text-center font-semibold w-1/10">Auto-Add</th>
+                  <th className="border p-1 text-center font-semibold w-1/6">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -1023,7 +1247,7 @@ export default function AutomationsPage() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={5} className="text-center p-2 text-gray-500 text-xs">
+                    <td colSpan={5} className="text-center p-6 text-gray-500 text-sm">
                       No category automations found.
                     </td>
                   </tr>
@@ -1188,8 +1412,11 @@ export default function AutomationsPage() {
                   onChange={(selectedOption) => {
                     const option = selectedOption as SelectOption | null;
                     if (option?.value === "add_new") {
-                      // TODO: Implement add new payee modal
-                      alert("Add new payee functionality - would open modal to create new payee");
+                      setNewPayeeModal({
+                        isOpen: true,
+                        name: "",
+                        automationType: "payee",
+                      });
                     } else {
                       setPayeeAutomationModal((prev) => ({
                         ...prev,
@@ -1437,29 +1664,6 @@ export default function AutomationsPage() {
               </div>
 
               <div>
-                <label className="flex items-center space-x-2">
-                  <input
-                    type="checkbox"
-                    checked={categoryAutomationModal.autoAdd}
-                    onChange={(e) => {
-                      setCategoryAutomationModal((prev) => ({
-                        ...prev,
-                        autoAdd: e.target.checked,
-                      }));
-                    }}
-                    className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
-                  />
-                  <span className="text-sm font-medium text-gray-700">
-                    Automatically add to Added table when category is set
-                  </span>
-                </label>
-                <p className="text-xs text-gray-500 mt-1">
-                  When enabled, transactions matching this automation will be automatically moved from &quot;To
-                  Add&quot; to &quot;Added&quot; since a category is required for adding transactions.
-                </p>
-              </div>
-
-              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Then Assign *</label>
                 <Select
                   options={categoryOptions}
@@ -1469,8 +1673,13 @@ export default function AutomationsPage() {
                   onChange={(selectedOption) => {
                     const option = selectedOption as SelectOption | null;
                     if (option?.value === "add_new") {
-                      // TODO: Implement add new category modal
-                      alert("Add new category functionality - would open modal to create new category");
+                      setNewCategoryModal({
+                        isOpen: true,
+                        name: "",
+                        type: "Expense",
+                        parent_id: null,
+                        automationType: "category",
+                      });
                     } else {
                       setCategoryAutomationModal((prev) => ({
                         ...prev,
@@ -1528,6 +1737,29 @@ export default function AutomationsPage() {
                     No categories available. Create categories in the Categories page first.
                   </p>
                 )}
+              </div>
+
+              <div>
+                <label className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    checked={categoryAutomationModal.autoAdd}
+                    onChange={(e) => {
+                      setCategoryAutomationModal((prev) => ({
+                        ...prev,
+                        autoAdd: e.target.checked,
+                      }));
+                    }}
+                    className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                  />
+                  <span className="text-sm font-medium text-gray-700">
+                    Automatically add to Added table when category is set
+                  </span>
+                </label>
+                <p className="text-xs text-gray-500 mt-1">
+                  When enabled, transactions matching this automation will be automatically moved from &quot;To
+                  Add&quot; to &quot;Added&quot; since a category is required for adding transactions.
+                </p>
               </div>
             </div>
 
@@ -2005,6 +2237,199 @@ export default function AutomationsPage() {
                 )}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* New Category Modal */}
+      {newCategoryModal.isOpen && (
+        <div
+          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
+          onClick={() =>
+            setNewCategoryModal({ isOpen: false, name: "", type: "Expense", parent_id: null, automationType: null })
+          }
+        >
+          <div
+            className="bg-white rounded-lg p-6 w-[400px] overflow-y-auto shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold">Add New Category</h2>
+              <button
+                onClick={() =>
+                  setNewCategoryModal({
+                    isOpen: false,
+                    name: "",
+                    type: "Expense",
+                    parent_id: null,
+                    automationType: null,
+                  })
+                }
+                className="text-gray-500 hover:text-gray-700 text-xl"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Category Name</label>
+                <input
+                  type="text"
+                  value={newCategoryModal.name}
+                  onChange={(e) =>
+                    setNewCategoryModal((prev) => ({
+                      ...prev,
+                      name: e.target.value,
+                    }))
+                  }
+                  className="w-full border px-2 py-1 rounded"
+                  placeholder="Enter category name"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
+                <select
+                  value={newCategoryModal.type}
+                  onChange={(e) =>
+                    setNewCategoryModal((prev) => ({
+                      ...prev,
+                      type: e.target.value,
+                    }))
+                  }
+                  className="w-full border px-2 py-1 rounded"
+                >
+                  <option value="Expense">Expense</option>
+                  <option value="Revenue">Revenue</option>
+                  <option value="Asset">Asset</option>
+                  <option value="Liability">Liability</option>
+                  <option value="Equity">Equity</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Parent Account (Optional)</label>
+                <Select
+                  options={[
+                    { value: "", label: "None" },
+                    ...availableCategories
+                      .filter((c) => c.name) // Ensure we have a name
+                      .map((c) => ({ value: c.id, label: c.name })),
+                  ]}
+                  value={
+                    newCategoryModal.parent_id
+                      ? {
+                          value: newCategoryModal.parent_id,
+                          label: availableCategories.find((c) => c.id === newCategoryModal.parent_id)?.name || "",
+                        }
+                      : { value: "", label: "None" }
+                  }
+                  onChange={(selectedOption) => {
+                    const option = selectedOption as SelectOption | null;
+                    setNewCategoryModal((prev) => ({
+                      ...prev,
+                      parent_id: option?.value || null,
+                    }));
+                  }}
+                  isSearchable
+                  menuPortalTarget={document.body}
+                  styles={{
+                    control: (base) => ({
+                      ...base,
+                      minHeight: "34px",
+                      height: "34px",
+                      fontSize: "14px",
+                      border: "1px solid #d1d5db",
+                      borderRadius: "6px",
+                      padding: "0 8px",
+                      boxShadow: "none",
+                      "&:hover": {
+                        borderColor: "#d1d5db",
+                      },
+                    }),
+                    valueContainer: (base) => ({
+                      ...base,
+                      padding: "0",
+                    }),
+                    input: (base) => ({
+                      ...base,
+                      margin: "0",
+                      padding: "0",
+                    }),
+                    indicatorsContainer: (base) => ({
+                      ...base,
+                      height: "34px",
+                    }),
+                    dropdownIndicator: (base) => ({
+                      ...base,
+                      padding: "0 4px",
+                    }),
+                    menuPortal: (base) => ({ ...base, zIndex: 9999 }),
+                    menu: (base) => ({ ...base, zIndex: 9999 }),
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end mt-6">
+              <button
+                onClick={handleCreateCategory}
+                className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
+              >
+                Create
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* New Payee Modal */}
+      {newPayeeModal.isOpen && (
+        <div
+          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
+          onClick={() => setNewPayeeModal({ isOpen: false, name: "", automationType: null })}
+        >
+          <div
+            className="bg-white rounded-lg p-6 w-[400px] overflow-y-auto shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold">Add New Payee</h2>
+              <button
+                onClick={() => setNewPayeeModal({ isOpen: false, name: "", automationType: null })}
+                className="text-gray-500 hover:text-gray-700 text-xl"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Payee Name</label>
+                <input
+                  type="text"
+                  value={newPayeeModal.name}
+                  onChange={(e) =>
+                    setNewPayeeModal((prev) => ({
+                      ...prev,
+                      name: e.target.value,
+                    }))
+                  }
+                  className="w-full border px-2 py-1 rounded"
+                  placeholder="Enter payee name"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end mt-6">
+              <button
+                onClick={handleCreatePayee}
+                className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
+              >
+                Create
+              </button>
+            </div>
           </div>
         </div>
       )}
