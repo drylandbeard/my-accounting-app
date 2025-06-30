@@ -1,18 +1,18 @@
-"use client"
+"use client";
 
-import * as React from "react"
-import { Check, ChevronDown } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { cn } from "@/lib/utils"
+import * as React from "react";
+import { Check, ChevronDown } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 
 export interface PeriodSelectorProps {
-  selectedPeriod: string
-  onPeriodChange: (period: string) => void
-  selectedDisplay: string
-  onDisplayChange: (display: string) => void
-  selectedComparison: string
-  onComparisonChange: (comparison: string) => void
+  selectedPeriod: string;
+  onPeriodChange: (period: string) => void;
+  selectedDisplay: string;
+  onDisplayChange: (display: string) => void;
+  // selectedComparison: string
+  // onComparisonChange: (comparison: string) => void
 }
 
 const PERIOD_OPTIONS = [
@@ -23,35 +23,35 @@ const PERIOD_OPTIONS = [
   { value: "thisQuarter", label: "This quarter" },
   { value: "lastQuarter", label: "Last quarter" },
   { value: "thisYearToLastMonth", label: "This year to last month" },
-  { value: "thisYearToToday", label: "This year to today" }
-]
+  { value: "thisYearToToday", label: "This year to today" },
+];
 
 const DISPLAY_OPTIONS = [
   { value: "byMonth", label: "By month" },
   { value: "totalOnly", label: "Total only" },
-  { value: "withPercentages", label: "With %'s" }
-]
+  { value: "withPercentages", label: "With %'s" },
+];
 
-const COMPARISON_OPTIONS = [
-  { value: "previousPeriod", label: "Previous period" },
-  { value: "previousYear", label: "Previous year" },
-  { value: "none", label: "None" }
-]
+// const COMPARISON_OPTIONS = [
+//   { value: "previousPeriod", label: "Previous period" },
+//   { value: "previousYear", label: "Previous year" },
+//   { value: "none", label: "None" }
+// ]
 
 export function PeriodSelector({
   selectedPeriod,
   onPeriodChange,
   selectedDisplay,
   onDisplayChange,
-  selectedComparison,
-  onComparisonChange
-}: PeriodSelectorProps) {
-  const [isOpen, setIsOpen] = React.useState(false)
+}: // selectedComparison,
+// onComparisonChange
+PeriodSelectorProps) {
+  const [isOpen, setIsOpen] = React.useState(false);
 
   const getSelectedPeriodLabel = () => {
-    const period = PERIOD_OPTIONS.find(p => p.value === selectedPeriod)
-    return period?.label.replace("", "") || "Select period..."
-  }
+    const period = PERIOD_OPTIONS.find((p) => p.value === selectedPeriod);
+    return period?.label.replace("", "") || "Select period...";
+  };
 
   return (
     <div className="flex items-center gap-4">
@@ -76,14 +76,10 @@ export function PeriodSelector({
                       onClick={() => onPeriodChange(option.value)}
                       className="w-full flex items-center justify-between px-2 py-1.5 text-sm hover:bg-gray-50 rounded"
                     >
-                      <span className={cn(
-                        selectedPeriod === option.value ? "font-medium" : "font-normal"
-                      )}>
+                      <span className={cn(selectedPeriod === option.value ? "font-medium" : "font-normal")}>
                         {option.label}
                       </span>
-                      {selectedPeriod === option.value && (
-                        <Check className="h-4 w-4 text-blue-600" />
-                      )}
+                      {selectedPeriod === option.value && <Check className="h-4 w-4 text-blue-600" />}
                     </button>
                   ))}
                 </div>
@@ -101,21 +97,17 @@ export function PeriodSelector({
                         onClick={() => onDisplayChange(option.value)}
                         className="w-full flex items-center justify-between px-2 py-1.5 text-sm hover:bg-gray-50 rounded"
                       >
-                        <span className={cn(
-                          selectedDisplay === option.value ? "font-medium" : "font-normal"
-                        )}>
+                        <span className={cn(selectedDisplay === option.value ? "font-medium" : "font-normal")}>
                           {option.label}
                         </span>
-                        {selectedDisplay === option.value && (
-                          <Check className="h-4 w-4 text-blue-600" />
-                        )}
+                        {selectedDisplay === option.value && <Check className="h-4 w-4 text-blue-600" />}
                       </button>
                     ))}
                   </div>
                 </div>
 
                 {/* Comparison Options */}
-                <div>
+                {/* <div>
                   <h3 className="text-sm font-medium text-gray-700 mb-3">Compare with:</h3>
                   <div className="space-y-1">
                     {COMPARISON_OPTIONS.map((option) => (
@@ -135,12 +127,12 @@ export function PeriodSelector({
                       </button>
                     ))}
                   </div>
-                </div>
+                </div> */}
               </div>
             </div>
           </div>
         </PopoverContent>
       </Popover>
     </div>
-  )
-} 
+  );
+}
