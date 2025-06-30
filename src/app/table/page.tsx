@@ -7,10 +7,10 @@ import { useCategoriesStore, type Category } from '@/zustand/categoriesStore';
 import { usePayeesStore } from '@/zustand/payeesStore';
 import { X } from 'lucide-react';
 import Select from 'react-select';
-// import EditTransactionModal, { 
-//   type EditJournalModalState, 
-//   type JournalEntryLine 
-// } from '@/components/EditTransactionModal';
+import EditTransactionModal, { 
+  type EditJournalModalState, 
+  type JournalEntryLine 
+} from '@/components/EditTransactionModal';
 import { 
   isZeroAmount
 } from '@/lib/financial';
@@ -579,11 +579,11 @@ export default function JournalTablePage() {
       // Get the first entry to extract date and description
       const firstEntry = data.entries[0];
       
-      setEditJournalModal(prev => ({
+      setEditJournalModal((prev: EditJournalModalState) => ({
         ...prev,
         editEntry: {
           date: firstEntry?.date || new Date().toISOString().split('T')[0],
-          jeName: firstEntry?.transactions?.description || '',
+          jeName: firstEntry?.description || firstEntry?.transactions?.description || '',
           lines: editLines
         },
         isLoading: false,
@@ -591,7 +591,7 @@ export default function JournalTablePage() {
       }));
     } catch (error) {
       console.error('Error fetching journal entries:', error);
-      setEditJournalModal(prev => ({
+      setEditJournalModal((prev: EditJournalModalState) => ({
         ...prev,
         error: 'Failed to fetch journal entries',
         isLoading: false
@@ -637,7 +637,7 @@ export default function JournalTablePage() {
       // Get the first entry to extract date and JE name
       const firstEntry = entriesForReference[0];
       
-      setEditJournalModal(prev => ({
+      setEditJournalModal((prev: EditJournalModalState) => ({
         ...prev,
         editEntry: {
           date: firstEntry?.date || new Date().toISOString().split('T')[0],
@@ -649,7 +649,7 @@ export default function JournalTablePage() {
       }));
     } catch (error) {
       console.error('Error fetching manual journal entries:', error);
-      setEditJournalModal(prev => ({
+      setEditJournalModal((prev: EditJournalModalState) => ({
         ...prev,
         error: 'Failed to fetch manual journal entries',
         isLoading: false
@@ -721,11 +721,11 @@ export default function JournalTablePage() {
 
   // Functions for edit journal modal
   const updateEditJournalLine = (lineId: string, field: keyof JournalEntryLine, value: string) => {
-    setEditJournalModal(prev => ({
+    setEditJournalModal((prev: EditJournalModalState) => ({
       ...prev,
       editEntry: {
         ...prev.editEntry,
-        lines: prev.editEntry.lines.map(line =>
+        lines: prev.editEntry.lines.map((line: JournalEntryLine) =>
           line.id === lineId ? { ...line, [field]: value } : line
         )
       }
@@ -755,7 +755,7 @@ export default function JournalTablePage() {
       credit: '0.00'
     };
 
-    setEditJournalModal(prev => {
+    setEditJournalModal((prev: EditJournalModalState) => {
       const lines = [...prev.editEntry.lines];
       
       // Insert before the last line (which should be the bank account)
@@ -777,12 +777,12 @@ export default function JournalTablePage() {
 
   // Calculate totals for edit modal validation and display
   const calculateEditJournalTotals = () => {
-    const totalDebits = editJournalModal.editEntry.lines.reduce((sum, line) => {
+    const totalDebits = editJournalModal.editEntry.lines.reduce((sum: number, line: JournalEntryLine) => {
       const debit = parseFloat(line.debit) || 0;
       return sum + debit;
     }, 0);
 
-    const totalCredits = editJournalModal.editEntry.lines.reduce((sum, line) => {
+    const totalCredits = editJournalModal.editEntry.lines.reduce((sum: number, line: JournalEntryLine) => {
       const credit = parseFloat(line.credit) || 0;
       return sum + credit;
     }, 0);
@@ -795,20 +795,20 @@ export default function JournalTablePage() {
 
     // Validation
     if (!editJournalModal.editEntry.date) {
-      setEditJournalModal(prev => ({ ...prev, error: 'Please select a date' }));
+      setEditJournalModal((prev: EditJournalModalState) => ({ ...prev, error: 'Please select a date' }));
       return;
     }
 
     try {
-      setEditJournalModal(prev => ({ ...prev, saving: true, error: null }));
+      setEditJournalModal((prev: EditJournalModalState) => ({ ...prev, saving: true, error: null }));
       
       // Basic validation - at least one debit and one credit line
-      const hasValidLines = editJournalModal.editEntry.lines.some(line => 
+      const hasValidLines = editJournalModal.editEntry.lines.some((line: JournalEntryLine) => 
         (line.debit && !isZeroAmount(line.debit)) || (line.credit && !isZeroAmount(line.credit))
       );
       
       if (!hasValidLines) {
-        setEditJournalModal(prev => ({ ...prev, error: 'Please enter at least one debit or credit amount', saving: false }));
+        setEditJournalModal((prev: EditJournalModalState) => ({ ...prev, error: 'Please enter at least one debit or credit amount', saving: false }));
         return;
       }
 
@@ -817,7 +817,7 @@ export default function JournalTablePage() {
       const isBalanced = Math.abs(totalDebits - totalCredits) < 0.01;
       
       if (!isBalanced) {
-        setEditJournalModal(prev => ({ ...prev, error: 'Total debits must equal total credits', saving: false }));
+        setEditJournalModal((prev: EditJournalModalState) => ({ ...prev, error: 'Total debits must equal total credits', saving: false }));
         return;
       }
 
@@ -826,8 +826,8 @@ export default function JournalTablePage() {
       if (editJournalModal.isManualEntry) {
         // Update manual journal entry
         const lines = editJournalModal.editEntry.lines
-          .filter(line => (parseFloat(line.debit) > 0) || (parseFloat(line.credit) > 0))
-          .map(line => ({
+          .filter((line: JournalEntryLine) => (parseFloat(line.debit) > 0) || (parseFloat(line.credit) > 0))
+          .map((line: JournalEntryLine) => ({
             description: line.description,
             categoryId: line.categoryId,
             payeeId: line.payeeId,
@@ -845,8 +845,8 @@ export default function JournalTablePage() {
       } else {
         // Update regular journal entry
         const entries = editJournalModal.editEntry.lines
-          .filter(line => (parseFloat(line.debit) > 0) || (parseFloat(line.credit) > 0))
-          .map(line => ({
+          .filter((line: JournalEntryLine) => (parseFloat(line.debit) > 0) || (parseFloat(line.credit) > 0))
+          .map((line: JournalEntryLine) => ({
             account_id: line.categoryId,
             amount: parseFloat(line.debit) > 0 ? parseFloat(line.debit) : parseFloat(line.credit),
             type: parseFloat(line.debit) > 0 ? 'debit' as const : 'credit' as const
@@ -855,8 +855,9 @@ export default function JournalTablePage() {
         response = await api.put('/api/journal/update', {
           id: editJournalModal.transactionId,
           date: editJournalModal.editEntry.date,
-          description: editJournalModal.editEntry.jeName,
-          transactions: entries
+          description: editJournalModal.editEntry.jeName || editJournalModal.editEntry.lines[0]?.description || 'Journal Entry',
+          transactions: entries,
+          hasSplit: entries.length > 2
         });
       }
 
@@ -881,7 +882,7 @@ export default function JournalTablePage() {
       });
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
-      setEditJournalModal(prev => ({ ...prev, error: `Failed to update journal entries: ${errorMessage}`, saving: false }));
+      setEditJournalModal((prev: EditJournalModalState) => ({ ...prev, error: `Failed to update journal entries: ${errorMessage}`, saving: false }));
     }
   };
 
@@ -1352,21 +1353,21 @@ export default function JournalTablePage() {
       )}
 
       {/* Edit Transaction Modal */}
-      {/* <EditTransactionModal
+      <EditTransactionModal
         modalState={editJournalModal}
         categories={categories}
         payees={payees}
         isZeroAmount={isZeroAmount}
-        onClose={() => setEditJournalModal(prev => ({ ...prev, isOpen: false }))}
+        onClose={() => setEditJournalModal((prev: EditJournalModalState) => ({ ...prev, isOpen: false }))}
         onUpdateLine={updateEditJournalLine}
         onAmountChange={handleEditJournalAmountChange}
         onAddLine={addEditJournalLine}
         onSave={saveJournalEntryChanges}
-        onDateChange={(date) => setEditJournalModal(prev => ({
+        onDateChange={(date) => setEditJournalModal((prev: EditJournalModalState) => ({
           ...prev,
           editEntry: { ...prev.editEntry, date }
         }))}
-        onJeNameChange={(jeName) => setEditJournalModal(prev => ({
+        onJeNameChange={(jeName) => setEditJournalModal((prev: EditJournalModalState) => ({
           ...prev,
           editEntry: { ...prev.editEntry, jeName }
         }))}
@@ -1380,7 +1381,7 @@ export default function JournalTablePage() {
           });
         }}
         calculateTotals={calculateEditJournalTotals}
-      /> */}
+      />
     </div>
   );
 } 
