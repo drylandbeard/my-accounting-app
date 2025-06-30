@@ -129,7 +129,11 @@ export async function PUT(request: NextRequest) {
     }
 
     // Build update data
-    const updateData: any = {};
+    const updateData: {
+      name?: string;
+      type?: string;
+      parent_id?: string | null;
+    } = {};
     if (name !== undefined) updateData.name = name.trim();
     if (type !== undefined) updateData.type = type;
     if (parent_id !== undefined) updateData.parent_id = parent_id;
@@ -152,7 +156,10 @@ export async function PUT(request: NextRequest) {
 
     // If this chart of accounts entry is linked to a plaid account, also update the accounts table
     if (existingCategory.plaid_account_id && (name || type)) {
-      const accountUpdateData: any = {};
+      const accountUpdateData: {
+        name?: string;
+        type?: string;
+      } = {};
       if (name !== undefined) accountUpdateData.name = name.trim();
       if (type !== undefined) accountUpdateData.type = type;
 

@@ -14,6 +14,34 @@ export interface Category {
   plaid_account_id?: string | null;
 }
 
+// Import functionality types
+export interface CategoryImportData {
+  id: string;
+  name: string;
+  type: string;
+  subtype?: string;
+  parent_id?: string | null;
+  company_id?: string;
+  isValid: boolean;
+  validationMessage?: string;
+  needsParentCreation?: boolean;
+  parentName?: string;
+}
+
+export interface CategoryCSVRow {
+  Name: string;
+  Type: string;
+  Parent?: string;
+}
+
+export interface SelectOption {
+  value: string;
+  label: string;
+}
+
+// Constants
+const ACCOUNT_TYPES = ["Asset", "Liability", "Equity", "Revenue", "COGS", "Expense"];
+
 // Helper function to sort categories the same way as the API
 const sortCategories = (categories: Category[]): Category[] => {
   return [...categories].sort((a, b) => {
@@ -37,6 +65,9 @@ interface CategoriesState {
   isLoading: boolean;
   error: string | null;
   
+  // Parent options for dropdowns
+  parentOptions: Category[];
+  
   // Highlighting for real-time updates
   highlightedCategoryIds: Set<string>;
   lastActionCategoryId: string | null;
@@ -49,15 +80,28 @@ interface CategoriesState {
   updateCategoryWithMergeCheck: (id: string, updates: Partial<Category>, options?: { allowMergePrompt?: boolean; companyId?: string }) => Promise<{ success: boolean; needsMerge?: boolean; existingCategory?: Category; error?: string }>;
   mergeFromRename: (originalCategoryId: string, existingCategoryId: string, companyId: string) => Promise<boolean>;
   deleteCategory: (id: string) => Promise<boolean>;
+  deleteCategoryWithValidation: (id: string, companyId: string) => Promise<{ success: boolean; error?: string }>;
   mergeCategories: (selectedCategoryIds: string[], targetCategoryId: string, companyId: string) => Promise<boolean>;
   highlightCategory: (categoryId: string) => void;
   clearError: () => void;
   
-  // New functionality
+  // Parent options management
+  fetchParentOptions: (companyId: string) => Promise<void>;
+  getParentOptions: (currentId?: string, type?: string) => SelectOption[];
+  
+  // Import functionality
+  importCategories: (categories: CategoryImportData[], companyId: string, autoCreateMissing?: boolean) => Promise<{ success: boolean; error?: string }>;
+  validateCategoryCSV: (data: { data: CategoryCSVRow[] }) => string | null;
+  validateParentReferences: (categories: CategoryImportData[]) => CategoryImportData[];
+  validateParentDependencies: (categories: CategoryImportData[], selectedIds: Set<string>) => { isValid: boolean; missingParents: string[] };
+  
+  // Enhanced functionality
   findCategoryByName: (name: string, caseSensitive?: boolean) => Category | null;
   findCategoriesByName: (namePattern: string, caseSensitive?: boolean) => Category[];
   findParentByName: (childId: string, parentName: string) => Category | null;
   moveCategory: (categoryIdOrName: string, newParentIdOrName: string | null) => Promise<boolean>;
+  checkBankAccountLinkage: (categoryId: string) => Promise<{ isLinked: boolean; name?: string; error?: string }>;
+  syncAccountsTable: (categoryId: string, updates: { name?: string; type?: string }, companyId: string) => Promise<boolean>;
   
   // Real-time subscriptions
   subscriptions: ReturnType<typeof supabase.channel>[];
@@ -70,6 +114,7 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
   categories: [],
   isLoading: false,
   error: null,
+  parentOptions: [],
   highlightedCategoryIds: new Set(),
   lastActionCategoryId: null,
   subscriptions: [],
@@ -607,29 +652,438 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
     set({ error: null });
   },
   
-  // New helper functions
-  
-  // Find a category by name (case-insensitive by default)
+  // Parent options management
+  fetchParentOptions: async (companyId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("chart_of_accounts")
+        .select("*")
+        .eq("company_id", companyId)
+        .is("parent_id", null);
+
+      if (error) {
+        console.error("Error fetching parent options:", error);
+        set({ error: "Failed to fetch parent options" });
+      } else if (data) {
+        set({ parentOptions: data as Category[] });
+      }
+    } catch (err) {
+      console.error('Error in fetchParentOptions:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch parent options';
+      set({ error: errorMessage });
+    }
+  },
+
+  getParentOptions: (currentId?: string, type?: string): SelectOption[] => {
+    const { categories } = get();
+    const availableParents = categories.filter((cat: Category) => 
+      cat.id !== currentId && 
+      (type ? cat.type === type : true)
+    );
+    return [
+      { value: "", label: "None" },
+      ...availableParents.map((cat: Category) => ({
+        value: cat.id,
+        label: cat.name
+      }))
+    ];
+  },
+
+  // Enhanced validation for category deletion
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  deleteCategoryWithValidation: async (id: string, companyId: string) => {
+    try {
+      // Check if category is linked to a bank account
+      const linkageCheck = await get().checkBankAccountLinkage(id);
+      
+      if (linkageCheck.error) {
+        return { success: false, error: linkageCheck.error };
+      }
+      
+      if (linkageCheck.isLinked) {
+        return { 
+          success: false, 
+          error: `This category "${linkageCheck.name}" cannot be deleted because it is linked to a bank account. Bank account categories are automatically managed by the system.` 
+        };
+      }
+
+      // Proceed with regular deletion
+      const success = await get().deleteCategory(id);
+      return { success };
+    } catch (err) {
+      console.error('Error in deleteCategoryWithValidation:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to delete category';
+      return { success: false, error: errorMessage };
+    }
+  },
+
+  // Bank account linkage check
+  checkBankAccountLinkage: async (categoryId: string) => {
+    try {
+      const { data: categoryData, error: categoryError } = await supabase
+        .from("chart_of_accounts")
+        .select("plaid_account_id, name")
+        .eq("id", categoryId)
+        .single();
+
+      if (categoryError) {
+        console.error("Error checking category:", categoryError);
+        return { isLinked: false, error: "Error checking category details. Please try again." };
+      }
+
+      return {
+        isLinked: !!categoryData?.plaid_account_id,
+        name: categoryData?.name
+      };
+    } catch (err) {
+      console.error('Error in checkBankAccountLinkage:', err);
+      return { isLinked: false, error: 'Failed to check bank account linkage' };
+    }
+  },
+
+  // Sync accounts table when chart of accounts is updated
+  syncAccountsTable: async (categoryId: string, updates: { name?: string; type?: string }, companyId: string) => {
+    try {
+      // First get the category to check if it's linked to a plaid account
+      const { data: currentAccount, error: fetchError } = await supabase
+        .from("chart_of_accounts")
+        .select("plaid_account_id")
+        .eq("id", categoryId)
+        .single();
+
+      if (fetchError || !currentAccount?.plaid_account_id) {
+        // No plaid linkage, nothing to sync
+        return true;
+      }
+
+      // Update the accounts table
+      const { error: accountsError } = await supabase
+        .from("accounts")
+        .update(updates)
+        .eq("plaid_account_id", currentAccount.plaid_account_id)
+        .eq("company_id", companyId);
+
+      if (accountsError) {
+        console.error("Error updating accounts table:", accountsError);
+        return false;
+      }
+
+      return true;
+    } catch (err) {
+      console.error('Error in syncAccountsTable:', err);
+      return false;
+    }
+  },
+
+  // CSV validation
+  validateCategoryCSV: (data: { data: CategoryCSVRow[] }) => {
+    if (!data.data || data.data.length === 0) {
+      return "CSV file is empty";
+    }
+
+    const requiredColumns = ["Name", "Type"];
+    const headers = Object.keys(data.data[0]);
+
+    const missingColumns = requiredColumns.filter((col) => !headers.includes(col));
+    if (missingColumns.length > 0) {
+      return `Missing required columns: ${missingColumns.join(", ")}. Expected: Name, Type, Parent (optional)`;
+    }
+
+    const nonEmptyRows = data.data.filter((row: CategoryCSVRow) => row.Name && row.Type);
+
+    if (nonEmptyRows.length === 0) {
+      return "No valid category data found. Please ensure you have at least one row with Name and Type.";
+    }
+
+    for (let i = 0; i < nonEmptyRows.length; i++) {
+      const row = nonEmptyRows[i];
+
+      if (!row.Name.trim()) {
+        return `Empty name in row ${i + 1}. Please provide a name for each category.`;
+      }
+
+      if (!ACCOUNT_TYPES.includes(row.Type)) {
+        return `Invalid type "${row.Type}" in row ${i + 1}. Valid types are: ${ACCOUNT_TYPES.join(", ")}`;
+      }
+    }
+
+    return null;
+  },
+
+  // Validate parent references
+  validateParentReferences: (categories: CategoryImportData[]): CategoryImportData[] => {
+    const { categories: existingCategories } = get();
+    
+    return categories.map((category) => {
+      let isValid = true;
+      let validationMessage = "";
+      let needsParentCreation = false;
+
+      // Check for name uniqueness - must not exist in database
+      const nameExistsInDb = existingCategories.some(
+        (acc) => acc.name.toLowerCase() === category.name.toLowerCase()
+      );
+      
+      if (nameExistsInDb) {
+        isValid = false;
+        validationMessage = `Category "${category.name}" already exists in database`;
+        return {
+          ...category,
+          isValid,
+          validationMessage,
+          needsParentCreation,
+        };
+      }
+
+      // Check for name uniqueness within CSV data
+      const duplicatesInCsv = categories.filter(
+        (cat) => cat.name.toLowerCase() === category.name.toLowerCase()
+      );
+      
+      if (duplicatesInCsv.length > 1) {
+        isValid = false;
+        validationMessage = `Duplicate name "${category.name}" found in CSV`;
+        return {
+          ...category,
+          isValid,
+          validationMessage,
+          needsParentCreation,
+        };
+      }
+
+      // Validate parent references
+      if (category.parentName) {
+        // Check if parent exists in current accounts
+        const parentExists = existingCategories.some(
+          (acc) => acc.name.toLowerCase() === category.parentName!.toLowerCase()
+        );
+        
+        // Check if parent exists in the import data
+        const parentInImport = categories.find(
+          (cat) => cat.name.toLowerCase() === category.parentName!.toLowerCase() && cat.id !== category.id
+        );
+
+        if (!parentExists && !parentInImport) {
+          needsParentCreation = true;
+          validationMessage = `Parent "${category.parentName}" does not exist`;
+        } else if (parentExists || parentInImport) {
+          // Validate that parent type matches (parents must have same type as child)
+          const existingParent = existingCategories.find((acc) => acc.name.toLowerCase() === category.parentName!.toLowerCase());
+          const importParent = parentInImport;
+          
+          const parentType = existingParent?.type || importParent?.type;
+          if (parentType && parentType !== category.type) {
+            isValid = false;
+            validationMessage = `Parent "${category.parentName}" has type "${parentType}" but child has type "${category.type}". Parent and child must have the same type.`;
+          }
+        }
+      }
+
+      return {
+        ...category,
+        isValid,
+        validationMessage,
+        needsParentCreation,
+      };
+    });
+  },
+
+  // Validate parent dependencies in CSV selection
+  validateParentDependencies: (categories: CategoryImportData[], selectedIds: Set<string>) => {
+    const missingParents: string[] = [];
+    
+    const selectedCategories = categories.filter(cat => selectedIds.has(cat.id));
+    
+    for (const category of selectedCategories) {
+      if (category.parentName) {
+        // Find if the parent is in the CSV data
+        const parentInCsv = categories.find(
+          cat => cat.name.toLowerCase() === category.parentName!.toLowerCase()
+        );
+        
+        // If parent is in CSV but not selected, add to missing parents
+        if (parentInCsv && !selectedIds.has(parentInCsv.id)) {
+          if (!missingParents.includes(category.parentName)) {
+            missingParents.push(category.parentName);
+          }
+        }
+      }
+    }
+    
+    return {
+      isValid: missingParents.length === 0,
+      missingParents
+    };
+  },
+
+  // Import categories from CSV data
+  importCategories: async (categories: CategoryImportData[], companyId: string, autoCreateMissing = false) => {
+    try {
+      set({ isLoading: true, error: null });
+
+      // Sort categories by dependency (parents before children)
+      const sortCategoriesByDependency = (categories: CategoryImportData[]): CategoryImportData[] => {
+        const sorted: CategoryImportData[] = [];
+        const remaining = [...categories];
+        const processing = new Set<string>();
+
+        const addCategoryToSorted = (cat: CategoryImportData) => {
+          if (processing.has(cat.id)) return; // Avoid circular dependencies
+          processing.add(cat.id);
+
+          // If category has a parent in the import list, add parent first
+          if (cat.parentName) {
+            const parentInImport = remaining.find(
+              (c) => c.name.toLowerCase() === cat.parentName!.toLowerCase() && c.id !== cat.id
+            );
+            if (parentInImport && !sorted.includes(parentInImport)) {
+              addCategoryToSorted(parentInImport);
+            }
+          }
+
+          // Add this category if not already added
+          if (!sorted.includes(cat)) {
+            sorted.push(cat);
+          }
+          processing.delete(cat.id);
+        };
+
+        // Add all categories, respecting dependencies
+        for (const cat of remaining) {
+          addCategoryToSorted(cat);
+        }
+
+        return sorted;
+      };
+
+      const orderedCategories = sortCategoriesByDependency(categories);
+
+      // If auto-create is enabled, create missing parent categories first
+      if (autoCreateMissing) {
+        const missingParents = new Set<string>();
+
+        orderedCategories.forEach((cat) => {
+          if (cat.needsParentCreation && cat.parentName) {
+            missingParents.add(cat.parentName);
+          }
+        });
+
+        // Create missing parent categories with same type as child
+        if (missingParents.size > 0) {
+          const parentsToCreate = Array.from(missingParents).map((parentName) => {
+            // Find a child category to get the type
+            const childWithThisParent = orderedCategories.find(
+              (cat) => cat.parentName === parentName
+            );
+            return {
+              name: parentName,
+              type: childWithThisParent?.type || "Expense", // Default to Expense if can't determine
+              parent_id: null, // These are parent categories
+              company_id: companyId,
+            };
+          });
+
+          const { error: parentError } = await supabase
+            .from("chart_of_accounts")
+            .insert(parentsToCreate);
+
+          if (parentError) {
+            throw new Error(`Failed to create parent categories: ${parentError.message}`);
+          }
+
+          // Refresh categories to get the newly created parents
+          await get().refreshCategories();
+        }
+      }
+
+      // Split categories into parents and children for two-phase import
+      const parentCategories = orderedCategories.filter((cat) => !cat.parentName);
+      const childCategories = orderedCategories.filter((cat) => cat.parentName);
+
+      // Phase 1: Import parent categories first
+      if (parentCategories.length > 0) {
+        const parentCategoriesToInsert = parentCategories.map((cat) => ({
+          name: cat.name,
+          type: cat.type,
+          parent_id: null, // Parents have no parent
+          company_id: companyId,
+        }));
+
+        const { error: parentError } = await supabase
+          .from("chart_of_accounts")
+          .insert(parentCategoriesToInsert);
+        if (parentError) {
+          throw new Error(`Failed to import parent categories: ${parentError.message}`);
+        }
+
+        // Refresh categories to get newly created parents
+        await get().refreshCategories();
+      }
+
+      // Phase 2: Import child categories with proper parent_id resolution
+      if (childCategories.length > 0) {
+        const childCategoriesToInsert = await Promise.all(
+          childCategories.map(async (cat) => {
+            let parent_id = cat.parent_id;
+
+            // If we have a parentName but no parent_id, look it up (including newly created parents)
+            if (cat.parentName && !parent_id) {
+              // Get fresh categories list that includes newly created parents
+              const { data: freshCategories } = await supabase
+                .from("chart_of_accounts")
+                .select("*")
+                .eq("company_id", companyId);
+
+              if (freshCategories) {
+                const parentCategory = freshCategories.find(
+                  (acc) => acc.name.toLowerCase() === cat.parentName!.toLowerCase()
+                );
+                parent_id = parentCategory?.id || null;
+              }
+            }
+
+            return {
+              name: cat.name,
+              type: cat.type,
+              parent_id,
+              company_id: companyId,
+            };
+          })
+        );
+
+        const { error: childError } = await supabase
+          .from("chart_of_accounts")
+          .insert(childCategoriesToInsert);
+        if (childError) {
+          throw new Error(`Failed to import child categories: ${childError.message}`);
+        }
+      }
+
+      // Refresh categories and parent options
+      await get().refreshCategories();
+      await get().fetchParentOptions(companyId);
+
+      set({ isLoading: false });
+      return { success: true };
+    } catch (err) {
+      console.error('Error in importCategories:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to import categories';
+      set({ error: errorMessage, isLoading: false });
+      return { success: false, error: errorMessage };
+    }
+  },
+
+  // Helper functions for finding categories
   findCategoryByName: (name: string, caseSensitive = false) => {
     const { categories } = get();
-    console.log('findCategoryByName debug:', { 
-      searchName: name, 
-      caseSensitive, 
-      availableCategories: categories.map(c => ({ id: c.id, name: c.name }))
-    }); // Debug log
     
     if (caseSensitive) {
-      const found = categories.find((cat) => cat.name === name) || null;
-      console.log('Case-sensitive search result:', found); // Debug log
-      return found;
+      return categories.find((cat) => cat.name === name) || null;
     } else {
-      const found = categories.find((cat) => cat.name.toLowerCase() === name.toLowerCase()) || null;
-      console.log('Case-insensitive search result:', found); // Debug log
-      return found;
+      return categories.find((cat) => cat.name.toLowerCase() === name.toLowerCase()) || null;
     }
   },
   
-  // Find categories by partial name (case-insensitive by default)
   findCategoriesByName: (namePattern: string, caseSensitive = false) => {
     const { categories } = get();
     const pattern = caseSensitive ? namePattern : namePattern.toLowerCase();
@@ -640,7 +1094,6 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
     });
   },
   
-  // Find parent category by name for a specific child
   findParentByName: (childId: string, parentName: string) => {
     const { categories } = get();
     const possibleParents = categories.filter(c => c.name.toLowerCase() === parentName.toLowerCase());
@@ -656,7 +1109,6 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
     return possibleParents[0] || null;
   },
   
-  // Move a category under a new parent (or to root if null)
   moveCategory: async (categoryIdOrName: string, newParentIdOrName: string | null) => {
     // Determine if we have IDs or names
     let categoryId = categoryIdOrName;
