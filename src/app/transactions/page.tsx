@@ -3649,7 +3649,7 @@ export default function TransactionsPage() {
                     />
                   </th>
                   <th
-                    className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
+                    className="border p-1 w-20 text-center cursor-pointer hover:bg-gray-200"
                     onClick={() => handleSort("date", "toAdd")}
                   >
                     Date {toAddSortConfig.key === "date" && (toAddSortConfig.direction === "asc" ? "↑" : "↓")}
@@ -3746,17 +3746,17 @@ export default function TransactionsPage() {
                           className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
                         />
                       </td>
-                      <td className="border p-1 w-8 text-center text-xs cursor-pointer">{formatDate(tx.date)}</td>
-                      <td className="border p-1 w-8 text-center text-xs cursor-pointer" style={{ minWidth: 250 }}>
+                      <td className="border p-1 w-20 text-center text-xs">{formatDate(tx.date)}</td>
+                      <td className="border p-1 w-8 text-center text-xs" style={{ minWidth: 250 }}>
                         {tx.description}
                         {tx.has_split && (
                           <span className="ml-1 inline-block bg-blue-100 text-blue-800 text-xs px-1 rounded">Split</span>
                         )}
                       </td>
-                      <td className="border p-1 w-8 text-center cursor-pointer">
+                      <td className="border p-1 w-8 text-center">
                         {tx.spent ? formatAmount(tx.spent) : ""}
                       </td>
-                      <td className="border p-1 w-8 text-center cursor-pointer">
+                      <td className="border p-1 w-8 text-center">
                         {tx.received ? formatAmount(tx.received) : ""}
                       </td>
                       <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
@@ -3822,6 +3822,21 @@ export default function TransactionsPage() {
                             control: (base) => ({
                               ...base,
                               backgroundColor: automationAppliedPayees.has(tx.id) ? "#dbeafe" : base.backgroundColor,
+                              minHeight: '28px',
+                              height: '28px',
+                            }),
+                            valueContainer: (base) => ({
+                              ...base,
+                              height: '28px',
+                              padding: '0 6px',
+                            }),
+                            input: (base) => ({
+                              ...base,
+                              margin: '0px',
+                            }),
+                            indicatorsContainer: (base) => ({
+                              ...base,
+                              height: '28px',
                             }),
                           }}
                         />
@@ -3897,6 +3912,21 @@ export default function TransactionsPage() {
                               backgroundColor: automationAppliedCategories.has(tx.id)
                                 ? "#dbeafe"
                                 : base.backgroundColor,
+                              minHeight: '28px',
+                              height: '28px',
+                            }),
+                            valueContainer: (base) => ({
+                              ...base,
+                              height: '28px',
+                              padding: '0 6px',
+                            }),
+                            input: (base) => ({
+                              ...base,
+                              margin: '0px',
+                            }),
+                            indicatorsContainer: (base) => ({
+                              ...base,
+                              height: '28px',
                             }),
                           }}
                         />
@@ -4059,7 +4089,7 @@ export default function TransactionsPage() {
                     />
                   </th>
                   <th
-                    className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
+                    className="border p-1 w-20 text-center cursor-pointer hover:bg-gray-200"
                     onClick={() => handleSort("date", "added")}
                   >
                     Date {addedSortConfig.key === "date" && (addedSortConfig.direction === "asc" ? "↑" : "↓")}
@@ -4126,7 +4156,7 @@ export default function TransactionsPage() {
                           className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
                         />
                       </td>
-                      <td className="border p-1 w-8 text-center text-xs cursor-pointer">{formatDate(tx.date)}</td>
+                      <td className="border p-1 w-20 text-center text-xs cursor-pointer">{formatDate(tx.date)}</td>
                       <td className="border p-1 w-8 text-center text-xs cursor-pointer" style={{ minWidth: 250 }}>
                         {tx.description}
                         {tx.has_split && (
