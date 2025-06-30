@@ -981,6 +981,8 @@ export default function TransactionsPage() {
       paginatedData: data.slice(startIndex, endIndex),
       totalPages: Math.ceil(data.length / itemsPerPage),
       totalItems: data.length,
+      startIndex: startIndex + 1,
+      endIndex: Math.min(endIndex, data.length)
     };
   };
 
@@ -1014,7 +1016,7 @@ export default function TransactionsPage() {
     toAddSortConfig
   );
 
-  const { paginatedData: imported, totalPages: toAddTotalPages } = getPaginatedData(
+  const { paginatedData: imported, totalPages: toAddTotalPages, endIndex: toAddEndIndex } = getPaginatedData(
     importedFiltered,
     toAddCurrentPage,
     ITEMS_PER_PAGE
@@ -1065,7 +1067,7 @@ export default function TransactionsPage() {
     addedSortConfig
   );
 
-  const { paginatedData: confirmed, totalPages: addedTotalPages } = getPaginatedData(
+  const { paginatedData: confirmed, totalPages: addedTotalPages, endIndex: addedEndIndex } = getPaginatedData(
     confirmedFiltered,
     addedCurrentPage,
     ITEMS_PER_PAGE
@@ -3980,7 +3982,7 @@ export default function TransactionsPage() {
               {/* Pagination for To Add table */}
               <div className="mt-2 flex items-center justify-start gap-3">
                 <span className="text-xs text-gray-600 whitespace-nowrap">
-                  {`${imported.length} of ${importedFiltered.length}`}
+                  {`${toAddEndIndex} of ${importedFiltered.length}`}
                 </span>
                 <CustomPagination
                   currentPage={toAddCurrentPage}
@@ -4201,7 +4203,7 @@ export default function TransactionsPage() {
               {/* Pagination for Added table */}
               <div className="mt-2 flex items-center justify-start gap-3">
                 <span className="text-xs text-gray-600 whitespace-nowrap">
-                  {`${confirmed.length} of ${confirmedFiltered.length}`}
+                  {`${addedEndIndex} of ${confirmedFiltered.length}`}
                 </span>
                 <CustomPagination
                   currentPage={addedCurrentPage}

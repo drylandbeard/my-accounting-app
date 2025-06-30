@@ -1075,7 +1075,7 @@ export default function JournalTablePage() {
             {/* Pagination for Journal table */}
             <div className="mt-2 flex items-center justify-start gap-3">
               <span className="text-xs text-gray-600 whitespace-nowrap">
-                {`${displayedEntries.length} of ${totalItems}`}
+                {`${paginationData.endIndex} of ${totalItems}`}
               </span>
               <CustomPagination 
                 currentPage={currentPage}
