@@ -914,22 +914,6 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            {/* Current Plan */}
-            <div>
-              <h3 className="text-sm font-medium text-gray-900 mb-3">Current Plan</h3>
-              <div className="border border-gray-200 rounded-lg p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">Professional Plan</p>
-                    <p className="text-xs text-gray-500">$29/month • Billed monthly</p>
-                  </div>
-                  <button className="text-sm text-blue-600 hover:text-blue-800">
-                    Manage Plan
-                  </button>
-                </div>
-              </div>
-            </div>
-
             {/* Danger Zone */}
             {isOwner && (
               <div>

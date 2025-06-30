@@ -981,6 +981,8 @@ export default function TransactionsPage() {
       paginatedData: data.slice(startIndex, endIndex),
       totalPages: Math.ceil(data.length / itemsPerPage),
       totalItems: data.length,
+      startIndex: startIndex + 1,
+      endIndex: Math.min(endIndex, data.length)
     };
   };
 
@@ -993,19 +995,13 @@ export default function TransactionsPage() {
         const q = toAddSearchQuery.toLowerCase();
         const desc = tx.description?.toLowerCase() || "";
         const date = formatDate(tx.date).toLowerCase();
-        const spent = tx.spent || "";
-        const received = tx.received || "";
-        const amount = tx.amount || "";
-        // Also search formatted amounts (what user sees in display)
-        const spentFormatted = tx.spent ? formatAmount(tx.spent, { showCurrency: false }) : "";
-        const receivedFormatted = tx.received ? formatAmount(tx.received, { showCurrency: false }) : "";
-        const amountFormatted = tx.amount ? formatAmount(tx.amount, { showCurrency: false }) : "";
+        // Search formatted amounts (what user sees in display)
+        const spentFormatted = tx.spent ? formatAmount(tx.spent, { showCurrency: false }).toLowerCase() : "";
+        const receivedFormatted = tx.received ? formatAmount(tx.received, { showCurrency: false }).toLowerCase() : "";
+        const amountFormatted = tx.amount ? formatAmount(tx.amount, { showCurrency: false }).toLowerCase() : "";
         return (
           desc.includes(q) ||
           date.includes(q) ||
-          spent.includes(q) ||
-          received.includes(q) ||
-          amount.includes(q) ||
           spentFormatted.includes(q) ||
           receivedFormatted.includes(q) ||
           amountFormatted.includes(q)
@@ -1014,7 +1010,7 @@ export default function TransactionsPage() {
     toAddSortConfig
   );
 
-  const { paginatedData: imported, totalPages: toAddTotalPages } = getPaginatedData(
+  const { paginatedData: imported, totalPages: toAddTotalPages, endIndex: toAddEndIndex } = getPaginatedData(
     importedFiltered,
     toAddCurrentPage,
     ITEMS_PER_PAGE
@@ -1038,13 +1034,10 @@ export default function TransactionsPage() {
         const q = addedSearchQuery.toLowerCase();
         const desc = tx.description?.toLowerCase() || "";
         const date = formatDate(tx.date).toLowerCase();
-        const spent = tx.spent || "";
-        const received = tx.received || "";
-        const amount = tx.amount || "";
-        // Also search formatted amounts (what user sees in display)
-        const spentFormatted = tx.spent ? formatAmount(tx.spent, { showCurrency: false }) : "";
-        const receivedFormatted = tx.received ? formatAmount(tx.received, { showCurrency: false }) : "";
-        const amountFormatted = tx.amount ? formatAmount(tx.amount, { showCurrency: false }) : "";
+        // Search formatted amounts (what user sees in display)
+        const spentFormatted = tx.spent ? formatAmount(tx.spent, { showCurrency: false }).toLowerCase() : "";
+        const receivedFormatted = tx.received ? formatAmount(tx.received, { showCurrency: false }).toLowerCase() : "";
+        const amountFormatted = tx.amount ? formatAmount(tx.amount, { showCurrency: false }).toLowerCase() : "";
         // Get the category name for this transaction
         const isAccountDebit = tx.selected_category_id === selectedAccountIdInCOA;
         const categoryId = isAccountDebit ? tx.corresponding_category_id : tx.selected_category_id;
@@ -1053,9 +1046,6 @@ export default function TransactionsPage() {
         return (
           desc.includes(q) ||
           date.includes(q) ||
-          spent.includes(q) ||
-          received.includes(q) ||
-          amount.includes(q) ||
           spentFormatted.includes(q) ||
           receivedFormatted.includes(q) ||
           amountFormatted.includes(q) ||
@@ -1065,7 +1055,7 @@ export default function TransactionsPage() {
     addedSortConfig
   );
 
-  const { paginatedData: confirmed, totalPages: addedTotalPages } = getPaginatedData(
+  const { paginatedData: confirmed, totalPages: addedTotalPages, endIndex: addedEndIndex } = getPaginatedData(
     confirmedFiltered,
     addedCurrentPage,
     ITEMS_PER_PAGE
@@ -3020,12 +3010,12 @@ export default function TransactionsPage() {
         </div>
       )}
 
-      {/* Journal Entry Modal */}
+      {/* Transaction Modal */}
       {journalEntryModal.isOpen && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50">
           <div className="bg-white p-6 rounded-lg w-[800px] overflow-y-auto shadow-xl">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Add Journal Entry</h2>
+              <h2 className="text-lg font-semibold">Add Transaction</h2>
               <button
                 onClick={() => setJournalEntryModal((prev) => ({ ...prev, isOpen: false }))}
                 className="text-gray-500 hover:text-gray-700 text-xl"
@@ -3311,12 +3301,12 @@ export default function TransactionsPage() {
         </div>
       )}
 
-      {/* Edit Journal Entry Modal */}
+      {/* Edit Transaction Modal */}
       {editJournalEntryModal.isOpen && editJournalEntryModal.entry && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50">
           <div className="bg-white p-6 rounded-lg w-[800px] overflow-y-auto shadow-xl">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Edit Journal Entry</h2>
+              <h2 className="text-lg font-semibold">Edit Transaction</h2>
               <button
                 onClick={() => setEditJournalEntryModal({ isOpen: false, entry: null })}
                 className="text-gray-500 hover:text-gray-700 text-xl"
@@ -3649,7 +3639,7 @@ export default function TransactionsPage() {
                     />
                   </th>
                   <th
-                    className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
+                    className="border p-1 w-20 text-center cursor-pointer hover:bg-gray-200"
                     onClick={() => handleSort("date", "toAdd")}
                   >
                     Date {toAddSortConfig.key === "date" && (toAddSortConfig.direction === "asc" ? "↑" : "↓")}
@@ -3746,17 +3736,17 @@ export default function TransactionsPage() {
                           className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
                         />
                       </td>
-                      <td className="border p-1 w-8 text-center text-xs cursor-pointer">{formatDate(tx.date)}</td>
-                      <td className="border p-1 w-8 text-center text-xs cursor-pointer" style={{ minWidth: 250 }}>
+                      <td className="border p-1 w-20 text-center text-xs">{formatDate(tx.date)}</td>
+                      <td className="border p-1 w-8 text-center text-xs" style={{ minWidth: 250 }}>
                         {tx.description}
                         {tx.has_split && (
                           <span className="ml-1 inline-block bg-blue-100 text-blue-800 text-xs px-1 rounded">Split</span>
                         )}
                       </td>
-                      <td className="border p-1 w-8 text-center cursor-pointer">
+                      <td className="border p-1 w-8 text-center">
                         {tx.spent ? formatAmount(tx.spent) : ""}
                       </td>
-                      <td className="border p-1 w-8 text-center cursor-pointer">
+                      <td className="border p-1 w-8 text-center">
                         {tx.received ? formatAmount(tx.received) : ""}
                       </td>
                       <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
@@ -3822,6 +3812,21 @@ export default function TransactionsPage() {
                             control: (base) => ({
                               ...base,
                               backgroundColor: automationAppliedPayees.has(tx.id) ? "#dbeafe" : base.backgroundColor,
+                              minHeight: '28px',
+                              height: '28px',
+                            }),
+                            valueContainer: (base) => ({
+                              ...base,
+                              height: '28px',
+                              padding: '0 6px',
+                            }),
+                            input: (base) => ({
+                              ...base,
+                              margin: '0px',
+                            }),
+                            indicatorsContainer: (base) => ({
+                              ...base,
+                              height: '28px',
                             }),
                           }}
                         />
@@ -3897,6 +3902,21 @@ export default function TransactionsPage() {
                               backgroundColor: automationAppliedCategories.has(tx.id)
                                 ? "#dbeafe"
                                 : base.backgroundColor,
+                              minHeight: '28px',
+                              height: '28px',
+                            }),
+                            valueContainer: (base) => ({
+                              ...base,
+                              height: '28px',
+                              padding: '0 6px',
+                            }),
+                            input: (base) => ({
+                              ...base,
+                              margin: '0px',
+                            }),
+                            indicatorsContainer: (base) => ({
+                              ...base,
+                              height: '28px',
                             }),
                           }}
                         />
@@ -3950,7 +3970,7 @@ export default function TransactionsPage() {
               {/* Pagination for To Add table */}
               <div className="mt-2 flex items-center justify-start gap-3">
                 <span className="text-xs text-gray-600 whitespace-nowrap">
-                  {`${imported.length} of ${importedFiltered.length}`}
+                  {`${toAddEndIndex} of ${importedFiltered.length}`}
                 </span>
                 <CustomPagination
                   currentPage={toAddCurrentPage}
@@ -3958,76 +3978,6 @@ export default function TransactionsPage() {
                   onPageChange={setToAddCurrentPage}
                 />
               </div>
-
-              {selectedToAdd.size > 0 &&
-                (() => {
-                  const selectedTransactions = imported.filter((tx) => selectedToAdd.has(tx.id));
-                  const hasValidCategories = selectedTransactions.every((tx) => selectedCategories[tx.id]);
-                  const isProcessing =
-                    isAddingTransactions || selectedTransactions.some((tx) => processingTransactions.has(tx.id));
-
-                  return (
-                    <div className="mt-2 flex justify-end">
-                      <button
-                        onClick={async () => {
-                          const transactionRequests = selectedTransactions
-                            .filter((tx) => selectedCategories[tx.id])
-                            .map((tx) => ({
-                              transaction: tx,
-                              selectedCategoryId: selectedCategories[tx.id],
-                              selectedPayeeId: selectedPayees[tx.id],
-                            }));
-
-                          // Get the corresponding category ID (the account category)
-                          const correspondingCategoryId = selectedAccountIdInCOA;
-                          if (!correspondingCategoryId) {
-                            setNotification({
-                              type: "error",
-                              message: "No account category found for selected account",
-                            });
-                            return;
-                          }
-
-                          await addTransactions(transactionRequests, correspondingCategoryId, currentCompany!.id);
-
-                          setSelectedCategories((prev) => {
-                            const copy = { ...prev };
-                            selectedTransactions.forEach((tx) => delete copy[tx.id]);
-                            return copy;
-                          });
-                          setSelectedPayees((prev) => {
-                            const copy = { ...prev };
-                            selectedTransactions.forEach((tx) => delete copy[tx.id]);
-                            return copy;
-                          });
-                          // Remove from auto-added tracking since they were manually added
-                          setAutoAddedTransactions((prev) => {
-                            const newSet = new Set(prev);
-                            selectedTransactions.forEach((tx) => {
-                              const contentHash = getTransactionContentHash(tx);
-                              newSet.delete(contentHash);
-                            });
-                            return newSet;
-                          });
-                          setSelectedToAdd(new Set());
-                        }}
-                        className={`border px-3 py-1 rounded ${
-                          isProcessing ? "bg-gray-50 text-gray-400 cursor-not-allowed" : "bg-gray-100 hover:bg-gray-200"
-                        }`}
-                        disabled={!hasValidCategories || isProcessing}
-                      >
-                        {isProcessing ? (
-                          <div className="flex items-center space-x-1">
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                            <span>Adding...</span>
-                          </div>
-                        ) : (
-                          `Add Selected (${selectedToAdd.size})`
-                        )}
-                      </button>
-                    </div>
-                  );
-                })()}
             </div>
           </div>
         )}
@@ -4059,7 +4009,7 @@ export default function TransactionsPage() {
                     />
                   </th>
                   <th
-                    className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
+                    className="border p-1 w-20 text-center cursor-pointer hover:bg-gray-200"
                     onClick={() => handleSort("date", "added")}
                   >
                     Date {addedSortConfig.key === "date" && (addedSortConfig.direction === "asc" ? "↑" : "↓")}
@@ -4126,7 +4076,7 @@ export default function TransactionsPage() {
                           className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
                         />
                       </td>
-                      <td className="border p-1 w-8 text-center text-xs cursor-pointer">{formatDate(tx.date)}</td>
+                      <td className="border p-1 w-20 text-center text-xs cursor-pointer">{formatDate(tx.date)}</td>
                       <td className="border p-1 w-8 text-center text-xs cursor-pointer" style={{ minWidth: 250 }}>
                         {tx.description}
                         {tx.has_split && (
@@ -4171,7 +4121,7 @@ export default function TransactionsPage() {
               {/* Pagination for Added table */}
               <div className="mt-2 flex items-center justify-start gap-3">
                 <span className="text-xs text-gray-600 whitespace-nowrap">
-                  {`${confirmed.length} of ${confirmedFiltered.length}`}
+                  {`${addedEndIndex} of ${confirmedFiltered.length}`}
                 </span>
                 <CustomPagination
                   currentPage={addedCurrentPage}
@@ -4179,40 +4129,6 @@ export default function TransactionsPage() {
                   onPageChange={setAddedCurrentPage}
                 />
               </div>
-
-              {selectedAdded.size > 0 &&
-                (() => {
-                  const selectedConfirmed = confirmed.filter((tx) => selectedAdded.has(tx.id));
-                  const isProcessing =
-                    isUndoingTransactions || selectedConfirmed.some((tx) => processingTransactions.has(tx.id));
-
-                  return (
-                    <div className="mt-2 flex justify-end">
-                      <button
-                        onClick={async () => {
-                          await undoTransactions(
-                            selectedConfirmed.map((tx) => tx.id),
-                            currentCompany!.id
-                          );
-                          setSelectedAdded(new Set());
-                        }}
-                        className={`border px-3 py-1 rounded ${
-                          isProcessing ? "bg-gray-50 text-gray-400 cursor-not-allowed" : "bg-gray-100 hover:bg-gray-200"
-                        }`}
-                        disabled={isProcessing}
-                      >
-                        {isProcessing ? (
-                          <div className="flex items-center space-x-1">
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                            <span>Undoing...</span>
-                          </div>
-                        ) : (
-                          `Undo Selected (${selectedAdded.size})`
-                        )}
-                      </button>
-                    </div>
-                  );
-                })()}
             </div>
           </div>
         )}
@@ -4328,7 +4244,7 @@ export default function TransactionsPage() {
         </div>
       )}
 
-      {/* Edit Journal Entry Modal - Updated to match manual-je format */}
+      {/* Edit Transaction Modal - Updated to match manual-je format */}
       {editJournalModal.isOpen && (
         <div 
           className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
@@ -4339,7 +4255,7 @@ export default function TransactionsPage() {
             onClick={e => e.stopPropagation()}
           >
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Edit Journal Entry</h2>
+              <h2 className="text-lg font-semibold">Edit Transaction</h2>
               <button
                 onClick={() => setEditJournalModal(prev => ({ ...prev, isOpen: false }))}
                 className="text-gray-500 hover:text-gray-700 text-xl"
@@ -4391,7 +4307,7 @@ export default function TransactionsPage() {
                   </div>
                 </div>
                 
-                {/* Journal Entry Table */}
+                {/* Transaction Table */}
                 <div className="border rounded-lg overflow-hidden">
                   <table className="w-full border-collapse">
                     <thead className="bg-gray-50">
@@ -4619,6 +4535,117 @@ export default function TransactionsPage() {
             )}
           </div>
         </div>
+      )}
+
+      {/* Floating Action Buttons */}
+      {activeTab === "toAdd" && selectedToAdd.size > 0 && (
+        (() => {
+          const selectedTransactions = imported.filter((tx) => selectedToAdd.has(tx.id));
+          const hasValidCategories = selectedTransactions.every((tx) => selectedCategories[tx.id]);
+          const isProcessing =
+            isAddingTransactions || selectedTransactions.some((tx) => processingTransactions.has(tx.id));
+
+          return (
+            <div className="fixed bottom-6 right-6 z-40">
+              <button
+                onClick={async () => {
+                  const transactionRequests = selectedTransactions
+                    .filter((tx) => selectedCategories[tx.id])
+                    .map((tx) => ({
+                      transaction: tx,
+                      selectedCategoryId: selectedCategories[tx.id],
+                      selectedPayeeId: selectedPayees[tx.id],
+                    }));
+
+                  // Get the corresponding category ID (the account category)
+                  const correspondingCategoryId = selectedAccountIdInCOA;
+                  if (!correspondingCategoryId) {
+                    setNotification({
+                      type: "error",
+                      message: "No account category found for selected account",
+                    });
+                    return;
+                  }
+
+                  await addTransactions(transactionRequests, correspondingCategoryId, currentCompany!.id);
+
+                  setSelectedCategories((prev) => {
+                    const copy = { ...prev };
+                    selectedTransactions.forEach((tx) => delete copy[tx.id]);
+                    return copy;
+                  });
+                  setSelectedPayees((prev) => {
+                    const copy = { ...prev };
+                    selectedTransactions.forEach((tx) => delete copy[tx.id]);
+                    return copy;
+                  });
+                  // Remove from auto-added tracking since they were manually added
+                  setAutoAddedTransactions((prev) => {
+                    const newSet = new Set(prev);
+                    selectedTransactions.forEach((tx) => {
+                      const contentHash = getTransactionContentHash(tx);
+                      newSet.delete(contentHash);
+                    });
+                    return newSet;
+                  });
+                  setSelectedToAdd(new Set());
+                }}
+                className={`px-4 py-2 rounded-full shadow-lg font-medium text-sm flex items-center space-x-2 ${
+                  isProcessing || !hasValidCategories
+                    ? "bg-gray-900 text-white cursor-not-allowed"
+                    : "bg-gray-900 text-white hover:bg-gray-700"
+                }`}
+                disabled={!hasValidCategories || isProcessing}
+              >
+                {isProcessing ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Adding...</span>
+                  </>
+                ) : (
+                  <span>Add Selected ({selectedToAdd.size})</span>
+                )}
+              </button>
+            </div>
+          );
+        })()
+      )}
+
+      {activeTab === "added" && selectedAdded.size > 0 && (
+        (() => {
+          const selectedConfirmed = confirmed.filter((tx) => selectedAdded.has(tx.id));
+          const isProcessing =
+            isUndoingTransactions || selectedConfirmed.some((tx) => processingTransactions.has(tx.id));
+
+          return (
+            <div className="fixed bottom-6 right-6 z-40">
+              <button
+                onClick={async () => {
+                  await undoTransactions(
+                    selectedConfirmed.map((tx) => tx.id),
+                    currentCompany!.id
+                  );
+                  setSelectedAdded(new Set());
+                }}
+                className={`px-4 py-2 rounded-full shadow-lg font-medium text-sm flex items-center space-x-2 ${
+                  isProcessing
+                    ? "bg-gray-900 text-white cursor-not-allowed"
+                    : "bg-gray-900 text-white hover:bg-gray-700"
+                }`}
+                disabled={isProcessing}
+              >
+                {isProcessing ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Undoing...</span>
+                  </>
+                ) : (
+                  <span>Undo Selected ({selectedAdded.size})</span>
+                )}
+              </button>
+            </div>
+          );
+        })()
       )}
     </div>
   )

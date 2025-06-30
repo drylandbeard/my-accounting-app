@@ -24,7 +24,7 @@ import {
 // Define types specific to the journal table
 
 type SortConfig = {
-  key: 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category' | null;
+  key: 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category' | 'reference_number' | 'je_name' | 'entry_source' | null;
   direction: 'asc' | 'desc';
 };
 
@@ -109,6 +109,7 @@ export default function JournalTablePage() {
   const [editJournalModal, setEditJournalModal] = useState<{
     isOpen: boolean;
     transactionId: string;
+    isManualEntry: boolean;
     editEntry: {
       date: string;
       jeName: string;
@@ -120,6 +121,7 @@ export default function JournalTablePage() {
   }>({
     isOpen: false,
     transactionId: '',
+    isManualEntry: false,
     editEntry: {
       date: '',
       jeName: '',
@@ -180,9 +182,12 @@ export default function JournalTablePage() {
     return account ? account.type || '' : '';
   }
 
-  function getPayeeName(id: string) {
-    if (!id) return '';
-    const payee = payees.find(p => p.id === id);
+  function getPayeeName(entry: JournalTableEntry) {
+    // For manual journal entries, payee_id is directly on the entry
+    // For regular journal entries, payee_id is in transactions
+    const payeeId = entry.is_manual_entry ? entry.payee_id : entry.transactions?.payee_id;
+    if (!payeeId) return '';
+    const payee = payees.find(p => p.id === payeeId);
     return payee ? payee.name : '';
   }
 
@@ -208,8 +213,8 @@ export default function JournalTablePage() {
           : bType.localeCompare(aType);
       }
       if (sortConfig.key === 'payee') {
-        const aPayee = getPayeeName(a.transactions?.payee_id || '');
-        const bPayee = getPayeeName(b.transactions?.payee_id || '');
+        const aPayee = getPayeeName(a);
+        const bPayee = getPayeeName(b);
         return sortConfig.direction === 'asc'
           ? aPayee.localeCompare(bPayee)
           : bPayee.localeCompare(aPayee);
@@ -239,12 +244,33 @@ export default function JournalTablePage() {
           ? aCategory.localeCompare(bCategory)
           : bCategory.localeCompare(aCategory);
       }
+      if (sortConfig.key === 'reference_number') {
+        const aRef = a.reference_number || '';
+        const bRef = b.reference_number || '';
+        return sortConfig.direction === 'asc'
+          ? aRef.localeCompare(bRef)
+          : bRef.localeCompare(aRef);
+      }
+      if (sortConfig.key === 'je_name') {
+        const aJeName = a.je_name || '';
+        const bJeName = b.je_name || '';
+        return sortConfig.direction === 'asc'
+          ? aJeName.localeCompare(bJeName)
+          : bJeName.localeCompare(aJeName);
+      }
+      if (sortConfig.key === 'entry_source') {
+        const aSource = a.entry_source || '';
+        const bSource = b.entry_source || '';
+        return sortConfig.direction === 'asc'
+          ? aSource.localeCompare(bSource)
+          : bSource.localeCompare(aSource);
+      }
 
       return 0;
     });
   };
 
-  const handleSort = (key: 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category') => {
+  const handleSort = (key: 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category' | 'reference_number' | 'je_name' | 'entry_source') => {
     setSortConfig(current => ({
       key,
       direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc'
@@ -266,7 +292,10 @@ export default function JournalTablePage() {
     { key: 'type', label: 'Type', isCustom: true, sortable: true },
     { key: 'debit', label: 'Debit', sortable: true },
     { key: 'credit', label: 'Credit', sortable: true },
-    { key: 'payee', label: 'Payee', isCustom: true, sortable: true }
+    { key: 'payee', label: 'Payee', isCustom: true, sortable: true },
+    { key: 'reference_number', label: 'Reference', sortable: true },
+    { key: 'je_name', label: 'JE Name', sortable: true },
+    { key: 'entry_source', label: 'Source', isCustom: true, sortable: true }
   ];
 
   // Get all available columns from journalEntries to include any additional fields
@@ -334,7 +363,7 @@ export default function JournalTablePage() {
       if (accountType.toLowerCase().includes(lowercaseSearch)) return true;
       
       // Search in payee name
-      const payeeName = getPayeeName(entry.transactions?.payee_id || '');
+      const payeeName = getPayeeName(entry);
       if (payeeName.toLowerCase().includes(lowercaseSearch)) return true;
       
       // Search in debit amount (formatted)
@@ -354,6 +383,18 @@ export default function JournalTablePage() {
         ? getAccountName(entry.split_item_data.selected_category_id)
         : getAccountName(entry.chart_account_id);
       if (categoryName.toLowerCase().includes(lowercaseSearch)) return true;
+      
+      // Search in manual journal entry specific fields
+      if (entry.is_manual_entry) {
+        // Search in reference number
+        if (entry.reference_number && entry.reference_number.toLowerCase().includes(lowercaseSearch)) return true;
+        
+        // Search in JE name
+        if (entry.je_name && entry.je_name.toLowerCase().includes(lowercaseSearch)) return true;
+        
+        // Search in entry source
+        if (entry.entry_source && entry.entry_source.toLowerCase().includes(lowercaseSearch)) return true;
+      }
       
       return false;
     });
@@ -510,6 +551,7 @@ export default function JournalTablePage() {
     setEditJournalModal({
       isOpen: true,
       transactionId: entry.transaction_id,
+      isManualEntry: entry.is_manual_entry || false,
       editEntry: {
         date: '',
         jeName: '',
@@ -520,7 +562,11 @@ export default function JournalTablePage() {
       error: null
     });
     
-    fetchJournalEntriesForEdit(entry.transaction_id);
+    if (entry.is_manual_entry) {
+      fetchManualJournalEntriesForEdit(entry.reference_number || entry.transaction_id);
+    } else {
+      fetchJournalEntriesForEdit(entry.transaction_id);
+    }
   };
 
   const fetchJournalEntriesForEdit = async (transactionId: string) => {
@@ -576,6 +622,64 @@ export default function JournalTablePage() {
       setEditJournalModal(prev => ({
         ...prev,
         error: 'Failed to fetch journal entries',
+        isLoading: false
+      }));
+    }
+  };
+
+  const fetchManualJournalEntriesForEdit = async (referenceNumber: string) => {
+    if (!hasCompanyContext) return;
+
+    try {
+      const response = await api.get(`/api/manual-journal?company_id=${currentCompany!.id}&reference_number=${referenceNumber}`);
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch manual journal entries');
+      }
+
+      const data = await response.json();
+      
+      // Group entries by reference_number and convert to edit format
+      const entriesForReference = data.entries.filter((entry: {
+        reference_number: string;
+        [key: string]: unknown;
+      }) => entry.reference_number === referenceNumber);
+
+      const editLines: JournalEntryLine[] = entriesForReference.map((entry: {
+        id: string;
+        chart_account_id: string;
+        debit: number;
+        credit: number;
+        description?: string;
+        payee_id?: string;
+        [key: string]: unknown;
+      }, index: number) => ({
+        id: (index + 1).toString(),
+        description: entry.description || '',
+        categoryId: entry.chart_account_id || '',
+        payeeId: entry.payee_id || '',
+        debit: entry.debit > 0 ? entry.debit.toString() : '0.00',
+        credit: entry.credit > 0 ? entry.credit.toString() : '0.00'
+      }));
+
+      // Get the first entry to extract date and JE name
+      const firstEntry = entriesForReference[0];
+      
+      setEditJournalModal(prev => ({
+        ...prev,
+        editEntry: {
+          date: firstEntry?.date || new Date().toISOString().split('T')[0],
+          jeName: firstEntry?.je_name || '',
+          lines: editLines
+        },
+        isLoading: false,
+        error: null
+      }));
+    } catch (error) {
+      console.error('Error fetching manual journal entries:', error);
+      setEditJournalModal(prev => ({
+        ...prev,
+        error: 'Failed to fetch manual journal entries',
         isLoading: false
       }));
     }
@@ -731,24 +835,47 @@ export default function JournalTablePage() {
         return;
       }
 
-      // Convert lines to the format expected by the update API
-      const entries = editJournalModal.editEntry.lines
-        .filter(line => (parseFloat(line.debit) > 0) || (parseFloat(line.credit) > 0))
-        .map(line => ({
-          account_id: line.categoryId,
-          amount: parseFloat(line.debit) > 0 ? parseFloat(line.debit) : parseFloat(line.credit),
-          type: parseFloat(line.debit) > 0 ? 'debit' as const : 'credit' as const
-        }));
+      let response;
 
-      const response = await api.put('/api/journal/update', {
-        id: editJournalModal.transactionId,
-        date: editJournalModal.editEntry.date,
-        description: editJournalModal.editEntry.jeName,
-        transactions: entries
-      });
+      if (editJournalModal.isManualEntry) {
+        // Update manual journal entry
+        const lines = editJournalModal.editEntry.lines
+          .filter(line => (parseFloat(line.debit) > 0) || (parseFloat(line.credit) > 0))
+          .map(line => ({
+            description: line.description,
+            categoryId: line.categoryId,
+            payeeId: line.payeeId,
+            debit: line.debit,
+            credit: line.credit
+          }));
+
+        response = await api.put('/api/manual-journal/update', {
+          companyId: currentCompany!.id,
+          referenceNumber: editJournalModal.transactionId,
+          date: editJournalModal.editEntry.date,
+          jeName: editJournalModal.editEntry.jeName,
+          lines: lines
+        });
+      } else {
+        // Update regular journal entry
+        const entries = editJournalModal.editEntry.lines
+          .filter(line => (parseFloat(line.debit) > 0) || (parseFloat(line.credit) > 0))
+          .map(line => ({
+            account_id: line.categoryId,
+            amount: parseFloat(line.debit) > 0 ? parseFloat(line.debit) : parseFloat(line.credit),
+            type: parseFloat(line.debit) > 0 ? 'debit' as const : 'credit' as const
+          }));
+
+        response = await api.put('/api/journal/update', {
+          id: editJournalModal.transactionId,
+          date: editJournalModal.editEntry.date,
+          description: editJournalModal.editEntry.jeName,
+          transactions: entries
+        });
+      }
 
       if (!response.ok) {
-        throw new Error('Failed to update journal entries');
+        throw new Error(`Failed to update ${editJournalModal.isManualEntry ? 'manual ' : ''}journal entries`);
       }
       
       // Refresh all data
@@ -760,6 +887,7 @@ export default function JournalTablePage() {
       setEditJournalModal({
         isOpen: false,
         transactionId: '',
+        isManualEntry: false,
         editEntry: { date: '', jeName: '', lines: [] },
         saving: false,
         isLoading: false,
@@ -865,7 +993,7 @@ export default function JournalTablePage() {
                       className={`border p-2 text-center text-xs font-medium tracking-wider whitespace-nowrap ${
                         col.sortable ? 'cursor-pointer hover:bg-gray-200' : ''
                       }`}
-                      onClick={col.sortable ? () => handleSort(col.key as 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category') : undefined}
+                      onClick={col.sortable ? () => handleSort(col.key as 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category' | 'reference_number' | 'je_name' | 'entry_source') : undefined}
                     >
                       {col.label}
                       {col.sortable && sortConfig.key === col.key && (
@@ -913,8 +1041,20 @@ export default function JournalTablePage() {
                         ) : col.key === 'type' ? (
                           getAccountType(entry.chart_account_id)
                         ) : col.key === 'payee' ? (
-                          getPayeeName(entry.transactions?.payee_id || '')
+                          getPayeeName(entry)
 
+                        ) : col.key === 'reference_number' ? (
+                          entry.is_manual_entry ? (entry.reference_number || '') : ''
+                        ) : col.key === 'je_name' ? (
+                          entry.is_manual_entry ? (entry.je_name || '') : ''
+                        ) : col.key === 'entry_source' ? (
+                          <span className={`px-2 py-1 rounded text-xs ${
+                            entry.entry_source === 'manual_journal' 
+                              ? 'bg-blue-100 text-blue-800' 
+                              : 'bg-gray-100 text-gray-800'
+                          }`}>
+                            {entry.entry_source === 'manual_journal' ? 'Manual' : 'Journal'}
+                          </span>
                         ) : col.key === 'category' ? (
                           // For split items, show the split category if available, otherwise show chart account
                           entry.is_split_item && entry.split_item_data?.selected_category_id 
@@ -935,7 +1075,7 @@ export default function JournalTablePage() {
             {/* Pagination for Journal table */}
             <div className="mt-2 flex items-center justify-start gap-3">
               <span className="text-xs text-gray-600 whitespace-nowrap">
-                {`${displayedEntries.length} of ${totalItems}`}
+                {`${paginationData.endIndex} of ${totalItems}`}
               </span>
               <CustomPagination 
                 currentPage={currentPage}

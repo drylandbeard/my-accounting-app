@@ -65,7 +65,14 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
     refreshCategories: refreshCategoriesFromStore, 
     addCategory,
     updateCategory,
+    updateCategoryWithMergeCheck,
     deleteCategory,
+    deleteCategoryWithValidation,
+    mergeCategories,
+    moveCategory,
+    findCategoryByName,
+    findCategoriesByName,
+    checkBankAccountLinkage,
     error: storeError
   } = useCategoriesStore();
   
@@ -86,82 +93,7 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
     await refreshCategoriesFromStore();
   }, [refreshCategoriesFromStore]);
 
-  // Helper function for assigning parent category using store
-  const assignParentCategory = useCallback(async (childCategoryId: string, parentCategoryId: string) => {
-    try {
-      // Validate that both categories exist
-      const childCategory = categories.find(c => c.id === childCategoryId);
-      const parentCategory = categories.find(c => c.id === parentCategoryId);
-      
-      if (!childCategory) {
-        return { success: false, error: `Child category with ID '${childCategoryId}' not found` };
-      }
-      
-      if (!parentCategory) {
-        return { success: false, error: `Parent category with ID '${parentCategoryId}' not found` };
-      }
-      
-      // Check for circular dependency
-      if (childCategoryId === parentCategoryId) {
-        return { success: false, error: 'A category cannot be its own parent' };
-      }
-      
-             // Check if parent would create a circular dependency
-       let currentParent: typeof parentCategory | undefined = parentCategory;
-       while (currentParent?.parent_id) {
-         if (currentParent.parent_id === childCategoryId) {
-           return { success: false, error: 'This would create a circular dependency' };
-         }
-         currentParent = categories.find(c => c.id === currentParent?.parent_id);
-         if (!currentParent) break;
-       }
-      
-      const result = await updateCategory(childCategoryId, { parent_id: parentCategoryId });
-      return { success: result, error: result ? null : 'Failed to assign parent category' };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-    }
-  }, [categories, updateCategory]);
 
-  // Helper function for changing category type using store
-  const changeCategoryType = useCallback(async (categoryId: string, newType: string) => {
-    try {
-      // Validate that category exists
-      const category = categories.find(c => c.id === categoryId);
-      
-      if (!category) {
-        return { success: false, error: `Category with ID '${categoryId}' not found` };
-      }
-      
-      // Check if category has children and ensure type consistency
-      const children = categories.filter(c => c.parent_id === categoryId);
-      if (children.length > 0) {
-        const inconsistentChildren = children.filter(c => c.type !== newType);
-        if (inconsistentChildren.length > 0) {
-          return { 
-            success: false, 
-            error: `Cannot change type because this category has ${inconsistentChildren.length} subcategories with different types. Please update them first or remove them.`
-          };
-        }
-      }
-      
-      // Check if category has a parent and ensure type consistency
-      if (category.parent_id) {
-        const parent = categories.find(c => c.id === category.parent_id);
-        if (parent && parent.type !== newType) {
-          return {
-            success: false,
-            error: `Cannot change type because the parent category has type '${parent.type}'. Categories and their parents must have the same type.`
-          };
-        }
-      }
-      
-      const result = await updateCategory(categoryId, { type: newType });
-      return { success: result, error: result ? null : 'Failed to change category type' };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-    }
-  }, [categories, updateCategory]);
   
   const [pendingToolQueue, setPendingToolQueue] = useState<any[]>([]);
   const [pendingToolArgs, setPendingToolArgs] = useState<any | null>(null);
@@ -299,10 +231,16 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
         return `Done! '${details.name}' has been updated.`;
       case "delete_category":
         return `'${details.name}' has been removed from your categories.`;
-      case "assign_parent_category":
-        return `Parent category assigned successfully.`;
+      case "move_category":
+        return `'${details.categoryName}' has been moved to ${details.parentName}.`;
       case "change_category_type":
         return `Category type changed to ${details.newType}.`;
+      case "merge_categories":
+        return `Successfully merged ${details.sourceCount} categories into '${details.targetName}'.`;
+      case "find_categories":
+        return details.results || "Categories found.";
+      case "check_category_usage":
+        return details.message || "Category usage checked.";
       case "create_payee":
         return `Payee '${details.name}' has been added.`;
       case "update_payee":
@@ -310,101 +248,404 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
       case "delete_payee":
         return `Payee '${details.name}' has been removed.`;
       case "batch_execute":
-        return `All done! Your batch of actions has been completed.`;
+        return `All done! Your batch of ${details.count} actions has been completed.`;
       default:
         return "Done!";
     }
   }
 
-  // Update executeAction to use the helper for all success cases
+  // Robust executeAction function using all categoriesStore functions to prevent hallucinations
   async function executeAction(action: any, skipRefresh: boolean = false, customCategories?: any[]): Promise<string> {
     try {
+      console.log('executeAction called with:', { action, skipRefresh }); // Debug log
+      
+      if (!currentCompany) {
+        return "Error: No company selected. Please select a company first.";
+      }
+
       const categoriesToUse = customCategories || categories;
+      
       switch (action.action) {
         case "create_category": {
+          // Validate required parameters
+          if (!action.name || typeof action.name !== 'string') {
+            return "Error: Category name is required and must be a string.";
+          }
+          if (!action.type || typeof action.type !== 'string') {
+            return "Error: Category type is required and must be a string.";
+          }
+          
+          // Handle parent lookup by name if provided
+          let parentId = action.parent_id;
+          if (action.parentName && !parentId) {
+            const parentCategory = findCategoryByName(action.parentName);
+            if (parentCategory) {
+              parentId = parentCategory.id;
+            } else {
+              return `Error: Parent category "${action.parentName}" not found. Available categories: ${categories.map(c => c.name).join(', ')}`;
+            }
+          }
+
           const result = await addCategory({
-            name: action.name,
+            name: action.name.trim(), // Ensure we trim here to prevent store errors
             type: action.type,
-            parent_id: action.parent_id || null
+            parent_id: parentId || null
           });
+          
           if (!result) {
-            return "Sorry, I couldn't add that category. Please try again.";
+            return `Sorry, I couldn't add that category. ${storeError || 'Please try again.'}`;
           }
           if (!skipRefresh) await refreshCategories();
           return getFriendlySuccessMessage("create_category", { name: action.name, type: action.type });
         }
+
         case "update_category": {
-          const result = await updateCategory(action.id, {
-            name: action.name,
-            type: action.type,
-            parent_id: action.parent_id,
-            subtype: action.subtype,
-            plaid_account_id: action.plaid_account_id
-          });
-          if (!result) {
-            return "Sorry, I couldn't update that category. Please try again.";
+          // Resolve category ID from name if needed
+          let categoryId = action.categoryId || action.id;
+          if (!categoryId && action.categoryName) {
+            const category = findCategoryByName(action.categoryName);
+            if (category) {
+              categoryId = category.id;
+            } else {
+              return `Error: Category "${action.categoryName}" not found. Available categories: ${categories.map(c => c.name).join(', ')}`;
+            }
           }
+
+          if (!categoryId) {
+            return "Error: Category ID or name is required for update operation.";
+          }
+
+          // Handle parent lookup by name if provided
+          let parentId = action.parent_id;
+          if (action.parentName !== undefined) {
+            if (action.parentName === null || action.parentName === "") {
+              parentId = null; // Move to root
+            } else {
+              const parentCategory = findCategoryByName(action.parentName);
+              if (parentCategory) {
+                parentId = parentCategory.id;
+              } else {
+                return `Error: Parent category "${action.parentName}" not found. Available categories: ${categories.map(c => c.name).join(', ')}`;
+              }
+            }
+          }
+
+          const updates: any = {};
+          if (action.name !== undefined) updates.name = action.name;
+          if (action.type !== undefined) updates.type = action.type;
+          if (parentId !== undefined) updates.parent_id = parentId;
+
+          // Use robust update with merge check
+          const result = await updateCategoryWithMergeCheck(categoryId, updates, { companyId: currentCompany.id });
+          
+          if (!result.success) {
+            if (result.needsMerge && result.existingCategory) {
+              return `A category named "${action.name}" already exists. Would you like to merge "${action.categoryName || categoryId}" into "${result.existingCategory.name}"?`;
+            }
+            return `Sorry, I couldn't update that category. ${result.error || 'Please try again.'}`;
+          }
+          
           if (!skipRefresh) await refreshCategories();
-          return getFriendlySuccessMessage("update_category", { name: action.name });
+          return getFriendlySuccessMessage("update_category", { name: action.name || action.categoryName });
         }
+
         case "delete_category": {
-          const result = await deleteCategory(action.id);
+          // Resolve category ID from name if needed
+          let categoryId = action.categoryId || action.id;
+          let categoryName = action.categoryName || action.name;
+          
+          if (!categoryId && categoryName) {
+            const category = findCategoryByName(categoryName);
+            if (category) {
+              categoryId = category.id;
+              categoryName = category.name; // Use the actual name from DB
+            } else {
+              return `Error: Category "${categoryName}" not found. Available categories: ${categories.map(c => c.name).join(', ')}`;
+            }
+          }
+
+          if (!categoryId) {
+            return "Error: Category ID or name is required for delete operation.";
+          }
+
+          // Use robust delete with validation
+          const result = await deleteCategoryWithValidation(categoryId, currentCompany.id);
+          
+          if (!result.success) {
+            return `Sorry, I couldn't delete that category. ${result.error || 'Please try again.'}`;
+          }
+          
+          if (!skipRefresh) await refreshCategories();
+          return getFriendlySuccessMessage("delete_category", { name: categoryName });
+        }
+
+        case "move_category": {
+          // Resolve category ID/name
+          const categoryIdOrName = action.categoryId || action.categoryName;
+          if (!categoryIdOrName) {
+            return "Error: Category ID or name is required for move operation.";
+          }
+
+          // Resolve parent ID/name (null means move to root)
+          let parentIdOrName = action.parentId || action.parentName;
+          if (parentIdOrName === "root" || parentIdOrName === "") {
+            parentIdOrName = null;
+          }
+
+          const result = await moveCategory(categoryIdOrName, parentIdOrName);
+          
           if (!result) {
-            return "Sorry, I couldn't delete that category. Please try again.";
+            return `Sorry, I couldn't move that category. ${storeError || 'Please try again.'}`;
           }
+          
           if (!skipRefresh) await refreshCategories();
-          return getFriendlySuccessMessage("delete_category", { name: action.name });
-        }
-        case "assign_parent_category": {
-          const assignResult = await assignParentCategory(action.child_id, action.parent_id);
-          if (!assignResult.success) {
-            return `Sorry, I couldn't assign the parent category: ${assignResult.error}`;
-          }
-          if (!skipRefresh) await refreshCategories();
-          return getFriendlySuccessMessage("assign_parent_category", {});
-        }
-        case "change_category_type": {
-          const typeResult = await changeCategoryType(action.id, action.new_type);
-          if (!typeResult.success) {
-            return `Sorry, I couldn't change the category type: ${typeResult.error}`;
-          }
-          if (!skipRefresh) await refreshCategories();
-          return getFriendlySuccessMessage("change_category_type", { newType: action.new_type });
-        }
-        case "create_payee": {
-          const payeeResult = await addPayee({
-            name: action.name
+          return getFriendlySuccessMessage("move_category", { 
+            categoryName: categoryIdOrName, 
+            parentName: parentIdOrName || "root level" 
           });
-          if (!payeeResult) {
-            return "Sorry, I couldn't add that payee. Please try again.";
+        }
+
+        case "change_category_type": {
+          // Resolve category ID from name if needed
+          let categoryId = action.categoryId || action.id;
+          if (!categoryId && action.categoryName) {
+            const category = findCategoryByName(action.categoryName);
+            if (category) {
+              categoryId = category.id;
+            } else {
+              return `Error: Category "${action.categoryName}" not found. Available categories: ${categories.map(c => c.name).join(', ')}`;
+            }
           }
+
+          if (!categoryId) {
+            return "Error: Category ID or name is required for type change operation.";
+          }
+
+          const result = await updateCategory(categoryId, { type: action.newType });
+          
+          if (!result) {
+            return `Sorry, I couldn't change the category type. ${storeError || 'Please try again.'}`;
+          }
+          
+          if (!skipRefresh) await refreshCategories();
+          return getFriendlySuccessMessage("change_category_type", { newType: action.newType });
+        }
+
+        case "merge_categories": {
+          // Resolve source category IDs from names if needed
+          let sourceCategoryIds = action.sourceCategoryIds || [];
+          if (action.sourceCategoryNames && action.sourceCategoryNames.length > 0) {
+            sourceCategoryIds = [];
+            for (const name of action.sourceCategoryNames) {
+              const category = findCategoryByName(name);
+              if (category) {
+                sourceCategoryIds.push(category.id);
+              } else {
+                return `Error: Source category "${name}" not found. Available categories: ${categories.map(c => c.name).join(', ')}`;
+              }
+            }
+          }
+
+          // Resolve target category ID from name if needed
+          let targetCategoryId = action.targetCategoryId;
+          if (!targetCategoryId && action.targetCategoryName) {
+            const targetCategory = findCategoryByName(action.targetCategoryName);
+            if (targetCategory) {
+              targetCategoryId = targetCategory.id;
+            } else {
+              return `Error: Target category "${action.targetCategoryName}" not found. Available categories: ${categories.map(c => c.name).join(', ')}`;
+            }
+          }
+
+          if (!targetCategoryId || sourceCategoryIds.length === 0) {
+            return "Error: Both source and target categories are required for merge operation.";
+          }
+
+          const result = await mergeCategories(sourceCategoryIds, targetCategoryId, currentCompany.id);
+          
+          if (!result) {
+            return `Sorry, I couldn't merge those categories. ${storeError || 'Please try again.'}`;
+          }
+          
+          if (!skipRefresh) await refreshCategories();
+          return getFriendlySuccessMessage("merge_categories", { 
+            sourceCount: sourceCategoryIds.length,
+            targetName: action.targetCategoryName || targetCategoryId 
+          });
+        }
+
+        case "find_categories": {
+          const exactMatch = action.exactMatch || false;
+          const caseSensitive = action.caseSensitive || false;
+          
+          let foundCategories;
+          if (exactMatch) {
+            const category = findCategoryByName(action.namePattern, caseSensitive);
+            foundCategories = category ? [category] : [];
+          } else {
+            foundCategories = findCategoriesByName(action.namePattern, caseSensitive);
+          }
+
+          if (foundCategories.length === 0) {
+            return `No categories found matching "${action.namePattern}". Available categories: ${categories.map(c => c.name).join(', ')}`;
+          }
+
+          const categoryList = foundCategories.map(c => `- ${c.name} (${c.type})`).join('\n');
+          return `Found ${foundCategories.length} categories matching "${action.namePattern}":\n${categoryList}`;
+        }
+
+        case "check_category_usage": {
+          // Resolve category ID from name if needed
+          let categoryId = action.categoryId;
+          if (!categoryId && action.categoryName) {
+            const category = findCategoryByName(action.categoryName);
+            if (category) {
+              categoryId = category.id;
+            } else {
+              return `Error: Category "${action.categoryName}" not found. Available categories: ${categories.map(c => c.name).join(', ')}`;
+            }
+          }
+
+          if (!categoryId) {
+            return "Error: Category ID or name is required for usage check.";
+          }
+
+          const linkageResult = await checkBankAccountLinkage(categoryId);
+          
+          if (linkageResult.error) {
+            return `Error checking category usage: ${linkageResult.error}`;
+          }
+
+          if (linkageResult.isLinked) {
+            return `Category is linked to bank account "${linkageResult.name}". Deleting or modifying this category may affect account synchronization.`;
+          } else {
+            return `Category is not linked to any bank accounts and appears safe to modify or delete.`;
+          }
+        }
+
+        case "create_payee": {
+          // Validate required parameters
+          if (!action.name || typeof action.name !== 'string') {
+            return "Error: Payee name is required and must be a string.";
+          }
+          
+          // Check for duplicate payee names
+          const existingPayee = payees.find(p => p.name.toLowerCase() === action.name.toLowerCase());
+          if (existingPayee) {
+            return `A payee named "${action.name}" already exists. Please choose a different name.`;
+          }
+
+          const result = await addPayee({ name: action.name.trim() });
+          
+          if (!result) {
+            return `Sorry, I couldn't add that payee. ${payeesError || 'Please try again.'}`;
+          }
+          
           if (!skipRefresh) await refreshPayeesFromStore();
           return getFriendlySuccessMessage("create_payee", { name: action.name });
         }
+
         case "update_payee": {
-          const updatePayeeResult = await updatePayee(action.id, {
-            name: action.name
-          });
-          if (!updatePayeeResult) {
-            return "Sorry, I couldn't update that payee. Please try again.";
+          // Validate required parameters
+          if (!action.name || typeof action.name !== 'string') {
+            return "Error: New payee name is required and must be a string.";
           }
+          
+          // Resolve payee ID from name if needed
+          let payeeId = action.payeeId || action.id;
+          if (!payeeId && action.payeeName) {
+            const payee = payees.find(p => p.name.toLowerCase() === action.payeeName.toLowerCase());
+            if (payee) {
+              payeeId = payee.id;
+            } else {
+              return `Error: Payee "${action.payeeName}" not found. Available payees: ${payees.map(p => p.name).join(', ')}`;
+            }
+          }
+
+          if (!payeeId) {
+            return "Error: Payee ID or name is required for update operation.";
+          }
+
+          const result = await updatePayee(payeeId, { name: action.name.trim() });
+          
+          if (!result) {
+            return `Sorry, I couldn't update that payee. ${payeesError || 'Please try again.'}`;
+          }
+          
           if (!skipRefresh) await refreshPayeesFromStore();
           return getFriendlySuccessMessage("update_payee", { name: action.name });
         }
+
         case "delete_payee": {
-          const deletePayeeResult = await deletePayee(action.id);
-          if (!deletePayeeResult) {
-            return "Sorry, I couldn't delete that payee. Please try again.";
+          // Resolve payee ID from name if needed
+          let payeeId = action.payeeId || action.id;
+          let payeeName = action.payeeName || action.name;
+          
+          if (!payeeId && payeeName) {
+            const payee = payees.find(p => p.name.toLowerCase() === payeeName.toLowerCase());
+            if (payee) {
+              payeeId = payee.id;
+              payeeName = payee.name; // Use actual name from DB
+            } else {
+              return `Error: Payee "${payeeName}" not found. Available payees: ${payees.map(p => p.name).join(', ')}`;
+            }
           }
+
+          if (!payeeId) {
+            return "Error: Payee ID or name is required for delete operation.";
+          }
+
+          const result = await deletePayee(payeeId);
+          
+          if (!result) {
+            return `Sorry, I couldn't delete that payee. ${payeesError || 'Please try again.'}`;
+          }
+          
           if (!skipRefresh) await refreshPayeesFromStore();
-          return getFriendlySuccessMessage("delete_payee", { name: action.name });
+          return getFriendlySuccessMessage("delete_payee", { name: payeeName });
+        }
+
+        case "batch_execute": {
+          const results: string[] = [];
+          let hasError = false;
+
+          for (const operation of action.operations) {
+            try {
+              const result = await executeAction({ action: operation.action, ...operation.params }, true);
+              results.push(result);
+              
+              // If any operation fails, stop the batch
+              if (result.includes("Error:") || result.includes("Sorry,")) {
+                hasError = true;
+                break;
+              }
+            } catch (error) {
+              hasError = true;
+              results.push(`Error in ${operation.action}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+              break;
+            }
+          }
+
+          // Refresh stores after batch completion
+          if (!skipRefresh) {
+            await Promise.all([refreshCategories(), refreshPayeesFromStore()]);
+          }
+
+          if (hasError) {
+            return `Batch execution stopped due to error:\n${results.join('\n')}`;
+          }
+
+          return getFriendlySuccessMessage("batch_execute", { count: action.operations.length, results });
+        }
+
+        default: {
+          return `Error: Unknown action "${action.action}". Available actions: create_category, update_category, delete_category, move_category, change_category_type, merge_categories, find_categories, check_category_usage, create_payee, update_payee, delete_payee, batch_execute`;
         }
       }
     } catch (error) {
+      console.error("Error executing action:", error);
       return `Error executing action: ${error instanceof Error ? error.message : 'Unknown error'}`;
     }
-
-    return `Action executed: ${JSON.stringify(action)}`;
   }
 
   // Handle confirmation
@@ -532,10 +773,10 @@ IMPORTANT: Use the appropriate tools for any data modification operations. For m
               }\n`;
           } else if (functionName === "delete_category") {
               confirmationMessage += `${index + 1}. Delete category "${args.categoryName || args.categoryId}"\n`;
-            } else if (functionName === "assign_parent_category") {
+            } else if (functionName === "move_category") {
               confirmationMessage += `${index + 1}. Move category "${
-                args.childCategoryName || args.childCategoryId
-              }" under "${args.parentCategoryName || args.parentCategoryId}"\n`;
+                args.categoryName || args.categoryId
+              }" under "${args.parentName || args.parentId || 'root level'}"\n`;
           } else if (functionName === "change_category_type") {
               confirmationMessage += `${index + 1}. Change category "${
                 args.categoryName || args.categoryId
@@ -551,6 +792,16 @@ IMPORTANT: Use the appropriate tools for any data modification operations. For m
 
           confirmationMessage += "\nPress Confirm to execute all actions, or Cancel to abort.";
 
+          // Convert toolCalls to operations format for executeAction
+          const operations = toolCalls.map((toolCall: any) => {
+            const functionName = toolCall.function?.name;
+            const args = JSON.parse(toolCall.function?.arguments || "{}");
+            return {
+              action: functionName,
+              params: args
+            };
+          });
+
           // Set up for execution
           setPendingToolQueue(toolCalls);
           setMessages((prev) => [
@@ -559,7 +810,7 @@ IMPORTANT: Use the appropriate tools for any data modification operations. For m
               role: "assistant",
               content: confirmationMessage,
               showConfirmation: true,
-              pendingAction: { action: "multi_execute" },
+              pendingAction: { action: "batch_execute", operations },
             },
           ]);
           return;
@@ -592,19 +843,34 @@ IMPORTANT: Use the appropriate tools for any data modification operations. For m
             confirmationMessage = `I'll delete the category "${args.categoryName || args.categoryId}". Would you like to proceed?`;
             pendingAction = { action: 'delete_category', ...args };
             break;
-          case 'assign_parent_category':
+          case 'move_category':
             confirmationMessage = `I'll move category "${
-              args.childCategoryName || args.childCategoryId
+              args.categoryName || args.categoryId
             }" under "${
-              args.parentCategoryName || args.parentCategoryId
+              args.parentName || args.parentId || 'root level'
             }". Would you like to proceed?`;
-            pendingAction = { action: 'assign_parent_category', ...args };
+            pendingAction = { action: 'move_category', ...args };
             break;
           case 'change_category_type':
             confirmationMessage = `I'll change category "${
               args.categoryName || args.categoryId
             }" type to "${args.newType}". Would you like to proceed?`;
             pendingAction = { action: 'change_category_type', ...args };
+            break;
+          case 'merge_categories':
+            const sourceNames = args.sourceCategoryNames || args.sourceCategoryIds || [];
+            const targetName = args.targetCategoryName || args.targetCategoryId;
+            confirmationMessage = `I'll merge ${sourceNames.length} categories into "${targetName}". This action cannot be undone. Would you like to proceed?`;
+            pendingAction = { action: 'merge_categories', ...args };
+            break;
+          case 'find_categories':
+            confirmationMessage = `I'll search for categories matching "${args.namePattern}". Would you like to proceed?`;
+            pendingAction = { action: 'find_categories', ...args };
+            break;
+          case 'check_category_usage':
+            const categoryToCheck = args.categoryName || args.categoryId;
+            confirmationMessage = `I'll check the usage and linkage status of category "${categoryToCheck}". Would you like to proceed?`;
+            pendingAction = { action: 'check_category_usage', ...args };
             break;
           case 'create_payee':
             confirmationMessage = `I'll create a new payee named "${args.name}". Would you like to proceed?`;
@@ -660,15 +926,28 @@ IMPORTANT: Use the appropriate tools for any data modification operations. For m
                   const deletePayeeName = params.payeeName || params.payeeId || 'Unknown Payee';
                   batchMessage += `${index + 1}. Delete payee "${deletePayeeName}"\n`;
                   break;
-                case 'assign_parent_category':
-                  const childName = params.childCategoryName || params.childCategoryId || 'Unknown Child';
-                  const parentName = params.parentCategoryName || params.parentCategoryId || 'Unknown Parent';
-                  batchMessage += `${index + 1}. Move "${childName}" under "${parentName}"\n`;
+                case 'move_category':
+                  const moveCategoryName = params.categoryName || params.categoryId || 'Unknown Category';
+                  const moveParentName = params.parentName || params.parentId || 'root level';
+                  batchMessage += `${index + 1}. Move "${moveCategoryName}" under "${moveParentName}"\n`;
                   break;
                 case 'change_category_type':
                   const changeCategoryName = params.categoryName || params.categoryId || 'Unknown Category';
                   const newType = params.newType || 'Unknown Type';
                   batchMessage += `${index + 1}. Change "${changeCategoryName}" type to "${newType}"\n`;
+                  break;
+                case 'merge_categories':
+                  const mergeSourceNames = params.sourceCategoryNames || params.sourceCategoryIds || [];
+                  const mergeTargetName = params.targetCategoryName || params.targetCategoryId || 'Unknown Target';
+                  batchMessage += `${index + 1}. Merge ${mergeSourceNames.length} categories into "${mergeTargetName}"\n`;
+                  break;
+                case 'find_categories':
+                  const searchPattern = params.namePattern || 'Unknown Pattern';
+                  batchMessage += `${index + 1}. Search for categories matching "${searchPattern}"\n`;
+                  break;
+                case 'check_category_usage':
+                  const checkCategoryName = params.categoryName || params.categoryId || 'Unknown Category';
+                  batchMessage += `${index + 1}. Check usage of category "${checkCategoryName}"\n`;
                   break;
                 default:
                   batchMessage += `${index + 1}. ${op.action} operation\n`;
@@ -692,6 +971,7 @@ IMPORTANT: Use the appropriate tools for any data modification operations. For m
         }
         
         // Set confirmation message
+        setPendingToolQueue(toolCalls);
         setMessages((prev) => [
           ...prev.slice(0, -1), // remove 'Thinking...'
           {
@@ -779,20 +1059,7 @@ IMPORTANT: Use the appropriate tools for any data modification operations. For m
         }
       } catch (error) {
         setMessages((prev) => [...prev, { role: "assistant", content: `Error updating category: ${error instanceof Error ? error.message : 'Unknown error'}` }]);
-      }
-    } else if (pendingToolArgs.type === "assign_parent_category") {
-      result = await assignParentCategory(pendingToolArgs.args.childCategoryId, pendingToolArgs.args.parentCategoryId);
-      if (result.success) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: `Assigned "${pendingToolArgs.args.childCategoryId}" as a subcategory of "${pendingToolArgs.args.parentCategoryId}". Would you like to organize any other categories?`,
-          },
-        ]);
-      } else {
-        setMessages((prev) => [...prev, { role: "assistant", content: `Error: ${result.error}` }]);
-      }
+              }
     } else if (pendingToolArgs.type === "delete_category") {
       try {
         // The store now handles both ID and name, so we can pass either directly
@@ -832,22 +1099,6 @@ IMPORTANT: Use the appropriate tools for any data modification operations. For m
         }
       } catch (error) {
         setMessages((prev) => [...prev, { role: "assistant", content: `Error deleting category: ${error instanceof Error ? error.message : 'Unknown error'}` }]);
-      }
-    } else if (pendingToolArgs.type === "change_category_type") {
-      result = await changeCategoryType(pendingToolArgs.args.categoryId, pendingToolArgs.args.newType);
-      if (result.success) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: `Category "${pendingToolArgs.args.categoryId}" type has been changed to "${pendingToolArgs.args.newType}". Would you like to make any other changes to your categories?`,
-          },
-        ]);
-      } else {
-        setMessages((prev) => [
-          ...prev,
-          { role: "assistant", content: `Error changing category type: ${result.error}` },
-        ]);
       }
     } else if (pendingToolArgs.type === "update_payee") {
       result = await updatePayee(pendingToolArgs.args.payeeId, { name: pendingToolArgs.args.name });
@@ -903,15 +1154,15 @@ IMPORTANT: Use the appropriate tools for any data modification operations. For m
             content: `To confirm, I will update the category "${JSON.parse(nextTool.function.arguments).categoryId}". Please press confirm.`,
           },
         ]);
-      } else if (nextTool.function?.name === "assign_parent_category") {
-        setPendingToolArgs({ type: "assign_parent_category", args: JSON.parse(nextTool.function.arguments) });
+      } else if (nextTool.function?.name === "move_category") {
+        setPendingToolArgs({ type: "move_category", args: JSON.parse(nextTool.function.arguments) });
         setMessages((prev) => [
           ...prev,
           {
             role: "assistant",
-            content: `To confirm, I will assign "${
-              JSON.parse(nextTool.function.arguments).childCategoryId
-            }" as a subcategory of "${JSON.parse(nextTool.function.arguments).parentCategoryId}". Please press confirm.`,
+            content: `To confirm, I will move "${
+              JSON.parse(nextTool.function.arguments).categoryId || JSON.parse(nextTool.function.arguments).categoryName
+            }" under "${JSON.parse(nextTool.function.arguments).parentId || JSON.parse(nextTool.function.arguments).parentName || 'root level'}". Please press confirm.`,
           },
         ]);
       } else if (nextTool.function?.name === "delete_category") {
