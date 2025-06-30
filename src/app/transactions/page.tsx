@@ -3,17 +3,21 @@
 import { useEffect, useState, useRef } from "react";
 import { usePlaidLink } from "react-plaid-link";
 
-import Papa from 'papaparse'
-import { v4 as uuidv4 } from 'uuid'
-import { X, Loader2 } from 'lucide-react'
-import Select from 'react-select'
-import { useAuthStore } from '@/zustand/authStore'
-import { useTransactionsStore, Transaction as StoreTransaction, SplitData as StoreSplitData } from '@/zustand/transactionsStore'
-import { useCategoriesStore } from '@/zustand/categoriesStore'
-import { usePayeesStore } from '@/zustand/payeesStore'
-import { api } from '@/lib/api'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { 
+import Papa from "papaparse";
+import { v4 as uuidv4 } from "uuid";
+import { X, Loader2 } from "lucide-react";
+import Select from "react-select";
+import { useAuthStore } from "@/zustand/authStore";
+import {
+  useTransactionsStore,
+  Transaction as StoreTransaction,
+  SplitData as StoreSplitData,
+} from "@/zustand/transactionsStore";
+import { useCategoriesStore } from "@/zustand/categoriesStore";
+import { usePayeesStore } from "@/zustand/payeesStore";
+import { api } from "@/lib/api";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
   Pagination,
   PaginationContent,
   PaginationItem,
@@ -21,16 +25,16 @@ import {
   PaginationNext,
   PaginationPrevious,
   PaginationEllipsis,
-} from '@/components/ui/pagination'
-import { 
-  FinancialAmount, 
-  formatAmount, 
-  toFinancialAmount, 
-  calculateNetAmount, 
+} from "@/components/ui/pagination";
+import {
+  FinancialAmount,
+  formatAmount,
+  toFinancialAmount,
+  calculateNetAmount,
   sumAmounts,
   compareAmounts,
-  isPositiveAmount
-} from '@/lib/financial'
+  isPositiveAmount,
+} from "@/lib/financial";
 
 // @dnd-kit imports
 import {
@@ -63,8 +67,6 @@ type SplitItem = {
   payee_id?: string;
   selected_category_id?: string;
 };
-
-
 
 // Category and Payee types now come from stores
 
@@ -264,6 +266,9 @@ export default function TransactionsPage() {
   // Add ref to prevent concurrent automation executions
   const isAutomationRunning = useRef(false);
 
+  // Add ref to track undo operations to prevent automation during undo
+  const isUndoInProgress = useRef(false);
+
   // Add state for UI indicator
   const [isAutoAddRunning, setIsAutoAddRunning] = useState(false);
 
@@ -430,7 +435,7 @@ export default function TransactionsPage() {
     } | null;
   }>({
     isOpen: false,
-    entry: null
+    entry: null,
   });
 
   // Add journal entry view/edit modal state - updated to match manual-je format
@@ -456,13 +461,13 @@ export default function TransactionsPage() {
     isOpen: false,
     transaction: null,
     editEntry: {
-      date: '',
-      jeName: '',
-      lines: []
+      date: "",
+      jeName: "",
+      lines: [],
     },
     saving: false,
     isLoading: false,
-    error: null
+    error: null,
   });
 
   // Add state for past journal entries search
@@ -640,6 +645,11 @@ export default function TransactionsPage() {
 
     // Prevent concurrent executions
     if (isAutomationRunning.current) {
+      return;
+    }
+
+    // Prevent automation during undo operations
+    if (isUndoInProgress.current) {
       return;
     }
 
@@ -891,8 +901,18 @@ export default function TransactionsPage() {
   const undoTransaction = async (tx: Transaction) => {
     if (!hasCompanyContext) return;
 
-    // For single transactions, use bulk operation with array of one
-    await undoTransactions([tx.id], currentCompany!.id);
+    // Set flag to prevent automation during undo
+    isUndoInProgress.current = true;
+
+    try {
+      // For single transactions, use bulk operation with array of one
+      await undoTransactions([tx.id], currentCompany!.id);
+    } finally {
+      // Clear flag after undo completes
+      setTimeout(() => {
+        isUndoInProgress.current = false;
+      }, 1000); // Wait 1 second to ensure all state updates are complete
+    }
   };
 
   // 4️⃣ Category dropdown
@@ -982,7 +1002,7 @@ export default function TransactionsPage() {
       totalPages: Math.ceil(data.length / itemsPerPage),
       totalItems: data.length,
       startIndex: startIndex + 1,
-      endIndex: Math.min(endIndex, data.length)
+      endIndex: Math.min(endIndex, data.length),
     };
   };
 
@@ -1010,11 +1030,11 @@ export default function TransactionsPage() {
     toAddSortConfig
   );
 
-  const { paginatedData: imported, totalPages: toAddTotalPages, endIndex: toAddEndIndex } = getPaginatedData(
-    importedFiltered,
-    toAddCurrentPage,
-    ITEMS_PER_PAGE
-  );
+  const {
+    paginatedData: imported,
+    totalPages: toAddTotalPages,
+    endIndex: toAddEndIndex,
+  } = getPaginatedData(importedFiltered, toAddCurrentPage, ITEMS_PER_PAGE);
 
   // Update the confirmed transactions to use sorting and pagination
   const confirmedFiltered = sortTransactions(
@@ -1055,11 +1075,11 @@ export default function TransactionsPage() {
     addedSortConfig
   );
 
-  const { paginatedData: confirmed, totalPages: addedTotalPages, endIndex: addedEndIndex } = getPaginatedData(
-    confirmedFiltered,
-    addedCurrentPage,
-    ITEMS_PER_PAGE
-  );
+  const {
+    paginatedData: confirmed,
+    totalPages: addedTotalPages,
+    endIndex: addedEndIndex,
+  } = getPaginatedData(confirmedFiltered, addedCurrentPage, ITEMS_PER_PAGE);
 
   const currentBalance = toFinancialAmount(
     accounts.find((a) => a.plaid_account_id === selectedAccountId)?.current_balance || "0.00"
@@ -1281,7 +1301,7 @@ export default function TransactionsPage() {
   //       for (const split of editModal.splits) {
   //         const splitSpent = split.spent ?? '0.00';
   //         const splitReceived = split.received ?? '0.00';
-          
+
   //         // Allow both spent and received to be zero, but at least one split must have a value
   //         if (isZeroAmount(splitSpent) && isZeroAmount(splitReceived)) {
   //           setEditModal(prev => ({ ...prev, isUpdating: false, validationError: 'Each split item must have either a spent or received amount.' }));
@@ -1296,18 +1316,18 @@ export default function TransactionsPage() {
 
   //       // Calculate net amounts for validation using financial.ts functions
   //       const originalNetAmount = calculateNetAmount(editModal.transaction.spent, editModal.transaction.received);
-        
+
   //       // Calculate split net amount: sum of received - sum of spent
   //       const splitSpentTotal = sumAmounts(editModal.splits.map(s => s.spent ?? '0.00'));
   //       const splitReceivedTotal = sumAmounts(editModal.splits.map(s => s.received ?? '0.00'));
   //       const splitNetAmount = subtractAmounts(splitReceivedTotal, splitSpentTotal);
-        
+
   //       // Compare net amounts with precision handling
   //       if (compareAmounts(splitNetAmount, originalNetAmount) !== 0) {
-  //         setEditModal(prev => ({ 
-  //           ...prev, 
-  //           isUpdating: false, 
-  //           validationError: `Split net amount (${formatAmount(splitNetAmount)}) must equal the original transaction net amount (${formatAmount(originalNetAmount)})` 
+  //         setEditModal(prev => ({
+  //           ...prev,
+  //           isUpdating: false,
+  //           validationError: `Split net amount (${formatAmount(splitNetAmount)}) must equal the original transaction net amount (${formatAmount(originalNetAmount)})`
   //         }));
   //         return;
   //       }
@@ -1356,7 +1376,7 @@ export default function TransactionsPage() {
 
   //       setEditModal({ isOpen: false, transaction: null, splits: [], isSplitMode: false, isUpdating: false, validationError: null });
   //       setNotification({ type: 'success', message: 'Split transaction added successfully' });
-        
+
   //       // Remove from selected to add and clear state
   //       const transactionId = editModal.transaction.id;
   //       if (selectedToAdd.has(transactionId)) {
@@ -1381,7 +1401,7 @@ export default function TransactionsPage() {
   //       // Handle regular (non-split) transaction update
   //       const spent = updatedTransaction.spent ?? '0.00';
   //       const received = updatedTransaction.received ?? '0.00';
-        
+
   //       if (isPositiveAmount(spent) && isPositiveAmount(received)) {
   //         setEditModal(prev => ({ ...prev, isUpdating: false, validationError: 'A transaction cannot have both spent and received amounts. Please enter only one.' }));
   //         return;
@@ -1416,10 +1436,10 @@ export default function TransactionsPage() {
 
   //   } catch (error) {
   //     console.error('Error updating transaction:', error);
-  //     setEditModal(prev => ({ 
-  //       ...prev, 
-  //       isUpdating: false, 
-  //       validationError: error instanceof Error ? error.message : 'Failed to update transaction' 
+  //     setEditModal(prev => ({
+  //       ...prev,
+  //       isUpdating: false,
+  //       validationError: error instanceof Error ? error.message : 'Failed to update transaction'
   //     }));
   //   }
   // };
@@ -1454,11 +1474,11 @@ export default function TransactionsPage() {
       if (newCategoryModal.transactionId) {
         // Check if this is for the edit journal modal
         if (editJournalModal.isOpen) {
-          updateEditJournalLine(newCategoryModal.transactionId, 'categoryId', result.categoryId);
+          updateEditJournalLine(newCategoryModal.transactionId, "categoryId", result.categoryId);
         }
         // Check if this is for the edit modal
         else if (editModal.isOpen && editModal.transaction?.id === newCategoryModal.transactionId) {
-          setEditModal(prev => ({
+          setEditModal((prev) => ({
             ...prev,
             transaction: prev.transaction
               ? {
@@ -1784,7 +1804,7 @@ export default function TransactionsPage() {
   // Split management functions - commented out until edit modal component is implemented
   // const addSplitItem = () => {
   //   if (!editModal.transaction || editModal.splits.length >= 30) return;
-    
+
   //   const newSplit: SplitItem = {
   //     id: uuidv4(),
   //     date: editModal.transaction.date,
@@ -1794,7 +1814,7 @@ export default function TransactionsPage() {
   //     payee_id: undefined,
   //     selected_category_id: undefined
   //   };
-    
+
   //   setEditModal(prev => ({
   //     ...prev,
   //     splits: [...prev.splits, newSplit]
@@ -1811,7 +1831,7 @@ export default function TransactionsPage() {
   // const updateSplitItem = (splitId: string, updates: Partial<SplitItem>) => {
   //   setEditModal(prev => ({
   //     ...prev,
-  //     splits: prev.splits.map(split => 
+  //     splits: prev.splits.map(split =>
   //       split.id === splitId ? { ...split, ...updates } : split
   //     )
   //   }));
@@ -1819,7 +1839,7 @@ export default function TransactionsPage() {
 
   // const enterSplitMode = () => {
   //   if (!editModal.transaction) return;
-    
+
   //   // Create initial empty split item
   //   const initialSplits: SplitItem[] = [
   //     {
@@ -1832,15 +1852,13 @@ export default function TransactionsPage() {
   //       selected_category_id: undefined
   //     }
   //   ];
-    
+
   //   setEditModal(prev => ({
   //     ...prev,
   //     isSplitMode: true,
   //     splits: initialSplits
   //   }));
   // };
-
-
 
   // Add helper functions for handling Enter key on react-select
   const handlePayeeEnterKey = (inputValue: string, txId: string) => {
@@ -1978,7 +1996,7 @@ export default function TransactionsPage() {
       // Clear the input value
       setCategoryInputValues((prev) => ({
         ...prev,
-        [txId]: ''
+        [txId]: "",
       }));
     }
   };
@@ -1987,69 +2005,74 @@ export default function TransactionsPage() {
   const fetchJournalEntriesForEdit = async (transaction: Transaction) => {
     if (!hasCompanyContext) return;
 
-    setEditJournalModal(prev => ({ ...prev, isLoading: true, error: null }));
+    setEditJournalModal((prev) => ({ ...prev, isLoading: true, error: null }));
 
     try {
       const response = await api.get(`/api/journal/entries?transaction_id=${transaction.id}`);
-      
+
       if (!response.ok) {
-        throw new Error('Failed to fetch journal entries');
+        throw new Error("Failed to fetch journal entries");
       }
 
       const data = await response.json();
-      
-      // Convert journal entries to edit line format
-      const editLines = data.entries.map((entry: {
-        id: string;
-        chart_account_id: string;
-        debit: number;
-        credit: number;
-        description?: string;
-        transactions?: { payee_id?: string };
-        [key: string]: unknown;
-      }, index: number) => ({
-        id: (index + 1).toString(),
-        description: entry.description || transaction.description || '',
-        categoryId: entry.chart_account_id || '',
-        payeeId: entry.transactions?.payee_id || '',
-        debit: entry.debit > 0 ? entry.debit.toString() : '0.00',
-        credit: entry.credit > 0 ? entry.credit.toString() : '0.00'
-      }));
 
-      setEditJournalModal(prev => ({
+      // Convert journal entries to edit line format
+      const editLines = data.entries.map(
+        (
+          entry: {
+            id: string;
+            chart_account_id: string;
+            debit: number;
+            credit: number;
+            description?: string;
+            transactions?: { payee_id?: string };
+            [key: string]: unknown;
+          },
+          index: number
+        ) => ({
+          id: (index + 1).toString(),
+          description: entry.description || transaction.description || "",
+          categoryId: entry.chart_account_id || "",
+          payeeId: entry.transactions?.payee_id || "",
+          debit: entry.debit > 0 ? entry.debit.toString() : "0.00",
+          credit: entry.credit > 0 ? entry.credit.toString() : "0.00",
+        })
+      );
+
+      setEditJournalModal((prev) => ({
         ...prev,
         transaction,
         editEntry: {
           date: transaction.date,
-          jeName: transaction.description || '',
-          lines: editLines
+          jeName: transaction.description || "",
+          lines: editLines,
         },
-        isLoading: false
+        isLoading: false,
       }));
     } catch (error) {
-      console.error('Error fetching journal entries:', error);
-      setEditJournalModal(prev => ({
+      console.error("Error fetching journal entries:", error);
+      setEditJournalModal((prev) => ({
         ...prev,
-        error: 'Failed to fetch journal entries',
-        isLoading: false
+        error: "Failed to fetch journal entries",
+        isLoading: false,
       }));
     }
   };
 
   // Function to open journal entry modal
   const openJournalEntryModal = (transaction: Transaction) => {
-    setEditJournalModal(prev => ({
+    setEditJournalModal((prev) => ({
       ...prev,
       isOpen: true,
       transaction,
       editEntry: {
-        date: '',
-        jeName: '',
-        lines: []
+        date: "",
+        jeName: "",
+        lines: [],
       },
       saving: false,
       isLoading: false,
-      error: null
+      error: null,
     }));
     fetchJournalEntriesForEdit(transaction);
   };
@@ -2057,44 +2080,56 @@ export default function TransactionsPage() {
   // Function to add a new journal entry line for splitting
   const addEditJournalLine = () => {
     const newLineId = (editJournalModal.editEntry.lines.length + 1).toString();
-    setEditJournalModal(prev => ({
+    setEditJournalModal((prev) => ({
       ...prev,
       editEntry: {
         ...prev.editEntry,
-        lines: [...prev.editEntry.lines, {
-          id: newLineId,
-          description: '',
-          categoryId: '',
-          payeeId: '',
-          debit: '0.00',
-          credit: '0.00'
-        }]
-      }
+        lines: [
+          ...prev.editEntry.lines,
+          {
+            id: newLineId,
+            description: "",
+            categoryId: "",
+            payeeId: "",
+            debit: "0.00",
+            credit: "0.00",
+          },
+        ],
+      },
     }));
   };
 
   // Function to update a journal entry line
-  const updateEditJournalLine = (lineId: string, field: keyof { id: string; description: string; categoryId: string; payeeId: string; debit: string; credit: string; }, value: string) => {
-    setEditJournalModal(prev => ({
+  const updateEditJournalLine = (
+    lineId: string,
+    field: keyof {
+      id: string;
+      description: string;
+      categoryId: string;
+      payeeId: string;
+      debit: string;
+      credit: string;
+    },
+    value: string
+  ) => {
+    setEditJournalModal((prev) => ({
       ...prev,
       editEntry: {
         ...prev.editEntry,
-        lines: prev.editEntry.lines.map(line =>
-          line.id === lineId ? { ...line, [field]: value } : line
-        )
-      }
+        lines: prev.editEntry.lines.map((line) => (line.id === lineId ? { ...line, [field]: value } : line)),
+      },
     }));
   };
 
   // Function to handle amount changes with mutual exclusion
-  const handleEditJournalAmountChange = (lineId: string, field: 'debit' | 'credit', value: string) => {
+  const handleEditJournalAmountChange = (lineId: string, field: "debit" | "credit", value: string) => {
     const inputValue = value;
-    updateEditJournalLine(lineId, field, inputValue || '0.00');
-    
+    updateEditJournalLine(lineId, field, inputValue || "0.00");
+
     // Clear the opposite field when entering an amount
     if (inputValue) {
-      const oppositeField = field === 'debit' ? 'credit' : 'debit';
-      updateEditJournalLine(lineId, oppositeField, '0.00');
+      const oppositeField = field === "debit" ? "credit" : "debit";
+      updateEditJournalLine(lineId, oppositeField, "0.00");
     }
   };
 
@@ -2119,78 +2154,86 @@ export default function TransactionsPage() {
 
     // Validation
     if (!editJournalModal.editEntry.date) {
-      setEditJournalModal(prev => ({ ...prev, error: 'Please select a date' }));
+      setEditJournalModal((prev) => ({ ...prev, error: "Please select a date" }));
       return;
     }
 
     try {
-      setEditJournalModal(prev => ({ ...prev, saving: true, error: null }));
-      
+      setEditJournalModal((prev) => ({ ...prev, saving: true, error: null }));
+
       // Basic validation - at least one debit and one credit line
-      const hasValidLines = editJournalModal.editEntry.lines.some(line => 
-        (line.debit && parseFloat(line.debit) > 0) || (line.credit && parseFloat(line.credit) > 0)
+      const hasValidLines = editJournalModal.editEntry.lines.some(
+        (line) => (line.debit && parseFloat(line.debit) > 0) || (line.credit && parseFloat(line.credit) > 0)
       );
-      
+
       if (!hasValidLines) {
-        setEditJournalModal(prev => ({ ...prev, error: 'Please enter at least one debit or credit amount', saving: false }));
+        setEditJournalModal((prev) => ({
+          ...prev,
+          error: "Please enter at least one debit or credit amount",
+          saving: false,
+        }));
         return;
       }
 
       // Validation - debits must equal credits
       const { totalDebits, totalCredits } = calculateEditJournalTotals();
       const isBalanced = Math.abs(totalDebits - totalCredits) < 0.01;
-      
+
       if (!isBalanced) {
-        setEditJournalModal(prev => ({ ...prev, error: 'Total debits must equal total credits', saving: false }));
+        setEditJournalModal((prev) => ({ ...prev, error: "Total debits must equal total credits", saving: false }));
         return;
       }
 
       // Validate that all lines with amounts have categories selected
-      const invalidLines = editJournalModal.editEntry.lines.filter(line => {
-        const hasAmount = (parseFloat(line.debit) > 0) || (parseFloat(line.credit) > 0);
+      const invalidLines = editJournalModal.editEntry.lines.filter((line) => {
+        const hasAmount = parseFloat(line.debit) > 0 || parseFloat(line.credit) > 0;
         return hasAmount && !line.categoryId;
       });
-      
+
       if (invalidLines.length > 0) {
-        setEditJournalModal(prev => ({ ...prev, error: 'All lines with amounts must have a category selected', saving: false }));
+        setEditJournalModal((prev) => ({
+          ...prev,
+          error: "All lines with amounts must have a category selected",
+          saving: false,
+        }));
         return;
       }
 
       // Convert lines back to journal entry format for API
       const entries = editJournalModal.editEntry.lines
-        .filter(line => (parseFloat(line.debit) > 0) || (parseFloat(line.credit) > 0))
-        .map(line => ({
+        .filter((line) => parseFloat(line.debit) > 0 || parseFloat(line.credit) > 0)
+        .map((line) => ({
           account_id: line.categoryId,
           amount: parseFloat(line.debit) > 0 ? parseFloat(line.debit) : parseFloat(line.credit),
-          type: parseFloat(line.debit) > 0 ? 'debit' as const : 'credit' as const
+          type: parseFloat(line.debit) > 0 ? ("debit" as const) : ("credit" as const),
         }));
 
       // Get the transaction ID to find the journal entry
-      const response = await api.put('/api/journal/update', {
+      const response = await api.put("/api/journal/update", {
         id: editJournalModal.transaction.id, // Use transaction ID
         date: editJournalModal.editEntry.date,
         description: editJournalModal.editEntry.jeName || editJournalModal.transaction.description,
         transactions: entries,
-        hasSplit: entries.length > 2
+        hasSplit: entries.length > 2,
       });
 
       if (!response.ok) {
-        throw new Error('Failed to update journal entries');
+        throw new Error("Failed to update journal entries");
       }
 
       // Refresh all data
       await refreshAll(currentCompany!.id);
-      
-      setNotification({ type: 'success', message: 'Journal entries updated successfully!' });
-      
+
+      setNotification({ type: "success", message: "Journal entries updated successfully!" });
+
       // Close the modal after successful save
-      setEditJournalModal(prev => ({ ...prev, isOpen: false }));
+      setEditJournalModal((prev) => ({ ...prev, isOpen: false }));
     } catch (error) {
-      console.error('Error updating journal entries:', error);
-      setEditJournalModal(prev => ({
+      console.error("Error updating journal entries:", error);
+      setEditJournalModal((prev) => ({
         ...prev,
-        error: 'Failed to update journal entries',
-        saving: false
+        error: "Failed to update journal entries",
+        saving: false,
       }));
     }
   };
@@ -2723,6 +2766,7 @@ export default function TransactionsPage() {
                   <option value="Expense">Expense</option>
                   <option value="Revenue">Revenue</option>
                   <option value="Asset">Asset</option>
+                  <option value="COGS">COGS</option>
                   <option value="Liability">Liability</option>
                   <option value="Equity">Equity</option>
                 </select>
@@ -3683,7 +3727,7 @@ export default function TransactionsPage() {
                         if (tdIndex >= 1 && tdIndex <= 4) {
                           // Check if this transaction has split data
                           const hasSplitData = tx.has_split;
-                          
+
                           if (hasSplitData) {
                             // Parse split data and enter split mode
                             const splitData = tx.split_data as StoreSplitData;
@@ -3740,15 +3784,13 @@ export default function TransactionsPage() {
                       <td className="border p-1 w-8 text-center text-xs" style={{ minWidth: 250 }}>
                         {tx.description}
                         {tx.has_split && (
-                          <span className="ml-1 inline-block bg-blue-100 text-blue-800 text-xs px-1 rounded">Split</span>
+                          <span className="ml-1 inline-block bg-blue-100 text-blue-800 text-xs px-1 rounded">
+                            Split
+                          </span>
                         )}
                       </td>
-                      <td className="border p-1 w-8 text-center">
-                        {tx.spent ? formatAmount(tx.spent) : ""}
-                      </td>
-                      <td className="border p-1 w-8 text-center">
-                        {tx.received ? formatAmount(tx.received) : ""}
-                      </td>
+                      <td className="border p-1 w-8 text-center">{tx.spent ? formatAmount(tx.spent) : ""}</td>
+                      <td className="border p-1 w-8 text-center">{tx.received ? formatAmount(tx.received) : ""}</td>
                       <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
                         <Select
                           options={payeeOptions}
@@ -3812,21 +3854,21 @@ export default function TransactionsPage() {
                             control: (base) => ({
                               ...base,
                               backgroundColor: automationAppliedPayees.has(tx.id) ? "#dbeafe" : base.backgroundColor,
-                              minHeight: '28px',
-                              height: '28px',
+                              minHeight: "28px",
+                              height: "28px",
                             }),
                             valueContainer: (base) => ({
                               ...base,
-                              height: '28px',
-                              padding: '0 6px',
+                              height: "28px",
+                              padding: "0 6px",
                             }),
                             input: (base) => ({
                               ...base,
-                              margin: '0px',
+                              margin: "0px",
                             }),
                             indicatorsContainer: (base) => ({
                               ...base,
-                              height: '28px',
+                              height: "28px",
                             }),
                           }}
                         />
@@ -3902,21 +3944,21 @@ export default function TransactionsPage() {
                               backgroundColor: automationAppliedCategories.has(tx.id)
                                 ? "#dbeafe"
                                 : base.backgroundColor,
-                              minHeight: '28px',
-                              height: '28px',
+                              minHeight: "28px",
+                              height: "28px",
                             }),
                             valueContainer: (base) => ({
                               ...base,
-                              height: '28px',
-                              padding: '0 6px',
+                              height: "28px",
+                              padding: "0 6px",
                             }),
                             input: (base) => ({
                               ...base,
-                              margin: '0px',
+                              margin: "0px",
                             }),
                             indicatorsContainer: (base) => ({
                               ...base,
-                              height: '28px',
+                              height: "28px",
                             }),
                           }}
                         />
@@ -4046,11 +4088,11 @@ export default function TransactionsPage() {
                       key={tx.id}
                       onClick={(e) => {
                         // Only open modal if click is not in the action column or on a button
-                        const clickedTd = (e.target as HTMLElement).closest('td');
-                        const clickedButton = (e.target as HTMLElement).closest('button');
-                        
+                        const clickedTd = (e.target as HTMLElement).closest("td");
+                        const clickedButton = (e.target as HTMLElement).closest("button");
+
                         if (!clickedTd || clickedButton) return;
-                        
+
                         const tdIndex = Array.from(clickedTd.parentElement!.children).indexOf(clickedTd);
                         // Allow clicks on columns 1-6 (date, description, spent, received, payee, category) - skip checkbox column (0) and action column (7)
                         if (tdIndex >= 1 && tdIndex <= 6) {
@@ -4080,7 +4122,9 @@ export default function TransactionsPage() {
                       <td className="border p-1 w-8 text-center text-xs cursor-pointer" style={{ minWidth: 250 }}>
                         {tx.description}
                         {tx.has_split && (
-                          <span className="ml-1 inline-block bg-blue-100 text-blue-800 text-xs px-1 rounded">Split</span>
+                          <span className="ml-1 inline-block bg-blue-100 text-blue-800 text-xs px-1 rounded">
+                            Split
+                          </span>
                         )}
                       </td>
                       <td className="border p-1 w-8 text-center cursor-pointer">
@@ -4096,15 +4140,18 @@ export default function TransactionsPage() {
                         })()}
                       </td>
                       <td className="border p-1 w-8 text-center cursor-pointer" style={{ minWidth: 150 }}>
-                        {tx.has_split ? '-- Split --' : (category ? category.name : 'Uncategorized')}
+                        {tx.has_split ? "-- Split --" : category ? category.name : "Uncategorized"}
                       </td>
                       <td className="border p-1 w-8 text-center">
                         <button
-                          onClick={e => { e.stopPropagation(); undoTransaction(tx); }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            undoTransaction(tx);
+                          }}
                           className={`border px-2 py-1 rounded w-16 flex items-center justify-center mx-auto text-xs ${
-                            processingTransactions.has(tx.id) 
-                              ? 'bg-gray-50 text-gray-400 cursor-not-allowed' 
-                              : 'bg-gray-100 hover:bg-gray-200'
+                            processingTransactions.has(tx.id)
+                              ? "bg-gray-50 text-gray-400 cursor-not-allowed"
+                              : "bg-gray-100 hover:bg-gray-200"
                           }`}
                           disabled={processingTransactions.has(tx.id)}
                         >
@@ -4246,30 +4293,30 @@ export default function TransactionsPage() {
 
       {/* Edit Transaction Modal - Updated to match manual-je format */}
       {editJournalModal.isOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
-          onClick={() => setEditJournalModal(prev => ({ ...prev, isOpen: false }))}
+          onClick={() => setEditJournalModal((prev) => ({ ...prev, isOpen: false }))}
         >
-          <div 
+          <div
             className="bg-white rounded-lg p-6 w-[800px] overflow-y-auto shadow-xl"
-            onClick={e => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
           >
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold">Edit Transaction</h2>
               <button
-                onClick={() => setEditJournalModal(prev => ({ ...prev, isOpen: false }))}
+                onClick={() => setEditJournalModal((prev) => ({ ...prev, isOpen: false }))}
                 className="text-gray-500 hover:text-gray-700 text-xl"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
-            
+
             {editJournalModal.error && (
               <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-red-700">
                 {editJournalModal.error}
               </div>
             )}
-            
+
             {editJournalModal.isLoading ? (
               <div className="flex items-center justify-center py-8">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
@@ -4284,10 +4331,12 @@ export default function TransactionsPage() {
                     <input
                       type="date"
                       value={editJournalModal.editEntry.date}
-                      onChange={(e) => setEditJournalModal(prev => ({
-                        ...prev,
-                        editEntry: { ...prev.editEntry, date: e.target.value }
-                      }))}
+                      onChange={(e) =>
+                        setEditJournalModal((prev) => ({
+                          ...prev,
+                          editEntry: { ...prev.editEntry, date: e.target.value },
+                        }))
+                      }
                       className="border px-3 py-2 rounded text-sm w-full"
                       required
                     />
@@ -4297,26 +4346,38 @@ export default function TransactionsPage() {
                     <input
                       type="text"
                       value={editJournalModal.editEntry.jeName}
-                      onChange={(e) => setEditJournalModal(prev => ({
-                        ...prev,
-                        editEntry: { ...prev.editEntry, jeName: e.target.value }
-                      }))}
+                      onChange={(e) =>
+                        setEditJournalModal((prev) => ({
+                          ...prev,
+                          editEntry: { ...prev.editEntry, jeName: e.target.value },
+                        }))
+                      }
                       className="border px-3 py-2 rounded text-sm w-full"
                       placeholder="Enter journal entry name"
                     />
                   </div>
                 </div>
-                
+
                 {/* Transaction Table */}
                 <div className="border rounded-lg overflow-hidden">
                   <table className="w-full border-collapse">
                     <thead className="bg-gray-50">
                       <tr>
-                        <th className="border px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
-                        <th className="border px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Payee</th>
-                        <th className="border px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
-                        <th className="border px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Debit</th>
-                        <th className="border px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Credit</th>
+                        <th className="border px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Description
+                        </th>
+                        <th className="border px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Payee
+                        </th>
+                        <th className="border px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Category
+                        </th>
+                        <th className="border px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Debit
+                        </th>
+                        <th className="border px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Credit
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="bg-white">
@@ -4326,7 +4387,7 @@ export default function TransactionsPage() {
                             <input
                               type="text"
                               value={line.description}
-                              onChange={(e) => updateEditJournalLine(line.id, 'description', e.target.value)}
+                              onChange={(e) => updateEditJournalLine(line.id, "description", e.target.value)}
                               className="w-full border-0 px-0 py-0 text-xs focus:ring-0 focus:outline-none"
                               placeholder="Enter description"
                             />
@@ -4334,65 +4395,73 @@ export default function TransactionsPage() {
                           <td className="border px-4 py-2">
                             <Select
                               options={[
-                                { value: '', label: 'Select payee...' },
-                                ...payees.map(payee => ({ value: payee.id, label: payee.name }))
+                                { value: "", label: "Select payee..." },
+                                ...payees.map((payee) => ({ value: payee.id, label: payee.name })),
                               ]}
-                              value={payees.find(p => p.id === line.payeeId) ? 
-                                { value: line.payeeId, label: payees.find(p => p.id === line.payeeId)?.name || '' } :
-                                { value: '', label: 'Select payee...' }
+                              value={
+                                payees.find((p) => p.id === line.payeeId)
+                                  ? {
+                                      value: line.payeeId,
+                                      label: payees.find((p) => p.id === line.payeeId)?.name || "",
+                                    }
+                                  : { value: "", label: "Select payee..." }
                               }
                               onChange={(selectedOption) => {
                                 const option = selectedOption as { value: string; label: string } | null;
-                                updateEditJournalLine(line.id, 'payeeId', option?.value || '');
+                                updateEditJournalLine(line.id, "payeeId", option?.value || "");
                               }}
                               isSearchable
                               menuPortalTarget={document.body}
                               styles={{
                                 control: (base) => ({
                                   ...base,
-                                  border: 'none',
-                                  boxShadow: 'none',
-                                  minHeight: 'auto',
-                                  fontSize: '12px',
-                                  '&:hover': {
-                                    border: 'none'
-                                  }
+                                  border: "none",
+                                  boxShadow: "none",
+                                  minHeight: "auto",
+                                  fontSize: "12px",
+                                  "&:hover": {
+                                    border: "none",
+                                  },
                                 }),
-                                menu: (base) => ({ 
-                                  ...base, 
+                                menu: (base) => ({
+                                  ...base,
                                   zIndex: 9999,
-                                  fontSize: '12px'
+                                  fontSize: "12px",
                                 }),
-                                menuPortal: (base) => ({ 
-                                  ...base, 
-                                  zIndex: 9999 
-                                })
+                                menuPortal: (base) => ({
+                                  ...base,
+                                  zIndex: 9999,
+                                }),
                               }}
                             />
                           </td>
                           <td className="border px-4 py-2">
                             <Select
                               options={[
-                                { value: '', label: 'Select category...' },
-                                { value: 'add_new', label: '+ Add new category' },
-                                ...categories.map(c => ({ value: c.id, label: c.name }))
+                                { value: "", label: "Select category..." },
+                                { value: "add_new", label: "+ Add new category" },
+                                ...categories.map((c) => ({ value: c.id, label: c.name })),
                               ]}
-                              value={categories.find(c => c.id === line.categoryId) ? 
-                                { value: line.categoryId, label: categories.find(c => c.id === line.categoryId)?.name || '' } :
-                                { value: '', label: 'Select category...' }
+                              value={
+                                categories.find((c) => c.id === line.categoryId)
+                                  ? {
+                                      value: line.categoryId,
+                                      label: categories.find((c) => c.id === line.categoryId)?.name || "",
+                                    }
+                                  : { value: "", label: "Select category..." }
                               }
                               onChange={(selectedOption) => {
                                 const option = selectedOption as { value: string; label: string } | null;
-                                if (option?.value === 'add_new') {
+                                if (option?.value === "add_new") {
                                   setNewCategoryModal({
                                     isOpen: true,
-                                    name: '',
-                                    type: 'Expense',
+                                    name: "",
+                                    type: "Expense",
                                     parent_id: null,
-                                    transactionId: line.id
+                                    transactionId: line.id,
                                   });
                                 } else {
-                                  updateEditJournalLine(line.id, 'categoryId', option?.value || '');
+                                  updateEditJournalLine(line.id, "categoryId", option?.value || "");
                                 }
                               }}
                               isSearchable
@@ -4400,23 +4469,23 @@ export default function TransactionsPage() {
                               styles={{
                                 control: (base) => ({
                                   ...base,
-                                  border: 'none',
-                                  boxShadow: 'none',
-                                  minHeight: 'auto',
-                                  fontSize: '12px',
-                                  '&:hover': {
-                                    border: 'none'
-                                  }
+                                  border: "none",
+                                  boxShadow: "none",
+                                  minHeight: "auto",
+                                  fontSize: "12px",
+                                  "&:hover": {
+                                    border: "none",
+                                  },
                                 }),
-                                menu: (base) => ({ 
-                                  ...base, 
+                                menu: (base) => ({
+                                  ...base,
                                   zIndex: 9999,
-                                  fontSize: '12px'
+                                  fontSize: "12px",
                                 }),
-                                menuPortal: (base) => ({ 
-                                  ...base, 
-                                  zIndex: 9999 
-                                })
+                                menuPortal: (base) => ({
+                                  ...base,
+                                  zIndex: 9999,
+                                }),
                               }}
                             />
                           </td>
@@ -4425,9 +4494,9 @@ export default function TransactionsPage() {
                               type="text"
                               value={(() => {
                                 const debit = line.debit;
-                                return (debit && parseFloat(debit) > 0) ? debit : '';
+                                return debit && parseFloat(debit) > 0 ? debit : "";
                               })()}
-                              onChange={(e) => handleEditJournalAmountChange(line.id, 'debit', e.target.value)}
+                              onChange={(e) => handleEditJournalAmountChange(line.id, "debit", e.target.value)}
                               className="w-full border-0 px-0 py-0 text-xs text-right focus:ring-0 focus:outline-none"
                               placeholder="0.00"
                             />
@@ -4437,9 +4506,9 @@ export default function TransactionsPage() {
                               type="text"
                               value={(() => {
                                 const credit = line.credit;
-                                return (credit && parseFloat(credit) > 0) ? credit : '';
+                                return credit && parseFloat(credit) > 0 ? credit : "";
                               })()}
-                              onChange={(e) => handleEditJournalAmountChange(line.id, 'credit', e.target.value)}
+                              onChange={(e) => handleEditJournalAmountChange(line.id, "credit", e.target.value)}
                               className="w-full border-0 px-0 py-0 text-xs text-right focus:ring-0 focus:outline-none"
                               placeholder="0.00"
                             />
@@ -4452,26 +4521,28 @@ export default function TransactionsPage() {
                         <td className="border px-4 py-2 text-sm font-medium" colSpan={3}>
                           Total
                         </td>
-                        <td className={`border px-4 py-2 text-sm font-medium text-right ${
-                          (() => {
+                        <td
+                          className={`border px-4 py-2 text-sm font-medium text-right ${(() => {
                             const { totalDebits, totalCredits } = calculateEditJournalTotals();
                             const isBalanced = Math.abs(totalDebits - totalCredits) < 0.01;
-                            return !isBalanced ? 'text-red-600' : 'text-gray-900';
-                          })()
-                        }`}>
-                          ${(() => {
+                            return !isBalanced ? "text-red-600" : "text-gray-900";
+                          })()}`}
+                        >
+                          $
+                          {(() => {
                             const { totalDebits } = calculateEditJournalTotals();
                             return totalDebits.toFixed(2);
                           })()}
                         </td>
-                        <td className={`border px-4 py-2 text-sm font-medium text-right ${
-                          (() => {
+                        <td
+                          className={`border px-4 py-2 text-sm font-medium text-right ${(() => {
                             const { totalDebits, totalCredits } = calculateEditJournalTotals();
                             const isBalanced = Math.abs(totalDebits - totalCredits) < 0.01;
-                            return !isBalanced ? 'text-red-600' : 'text-gray-900';
-                          })()
-                        }`}>
-                          ${(() => {
+                            return !isBalanced ? "text-red-600" : "text-gray-900";
+                          })()}`}
+                        >
+                          $
+                          {(() => {
                             const { totalCredits } = calculateEditJournalTotals();
                             return totalCredits.toFixed(2);
                           })()}
@@ -4480,18 +4551,20 @@ export default function TransactionsPage() {
                       {(() => {
                         const { totalDebits, totalCredits } = calculateEditJournalTotals();
                         const isBalanced = Math.abs(totalDebits - totalCredits) < 0.01;
-                        return !isBalanced && (
-                          <tr>
-                            <td colSpan={5} className="border px-4 py-1 text-xs text-red-600 text-center bg-red-50">
-                              ⚠️ Total debits must equal total credits
-                            </td>
-                          </tr>
+                        return (
+                          !isBalanced && (
+                            <tr>
+                              <td colSpan={5} className="border px-4 py-1 text-xs text-red-600 text-center bg-red-50">
+                                ⚠️ Total debits must equal total credits
+                              </td>
+                            </tr>
+                          )
                         );
                       })()}
                     </tfoot>
                   </table>
                 </div>
-                
+
                 <div className="flex justify-between items-center mt-4">
                   <button
                     onClick={addEditJournalLine}
@@ -4499,35 +4572,38 @@ export default function TransactionsPage() {
                   >
                     Add lines
                   </button>
-                  
+
                   <div className="flex space-x-3">
                     <button
-                      onClick={() => setEditJournalModal(prev => ({ ...prev, isOpen: false }))}
+                      onClick={() => setEditJournalModal((prev) => ({ ...prev, isOpen: false }))}
                       className="px-4 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50"
                     >
                       Cancel
                     </button>
                     <button
                       onClick={saveJournalEntryChanges}
-                      disabled={editJournalModal.saving || (() => {
-                        const { totalDebits, totalCredits } = calculateEditJournalTotals();
-                        return Math.abs(totalDebits - totalCredits) >= 0.01;
-                      })()}
-                      className={`px-4 py-2 text-sm rounded disabled:opacity-50 ${
+                      disabled={
+                        editJournalModal.saving ||
                         (() => {
                           const { totalDebits, totalCredits } = calculateEditJournalTotals();
-                          const isBalanced = Math.abs(totalDebits - totalCredits) < 0.01;
-                          return !isBalanced 
-                            ? 'bg-gray-400 text-gray-200 cursor-not-allowed' 
-                            : 'bg-gray-900 text-white hover:bg-gray-800';
+                          return Math.abs(totalDebits - totalCredits) >= 0.01;
                         })()
-                      }`}
-                    >
-                      {editJournalModal.saving ? 'Saving...' : (() => {
+                      }
+                      className={`px-4 py-2 text-sm rounded disabled:opacity-50 ${(() => {
                         const { totalDebits, totalCredits } = calculateEditJournalTotals();
                         const isBalanced = Math.abs(totalDebits - totalCredits) < 0.01;
-                        return !isBalanced ? 'Must Balance' : 'Save';
-                      })()}
+                        return !isBalanced
+                          ? "bg-gray-400 text-gray-200 cursor-not-allowed"
+                          : "bg-gray-900 text-white hover:bg-gray-800";
+                      })()}`}
+                    >
+                      {editJournalModal.saving
+                        ? "Saving..."
+                        : (() => {
+                            const { totalDebits, totalCredits } = calculateEditJournalTotals();
+                            const isBalanced = Math.abs(totalDebits - totalCredits) < 0.01;
+                            return !isBalanced ? "Must Balance" : "Save";
+                          })()}
                     </button>
                   </div>
                 </div>
@@ -4538,7 +4614,8 @@ export default function TransactionsPage() {
       )}
 
       {/* Floating Action Buttons */}
-      {activeTab === "toAdd" && selectedToAdd.size > 0 && (
+      {activeTab === "toAdd" &&
+        selectedToAdd.size > 0 &&
         (() => {
           const selectedTransactions = imported.filter((tx) => selectedToAdd.has(tx.id));
           const hasValidCategories = selectedTransactions.every((tx) => selectedCategories[tx.id]);
@@ -4608,10 +4685,10 @@ export default function TransactionsPage() {
               </button>
             </div>
           );
-        })()
-      )}
+        })()}
 
-      {activeTab === "added" && selectedAdded.size > 0 && (
+      {activeTab === "added" &&
+        selectedAdded.size > 0 &&
         (() => {
           const selectedConfirmed = confirmed.filter((tx) => selectedAdded.has(tx.id));
           const isProcessing =
@@ -4621,11 +4698,21 @@ export default function TransactionsPage() {
             <div className="fixed bottom-6 right-6 z-40">
               <button
                 onClick={async () => {
-                  await undoTransactions(
-                    selectedConfirmed.map((tx) => tx.id),
-                    currentCompany!.id
-                  );
-                  setSelectedAdded(new Set());
+                  // Set flag to prevent automation during undo
+                  isUndoInProgress.current = true;
+
+                  try {
+                    await undoTransactions(
+                      selectedConfirmed.map((tx) => tx.id),
+                      currentCompany!.id
+                    );
+                    setSelectedAdded(new Set());
+                  } finally {
+                    // Clear flag after undo completes
+                    setTimeout(() => {
+                      isUndoInProgress.current = false;
+                    }, 1000); // Wait 1 second to ensure all state updates are complete
+                  }
                 }}
                 className={`px-4 py-2 rounded-full shadow-lg font-medium text-sm flex items-center space-x-2 ${
                   isProcessing
@@ -4645,8 +4732,7 @@ export default function TransactionsPage() {
               </button>
             </div>
           );
-        })()
-      )}
+        })()}
     </div>
-  )
+  );
 }
