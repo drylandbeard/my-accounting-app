@@ -3978,76 +3978,6 @@ export default function TransactionsPage() {
                   onPageChange={setToAddCurrentPage}
                 />
               </div>
-
-              {selectedToAdd.size > 0 &&
-                (() => {
-                  const selectedTransactions = imported.filter((tx) => selectedToAdd.has(tx.id));
-                  const hasValidCategories = selectedTransactions.every((tx) => selectedCategories[tx.id]);
-                  const isProcessing =
-                    isAddingTransactions || selectedTransactions.some((tx) => processingTransactions.has(tx.id));
-
-                  return (
-                    <div className="mt-2 flex justify-end">
-                      <button
-                        onClick={async () => {
-                          const transactionRequests = selectedTransactions
-                            .filter((tx) => selectedCategories[tx.id])
-                            .map((tx) => ({
-                              transaction: tx,
-                              selectedCategoryId: selectedCategories[tx.id],
-                              selectedPayeeId: selectedPayees[tx.id],
-                            }));
-
-                          // Get the corresponding category ID (the account category)
-                          const correspondingCategoryId = selectedAccountIdInCOA;
-                          if (!correspondingCategoryId) {
-                            setNotification({
-                              type: "error",
-                              message: "No account category found for selected account",
-                            });
-                            return;
-                          }
-
-                          await addTransactions(transactionRequests, correspondingCategoryId, currentCompany!.id);
-
-                          setSelectedCategories((prev) => {
-                            const copy = { ...prev };
-                            selectedTransactions.forEach((tx) => delete copy[tx.id]);
-                            return copy;
-                          });
-                          setSelectedPayees((prev) => {
-                            const copy = { ...prev };
-                            selectedTransactions.forEach((tx) => delete copy[tx.id]);
-                            return copy;
-                          });
-                          // Remove from auto-added tracking since they were manually added
-                          setAutoAddedTransactions((prev) => {
-                            const newSet = new Set(prev);
-                            selectedTransactions.forEach((tx) => {
-                              const contentHash = getTransactionContentHash(tx);
-                              newSet.delete(contentHash);
-                            });
-                            return newSet;
-                          });
-                          setSelectedToAdd(new Set());
-                        }}
-                        className={`border px-3 py-1 rounded ${
-                          isProcessing ? "bg-gray-50 text-gray-400 cursor-not-allowed" : "bg-gray-100 hover:bg-gray-200"
-                        }`}
-                        disabled={!hasValidCategories || isProcessing}
-                      >
-                        {isProcessing ? (
-                          <div className="flex items-center space-x-1">
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                            <span>Adding...</span>
-                          </div>
-                        ) : (
-                          `Add Selected (${selectedToAdd.size})`
-                        )}
-                      </button>
-                    </div>
-                  );
-                })()}
             </div>
           </div>
         )}
@@ -4199,40 +4129,6 @@ export default function TransactionsPage() {
                   onPageChange={setAddedCurrentPage}
                 />
               </div>
-
-              {selectedAdded.size > 0 &&
-                (() => {
-                  const selectedConfirmed = confirmed.filter((tx) => selectedAdded.has(tx.id));
-                  const isProcessing =
-                    isUndoingTransactions || selectedConfirmed.some((tx) => processingTransactions.has(tx.id));
-
-                  return (
-                    <div className="mt-2 flex justify-end">
-                      <button
-                        onClick={async () => {
-                          await undoTransactions(
-                            selectedConfirmed.map((tx) => tx.id),
-                            currentCompany!.id
-                          );
-                          setSelectedAdded(new Set());
-                        }}
-                        className={`border px-3 py-1 rounded ${
-                          isProcessing ? "bg-gray-50 text-gray-400 cursor-not-allowed" : "bg-gray-100 hover:bg-gray-200"
-                        }`}
-                        disabled={isProcessing}
-                      >
-                        {isProcessing ? (
-                          <div className="flex items-center space-x-1">
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                            <span>Undoing...</span>
-                          </div>
-                        ) : (
-                          `Undo Selected (${selectedAdded.size})`
-                        )}
-                      </button>
-                    </div>
-                  );
-                })()}
             </div>
           </div>
         )}
@@ -4639,6 +4535,117 @@ export default function TransactionsPage() {
             )}
           </div>
         </div>
+      )}
+
+      {/* Floating Action Buttons */}
+      {activeTab === "toAdd" && selectedToAdd.size > 0 && (
+        (() => {
+          const selectedTransactions = imported.filter((tx) => selectedToAdd.has(tx.id));
+          const hasValidCategories = selectedTransactions.every((tx) => selectedCategories[tx.id]);
+          const isProcessing =
+            isAddingTransactions || selectedTransactions.some((tx) => processingTransactions.has(tx.id));
+
+          return (
+            <div className="fixed bottom-6 right-6 z-40">
+              <button
+                onClick={async () => {
+                  const transactionRequests = selectedTransactions
+                    .filter((tx) => selectedCategories[tx.id])
+                    .map((tx) => ({
+                      transaction: tx,
+                      selectedCategoryId: selectedCategories[tx.id],
+                      selectedPayeeId: selectedPayees[tx.id],
+                    }));
+
+                  // Get the corresponding category ID (the account category)
+                  const correspondingCategoryId = selectedAccountIdInCOA;
+                  if (!correspondingCategoryId) {
+                    setNotification({
+                      type: "error",
+                      message: "No account category found for selected account",
+                    });
+                    return;
+                  }
+
+                  await addTransactions(transactionRequests, correspondingCategoryId, currentCompany!.id);
+
+                  setSelectedCategories((prev) => {
+                    const copy = { ...prev };
+                    selectedTransactions.forEach((tx) => delete copy[tx.id]);
+                    return copy;
+                  });
+                  setSelectedPayees((prev) => {
+                    const copy = { ...prev };
+                    selectedTransactions.forEach((tx) => delete copy[tx.id]);
+                    return copy;
+                  });
+                  // Remove from auto-added tracking since they were manually added
+                  setAutoAddedTransactions((prev) => {
+                    const newSet = new Set(prev);
+                    selectedTransactions.forEach((tx) => {
+                      const contentHash = getTransactionContentHash(tx);
+                      newSet.delete(contentHash);
+                    });
+                    return newSet;
+                  });
+                  setSelectedToAdd(new Set());
+                }}
+                className={`px-4 py-2 rounded-full shadow-lg font-medium text-sm flex items-center space-x-2 ${
+                  isProcessing || !hasValidCategories
+                    ? "bg-gray-900 text-white cursor-not-allowed"
+                    : "bg-gray-900 text-white hover:bg-gray-700"
+                }`}
+                disabled={!hasValidCategories || isProcessing}
+              >
+                {isProcessing ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Adding...</span>
+                  </>
+                ) : (
+                  <span>Add Selected ({selectedToAdd.size})</span>
+                )}
+              </button>
+            </div>
+          );
+        })()
+      )}
+
+      {activeTab === "added" && selectedAdded.size > 0 && (
+        (() => {
+          const selectedConfirmed = confirmed.filter((tx) => selectedAdded.has(tx.id));
+          const isProcessing =
+            isUndoingTransactions || selectedConfirmed.some((tx) => processingTransactions.has(tx.id));
+
+          return (
+            <div className="fixed bottom-6 right-6 z-40">
+              <button
+                onClick={async () => {
+                  await undoTransactions(
+                    selectedConfirmed.map((tx) => tx.id),
+                    currentCompany!.id
+                  );
+                  setSelectedAdded(new Set());
+                }}
+                className={`px-4 py-2 rounded-full shadow-lg font-medium text-sm flex items-center space-x-2 ${
+                  isProcessing
+                    ? "bg-gray-900 text-white cursor-not-allowed"
+                    : "bg-gray-900 text-white hover:bg-gray-700"
+                }`}
+                disabled={isProcessing}
+              >
+                {isProcessing ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Undoing...</span>
+                  </>
+                ) : (
+                  <span>Undo Selected ({selectedAdded.size})</span>
+                )}
+              </button>
+            </div>
+          );
+        })()
       )}
     </div>
   )
