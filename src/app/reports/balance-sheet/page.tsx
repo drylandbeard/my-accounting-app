@@ -7,6 +7,7 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PeriodSelector } from "@/components/ui/period-selector";
 
 type Account = {
   id: string;
@@ -37,10 +38,95 @@ export default function BalanceSheetPage() {
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
   const [collapsedAccounts, setCollapsedAccounts] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState<boolean>(true);
+  const [isMonthlyView, setIsMonthlyView] = useState(false);
+  const [showPercentages, setShowPercentages] = useState(false);
+  const [showPreviousPeriod, setShowPreviousPeriod] = useState(false);
+  
+  // Period Selector state
+  const [selectedPeriod, setSelectedPeriod] = useState("thisYearToToday");
+  const [selectedDisplay, setSelectedDisplay] = useState("totalOnly");
+  const [selectedComparison, setSelectedComparison] = useState("none");
+
+  // Helper: format date as YYYY-MM-DD
+  const formatDate = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
+  // Helper: get last day of month
+  const getMonthEnd = (date: Date): Date => {
+    return new Date(date.getFullYear(), date.getMonth() + 1, 0);
+  };
+
+  // Helper: get last day of quarter
+  const getQuarterEnd = (date: Date): Date => {
+    const quarter = Math.floor(date.getMonth() / 3);
+    return new Date(date.getFullYear(), (quarter + 1) * 3, 0);
+  };
+
+
+
+  // Handle period selector changes
+  const handlePeriodChange = (period: string) => {
+    setSelectedPeriod(period);
+    
+    const today = new Date();
+    let endDate: Date;
+
+    switch (period) {
+      case "thisMonth":
+        endDate = getMonthEnd(today);
+        break;
+      case "lastMonth":
+        const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+        endDate = getMonthEnd(lastMonth);
+        break;
+      case "last4Months":
+        endDate = getMonthEnd(new Date(today.getFullYear(), today.getMonth() - 1, 1));
+        break;
+      case "last12Months":
+        endDate = getMonthEnd(today);
+        break;
+      case "thisQuarter":
+        endDate = getQuarterEnd(today);
+        break;
+      case "lastQuarter":
+        const lastQuarter = new Date(today.getFullYear(), today.getMonth() - 3, 1);
+        endDate = getQuarterEnd(lastQuarter);
+        break;
+      case "thisYearToLastMonth":
+        endDate = getMonthEnd(new Date(today.getFullYear(), today.getMonth() - 1, 1));
+        break;
+      case "thisYearToToday":
+      default:
+        endDate = today;
+        break;
+    }
+
+    setAsOfDate(formatDate(endDate));
+  };
+
+  const handleDisplayChange = (display: string) => {
+    setSelectedDisplay(display);
+    // Map display options to existing view state
+    setIsMonthlyView(display === "byMonth");
+    setShowPercentages(display === "withPercentages");
+  };
+
+  const handleComparisonChange = (comparison: string) => {
+    setSelectedComparison(comparison);
+    // Map comparison options to existing state
+    setShowPreviousPeriod(comparison === "previousPeriod" || comparison === "previousYear");
+  };
+
+  // Calculate today's date once
+  const today = React.useMemo(() => new Date().toISOString().split('T')[0], []);
 
   useEffect(() => {
-    setAsOfDate(new Date().toISOString().slice(0, 10));
-  }, []);
+    setAsOfDate(today);
+  }, [today]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -73,6 +159,96 @@ export default function BalanceSheetPage() {
     };
     if (asOfDate) fetchData();
   }, [asOfDate, currentCompany?.id, hasCompanyContext]);
+
+  // Helper: get months from start of year to asOfDate
+  const getMonthsInRange = () => {
+    const months: string[] = [];
+    
+    // Parse asOfDate
+    const [endYear, endMonth, endDay] = asOfDate.split('-').map(Number);
+    const endDate = new Date(endYear, endMonth - 1, endDay);
+
+    // Start from January of the same year
+    let current = new Date(endYear, 0, 1); // January 1st
+    
+    while (current <= endDate) {
+      const year = current.getFullYear();
+      const month = String(current.getMonth() + 1).padStart(2, '0');
+      months.push(`${year}-${month}`);
+      
+      // Move to next month
+      current = new Date(current.getFullYear(), current.getMonth() + 1, 1);
+    }
+    return months;
+  };
+
+  // Helper: format month for display
+  const formatMonth = (monthStr: string) => {
+    const [year, month] = monthStr.split("-");
+    return new Date(parseInt(year), parseInt(month) - 1).toLocaleDateString("en-US", {
+      month: "short",
+      year: "numeric",
+    });
+  };
+
+  // Helper: calculate account total for a specific month (as of end of month)
+  const calculateAccountTotalForMonth = (account: Account, month: string): number => {
+    // Get the last day of the specified month
+    const [year, monthNum] = month.split('-').map(Number);
+    const monthEndDate = new Date(year, monthNum, 0); // Last day of the month
+    const monthEndDateStr = formatDate(monthEndDate);
+    
+    let total = 0;
+    if (account.type === "Asset") {
+      const totalDebits = journalEntries
+        .filter((tx) => tx.chart_account_id === account.id && tx.date <= monthEndDateStr)
+        .reduce((sum, tx) => sum + Number(tx.debit), 0);
+      const totalCredits = journalEntries
+        .filter((tx) => tx.chart_account_id === account.id && tx.date <= monthEndDateStr)
+        .reduce((sum, tx) => sum + Number(tx.credit), 0);
+      total = totalDebits - totalCredits;
+    } else if (account.type === "Liability" || account.type === "Equity") {
+      const totalCredits = journalEntries
+        .filter((tx) => tx.chart_account_id === account.id && tx.date <= monthEndDateStr)
+        .reduce((sum, tx) => sum + Number(tx.credit), 0);
+      const totalDebits = journalEntries
+        .filter((tx) => tx.chart_account_id === account.id && tx.date <= monthEndDateStr)
+        .reduce((sum, tx) => sum + Number(tx.debit), 0);
+      total = totalCredits - totalDebits;
+    }
+    return total;
+  };
+
+  // Helper: calculate roll-up total for an account for a specific month
+  const calculateAccountTotalForMonthWithSubaccounts = (account: Account, month: string): number => {
+    let total = calculateAccountTotalForMonth(account, month);
+    const subaccounts = getSubaccounts(account.id);
+    for (const sub of subaccounts) {
+      total += calculateAccountTotalForMonthWithSubaccounts(sub, month);
+    }
+    return total;
+  };
+
+
+
+  // Percentage calculation helpers
+  const formatPercentage = (num: number, base: number): string => {
+    if (base === 0) return "—";
+    const percentage = (num / Math.abs(base)) * 100;
+    return `${percentage.toFixed(1)}%`;
+  };
+
+  const formatPercentageForAccount = (num: number, accountType: string): string => {
+    let base = 0;
+    if (accountType === "Asset") {
+      base = totalAssets;
+    } else if (accountType === "Liability") {
+      base = totalLiabilities;
+    } else if (accountType === "Equity") {
+      base = totalEquityWithNetIncome;
+    }
+    return formatPercentage(num, base);
+  };
 
   // Helpers for subaccounts and totals
   const getSubaccounts = (parentId: string) => accounts.filter((acc) => acc.parent_id === parentId);
@@ -171,6 +347,129 @@ export default function BalanceSheetPage() {
     setCollapsedAccounts(newCollapsed);
   };
 
+  // Render account row for monthly view
+  const renderAccountRowWithMonthlyTotals = (account: Account, level = 0) => {
+    const subaccounts = getSubaccounts(account.id).filter(shouldShowAccount);
+    const isParent = subaccounts.length > 0;
+    const isCollapsed = collapsedAccounts.has(account.id);
+    const months = getMonthsInRange();
+
+    // If this account and all its subaccounts have no transactions in any month, do not render
+    const hasAnyTransactions = months.some(
+      (month) => calculateAccountTotalForMonthWithSubaccounts(account, month) !== 0
+    );
+    if (!hasAnyTransactions) return null;
+
+    return (
+      <React.Fragment key={account.id}>
+        <tr
+          className={`cursor-pointer hover:bg-slate-50 transition-colors ${level > 0 ? "bg-slate-25" : ""}`}
+          onClick={() => {
+            setSelectedAccount({
+              ...account,
+              _viewerType: isParent && isCollapsed ? "rollup" : "direct",
+            });
+          }}
+        >
+          <td className="px-4 py-2 border-b border-slate-100" style={{ paddingLeft: `${level * 24 + 16}px` }}>
+            <div className="flex items-center">
+              {level > 0 && <span className="text-slate-400 mr-2 text-xs">└</span>}
+              {isParent ? (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleAccount(account.id);
+                  }}
+                  className="mr-2 p-1 hover:bg-slate-200 rounded transition-colors"
+                >
+                  {isCollapsed ? (
+                    <ChevronRight className="w-3 h-3 text-slate-600" />
+                  ) : (
+                    <ChevronDown className="w-3 h-3 text-slate-600" />
+                  )}
+                </button>
+              ) : (
+                !level && <div className="mr-2 w-5"></div>
+              )}
+              <span className={`${level > 0 ? "text-slate-600 text-sm" : "text-slate-800"}`}>{account.name}</span>
+            </div>
+          </td>
+          {months.map((month) => (
+            <React.Fragment key={month}>
+              <td className="px-4 py-2 text-right border-b border-slate-100 font-mono text-sm">
+                {formatNumber(
+                  isParent && isCollapsed
+                    ? calculateAccountTotalForMonthWithSubaccounts(account, month)
+                    : calculateAccountTotalForMonth(account, month)
+                )}
+              </td>
+              {showPercentages && (
+                <td className="px-4 py-2 text-right border-b border-slate-100 text-xs text-slate-600">
+                  {formatPercentageForAccount(
+                    isParent && isCollapsed
+                      ? calculateAccountTotalForMonthWithSubaccounts(account, month)
+                      : calculateAccountTotalForMonth(account, month),
+                    account.type
+                  )}
+                </td>
+              )}
+            </React.Fragment>
+          ))}
+          <td className="px-4 py-2 text-right border-b border-slate-100 font-semibold font-mono text-sm">
+            {formatNumber(
+              isParent && isCollapsed ? calculateAccountTotal(account) : calculateAccountDirectTotal(account)
+            )}
+          </td>
+          {showPercentages && (
+            <td className="px-4 py-2 text-right border-b border-slate-100 text-xs text-slate-600">
+              {formatPercentageForAccount(
+                isParent && isCollapsed ? calculateAccountTotal(account) : calculateAccountDirectTotal(account),
+                account.type
+              )}
+            </td>
+          )}
+        </tr>
+        {!isCollapsed && subaccounts.map((sub) => renderAccountRowWithMonthlyTotals(sub, level + 1))}
+        {isParent && !isCollapsed && (
+          <tr
+            key={`${account.id}-total`}
+            className="cursor-pointer hover:bg-blue-50 transition-colors"
+            onClick={() => {
+              setSelectedAccount({ ...account, _viewerType: "rollup" });
+            }}
+          >
+            <td className="px-4 py-2 font-semibold bg-slate-50 border-b border-slate-100" style={{ paddingLeft: `${level * 24 + 16}px` }}>
+              <div className="flex items-center">
+                <div className="mr-2 w-5"></div>
+                <span className="text-sm text-slate-700">Total {account.name}</span>
+              </div>
+            </td>
+            {months.map((month) => (
+              <React.Fragment key={month}>
+                <td className="px-4 py-2 text-right font-semibold bg-slate-50 border-b border-slate-100 text-slate-800 font-mono text-sm">
+                  {formatNumber(calculateAccountTotalForMonthWithSubaccounts(account, month))}
+                </td>
+                {showPercentages && (
+                  <td className="px-4 py-2 text-right bg-slate-50 border-b border-slate-100 text-xs text-slate-600">
+                    {formatPercentageForAccount(calculateAccountTotalForMonthWithSubaccounts(account, month), account.type)}
+                  </td>
+                )}
+              </React.Fragment>
+            ))}
+            <td className="px-4 py-2 text-right font-semibold bg-slate-50 border-b border-slate-100 text-slate-800 font-mono text-sm">
+              {formatNumber(calculateAccountTotal(account))}
+            </td>
+            {showPercentages && (
+              <td className="px-4 py-2 text-right bg-slate-50 border-b border-slate-100 text-xs text-slate-600">
+                {formatPercentageForAccount(calculateAccountTotal(account), account.type)}
+              </td>
+            )}
+          </tr>
+        )}
+      </React.Fragment>
+    );
+  };
+
   // Render account row and its subaccounts, with a total line for each parent
   const renderAccountRowWithTotal = (account: Account, level = 0): React.ReactElement => {
     const subaccounts = getSubaccounts(account.id).filter(shouldShowAccount);
@@ -220,6 +519,27 @@ export default function BalanceSheetPage() {
           <td className="px-4 py-2 text-right border-b border-slate-100 font-mono text-sm">
             {formatNumber(isParent && isCollapsed ? rollupTotal : directTotal)}
           </td>
+          {showPercentages && (
+            <td className="px-4 py-2 text-right border-b border-slate-100 text-xs text-slate-600">
+              {formatPercentageForAccount(isParent && isCollapsed ? rollupTotal : directTotal, account.type)}
+            </td>
+          )}
+          {showPreviousPeriod && (
+            <>
+              <td className="px-4 py-2 text-right border-b border-slate-100 font-mono text-sm">
+                {/* Previous period would need additional data fetching */}
+                —
+              </td>
+              {showPercentages && (
+                <td className="px-4 py-2 text-right border-b border-slate-100 text-xs text-slate-600">
+                  —
+                </td>
+              )}
+              <td className="px-4 py-2 text-right border-b border-slate-100 font-mono text-sm">
+                —
+              </td>
+            </>
+          )}
         </tr>
         {!isCollapsed &&
           subaccounts.map((sub) => (
@@ -240,6 +560,26 @@ export default function BalanceSheetPage() {
             <td className="px-4 py-2 text-right font-semibold bg-slate-50 border-b border-slate-100 text-slate-800 font-mono text-sm">
               {formatNumber(rollupTotal)}
             </td>
+            {showPercentages && (
+              <td className="px-4 py-2 text-right bg-slate-50 border-b border-slate-100 text-xs text-slate-600">
+                {formatPercentageForAccount(rollupTotal, account.type)}
+              </td>
+            )}
+            {showPreviousPeriod && (
+              <>
+                <td className="px-4 py-2 text-right font-semibold bg-slate-50 border-b border-slate-100 text-slate-800 font-mono text-sm">
+                  —
+                </td>
+                {showPercentages && (
+                  <td className="px-4 py-2 text-right bg-slate-50 border-b border-slate-100 text-xs text-slate-600">
+                    —
+                  </td>
+                )}
+                <td className="px-4 py-2 text-right font-semibold bg-slate-50 border-b border-slate-100 text-slate-800 font-mono text-sm">
+                  —
+                </td>
+              </>
+            )}
           </tr>
         )}
       </>
@@ -257,27 +597,96 @@ export default function BalanceSheetPage() {
   const cogsAccounts = accounts.filter((a) => a.type === "COGS");
   const expenseAccounts = accounts.filter((a) => a.type === "Expense");
 
-  // Net Income calculation (from P&L logic)
-  const calculatePLTotal = (accs: Account[], type: string) =>
-    accs.reduce((sum, acc) => {
-      if (type === "Revenue") {
-        // Revenue: sum credits
-        return (
-          sum +
-          journalEntries.filter((tx) => tx.chart_account_id === acc.id).reduce((s, tx) => s + Number(tx.credit), 0)
-        );
-      } else if (type === "COGS" || type === "Expense") {
-        // COGS/Expense: sum debits
-        return (
-          sum + journalEntries.filter((tx) => tx.chart_account_id === acc.id).reduce((s, tx) => s + Number(tx.debit), 0)
-        );
-      }
-      return sum;
-    }, 0);
+  // Net Income calculation (proper P&L logic with subaccounts)
+  const calculatePLAccountTotal = (account: Account): number => {
+    let total = 0;
+    
+    if (account.type === "Revenue") {
+      // Revenue: credits minus debits
+      const totalCredits = journalEntries
+        .filter((tx) => tx.chart_account_id === account.id)
+        .reduce((sum, tx) => sum + Number(tx.credit), 0);
+      const totalDebits = journalEntries
+        .filter((tx) => tx.chart_account_id === account.id)
+        .reduce((sum, tx) => sum + Number(tx.debit), 0);
+      total = totalCredits - totalDebits;
+    } else if (account.type === "Expense" || account.type === "COGS") {
+      // Expenses/COGS: debits minus credits
+      const totalDebits = journalEntries
+        .filter((tx) => tx.chart_account_id === account.id)
+        .reduce((sum, tx) => sum + Number(tx.debit), 0);
+      const totalCredits = journalEntries
+        .filter((tx) => tx.chart_account_id === account.id)
+        .reduce((sum, tx) => sum + Number(tx.credit), 0);
+      total = totalDebits - totalCredits;
+    }
+    
+    // Add subaccounts' totals recursively
+    const subaccounts = getSubaccounts(account.id);
+    for (const sub of subaccounts) {
+      total += calculatePLAccountTotal(sub);
+    }
+    
+    return total;
+  };
 
-  const totalRevenue = calculatePLTotal(revenueAccounts, "Revenue");
-  const totalCOGS = calculatePLTotal(cogsAccounts, "COGS");
-  const totalExpenses = calculatePLTotal(expenseAccounts, "Expense");
+  const calculatePLGroupTotal = (accounts: Account[]): number => {
+    return accounts
+      .filter(acc => !acc.parent_id) // Only top-level accounts
+      .reduce((sum, acc) => sum + calculatePLAccountTotal(acc), 0);
+  };
+
+  // Helper: calculate P&L account total for a specific month (cumulative from year start)
+  const calculatePLAccountTotalForMonth = (account: Account, month: string): number => {
+    // Get the last day of the specified month
+    const [year, monthNum] = month.split('-').map(Number);
+    const monthEndDate = new Date(year, monthNum, 0); // Last day of the month
+    const monthEndDateStr = formatDate(monthEndDate);
+    
+    // Start from beginning of the year
+    const yearStartDate = `${year}-01-01`;
+    
+    let total = 0;
+    
+    if (account.type === "Revenue") {
+      // Revenue: credits minus debits
+      const totalCredits = journalEntries
+        .filter((tx) => tx.chart_account_id === account.id && tx.date >= yearStartDate && tx.date <= monthEndDateStr)
+        .reduce((sum, tx) => sum + Number(tx.credit), 0);
+      const totalDebits = journalEntries
+        .filter((tx) => tx.chart_account_id === account.id && tx.date >= yearStartDate && tx.date <= monthEndDateStr)
+        .reduce((sum, tx) => sum + Number(tx.debit), 0);
+      total = totalCredits - totalDebits;
+    } else if (account.type === "Expense" || account.type === "COGS") {
+      // Expenses/COGS: debits minus credits
+      const totalDebits = journalEntries
+        .filter((tx) => tx.chart_account_id === account.id && tx.date >= yearStartDate && tx.date <= monthEndDateStr)
+        .reduce((sum, tx) => sum + Number(tx.debit), 0);
+      const totalCredits = journalEntries
+        .filter((tx) => tx.chart_account_id === account.id && tx.date >= yearStartDate && tx.date <= monthEndDateStr)
+        .reduce((sum, tx) => sum + Number(tx.credit), 0);
+      total = totalDebits - totalCredits;
+    }
+    
+    // Add subaccounts' totals recursively
+    const subaccounts = getSubaccounts(account.id);
+    for (const sub of subaccounts) {
+      total += calculatePLAccountTotalForMonth(sub, month);
+    }
+    
+    return total;
+  };
+
+  // Helper: calculate P&L group total for a specific month (cumulative from year start)
+  const calculatePLGroupTotalForMonth = (accounts: Account[], month: string): number => {
+    return accounts
+      .filter(acc => !acc.parent_id) // Only top-level accounts
+      .reduce((sum, acc) => sum + calculatePLAccountTotalForMonth(acc, month), 0);
+  };
+
+  const totalRevenue = calculatePLGroupTotal(revenueAccounts);
+  const totalCOGS = calculatePLGroupTotal(cogsAccounts);
+  const totalExpenses = calculatePLGroupTotal(expenseAccounts);
   const netIncome = totalRevenue - totalCOGS - totalExpenses;
 
   // Totals
@@ -399,20 +808,47 @@ export default function BalanceSheetPage() {
       <div className="max-w-7xl mx-auto">
         <div className="text-center mb-6">
           <h1 className="text-2xl font-bold text-slate-800 mb-3">Balance Sheet</h1>
-          <div className="flex items-center justify-center gap-3 mb-4">
-            <label className="text-sm font-medium text-slate-600">As of Date:</label>
-            <Input
-              type="date"
-              value={asOfDate}
-              max={new Date().toISOString().slice(0, 10)}
-              onChange={(e) => setAsOfDate(e.target.value)}
-              className="w-auto"
-            />
-          </div>
-          <div className="flex justify-center">
-            <Button onClick={exportToCSV} className="text-sm font-medium">
-              Export CSV
-            </Button>
+          {/* Period Selector */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="flex justify-center">
+                <PeriodSelector
+                  selectedPeriod={selectedPeriod}
+                  onPeriodChange={handlePeriodChange}
+                  selectedDisplay={selectedDisplay}
+                  onDisplayChange={handleDisplayChange}
+                  selectedComparison={selectedComparison}
+                  onComparisonChange={handleComparisonChange}
+                />
+              </div>
+
+              {/* Manual date override option */}
+              <div className="flex items-center justify-center gap-4 text-sm">
+                <Input 
+                  type="date" 
+                  value={asOfDate} 
+                  max={today}
+                  onChange={(e) => {
+                    const newDate = e.target.value;
+                    
+                    // Prevent setting date in the future
+                    if (newDate > today) {
+                      setAsOfDate(today);
+                      return;
+                    }
+                    
+                    setAsOfDate(newDate);
+                  }} 
+                  className="w-auto text-sm h-8 transition-none" 
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-center">
+              <Button onClick={exportToCSV} className="text-sm font-medium">
+                Export CSV
+              </Button>
+            </div>
           </div>
         </div>
         {/* Balance Sheet Warning */}
@@ -435,11 +871,48 @@ export default function BalanceSheetPage() {
           <div className="w-2/3">
             <Card>
               <CardContent className="p-0">
-                <table className="w-full border-collapse">
+                <table className="w-full border-collapse" style={{ tableLayout: "fixed" }}>
                   <thead className="bg-slate-50 border-b border-slate-200">
                     <tr>
-                      <th className="px-4 py-3 text-left font-semibold text-slate-700">Account</th>
-                      <th className="px-4 py-3 text-right font-semibold text-slate-700 w-32">Amount</th>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700" style={{ width: "25%" }}>Account</th>
+                      {isMonthlyView ? (
+                        <>
+                          {getMonthsInRange().map((month) => (
+                            <React.Fragment key={month}>
+                              <th className="px-4 py-3 text-right font-semibold text-slate-700" style={{ width: showPercentages ? `${35 / ((getMonthsInRange().length + 1) * 2)}%` : `${75 / (getMonthsInRange().length + 1)}%` }}>
+                                {formatMonth(month)}
+                              </th>
+                              {showPercentages && (
+                                <th className="px-4 py-3 text-right font-semibold text-slate-700 text-xs" style={{ width: `${40 / ((getMonthsInRange().length + 1) * 2)}%` }}>
+                                  %
+                                </th>
+                              )}
+                            </React.Fragment>
+                          ))}
+                          <th className="px-4 py-3 text-right font-semibold text-slate-700" style={{ width: showPercentages ? `${35 / ((getMonthsInRange().length + 1) * 2)}%` : `${75 / (getMonthsInRange().length + 1)}%` }}>Total</th>
+                          {showPercentages && (
+                            <th className="px-4 py-3 text-right font-semibold text-slate-700 text-xs" style={{ width: `${40 / ((getMonthsInRange().length + 1) * 2)}%` }}>
+                              %
+                            </th>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <th className="px-4 py-3 text-right font-semibold text-slate-700 w-32">Amount</th>
+                          {showPercentages && (
+                            <th className="px-4 py-3 text-right font-semibold text-slate-700 text-xs w-20">%</th>
+                          )}
+                          {showPreviousPeriod && (
+                            <>
+                              <th className="px-4 py-3 text-right font-semibold text-slate-700 w-32">Previous Year</th>
+                              {showPercentages && (
+                                <th className="px-4 py-3 text-right font-semibold text-slate-700 text-xs w-20">%</th>
+                              )}
+                              <th className="px-4 py-3 text-right font-semibold text-slate-700 w-32">Difference</th>
+                            </>
+                          )}
+                        </>
+                      )}
                     </tr>
                   </thead>
                   <tbody>
@@ -448,12 +921,30 @@ export default function BalanceSheetPage() {
                       <>
                         {/* ASSETS SECTION */}
                         <tr className="bg-slate-100 border-b border-slate-200">
-                          <td colSpan={2} className="px-4 py-3 font-bold text-slate-800 text-sm tracking-wide">
+                          <td 
+                            colSpan={
+                              isMonthlyView 
+                                ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
+                                : showPreviousPeriod 
+                                  ? (showPercentages ? 6 : 4)
+                                  : (showPercentages ? 3 : 2)
+                            }
+                            className="px-4 py-3 font-bold text-slate-800 text-sm tracking-wide"
+                          >
                             ASSETS
                           </td>
                         </tr>
                         <tr>
-                          <td colSpan={2} className="px-4 py-8 text-center border-b border-slate-100">
+                          <td 
+                            colSpan={
+                              isMonthlyView 
+                                ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
+                                : showPreviousPeriod 
+                                  ? (showPercentages ? 6 : 4)
+                                  : (showPercentages ? 3 : 2)
+                            }
+                            className="px-4 py-8 text-center border-b border-slate-100"
+                          >
                             <div className="flex flex-col items-center space-y-3">
                               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
                               <span className="text-sm text-slate-500">Loading accounts...</span>
@@ -463,17 +954,44 @@ export default function BalanceSheetPage() {
 
                         {/* SPACING ROW */}
                         <tr>
-                          <td colSpan={2} className="py-3"></td>
+                          <td 
+                            colSpan={
+                              isMonthlyView 
+                                ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
+                                : showPreviousPeriod 
+                                  ? (showPercentages ? 6 : 4)
+                                  : (showPercentages ? 3 : 2)
+                            }
+                            className="py-3"
+                          ></td>
                         </tr>
 
                         {/* LIABILITIES & EQUITY SECTION */}
                         <tr className="bg-slate-100 border-b border-slate-200">
-                          <td colSpan={2} className="px-4 py-3 font-bold text-slate-800 text-sm tracking-wide">
+                          <td 
+                            colSpan={
+                              isMonthlyView 
+                                ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
+                                : showPreviousPeriod 
+                                  ? (showPercentages ? 6 : 4)
+                                  : (showPercentages ? 3 : 2)
+                            }
+                            className="px-4 py-3 font-bold text-slate-800 text-sm tracking-wide"
+                          >
                             LIABILITIES & EQUITY
                           </td>
                         </tr>
                         <tr>
-                          <td colSpan={2} className="px-4 py-8 text-center border-b border-slate-100">
+                          <td 
+                            colSpan={
+                              isMonthlyView 
+                                ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
+                                : showPreviousPeriod 
+                                  ? (showPercentages ? 6 : 4)
+                                  : (showPercentages ? 3 : 2)
+                            }
+                            className="px-4 py-8 text-center border-b border-slate-100"
+                          >
                             <div className="flex flex-col items-center space-y-3">
                               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600"></div>
                               <span className="text-sm text-slate-500">Loading transactions...</span>
@@ -486,14 +1004,32 @@ export default function BalanceSheetPage() {
                       <>
                         {/* ASSETS SECTION */}
                         <tr className="bg-slate-100 border-b border-slate-200">
-                          <td colSpan={2} className="px-4 py-3 font-bold text-slate-800 text-sm tracking-wide">
+                          <td 
+                            colSpan={
+                              isMonthlyView 
+                                ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
+                                : showPreviousPeriod 
+                                  ? (showPercentages ? 6 : 4)
+                                  : (showPercentages ? 3 : 2)
+                            }
+                            className="px-4 py-3 font-bold text-slate-800 text-sm tracking-wide"
+                          >
                             ASSETS
                           </td>
                         </tr>
                         {assetRows.length > 0 && (
                           <>
                             <tr className="cursor-pointer hover:bg-slate-50 transition-colors">
-                              <td colSpan={2} className="px-4 py-2 border-b border-slate-100">
+                              <td 
+                                colSpan={
+                                  isMonthlyView 
+                                    ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
+                                    : showPreviousPeriod 
+                                      ? (showPercentages ? 6 : 4)
+                                      : (showPercentages ? 3 : 2)
+                                }
+                                className="px-4 py-2 border-b border-slate-100"
+                              >
                                 <div className="flex items-center">
                                   <button
                                     onClick={() => toggleSection("assets")}
@@ -512,7 +1048,12 @@ export default function BalanceSheetPage() {
                             {!collapsedSections.has("assets") && (
                               <>
                                 {assetRows.map((row) => (
-                                  <React.Fragment key={row.id}>{renderAccountRowWithTotal(row)}</React.Fragment>
+                                  <React.Fragment key={row.id}>
+                                    {isMonthlyView 
+                                      ? renderAccountRowWithMonthlyTotals(row)
+                                      : renderAccountRowWithTotal(row)
+                                    }
+                                  </React.Fragment>
                                 ))}
                               </>
                             )}
@@ -533,19 +1074,89 @@ export default function BalanceSheetPage() {
                           >
                             TOTAL ASSETS
                           </td>
-                          <td className="px-4 py-3 text-right font-bold text-slate-800 font-mono">
-                            {formatNumber(totalAssets)}
-                          </td>
+                          {isMonthlyView ? (
+                            <>
+                              {getMonthsInRange().map((month) => (
+                                <React.Fragment key={month}>
+                                  <td className="px-4 py-3 text-right font-bold text-slate-800 font-mono">
+                                    {formatNumber(
+                                      assetRows.reduce(
+                                        (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                        0
+                                      )
+                                    )}
+                                  </td>
+                                  {showPercentages && (
+                                    <td className="px-4 py-3 text-right text-xs font-bold text-slate-600">
+                                      100.0%
+                                    </td>
+                                  )}
+                                </React.Fragment>
+                              ))}
+                              <td className="px-4 py-3 text-right font-bold text-slate-800 font-mono">
+                                {formatNumber(totalAssets)}
+                              </td>
+                              {showPercentages && (
+                                <td className="px-4 py-3 text-right text-xs font-bold text-slate-600">
+                                  100.0%
+                                </td>
+                              )}
+                            </>
+                          ) : (
+                            <>
+                              <td className="px-4 py-3 text-right font-bold text-slate-800 font-mono">
+                                {formatNumber(totalAssets)}
+                              </td>
+                              {showPercentages && (
+                                <td className="px-4 py-3 text-right text-xs font-bold text-slate-600">
+                                  100.0%
+                                </td>
+                              )}
+                              {showPreviousPeriod && (
+                                <>
+                                  <td className="px-4 py-3 text-right font-bold text-slate-800 font-mono">
+                                    —
+                                  </td>
+                                  {showPercentages && (
+                                    <td className="px-4 py-3 text-right text-xs font-bold text-slate-600">
+                                      —
+                                    </td>
+                                  )}
+                                  <td className="px-4 py-3 text-right font-bold text-slate-800 font-mono">
+                                    —
+                                  </td>
+                                </>
+                              )}
+                            </>
+                          )}
                         </tr>
 
                         {/* SPACING ROW */}
                         <tr>
-                          <td colSpan={2} className="py-3"></td>
+                          <td 
+                            colSpan={
+                              isMonthlyView 
+                                ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
+                                : showPreviousPeriod 
+                                  ? (showPercentages ? 6 : 4)
+                                  : (showPercentages ? 3 : 2)
+                            }
+                            className="py-3"
+                          ></td>
                         </tr>
 
                         {/* LIABILITIES & EQUITY SECTION */}
                         <tr className="bg-slate-100 border-b border-slate-200">
-                          <td colSpan={2} className="px-4 py-3 font-bold text-slate-800 text-sm tracking-wide">
+                          <td 
+                            colSpan={
+                              isMonthlyView 
+                                ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
+                                : showPreviousPeriod 
+                                  ? (showPercentages ? 6 : 4)
+                                  : (showPercentages ? 3 : 2)
+                            }
+                            className="px-4 py-3 font-bold text-slate-800 text-sm tracking-wide"
+                          >
                             LIABILITIES & EQUITY
                           </td>
                         </tr>
@@ -554,7 +1165,16 @@ export default function BalanceSheetPage() {
                         {liabilityRows.length > 0 && (
                           <>
                             <tr className="cursor-pointer hover:bg-slate-50 transition-colors">
-                              <td colSpan={2} className="px-4 py-2 border-b border-slate-100">
+                              <td 
+                                colSpan={
+                                  isMonthlyView 
+                                    ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
+                                    : showPreviousPeriod 
+                                      ? (showPercentages ? 6 : 4)
+                                      : (showPercentages ? 3 : 2)
+                                }
+                                className="px-4 py-2 border-b border-slate-100"
+                              >
                                 <div className="flex items-center">
                                   <button
                                     onClick={() => toggleSection("liabilities")}
@@ -573,7 +1193,12 @@ export default function BalanceSheetPage() {
                             {!collapsedSections.has("liabilities") && (
                               <>
                                 {liabilityRows.map((row) => (
-                                  <React.Fragment key={row.id}>{renderAccountRowWithTotal(row)}</React.Fragment>
+                                  <React.Fragment key={row.id}>
+                                    {isMonthlyView 
+                                      ? renderAccountRowWithMonthlyTotals(row)
+                                      : renderAccountRowWithTotal(row)
+                                    }
+                                  </React.Fragment>
                                 ))}
                                 <tr
                                   className="cursor-pointer hover:bg-blue-50 transition-colors"
@@ -589,9 +1214,67 @@ export default function BalanceSheetPage() {
                                   <td className="px-4 py-2 font-semibold border-b border-slate-100 text-slate-800">
                                     Total Liabilities
                                   </td>
-                                  <td className="px-4 py-2 text-right font-semibold border-b border-slate-100 text-slate-800 font-mono">
-                                    {formatNumber(totalLiabilities)}
-                                  </td>
+                                  {isMonthlyView ? (
+                                    <>
+                                      {getMonthsInRange().map((month) => (
+                                        <React.Fragment key={month}>
+                                          <td className="px-4 py-2 text-right font-semibold border-b border-slate-100 text-slate-800 font-mono">
+                                            {formatNumber(
+                                              liabilityRows.reduce(
+                                                (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                                0
+                                              )
+                                            )}
+                                          </td>
+                                          {showPercentages && (
+                                            <td className="px-4 py-2 text-right border-b border-slate-100 text-xs text-slate-600">
+                                              {formatPercentageForAccount(
+                                                liabilityRows.reduce(
+                                                  (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                                  0
+                                                ),
+                                                "Liability"
+                                              )}
+                                            </td>
+                                          )}
+                                        </React.Fragment>
+                                      ))}
+                                      <td className="px-4 py-2 text-right font-semibold border-b border-slate-100 text-slate-800 font-mono">
+                                        {formatNumber(totalLiabilities)}
+                                      </td>
+                                      {showPercentages && (
+                                        <td className="px-4 py-2 text-right border-b border-slate-100 text-xs text-slate-600">
+                                          {formatPercentageForAccount(totalLiabilities, "Liability")}
+                                        </td>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <>
+                                      <td className="px-4 py-2 text-right font-semibold border-b border-slate-100 text-slate-800 font-mono">
+                                        {formatNumber(totalLiabilities)}
+                                      </td>
+                                      {showPercentages && (
+                                        <td className="px-4 py-2 text-right border-b border-slate-100 text-xs text-slate-600">
+                                          {formatPercentageForAccount(totalLiabilities, "Liability")}
+                                        </td>
+                                      )}
+                                      {showPreviousPeriod && (
+                                        <>
+                                          <td className="px-4 py-2 text-right font-semibold border-b border-slate-100 text-slate-800 font-mono">
+                                            —
+                                          </td>
+                                          {showPercentages && (
+                                            <td className="px-4 py-2 text-right border-b border-slate-100 text-xs text-slate-600">
+                                              —
+                                            </td>
+                                          )}
+                                          <td className="px-4 py-2 text-right font-semibold border-b border-slate-100 text-slate-800 font-mono">
+                                            —
+                                          </td>
+                                        </>
+                                      )}
+                                    </>
+                                  )}
                                 </tr>
                               </>
                             )}
@@ -602,7 +1285,16 @@ export default function BalanceSheetPage() {
                         {(equityRows.length > 0 || netIncome !== 0) && (
                           <>
                             <tr className="cursor-pointer hover:bg-slate-50 transition-colors">
-                              <td colSpan={2} className="px-4 py-2 border-b border-slate-100">
+                              <td 
+                                colSpan={
+                                  isMonthlyView 
+                                    ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
+                                    : showPreviousPeriod 
+                                      ? (showPercentages ? 6 : 4)
+                                      : (showPercentages ? 3 : 2)
+                                }
+                                className="px-4 py-2 border-b border-slate-100"
+                              >
                                 <div className="flex items-center">
                                   <button
                                     onClick={() => toggleSection("equity")}
@@ -621,7 +1313,12 @@ export default function BalanceSheetPage() {
                             {!collapsedSections.has("equity") && (
                               <>
                                 {equityRows.map((row) => (
-                                  <React.Fragment key={row.id}>{renderAccountRowWithTotal(row)}</React.Fragment>
+                                  <React.Fragment key={row.id}>
+                                    {isMonthlyView 
+                                      ? renderAccountRowWithMonthlyTotals(row)
+                                      : renderAccountRowWithTotal(row)
+                                    }
+                                  </React.Fragment>
                                 ))}
                                 {netIncome !== 0 && (
                                   <tr
@@ -641,9 +1338,65 @@ export default function BalanceSheetPage() {
                                         <span className="text-slate-800">Net Income</span>
                                       </div>
                                     </td>
-                                    <td className="px-4 py-2 text-right font-semibold bg-slate-50 border-b border-slate-100 text-slate-800 font-mono">
-                                      {formatNumber(netIncome)}
-                                    </td>
+                                    {isMonthlyView ? (
+                                      <>
+                                        {getMonthsInRange().map((month) => (
+                                          <React.Fragment key={month}>
+                                            <td className="px-4 py-2 text-right font-semibold bg-slate-50 border-b border-slate-100 text-slate-800 font-mono">
+                                              {formatNumber(
+                                                calculatePLGroupTotalForMonth(revenueAccounts, month) -
+                                                calculatePLGroupTotalForMonth(cogsAccounts, month) -
+                                                calculatePLGroupTotalForMonth(expenseAccounts, month)
+                                              )}
+                                            </td>
+                                            {showPercentages && (
+                                              <td className="px-4 py-2 text-right bg-slate-50 border-b border-slate-100 text-xs text-slate-600">
+                                                {formatPercentageForAccount(
+                                                  calculatePLGroupTotalForMonth(revenueAccounts, month) -
+                                                  calculatePLGroupTotalForMonth(cogsAccounts, month) -
+                                                  calculatePLGroupTotalForMonth(expenseAccounts, month),
+                                                  "Equity"
+                                                )}
+                                              </td>
+                                            )}
+                                          </React.Fragment>
+                                        ))}
+                                        <td className="px-4 py-2 text-right font-semibold bg-slate-50 border-b border-slate-100 text-slate-800 font-mono">
+                                          {formatNumber(netIncome)}
+                                        </td>
+                                        {showPercentages && (
+                                          <td className="px-4 py-2 text-right bg-slate-50 border-b border-slate-100 text-xs text-slate-600">
+                                            {formatPercentageForAccount(netIncome, "Equity")}
+                                          </td>
+                                        )}
+                                      </>
+                                    ) : (
+                                      <>
+                                        <td className="px-4 py-2 text-right font-semibold bg-slate-50 border-b border-slate-100 text-slate-800 font-mono">
+                                          {formatNumber(netIncome)}
+                                        </td>
+                                        {showPercentages && (
+                                          <td className="px-4 py-2 text-right bg-slate-50 border-b border-slate-100 text-xs text-slate-600">
+                                            {formatPercentageForAccount(netIncome, "Equity")}
+                                          </td>
+                                        )}
+                                        {showPreviousPeriod && (
+                                          <>
+                                            <td className="px-4 py-2 text-right font-semibold bg-slate-50 border-b border-slate-100 text-slate-800 font-mono">
+                                              —
+                                            </td>
+                                            {showPercentages && (
+                                              <td className="px-4 py-2 text-right bg-slate-50 border-b border-slate-100 text-xs text-slate-600">
+                                                —
+                                              </td>
+                                            )}
+                                            <td className="px-4 py-2 text-right font-semibold bg-slate-50 border-b border-slate-100 text-slate-800 font-mono">
+                                              —
+                                            </td>
+                                          </>
+                                        )}
+                                      </>
+                                    )}
                                   </tr>
                                 )}
                                 <tr
@@ -660,9 +1413,73 @@ export default function BalanceSheetPage() {
                                   <td className="px-4 py-2 font-semibold border-b border-slate-100 text-slate-800">
                                     Total Equity
                                   </td>
-                                  <td className="px-4 py-2 text-right font-semibold border-b border-slate-100 text-slate-800 font-mono">
-                                    {formatNumber(totalEquityWithNetIncome)}
-                                  </td>
+                                  {isMonthlyView ? (
+                                    <>
+                                      {getMonthsInRange().map((month) => (
+                                        <React.Fragment key={month}>
+                                          <td className="px-4 py-2 text-right font-semibold border-b border-slate-100 text-slate-800 font-mono">
+                                            {formatNumber(
+                                              equityRows.reduce(
+                                                (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                                0
+                                              ) + 
+                                              (calculatePLGroupTotalForMonth(revenueAccounts, month) -
+                                               calculatePLGroupTotalForMonth(cogsAccounts, month) -
+                                               calculatePLGroupTotalForMonth(expenseAccounts, month))
+                                            )}
+                                          </td>
+                                          {showPercentages && (
+                                            <td className="px-4 py-2 text-right border-b border-slate-100 text-xs text-slate-600">
+                                              {formatPercentageForAccount(
+                                                equityRows.reduce(
+                                                  (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                                  0
+                                                ) + 
+                                                (calculatePLGroupTotalForMonth(revenueAccounts, month) -
+                                                 calculatePLGroupTotalForMonth(cogsAccounts, month) -
+                                                 calculatePLGroupTotalForMonth(expenseAccounts, month)),
+                                                "Equity"
+                                              )}
+                                            </td>
+                                          )}
+                                        </React.Fragment>
+                                      ))}
+                                      <td className="px-4 py-2 text-right font-semibold border-b border-slate-100 text-slate-800 font-mono">
+                                        {formatNumber(totalEquityWithNetIncome)}
+                                      </td>
+                                      {showPercentages && (
+                                        <td className="px-4 py-2 text-right border-b border-slate-100 text-xs text-slate-600">
+                                          {formatPercentageForAccount(totalEquityWithNetIncome, "Equity")}
+                                        </td>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <>
+                                      <td className="px-4 py-2 text-right font-semibold border-b border-slate-100 text-slate-800 font-mono">
+                                        {formatNumber(totalEquityWithNetIncome)}
+                                      </td>
+                                      {showPercentages && (
+                                        <td className="px-4 py-2 text-right border-b border-slate-100 text-xs text-slate-600">
+                                          {formatPercentageForAccount(totalEquityWithNetIncome, "Equity")}
+                                        </td>
+                                      )}
+                                      {showPreviousPeriod && (
+                                        <>
+                                          <td className="px-4 py-2 text-right font-semibold border-b border-slate-100 text-slate-800 font-mono">
+                                            —
+                                          </td>
+                                          {showPercentages && (
+                                            <td className="px-4 py-2 text-right border-b border-slate-100 text-xs text-slate-600">
+                                              —
+                                            </td>
+                                          )}
+                                          <td className="px-4 py-2 text-right font-semibold border-b border-slate-100 text-slate-800 font-mono">
+                                            —
+                                          </td>
+                                        </>
+                                      )}
+                                    </>
+                                  )}
                                 </tr>
                               </>
                             )}
@@ -678,18 +1495,124 @@ export default function BalanceSheetPage() {
                           }`}
                         >
                           <td className="px-4 py-3 font-bold text-slate-800">TOTAL LIABILITIES + EQUITY</td>
-                          <td className="px-4 py-3 text-right font-bold text-slate-800 font-mono">
-                            {formatNumber(liabilitiesAndEquity)}
-                          </td>
+                          {isMonthlyView ? (
+                            <>
+                              {getMonthsInRange().map((month) => (
+                                <React.Fragment key={month}>
+                                  <td className="px-4 py-3 text-right font-bold text-slate-800 font-mono">
+                                    {formatNumber(
+                                      liabilityRows.reduce(
+                                        (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                        0
+                                      ) + 
+                                      equityRows.reduce(
+                                        (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                        0
+                                      ) + 
+                                      (calculatePLGroupTotalForMonth(revenueAccounts, month) -
+                                       calculatePLGroupTotalForMonth(cogsAccounts, month) -
+                                       calculatePLGroupTotalForMonth(expenseAccounts, month))
+                                    )}
+                                  </td>
+                                  {showPercentages && (
+                                    <td className="px-4 py-3 text-right text-xs font-bold text-slate-600">
+                                      100.0%
+                                    </td>
+                                  )}
+                                </React.Fragment>
+                              ))}
+                              <td className="px-4 py-3 text-right font-bold text-slate-800 font-mono">
+                                {formatNumber(liabilitiesAndEquity)}
+                              </td>
+                              {showPercentages && (
+                                <td className="px-4 py-3 text-right text-xs font-bold text-slate-600">
+                                  100.0%
+                                </td>
+                              )}
+                            </>
+                          ) : (
+                            <>
+                              <td className="px-4 py-3 text-right font-bold text-slate-800 font-mono">
+                                {formatNumber(liabilitiesAndEquity)}
+                              </td>
+                              {showPercentages && (
+                                <td className="px-4 py-3 text-right text-xs font-bold text-slate-600">
+                                  100.0%
+                                </td>
+                              )}
+                              {showPreviousPeriod && (
+                                <>
+                                  <td className="px-4 py-3 text-right font-bold text-slate-800 font-mono">
+                                    —
+                                  </td>
+                                  {showPercentages && (
+                                    <td className="px-4 py-3 text-right text-xs font-bold text-slate-600">
+                                      —
+                                    </td>
+                                  )}
+                                  <td className="px-4 py-3 text-right font-bold text-slate-800 font-mono">
+                                    —
+                                  </td>
+                                </>
+                              )}
+                            </>
+                          )}
                         </tr>
 
                         {/* Show discrepancy if balance sheet doesn't balance */}
                         {Math.abs(balanceDifference) > 0.01 && (
                           <tr className="bg-red-100 border-b-2 border-red-300">
                             <td className="px-4 py-3 font-bold text-red-800">OUT OF BALANCE</td>
-                            <td className="px-4 py-3 text-right font-bold text-red-800 font-mono">
-                              {formatNumber(balanceDifference)}
-                            </td>
+                            {isMonthlyView ? (
+                              <>
+                                {getMonthsInRange().map((month) => (
+                                  <React.Fragment key={month}>
+                                    <td className="px-4 py-3 text-right font-bold text-red-800 font-mono">
+                                      {formatNumber(balanceDifference)}
+                                    </td>
+                                    {showPercentages && (
+                                      <td className="px-4 py-3 text-right text-xs font-bold text-red-600">
+                                        —
+                                      </td>
+                                    )}
+                                  </React.Fragment>
+                                ))}
+                                <td className="px-4 py-3 text-right font-bold text-red-800 font-mono">
+                                  {formatNumber(balanceDifference)}
+                                </td>
+                                {showPercentages && (
+                                  <td className="px-4 py-3 text-right text-xs font-bold text-red-600">
+                                    —
+                                  </td>
+                                )}
+                              </>
+                            ) : (
+                              <>
+                                <td className="px-4 py-3 text-right font-bold text-red-800 font-mono">
+                                  {formatNumber(balanceDifference)}
+                                </td>
+                                {showPercentages && (
+                                  <td className="px-4 py-3 text-right text-xs font-bold text-red-600">
+                                    —
+                                  </td>
+                                )}
+                                {showPreviousPeriod && (
+                                  <>
+                                    <td className="px-4 py-3 text-right font-bold text-red-800 font-mono">
+                                      —
+                                    </td>
+                                    {showPercentages && (
+                                      <td className="px-4 py-3 text-right text-xs font-bold text-red-600">
+                                        —
+                                      </td>
+                                    )}
+                                    <td className="px-4 py-3 text-right font-bold text-red-800 font-mono">
+                                      —
+                                    </td>
+                                  </>
+                                )}
+                              </>
+                            )}
                           </tr>
                         )}
                       </>
