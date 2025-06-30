@@ -113,10 +113,10 @@ type RenameMergeModalState = {
 
 export default function ChartOfAccountsPage() {
   const { currentCompany } = useAuthStore();
-  const hasCompanyContext = !!(currentCompany);
-  
+  const hasCompanyContext = !!currentCompany;
+
   // Use separate stores for categories and payees
-  const { 
+  const {
     categories: accounts,
     isLoading: loading,
     error: categoriesError,
@@ -128,7 +128,7 @@ export default function ChartOfAccountsPage() {
     mergeFromRename,
     deleteCategory,
     mergeCategories,
-    highlightCategory
+    highlightCategory,
   } = useCategoriesStore();
 
   const {
@@ -139,18 +139,18 @@ export default function ChartOfAccountsPage() {
     refreshPayees: refreshPayeesFromStore,
     addPayee,
     updatePayee,
-    deletePayee
+    deletePayee,
   } = usePayeesStore();
-  
+
   // Create wrapper functions for refresh
   const refreshCategories = useCallback(async () => {
     await refreshCategoriesFromStore();
   }, [refreshCategoriesFromStore]);
-  
+
   const refreshPayees = useCallback(async () => {
     await refreshPayeesFromStore();
   }, [refreshPayeesFromStore]);
-  
+
   const [search, setSearch] = useState("");
   const [payeeSearch, setPayeeSearch] = useState("");
   const categoriesTableRef = useRef<HTMLDivElement>(null);
@@ -173,7 +173,7 @@ export default function ChartOfAccountsPage() {
   const [editName, setEditName] = useState("");
   const [editType, setEditType] = useState("");
   const [editParentId, setEditParentId] = useState<string | null>(null);
-  
+
   // Refs to store the latest values for immediate access
   const editParentIdRef = useRef<string | null>(null);
   const editTypeRef = useRef<string>("");
@@ -341,26 +341,29 @@ export default function ChartOfAccountsPage() {
   };
 
   // Use highlight function from Zustand store and add scroll behavior
-  const highlightCategoryWithScroll = useCallback((categoryId: string) => {
-    highlightCategory(categoryId);
-    
-    setTimeout(() => {
-      const element = document.getElementById(`category-${categoryId}`);
-      if (element) {
-        element.scrollIntoView({
-          behavior: "smooth",
-          block: "center",
-        });
-      }
-    }, 100);
-  }, [highlightCategory]);
+  const highlightCategoryWithScroll = useCallback(
+    (categoryId: string) => {
+      highlightCategory(categoryId);
+
+      setTimeout(() => {
+        const element = document.getElementById(`category-${categoryId}`);
+        if (element) {
+          element.scrollIntoView({
+            behavior: "smooth",
+            block: "center",
+          });
+        }
+      }, 100);
+    },
+    [highlightCategory]
+  );
 
   // Similar highlight function for payees
   const highlightPayeeWithScroll = useCallback((payeeId: string) => {
     // Get the highlightPayee function from the payees store
     const { highlightPayee } = usePayeesStore.getState();
     highlightPayee(payeeId);
-    
+
     setTimeout(() => {
       const element = document.getElementById(`payee-${payeeId}`);
       if (element) {
@@ -381,22 +384,21 @@ export default function ChartOfAccountsPage() {
   }, [currentCompany?.id, refreshCategories, refreshPayees]);
 
   // Options for Select components
-  const typeOptions: SelectOption[] = ACCOUNT_TYPES.map(type => ({
+  const typeOptions: SelectOption[] = ACCOUNT_TYPES.map((type) => ({
     value: type,
-    label: type
+    label: type,
   }));
 
   const getParentOptions = (currentId?: string, type?: string): SelectOption[] => {
-    const availableParents = accounts.filter((cat: Category) => 
-      cat.id !== currentId && 
-      (type ? cat.type === type : true)
+    const availableParents = accounts.filter(
+      (cat: Category) => cat.id !== currentId && (type ? cat.type === type : true)
     );
     return [
       { value: "", label: "None" },
       ...availableParents.map((cat: Category) => ({
         value: cat.id,
-        label: cat.name
-      }))
+        label: cat.name,
+      })),
     ];
   };
 
@@ -487,7 +489,15 @@ export default function ChartOfAccountsPage() {
       supabase.removeChannel(categoriesChannel);
       supabase.removeChannel(payeesChannel);
     };
-  }, [currentCompany?.id, hasCompanyContext, highlightCategoryWithScroll, highlightPayeeWithScroll, fetchParentOptions, refreshCategories, refreshPayees]);
+  }, [
+    currentCompany?.id,
+    hasCompanyContext,
+    highlightCategoryWithScroll,
+    highlightPayeeWithScroll,
+    fetchParentOptions,
+    refreshCategories,
+    refreshPayees,
+  ]);
 
   // Sorting functions
   const sortCategories = (categories: Category[], sortConfig: SortConfig) => {
@@ -584,10 +594,10 @@ export default function ChartOfAccountsPage() {
   const handleAddAccount = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName || !newType || !hasCompanyContext) return;
-    
+
     // Clear previous error
     setCategoryError(null);
-    
+
     try {
       const categoryData = {
         name: newName,
@@ -595,20 +605,20 @@ export default function ChartOfAccountsPage() {
         parent_id: parentId || null,
         company_id: currentCompany!.id,
       };
-      
+
       // Use the Zustand store method which handles optimistic updates
       const result = await addCategory(categoryData);
-      
+
       if (result) {
         // Clear form on success
         setNewName("");
         setNewType("");
         setParentId(null);
         setCategoryError(null);
-        
+
         // Only refresh parent options (needed for dropdown)
         await fetchParentOptions();
-        
+
         // Highlighting is already handled by the store
       } else {
         // Error is already set by the store - wait for it to be available
@@ -624,17 +634,17 @@ export default function ChartOfAccountsPage() {
   const handleAddPayee = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPayeeName || !hasCompanyContext) return;
-    
+
     // Clear previous error
     setPayeeError(null);
-    
+
     const payeeData = {
       name: newPayeeName,
       company_id: currentCompany!.id,
     };
-    
+
     const result = await addPayee(payeeData);
-    
+
     if (result) {
       setNewPayeeName("");
       setPayeeError(null);
@@ -666,9 +676,9 @@ export default function ChartOfAccountsPage() {
     }
 
     // Show confirmation dialog before deleting
-    const categoryToDelete = accounts.find(acc => acc.id === id);
+    const categoryToDelete = accounts.find((acc) => acc.id === id);
     const categoryName = categoryToDelete?.name || "this category";
-    
+
     if (!window.confirm(`Are you sure you want to delete "${categoryName}"? This action cannot be undone.`)) {
       return;
     }
@@ -684,9 +694,9 @@ export default function ChartOfAccountsPage() {
 
   const handleDeletePayee = async (id: string) => {
     // Show confirmation dialog before deleting
-    const payeeToDelete = payees.find(payee => payee.id === id);
+    const payeeToDelete = payees.find((payee) => payee.id === id);
     const payeeName = payeeToDelete?.name || "this payee";
-    
+
     if (!window.confirm(`Are you sure you want to delete "${payeeName}"? This action cannot be undone.`)) {
       return;
     }
@@ -756,14 +766,14 @@ export default function ChartOfAccountsPage() {
     const editingIdToUpdate = editingId;
 
     // Get the original category to compare values
-    const originalCategory = accounts.find(acc => acc.id === editingIdToUpdate);
+    const originalCategory = accounts.find((acc) => acc.id === editingIdToUpdate);
     if (!originalCategory) {
       setEditingId(null);
       return;
     }
 
     // Check if any values have actually changed
-    const hasChanges = 
+    const hasChanges =
       originalCategory.name !== currentValues.name ||
       originalCategory.type !== currentValues.type ||
       (originalCategory.parent_id || null) !== currentValues.parent_id;
@@ -787,7 +797,7 @@ export default function ChartOfAccountsPage() {
         },
         {
           allowMergePrompt: true,
-          companyId: currentCompany!.id
+          companyId: currentCompany!.id,
         }
       );
 
@@ -846,16 +856,17 @@ export default function ChartOfAccountsPage() {
       const target = event.target as Element;
 
       // Check if the click is on a Select dropdown or its components
-      const isSelectDropdown = target.closest('.react-select__control') ||
-                               target.closest('.react-select__dropdown-indicator') ||
-                               target.closest('.react-select__menu') ||
-                               target.closest('.react-select__menu-list') ||
-                               target.closest('.react-select__option') ||
-                               target.closest('.react-select__input') ||
-                               target.closest('[class*="react-select"]') ||
-                               target.closest('[role="listbox"]') ||
-                               target.closest('[role="option"]') ||
-                               target.closest('[role="combobox"]');
+      const isSelectDropdown =
+        target.closest(".react-select__control") ||
+        target.closest(".react-select__dropdown-indicator") ||
+        target.closest(".react-select__menu") ||
+        target.closest(".react-select__menu-list") ||
+        target.closest(".react-select__option") ||
+        target.closest(".react-select__input") ||
+        target.closest('[class*="react-select"]') ||
+        target.closest('[role="listbox"]') ||
+        target.closest('[role="option"]') ||
+        target.closest('[role="combobox"]');
 
       // If clicking on Select dropdown, don't save
       if (isSelectDropdown) {
@@ -875,12 +886,14 @@ export default function ChartOfAccountsPage() {
         const editingInputs = categoriesTableRef.current.querySelectorAll(`tr input[type="text"], tr select`);
 
         // Also check for Select components by looking for the editing row ID
-        const editingRow = categoriesTableRef.current.querySelector(`tr:has(input[type="text"]:focus), tr:has(.react-select__control)`);
-        
+        const editingRow = categoriesTableRef.current.querySelector(
+          `tr:has(input[type="text"]:focus), tr:has(.react-select__control)`
+        );
+
         // Check if the clicked element is one of the editing inputs or within the editing row
-        const isClickOnCurrentEditingElement = Array.from(editingInputs).some(
-          (input) => input.contains(target) || input === target
-        ) || (editingRow && editingRow.contains(target));
+        const isClickOnCurrentEditingElement =
+          Array.from(editingInputs).some((input) => input.contains(target) || input === target) ||
+          (editingRow && editingRow.contains(target));
 
         // If not clicking on the current editing elements, save
         if (!isClickOnCurrentEditingElement) {
@@ -904,7 +917,7 @@ export default function ChartOfAccountsPage() {
 
       // Check if the click is on the current editing payee input
       const editingInput = document.querySelector('tr input[type="text"]:focus') as HTMLInputElement;
-      
+
       // If clicking on the current editing input, don't save
       if (editingInput && (editingInput.contains(target) || editingInput === target)) {
         return;
@@ -940,7 +953,7 @@ export default function ChartOfAccountsPage() {
     const editingPayeeIdToUpdate = editingPayeeId;
 
     // Get the original payee to compare values
-    const originalPayee = payees.find(payee => payee.id === editingPayeeIdToUpdate);
+    const originalPayee = payees.find((payee) => payee.id === editingPayeeIdToUpdate);
     if (!originalPayee) {
       setEditingPayeeId(null);
       return;
@@ -976,14 +989,14 @@ export default function ChartOfAccountsPage() {
   // Merge categories functionality
   const handleMergeCategories = async () => {
     if (mergeModal.selectedCategories.size < 2 || !mergeModal.targetCategoryId || !currentCompany?.id) {
-      setMergeModal(prev => ({
+      setMergeModal((prev) => ({
         ...prev,
-        error: "Please select at least 2 categories to merge and choose a target category."
+        error: "Please select at least 2 categories to merge and choose a target category.",
       }));
       return;
     }
 
-    setMergeModal(prev => ({ ...prev, isLoading: true, error: null }));
+    setMergeModal((prev) => ({ ...prev, isLoading: true, error: null }));
 
     try {
       const selectedCategoryIds = Array.from(mergeModal.selectedCategories);
@@ -1003,18 +1016,18 @@ export default function ChartOfAccountsPage() {
         await fetchParentOptions();
       } else {
         // Error is already set by the store
-        setMergeModal(prev => ({
+        setMergeModal((prev) => ({
           ...prev,
           isLoading: false,
-          error: categoriesError || "Failed to merge categories. Please try again."
+          error: categoriesError || "Failed to merge categories. Please try again.",
         }));
       }
     } catch (error) {
       console.error("Error in handleMergeCategories:", error);
-      setMergeModal(prev => ({
+      setMergeModal((prev) => ({
         ...prev,
         isLoading: false,
-        error: error instanceof Error ? error.message : "Failed to merge categories. Please try again."
+        error: error instanceof Error ? error.message : "Failed to merge categories. Please try again.",
       }));
     }
   };
@@ -1124,10 +1137,8 @@ export default function ChartOfAccountsPage() {
       let needsParentCreation = false;
 
       // Check for name uniqueness - must not exist in database
-      const nameExistsInDb = accounts.some(
-        (acc) => acc.name.toLowerCase() === category.name.toLowerCase()
-      );
-      
+      const nameExistsInDb = accounts.some((acc) => acc.name.toLowerCase() === category.name.toLowerCase());
+
       if (nameExistsInDb) {
         isValid = false;
         validationMessage = `Category "${category.name}" already exists in database`;
@@ -1140,10 +1151,8 @@ export default function ChartOfAccountsPage() {
       }
 
       // Check for name uniqueness within CSV data
-      const duplicatesInCsv = categories.filter(
-        (cat) => cat.name.toLowerCase() === category.name.toLowerCase()
-      );
-      
+      const duplicatesInCsv = categories.filter((cat) => cat.name.toLowerCase() === category.name.toLowerCase());
+
       if (duplicatesInCsv.length > 1) {
         isValid = false;
         validationMessage = `Duplicate name "${category.name}" found in CSV`;
@@ -1158,10 +1167,8 @@ export default function ChartOfAccountsPage() {
       // Validate parent references
       if (category.parentName) {
         // Check if parent exists in current accounts
-        const parentExists = accounts.some(
-          (acc) => acc.name.toLowerCase() === category.parentName!.toLowerCase()
-        );
-        
+        const parentExists = accounts.some((acc) => acc.name.toLowerCase() === category.parentName!.toLowerCase());
+
         // Check if parent exists in the import data
         const parentInImport = categories.find(
           (cat) => cat.name.toLowerCase() === category.parentName!.toLowerCase() && cat.id !== category.id
@@ -1174,7 +1181,7 @@ export default function ChartOfAccountsPage() {
           // Validate that parent type matches (parents must have same type as child)
           const existingParent = accounts.find((acc) => acc.name.toLowerCase() === category.parentName!.toLowerCase());
           const importParent = parentInImport;
-          
+
           const parentType = existingParent?.type || importParent?.type;
           if (parentType && parentType !== category.type) {
             isValid = false;
@@ -1200,20 +1207,18 @@ export default function ChartOfAccountsPage() {
 
   // Validate that if a parent is in the CSV, it must be selected if its children are selected
   const validateParentDependencies = (
-    categories: CategoryImportData[], 
+    categories: CategoryImportData[],
     selectedIds: Set<string>
   ): { isValid: boolean; missingParents: string[] } => {
     const missingParents: string[] = [];
-    
-    const selectedCategories = categories.filter(cat => selectedIds.has(cat.id));
-    
+
+    const selectedCategories = categories.filter((cat) => selectedIds.has(cat.id));
+
     for (const category of selectedCategories) {
       if (category.parentName) {
         // Find if the parent is in the CSV data
-        const parentInCsv = categories.find(
-          cat => cat.name.toLowerCase() === category.parentName!.toLowerCase()
-        );
-        
+        const parentInCsv = categories.find((cat) => cat.name.toLowerCase() === category.parentName!.toLowerCase());
+
         // If parent is in CSV but not selected, add to missing parents
         if (parentInCsv && !selectedIds.has(parentInCsv.id)) {
           if (!missingParents.includes(category.parentName)) {
@@ -1222,10 +1227,10 @@ export default function ChartOfAccountsPage() {
         }
       }
     }
-    
+
     return {
       isValid: missingParents.length === 0,
-      missingParents
+      missingParents,
     };
   };
 
@@ -1353,25 +1358,23 @@ export default function ChartOfAccountsPage() {
           .filter((row: PayeeCSVRow) => row.Name)
           .map((row: PayeeCSVRow) => {
             const name = row.Name.trim();
-            
+
             // Check if payee already exists in database (case-insensitive)
-            const existsInDb = payees.some(
-              (payee) => payee.name.toLowerCase() === name.toLowerCase()
-            );
-            
+            const existsInDb = payees.some((payee) => payee.name.toLowerCase() === name.toLowerCase());
+
             // Check for duplicates within CSV data
             const duplicatesInCsv = results.data.filter(
               (csvRow: PayeeCSVRow) => csvRow.Name && csvRow.Name.trim().toLowerCase() === name.toLowerCase()
             );
-            
+
             return {
               id: uuidv4(),
               name,
               company_id: currentCompany?.id || "",
               isValid: !existsInDb && duplicatesInCsv.length === 1,
-              validationMessage: existsInDb 
+              validationMessage: existsInDb
                 ? `Payee "${name}" already exists in database`
-                : duplicatesInCsv.length > 1 
+                : duplicatesInCsv.length > 1
                 ? `Duplicate payee "${name}" found in CSV`
                 : "",
             };
@@ -1444,7 +1447,7 @@ export default function ChartOfAccountsPage() {
             key={parent.id}
             id={`category-${parent.id}`}
             className={`transition-colors duration-1000 ${
-                              highlightedCategoryIds.has(parent.id) ? "bg-green-100" : "hover:bg-gray-50"
+              highlightedCategoryIds.has(parent.id) ? "bg-green-100" : "hover:bg-gray-50"
             }`}
           >
             <td style={{ paddingLeft: `${level * 16 + 4}px` }} className="border p-1 text-xs">
@@ -1459,16 +1462,20 @@ export default function ChartOfAccountsPage() {
                     autoFocus
                   />
                 ) : (
-                  <span className={highlightedCategoryIds.has(parent.id) ? "font-bold text-green-800" : ""}>{parent.name}</span>
+                  <span className={highlightedCategoryIds.has(parent.id) ? "font-bold text-green-800" : ""}>
+                    {parent.name}
+                  </span>
                 )}
-                {lastActionCategoryId === parent.id && <span className="ml-2 inline-block text-green-600 flex-shrink-0">✨</span>}
+                {lastActionCategoryId === parent.id && (
+                  <span className="ml-2 inline-block text-green-600 flex-shrink-0">✨</span>
+                )}
               </div>
             </td>
             <td className="border p-1 text-xs">
               {editingId === parent.id ? (
                 <Select
                   options={typeOptions}
-                  value={typeOptions.find(opt => opt.value === editType) || typeOptions[0]}
+                  value={typeOptions.find((opt) => opt.value === editType) || typeOptions[0]}
                   onChange={(selectedOption) => {
                     const option = selectedOption as SelectOption | null;
                     if (option) {
@@ -1488,7 +1495,7 @@ export default function ChartOfAccountsPage() {
                     valueContainer: () => "px-1 py-0.5 h-7",
                     indicatorsContainer: () => "h-7",
                     indicatorSeparator: () => "bg-gray-300",
-                    dropdownIndicator: () => "text-gray-500 p-1"
+                    dropdownIndicator: () => "text-gray-500 p-1",
                   }}
                 />
               ) : (
@@ -1499,7 +1506,10 @@ export default function ChartOfAccountsPage() {
               {editingId === parent.id ? (
                 <Select
                   options={getParentOptions(parent.id, editType)}
-                  value={getParentOptions(parent.id, editType).find(opt => opt.value === (editParentId || "")) || getParentOptions(parent.id, editType)[0]}
+                  value={
+                    getParentOptions(parent.id, editType).find((opt) => opt.value === (editParentId || "")) ||
+                    getParentOptions(parent.id, editType)[0]
+                  }
                   onChange={(selectedOption) => {
                     const option = selectedOption as SelectOption | null;
                     if (option) {
@@ -1517,7 +1527,7 @@ export default function ChartOfAccountsPage() {
                     valueContainer: () => "px-1 py-0.5 h-7",
                     indicatorsContainer: () => "h-7",
                     indicatorSeparator: () => "bg-gray-300",
-                    dropdownIndicator: () => "text-gray-500 p-1"
+                    dropdownIndicator: () => "text-gray-500 p-1",
                   }}
                 />
               ) : (
@@ -1568,16 +1578,20 @@ export default function ChartOfAccountsPage() {
                       autoFocus
                     />
                   ) : (
-                    <span className={highlightedCategoryIds.has(subAcc.id) ? "font-bold text-green-800" : ""}>{subAcc.name}</span>
+                    <span className={highlightedCategoryIds.has(subAcc.id) ? "font-bold text-green-800" : ""}>
+                      {subAcc.name}
+                    </span>
                   )}
-                  {lastActionCategoryId === subAcc.id && <span className="ml-2 inline-block text-green-600 flex-shrink-0">✨</span>}
+                  {lastActionCategoryId === subAcc.id && (
+                    <span className="ml-2 inline-block text-green-600 flex-shrink-0">✨</span>
+                  )}
                 </div>
               </td>
               <td className="border p-1 text-xs">
                 {editingId === subAcc.id ? (
                   <Select
                     options={typeOptions}
-                    value={typeOptions.find(opt => opt.value === editType) || typeOptions[0]}
+                    value={typeOptions.find((opt) => opt.value === editType) || typeOptions[0]}
                     onChange={(selectedOption) => {
                       const option = selectedOption as SelectOption | null;
                       if (option) {
@@ -1597,7 +1611,7 @@ export default function ChartOfAccountsPage() {
                       valueContainer: () => "px-1 py-0.5 h-7",
                       indicatorsContainer: () => "h-7",
                       indicatorSeparator: () => "bg-gray-300",
-                      dropdownIndicator: () => "text-gray-500 p-1"
+                      dropdownIndicator: () => "text-gray-500 p-1",
                     }}
                   />
                 ) : (
@@ -1608,7 +1622,10 @@ export default function ChartOfAccountsPage() {
                 {editingId === subAcc.id ? (
                   <Select
                     options={getParentOptions(subAcc.id, editType)}
-                    value={getParentOptions(subAcc.id, editType).find(opt => opt.value === (editParentId || "")) || getParentOptions(subAcc.id, editType)[0]}
+                    value={
+                      getParentOptions(subAcc.id, editType).find((opt) => opt.value === (editParentId || "")) ||
+                      getParentOptions(subAcc.id, editType)[0]
+                    }
                     onChange={(selectedOption) => {
                       const option = selectedOption as SelectOption | null;
                       if (option) {
@@ -1626,7 +1643,7 @@ export default function ChartOfAccountsPage() {
                       valueContainer: () => "px-1 py-0.5 h-7",
                       indicatorsContainer: () => "h-7",
                       indicatorSeparator: () => "bg-gray-300",
-                      dropdownIndicator: () => "text-gray-500 p-1"
+                      dropdownIndicator: () => "text-gray-500 p-1",
                     }}
                   />
                 ) : (
@@ -1673,10 +1690,10 @@ export default function ChartOfAccountsPage() {
   }
 
   return (
-    <div className="p-4 max-w-7xl mx-auto font-sans text-gray-900">
+    <div className="p-6 font-sans text-gray-900">
       <div className="flex gap-8">
         {/* Payees Section - Left Side */}
-        <div className="w-96">
+        <div className="w-2/5">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-semibold">Payees</h2>
             <div className="flex gap-2">
@@ -1756,7 +1773,7 @@ export default function ChartOfAccountsPage() {
               <tbody>
                 {displayedPayees.length > 0 ? (
                   displayedPayees.map((payee) => (
-                    <tr 
+                    <tr
                       key={payee.id}
                       id={`payee-${payee.id}`}
                       className={`transition-colors duration-1000 ${
@@ -1779,7 +1796,9 @@ export default function ChartOfAccountsPage() {
                               {payee.name}
                             </span>
                           )}
-                          {lastActionPayeeId === payee.id && <span className="ml-2 inline-block text-green-600 flex-shrink-0">✨</span>}
+                          {lastActionPayeeId === payee.id && (
+                            <span className="ml-2 inline-block text-green-600 flex-shrink-0">✨</span>
+                          )}
                         </div>
                       </td>
                       <td className="border p-1 text-xs">
@@ -2133,10 +2152,7 @@ export default function ChartOfAccountsPage() {
                           </thead>
                           <tbody className="bg-white divide-y divide-gray-200">
                             {payeeImportModal.csvData.map((payee) => (
-                              <tr 
-                                key={payee.id}
-                                className={payee.isValid === false ? "bg-red-50" : ""}
-                              >
+                              <tr key={payee.id} className={payee.isValid === false ? "bg-red-50" : ""}>
                                 <td className="px-4 py-2 whitespace-nowrap w-8 text-left">
                                   <input
                                     type="checkbox"
@@ -2898,29 +2914,41 @@ export default function ChartOfAccountsPage() {
               <div className="space-y-4">
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
                   <p className="text-gray-800 mb-2">
-                    A category named <strong>&quot;{renameMergeModal.existingCategory?.name}&quot;</strong> already exists.
+                    A category named <strong>&quot;{renameMergeModal.existingCategory?.name}&quot;</strong> already
+                    exists.
                   </p>
                   <p className="text-gray-700">
-                    Would you like to merge <strong>&quot;{renameMergeModal.originalCategory?.name}&quot;</strong> into the existing category?
+                    Would you like to merge <strong>&quot;{renameMergeModal.originalCategory?.name}&quot;</strong> into
+                    the existing category?
                   </p>
                 </div>
 
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                   <h4 className="text-sm font-medium text-blue-800 mb-2">This merge will:</h4>
                   <ul className="text-sm text-blue-700 space-y-1">
-                    <li>• Move all transactions from &quot;{renameMergeModal.originalCategory?.name}&quot; to &quot;{renameMergeModal.existingCategory?.name}&quot;</li>
-                    <li>• Move all journal entries from &quot;{renameMergeModal.originalCategory?.name}&quot; to &quot;{renameMergeModal.existingCategory?.name}&quot;</li>
-                    <li>• Move all subcategories from &quot;{renameMergeModal.originalCategory?.name}&quot; to &quot;{renameMergeModal.existingCategory?.name}&quot;</li>
+                    <li>
+                      • Move all transactions from &quot;{renameMergeModal.originalCategory?.name}&quot; to &quot;
+                      {renameMergeModal.existingCategory?.name}&quot;
+                    </li>
+                    <li>
+                      • Move all journal entries from &quot;{renameMergeModal.originalCategory?.name}&quot; to &quot;
+                      {renameMergeModal.existingCategory?.name}&quot;
+                    </li>
+                    <li>
+                      • Move all subcategories from &quot;{renameMergeModal.originalCategory?.name}&quot; to &quot;
+                      {renameMergeModal.existingCategory?.name}&quot;
+                    </li>
                     <li>• Update all automation rules to use &quot;{renameMergeModal.existingCategory?.name}&quot;</li>
                     <li>• Delete &quot;{renameMergeModal.originalCategory?.name}&quot;</li>
-                    <li>• Keep the type and properties of &quot;{renameMergeModal.existingCategory?.name}&quot; ({renameMergeModal.existingCategory?.type})</li>
+                    <li>
+                      • Keep the type and properties of &quot;{renameMergeModal.existingCategory?.name}&quot; (
+                      {renameMergeModal.existingCategory?.type})
+                    </li>
                   </ul>
                 </div>
 
                 <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                  <p className="text-sm text-red-700 font-medium">
-                    ⚠️ This action cannot be undone.
-                  </p>
+                  <p className="text-sm text-red-700 font-medium">⚠️ This action cannot be undone.</p>
                 </div>
 
                 <div className="flex justify-end space-x-3 pt-2">
@@ -2939,50 +2967,54 @@ export default function ChartOfAccountsPage() {
                     Cancel
                   </button>
                   <button
-                                         onClick={async () => {
-                       if (!renameMergeModal.originalCategory || !renameMergeModal.existingCategory || !currentCompany?.id) {
-                         return;
-                       }
+                    onClick={async () => {
+                      if (
+                        !renameMergeModal.originalCategory ||
+                        !renameMergeModal.existingCategory ||
+                        !currentCompany?.id
+                      ) {
+                        return;
+                      }
 
-                       setRenameMergeModal(prev => ({ ...prev, isLoading: true, error: null }));
+                      setRenameMergeModal((prev) => ({ ...prev, isLoading: true, error: null }));
 
-                       try {
-                         // Use the specific merge from rename method
-                         const success = await mergeFromRename(
-                           renameMergeModal.originalCategory.id,
-                           renameMergeModal.existingCategory.id,
-                           currentCompany.id
-                         );
+                      try {
+                        // Use the specific merge from rename method
+                        const success = await mergeFromRename(
+                          renameMergeModal.originalCategory.id,
+                          renameMergeModal.existingCategory.id,
+                          currentCompany.id
+                        );
 
-                         if (success) {
-                           // Close modal on success
-                           setRenameMergeModal({
-                             isOpen: false,
-                             originalCategory: null,
-                             existingCategory: null,
-                             isLoading: false,
-                             error: null,
-                           });
+                        if (success) {
+                          // Close modal on success
+                          setRenameMergeModal({
+                            isOpen: false,
+                            originalCategory: null,
+                            existingCategory: null,
+                            isLoading: false,
+                            error: null,
+                          });
 
-                           // Refresh parent options
-                           await fetchParentOptions();
-                         } else {
-                           // Show error in modal
-                           setRenameMergeModal(prev => ({
-                             ...prev,
-                             isLoading: false,
-                             error: categoriesError || "Failed to merge categories. Please try again."
-                           }));
-                         }
-                       } catch (error) {
-                         console.error("Error during category merge:", error);
-                         setRenameMergeModal(prev => ({
-                           ...prev,
-                           isLoading: false,
-                           error: "An unexpected error occurred during merge. Please try again."
-                         }));
-                       }
-                     }}
+                          // Refresh parent options
+                          await fetchParentOptions();
+                        } else {
+                          // Show error in modal
+                          setRenameMergeModal((prev) => ({
+                            ...prev,
+                            isLoading: false,
+                            error: categoriesError || "Failed to merge categories. Please try again.",
+                          }));
+                        }
+                      } catch (error) {
+                        console.error("Error during category merge:", error);
+                        setRenameMergeModal((prev) => ({
+                          ...prev,
+                          isLoading: false,
+                          error: "An unexpected error occurred during merge. Please try again.",
+                        }));
+                      }
+                    }}
                     className="px-4 py-2 text-sm bg-red-600 text-white rounded hover:bg-red-700"
                   >
                     Merge Categories
@@ -3049,8 +3081,10 @@ export default function ChartOfAccountsPage() {
                       {mergeModal.selectedCategories.size} categories selected for merge
                     </h4>
                     <p className="text-sm text-yellow-700">
-                      {mergeModal.targetCategoryId 
-                        ? `All selected categories will be merged into "${accounts.find(acc => acc.id === mergeModal.targetCategoryId)?.name}".`
+                      {mergeModal.targetCategoryId
+                        ? `All selected categories will be merged into "${
+                            accounts.find((acc) => acc.id === mergeModal.targetCategoryId)?.name
+                          }".`
                         : "Please select a target category using the radio buttons below."}
                     </p>
                   </div>
@@ -3060,21 +3094,40 @@ export default function ChartOfAccountsPage() {
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                     <h4 className="text-sm font-medium text-blue-800 mb-2">This merge will:</h4>
                     <ul className="text-sm text-blue-700 space-y-1">
-                      <li>• Move all transactions to &quot;{accounts.find(acc => acc.id === mergeModal.targetCategoryId)?.name}&quot;</li>
-                      <li>• Move all journal entries to &quot;{accounts.find(acc => acc.id === mergeModal.targetCategoryId)?.name}&quot;</li>
-                      <li>• Move all subcategories to &quot;{accounts.find(acc => acc.id === mergeModal.targetCategoryId)?.name}&quot;</li>
-                      <li>• Update all automation rules to use &quot;{accounts.find(acc => acc.id === mergeModal.targetCategoryId)?.name}&quot;</li>
-                      <li>• Delete {Array.from(mergeModal.selectedCategories).filter(id => id !== mergeModal.targetCategoryId).map(id => `"${accounts.find(acc => acc.id === id)?.name}"`).join(", ")}</li>
-                      <li>• Keep the type and properties of &quot;{accounts.find(acc => acc.id === mergeModal.targetCategoryId)?.name}&quot;</li>
+                      <li>
+                        • Move all transactions to &quot;
+                        {accounts.find((acc) => acc.id === mergeModal.targetCategoryId)?.name}&quot;
+                      </li>
+                      <li>
+                        • Move all journal entries to &quot;
+                        {accounts.find((acc) => acc.id === mergeModal.targetCategoryId)?.name}&quot;
+                      </li>
+                      <li>
+                        • Move all subcategories to &quot;
+                        {accounts.find((acc) => acc.id === mergeModal.targetCategoryId)?.name}&quot;
+                      </li>
+                      <li>
+                        • Update all automation rules to use &quot;
+                        {accounts.find((acc) => acc.id === mergeModal.targetCategoryId)?.name}&quot;
+                      </li>
+                      <li>
+                        • Delete{" "}
+                        {Array.from(mergeModal.selectedCategories)
+                          .filter((id) => id !== mergeModal.targetCategoryId)
+                          .map((id) => `"${accounts.find((acc) => acc.id === id)?.name}"`)
+                          .join(", ")}
+                      </li>
+                      <li>
+                        • Keep the type and properties of &quot;
+                        {accounts.find((acc) => acc.id === mergeModal.targetCategoryId)?.name}&quot;
+                      </li>
                     </ul>
                   </div>
                 )}
 
                 {mergeModal.selectedCategories.size >= 2 && mergeModal.targetCategoryId && (
                   <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                    <p className="text-sm text-red-700 font-medium">
-                      ⚠️ This action cannot be undone.
-                    </p>
+                    <p className="text-sm text-red-700 font-medium">⚠️ This action cannot be undone.</p>
                   </div>
                 )}
 
@@ -3097,25 +3150,30 @@ export default function ChartOfAccountsPage() {
                               onChange={(e) => {
                                 if (e.target.checked) {
                                   // Select all categories of the same type as first selection, or all if none selected
-                                  const firstSelectedType = mergeModal.selectedCategories.size > 0 
-                                    ? accounts.find(acc => Array.from(mergeModal.selectedCategories)[0] && acc.id === Array.from(mergeModal.selectedCategories)[0])?.type
-                                    : null;
-                                  
-                                  const categoriesToSelect = accounts.filter(acc => 
-                                    !firstSelectedType || acc.type === firstSelectedType
-                                  ).map(acc => acc.id);
-                                  
-                                  setMergeModal(prev => ({
+                                  const firstSelectedType =
+                                    mergeModal.selectedCategories.size > 0
+                                      ? accounts.find(
+                                          (acc) =>
+                                            Array.from(mergeModal.selectedCategories)[0] &&
+                                            acc.id === Array.from(mergeModal.selectedCategories)[0]
+                                        )?.type
+                                      : null;
+
+                                  const categoriesToSelect = accounts
+                                    .filter((acc) => !firstSelectedType || acc.type === firstSelectedType)
+                                    .map((acc) => acc.id);
+
+                                  setMergeModal((prev) => ({
                                     ...prev,
                                     selectedCategories: new Set(categoriesToSelect),
-                                    error: null
+                                    error: null,
                                   }));
                                 } else {
-                                  setMergeModal(prev => ({
+                                  setMergeModal((prev) => ({
                                     ...prev,
                                     selectedCategories: new Set(),
                                     targetCategoryId: null,
-                                    error: null
+                                    error: null,
                                   }));
                                 }
                               }}
@@ -3152,7 +3210,7 @@ export default function ChartOfAccountsPage() {
                             const parentCategory = category.parent_id
                               ? accounts.find((acc) => acc.id === category.parent_id)
                               : null;
-                            
+
                             const isSelected = mergeModal.selectedCategories.has(category.id);
                             const isTarget = mergeModal.targetCategoryId === category.id;
 
@@ -3160,11 +3218,7 @@ export default function ChartOfAccountsPage() {
                               <tr
                                 key={category.id}
                                 className={`hover:bg-gray-50 ${
-                                  isTarget 
-                                    ? "bg-green-50 border-l-4 border-green-400" 
-                                    : isSelected 
-                                    ? "bg-blue-50" 
-                                    : ""
+                                  isTarget ? "bg-green-50 border-l-4 border-green-400" : isSelected ? "bg-blue-50" : ""
                                 }`}
                               >
                                 <td className="px-3 py-2 whitespace-nowrap w-8">
@@ -3193,7 +3247,7 @@ export default function ChartOfAccountsPage() {
                                 </td>
                                 <td className="px-3 py-2 text-sm">
                                   <div className="flex items-center">
-                                    <span 
+                                    <span
                                       style={{ paddingLeft: `${category.parent_id ? 16 : 0}px` }}
                                       className={isTarget ? "font-semibold text-green-800" : "text-gray-900"}
                                     >
@@ -3211,9 +3265,7 @@ export default function ChartOfAccountsPage() {
                                     {category.type}
                                   </span>
                                 </td>
-                                <td className="px-3 py-2 text-sm text-gray-500">
-                                  {parentCategory?.name || "—"}
-                                </td>
+                                <td className="px-3 py-2 text-sm text-gray-500">{parentCategory?.name || "—"}</td>
                                 <td className="px-3 py-2 whitespace-nowrap w-8 text-center">
                                   <input
                                     type="radio"
@@ -3273,7 +3325,9 @@ export default function ChartOfAccountsPage() {
                   <div className="text-sm text-gray-600">
                     {mergeModal.selectedCategories.size > 0 && mergeModal.targetCategoryId && (
                       <span>
-                        Merging {mergeModal.selectedCategories.size - 1} categor{mergeModal.selectedCategories.size - 1 === 1 ? 'y' : 'ies'} into &quot;{accounts.find(acc => acc.id === mergeModal.targetCategoryId)?.name}&quot;
+                        Merging {mergeModal.selectedCategories.size - 1} categor
+                        {mergeModal.selectedCategories.size - 1 === 1 ? "y" : "ies"} into &quot;
+                        {accounts.find((acc) => acc.id === mergeModal.targetCategoryId)?.name}&quot;
                       </span>
                     )}
                   </div>
@@ -3297,10 +3351,9 @@ export default function ChartOfAccountsPage() {
                       disabled={mergeModal.selectedCategories.size < 2 || !mergeModal.targetCategoryId}
                       className="px-4 py-2 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      {mergeModal.selectedCategories.size > 0 && mergeModal.targetCategoryId 
+                      {mergeModal.selectedCategories.size > 0 && mergeModal.targetCategoryId
                         ? `Merge ${mergeModal.selectedCategories.size} Categories`
-                        : 'Merge Categories'
-                      }
+                        : "Merge Categories"}
                     </button>
                   </div>
                 </div>
