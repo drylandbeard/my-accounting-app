@@ -5,8 +5,12 @@ import { useAuthStore } from '@/zustand/authStore';
 import { useTransactionsStore, type JournalTableEntry } from '@/zustand/transactionsStore';
 import { useCategoriesStore, type Category } from '@/zustand/categoriesStore';
 import { usePayeesStore } from '@/zustand/payeesStore';
-import { X, Loader2 } from 'lucide-react';
+import { X } from 'lucide-react';
 import Select from 'react-select';
+// import EditTransactionModal, { 
+//   type EditJournalModalState, 
+//   type JournalEntryLine 
+// } from '@/components/EditTransactionModal';
 import { 
   isZeroAmount
 } from '@/lib/financial';
@@ -33,14 +37,7 @@ type SelectOption = {
   label: string;
 };
 
-type JournalEntryLine = {
-  id: string;
-  description: string;
-  categoryId: string;
-  payeeId: string;
-  debit: string;
-  credit: string;
-};
+
 
 type NewJournalEntry = {
   date: string;
@@ -52,7 +49,7 @@ export default function JournalTablePage() {
   const hasCompanyContext = !!(currentCompany);
   
   // Store hooks
-  const { accounts, selectedAccountId, setSelectedAccountId, fetchAccounts, journalEntries, fetchJournalEntries, isLoading, error } = useTransactionsStore();
+  const { accounts, selectedAccountId, setSelectedAccountId, fetchAccounts, journalEntries, fetchJournalEntries, isLoading, error, notification, setNotification } = useTransactionsStore();
   const { categories, refreshCategories, createCategoryForTransaction } = useCategoriesStore();
   const { payees, refreshPayees } = usePayeesStore();
   
@@ -87,8 +84,7 @@ export default function JournalTablePage() {
   });
   const [saving, setSaving] = useState(false);
   
-  // Notification state
-  const [setNotification] = useState<(notification: { type: 'success' | 'error'; message: string } | null) => void>(() => {});
+
   
   // New category modal state
   const [newCategoryModal, setNewCategoryModal] = useState<{
@@ -106,19 +102,7 @@ export default function JournalTablePage() {
   });
 
   // Edit journal entry modal state
-  const [editJournalModal, setEditJournalModal] = useState<{
-    isOpen: boolean;
-    transactionId: string;
-    isManualEntry: boolean;
-    editEntry: {
-      date: string;
-      jeName: string;
-      lines: JournalEntryLine[];
-    };
-    saving: boolean;
-    isLoading: boolean;
-    error: string | null;
-  }>({
+  const [editJournalModal, setEditJournalModal] = useState<EditJournalModalState>({
     isOpen: false,
     transactionId: '',
     isManualEntry: false,
@@ -220,19 +204,15 @@ export default function JournalTablePage() {
           : bPayee.localeCompare(aPayee);
       }
       if (sortConfig.key === 'debit') {
-        const aDebit = a.is_split_item && a.split_item_data?.spent ? 
-          parseFloat(a.split_item_data.spent) : (a.debit ?? 0);
-        const bDebit = b.is_split_item && b.split_item_data?.spent ? 
-          parseFloat(b.split_item_data.spent) : (b.debit ?? 0);
+        const aDebit = a.debit ?? 0;
+        const bDebit = b.debit ?? 0;
         return sortConfig.direction === 'asc'
           ? aDebit - bDebit
           : bDebit - aDebit;
       }
       if (sortConfig.key === 'credit') {
-        const aCredit = a.is_split_item && a.split_item_data?.received ? 
-          parseFloat(a.split_item_data.received) : (a.credit ?? 0);
-        const bCredit = b.is_split_item && b.split_item_data?.received ? 
-          parseFloat(b.split_item_data.received) : (b.credit ?? 0);
+        const aCredit = a.credit ?? 0;
+        const bCredit = b.credit ?? 0;
         return sortConfig.direction === 'asc'
           ? aCredit - bCredit
           : bCredit - aCredit;
@@ -352,10 +332,8 @@ export default function JournalTablePage() {
       const formattedDate = formatDate(entry.date);
       if (formattedDate.toLowerCase().includes(lowercaseSearch)) return true;
       
-      // Search in description (including split descriptions)
-      const description = entry.is_split_item && entry.split_item_data?.description 
-        ? entry.split_item_data.description 
-        : entry.description;
+      // Search in description
+      const description = entry.description;
       if (description.toLowerCase().includes(lowercaseSearch)) return true;
       
       // Search in type
@@ -367,21 +345,15 @@ export default function JournalTablePage() {
       if (payeeName.toLowerCase().includes(lowercaseSearch)) return true;
       
       // Search in debit amount (formatted)
-      const debitAmount = entry.is_split_item && entry.split_item_data?.spent 
-        ? formatAmountLocal(parseFloat(entry.split_item_data.spent))
-        : formatAmountLocal(entry.debit);
+      const debitAmount = formatAmountLocal(entry.debit);
       if (debitAmount.toLowerCase().includes(lowercaseSearch)) return true;
       
       // Search in credit amount (formatted)
-      const creditAmount = entry.is_split_item && entry.split_item_data?.received
-        ? formatAmountLocal(parseFloat(entry.split_item_data.received))
-        : formatAmountLocal(entry.credit);
+      const creditAmount = formatAmountLocal(entry.credit);
       if (creditAmount.toLowerCase().includes(lowercaseSearch)) return true;
       
-      // Search in category name (including split categories)
-      const categoryName = entry.is_split_item && entry.split_item_data?.selected_category_id 
-        ? getAccountName(entry.split_item_data.selected_category_id)
-        : getAccountName(entry.chart_account_id);
+      // Search in category name
+      const categoryName = getAccountName(entry.chart_account_id);
       if (categoryName.toLowerCase().includes(lowercaseSearch)) return true;
       
       // Search in manual journal entry specific fields
@@ -771,22 +743,36 @@ export default function JournalTablePage() {
     }
   };
 
+  // Inserts new line before the last row (which should be the corresponding_category_id/bank account)
   const addEditJournalLine = () => {
     const newLineId = (editJournalModal.editEntry.lines.length + 1).toString();
-    setEditJournalModal(prev => ({
-      ...prev,
-      editEntry: {
-        ...prev.editEntry,
-        lines: [...prev.editEntry.lines, {
-          id: newLineId,
-          description: '',
-          categoryId: '',
-          payeeId: '',
-          debit: '0.00',
-          credit: '0.00'
-        }]
+    const newLine = {
+      id: newLineId,
+      description: '',
+      categoryId: '',
+      payeeId: '',
+      debit: '0.00',
+      credit: '0.00'
+    };
+
+    setEditJournalModal(prev => {
+      const lines = [...prev.editEntry.lines];
+      
+      // Insert before the last line (which should be the bank account)
+      if (lines.length > 0) {
+        lines.splice(lines.length - 1, 0, newLine);
+      } else {
+        lines.push(newLine);
       }
-    }));
+
+      return {
+        ...prev,
+        editEntry: {
+          ...prev.editEntry,
+          lines
+        }
+      };
+    });
   };
 
   // Calculate totals for edit modal validation and display
@@ -949,6 +935,20 @@ export default function JournalTablePage() {
 
   return (
     <div className="p-4">
+      {notification && (
+        <div
+          className={`fixed top-6 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3 rounded shadow-lg text-sm font-medium flex items-center space-x-2 ${
+            notification.type === "success"
+              ? "bg-green-100 text-green-800 border border-green-300"
+              : "bg-red-100 text-red-800 border border-red-300"
+          }`}
+        >
+          <span>{notification.message}</span>
+          <button onClick={() => setNotification(null)} className="ml-2 text-xs text-gray-500 hover:text-gray-800">
+            ✕
+          </button>
+        </div>
+      )}
       {isLoading ? (
         <div>Loading...</div>
       ) : error ? (
@@ -1023,21 +1023,9 @@ export default function JournalTablePage() {
                             </span>
                           </div>
                         ) : col.key === 'debit' ? (
-                          (() => {
-                            // For split items, show the split amount, otherwise show regular debit
-                            if (entry.is_split_item && entry.split_item_data?.spent) {
-                              return formatAmountLocal(parseFloat(entry.split_item_data.spent));
-                            }
-                            return formatAmountLocal(entry.debit);
-                          })()
+                          formatAmountLocal(entry.debit)
                         ) : col.key === 'credit' ? (
-                          (() => {
-                            // For split items, show the split amount, otherwise show regular credit
-                            if (entry.is_split_item && entry.split_item_data?.received) {
-                              return formatAmountLocal(parseFloat(entry.split_item_data.received));
-                            }
-                            return formatAmountLocal(entry.credit);
-                          })()
+                          formatAmountLocal(entry.credit)
                         ) : col.key === 'type' ? (
                           getAccountType(entry.chart_account_id)
                         ) : col.key === 'payee' ? (
@@ -1056,10 +1044,7 @@ export default function JournalTablePage() {
                             {entry.entry_source === 'manual_journal' ? 'Manual' : 'Journal'}
                           </span>
                         ) : col.key === 'category' ? (
-                          // For split items, show the split category if available, otherwise show chart account
-                          entry.is_split_item && entry.split_item_data?.selected_category_id 
-                            ? getAccountName(entry.split_item_data.selected_category_id)
-                            : getAccountName(entry.chart_account_id)
+                          getAccountName(entry.chart_account_id)
                         ) : (
                           String(entry[col.key] ?? '')
                         )}
@@ -1366,291 +1351,36 @@ export default function JournalTablePage() {
         </div>
       )}
 
-      {/* Edit Journal Entry Modal */}
-      {editJournalModal.isOpen && (
-        <div 
-          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
-          onClick={() => setEditJournalModal(prev => ({ ...prev, isOpen: false }))}
-        >
-          <div 
-            className="bg-white rounded-lg p-6 w-[800px] overflow-y-auto shadow-xl"
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Edit Journal Entry</h2>
-              <button
-                onClick={() => setEditJournalModal(prev => ({ ...prev, isOpen: false }))}
-                className="text-gray-500 hover:text-gray-700 text-xl"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            
-            {editJournalModal.error && (
-              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-red-700">
-                {editJournalModal.error}
-              </div>
-            )}
-
-            {editJournalModal.isLoading ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-6 w-6 animate-spin" />
-                <span className="ml-2">Loading journal entries...</span>
-              </div>
-            ) : (
-              <>
-                {/* Date and JE Name selectors */}
-                <div className="mb-4 grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Date</label>
-                    <input
-                      type="date"
-                      value={editJournalModal.editEntry.date}
-                      onChange={(e) => setEditJournalModal(prev => ({
-                        ...prev,
-                        editEntry: { ...prev.editEntry, date: e.target.value }
-                      }))}
-                      className="border px-3 py-2 rounded text-sm w-full"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">JE Name</label>
-                    <input
-                      type="text"
-                      value={editJournalModal.editEntry.jeName}
-                      onChange={(e) => setEditJournalModal(prev => ({
-                        ...prev,
-                        editEntry: { ...prev.editEntry, jeName: e.target.value }
-                      }))}
-                      className="border px-3 py-2 rounded text-sm w-full"
-                      placeholder="Enter journal entry name"
-                    />
-                  </div>
-                </div>
-                
-                {/* Journal Entry Table */}
-                <div className="border rounded-lg overflow-hidden">
-                  <table className="w-full border-collapse">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="border px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
-                        <th className="border px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Payee</th>
-                        <th className="border px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
-                        <th className="border px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Debit</th>
-                        <th className="border px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Credit</th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white">
-                      {editJournalModal.editEntry.lines.map((line) => (
-                        <tr key={line.id}>
-                          <td className="border px-4 py-2">
-                            <input
-                              type="text"
-                              value={line.description}
-                              onChange={(e) => updateEditJournalLine(line.id, 'description', e.target.value)}
-                              className="w-full border-0 px-0 py-0 text-xs focus:ring-0 focus:outline-none"
-                              placeholder="Enter description"
-                            />
-                          </td>
-                          <td className="border px-4 py-2">
-                            <Select
-                              options={[
-                                { value: '', label: 'Select payee...' },
-                                ...payees.map(payee => ({ value: payee.id, label: payee.name }))
-                              ]}
-                              value={payees.find(p => p.id === line.payeeId) ? 
-                                { value: line.payeeId, label: payees.find(p => p.id === line.payeeId)?.name || '' } :
-                                { value: '', label: 'Select payee...' }
-                              }
-                              onChange={(selectedOption) => {
-                                const option = selectedOption as SelectOption | null;
-                                updateEditJournalLine(line.id, 'payeeId', option?.value || '');
-                              }}
-                              isSearchable
-                              menuPortalTarget={document.body}
-                              styles={{
-                                control: (base) => ({
-                                  ...base,
-                                  border: 'none',
-                                  boxShadow: 'none',
-                                  minHeight: 'auto',
-                                  fontSize: '12px',
-                                  '&:hover': {
-                                    border: 'none'
-                                  }
-                                }),
-                                menu: (base) => ({ 
-                                  ...base, 
-                                  zIndex: 9999,
-                                  fontSize: '12px'
-                                }),
-                                menuPortal: (base) => ({ 
-                                  ...base, 
-                                  zIndex: 9999 
-                                })
-                              }}
-                            />
-                          </td>
-                          <td className="border px-4 py-2">
-                            <Select
-                              options={categoryOptions}
-                              value={categoryOptions.find(opt => opt.value === line.categoryId) || categoryOptions[0]}
-                              onChange={(selectedOption) => {
-                                const option = selectedOption as SelectOption | null;
-                                if (option?.value === 'add_new') {
-                                  setNewCategoryModal({
-                                    isOpen: true,
-                                    name: '',
-                                    type: 'Expense',
-                                    parent_id: null,
-                                    lineId: line.id
-                                  });
-                                } else {
-                                  updateEditJournalLine(line.id, 'categoryId', option?.value || '');
-                                }
-                              }}
-                              isSearchable
-                              menuPortalTarget={document.body}
-                              styles={{
-                                control: (base) => ({
-                                  ...base,
-                                  border: 'none',
-                                  boxShadow: 'none',
-                                  minHeight: 'auto',
-                                  fontSize: '12px',
-                                  '&:hover': {
-                                    border: 'none'
-                                  }
-                                }),
-                                menu: (base) => ({ 
-                                  ...base, 
-                                  zIndex: 9999,
-                                  fontSize: '12px'
-                                }),
-                                menuPortal: (base) => ({ 
-                                  ...base, 
-                                  zIndex: 9999 
-                                })
-                              }}
-                            />
-                          </td>
-                          <td className="border px-4 py-2">
-                            <input
-                              type="text"
-                              value={(() => {
-                                const debit = line.debit;
-                                return (debit && !isZeroAmount(debit)) ? debit : '';
-                              })()}
-                              onChange={(e) => handleEditJournalAmountChange(line.id, 'debit', e.target.value)}
-                              className="w-full border-0 px-0 py-0 text-xs text-right focus:ring-0 focus:outline-none"
-                              placeholder="0.00"
-                            />
-                          </td>
-                          <td className="border px-4 py-2">
-                            <input
-                              type="text"
-                              value={(() => {
-                                const credit = line.credit;
-                                return (credit && !isZeroAmount(credit)) ? credit : '';
-                              })()}
-                              onChange={(e) => handleEditJournalAmountChange(line.id, 'credit', e.target.value)}
-                              className="w-full border-0 px-0 py-0 text-xs text-right focus:ring-0 focus:outline-none"
-                              placeholder="0.00"
-                            />
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot className="bg-gray-50">
-                      <tr>
-                        <td className="border px-4 py-2 text-sm font-medium" colSpan={3}>
-                          Total
-                        </td>
-                        <td className={`border px-4 py-2 text-sm font-medium text-right ${
-                          (() => {
-                            const { totalDebits, totalCredits } = calculateEditJournalTotals();
-                            const isBalanced = Math.abs(totalDebits - totalCredits) < 0.01;
-                            return !isBalanced ? 'text-red-600' : 'text-gray-900';
-                          })()
-                        }`}>
-                          ${(() => {
-                            const { totalDebits } = calculateEditJournalTotals();
-                            return totalDebits.toFixed(2);
-                          })()}
-                        </td>
-                        <td className={`border px-4 py-2 text-sm font-medium text-right ${
-                          (() => {
-                            const { totalDebits, totalCredits } = calculateEditJournalTotals();
-                            const isBalanced = Math.abs(totalDebits - totalCredits) < 0.01;
-                            return !isBalanced ? 'text-red-600' : 'text-gray-900';
-                          })()
-                        }`}>
-                          ${(() => {
-                            const { totalCredits } = calculateEditJournalTotals();
-                            return totalCredits.toFixed(2);
-                          })()}
-                        </td>
-                      </tr>
-                      {(() => {
-                        const { totalDebits, totalCredits } = calculateEditJournalTotals();
-                        const isBalanced = Math.abs(totalDebits - totalCredits) < 0.01;
-                        return !isBalanced && (
-                          <tr>
-                            <td colSpan={5} className="border px-4 py-1 text-xs text-red-600 text-center bg-red-50">
-                              ⚠️ Total debits must equal total credits
-                            </td>
-                          </tr>
-                        );
-                      })()}
-                    </tfoot>
-                  </table>
-                </div>
-                
-                <div className="flex justify-between items-center mt-4">
-                  <button
-                    onClick={addEditJournalLine}
-                    className="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded border"
-                  >
-                    Add lines
-                  </button>
-                  
-                  <div className="flex space-x-3">
-                    <button
-                      onClick={() => setEditJournalModal(prev => ({ ...prev, isOpen: false }))}
-                      className="px-4 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={saveJournalEntryChanges}
-                      disabled={editJournalModal.saving || (() => {
-                        const { totalDebits, totalCredits } = calculateEditJournalTotals();
-                        return Math.abs(totalDebits - totalCredits) >= 0.01;
-                      })()}
-                      className={`px-4 py-2 text-sm rounded disabled:opacity-50 ${
-                        (() => {
-                          const { totalDebits, totalCredits } = calculateEditJournalTotals();
-                          const isBalanced = Math.abs(totalDebits - totalCredits) < 0.01;
-                          return !isBalanced 
-                            ? 'bg-gray-400 text-gray-200 cursor-not-allowed' 
-                            : 'bg-gray-900 text-white hover:bg-gray-800';
-                        })()
-                      }`}
-                    >
-                      {editJournalModal.saving ? 'Saving...' : (() => {
-                        const { totalDebits, totalCredits } = calculateEditJournalTotals();
-                        const isBalanced = Math.abs(totalDebits - totalCredits) < 0.01;
-                        return !isBalanced ? 'Must Balance' : 'Save';
-                      })()}
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+      {/* Edit Transaction Modal */}
+      {/* <EditTransactionModal
+        modalState={editJournalModal}
+        categories={categories}
+        payees={payees}
+        isZeroAmount={isZeroAmount}
+        onClose={() => setEditJournalModal(prev => ({ ...prev, isOpen: false }))}
+        onUpdateLine={updateEditJournalLine}
+        onAmountChange={handleEditJournalAmountChange}
+        onAddLine={addEditJournalLine}
+        onSave={saveJournalEntryChanges}
+        onDateChange={(date) => setEditJournalModal(prev => ({
+          ...prev,
+          editEntry: { ...prev.editEntry, date }
+        }))}
+        onJeNameChange={(jeName) => setEditJournalModal(prev => ({
+          ...prev,
+          editEntry: { ...prev.editEntry, jeName }
+        }))}
+        onOpenCategoryModal={(lineId, defaultType) => {
+          setNewCategoryModal({
+            isOpen: true,
+            name: '',
+            type: defaultType || 'Expense',
+            parent_id: null,
+            lineId
+          });
+        }}
+        calculateTotals={calculateEditJournalTotals}
+      /> */}
     </div>
   );
 } 

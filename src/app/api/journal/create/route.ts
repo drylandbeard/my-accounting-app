@@ -86,20 +86,7 @@ export async function POST(request: NextRequest) {
     const spentAmount = isExpense ? totalDebits : 0;
     const receivedAmount = isExpense ? 0 : totalDebits;
 
-    // Create split data for multiple line entries (more than 2 lines)
-    let splitData = null;
-    if (entries.length > 2) {
-      splitData = {
-        splits: entries.slice(1).map((entry, index) => ({
-          id: `split-${index}`,
-          date,
-          description: entry.description || description,
-          spent: entry.type === 'debit' ? entry.amount.toFixed(4) : '0.0000',
-          received: entry.type === 'credit' ? entry.amount.toFixed(4) : '0.0000',
-          selected_category_id: entry.account_id
-        }))
-      };
-    }
+    // Multiple journal entries handled via journal table entries
 
     // STEP 1: Create imported transaction (adds to "To Add" table)
     const importedTransactionEntry = {
@@ -110,8 +97,7 @@ export async function POST(request: NextRequest) {
       plaid_account_id: selectedAccount.plaid_account_id,
       plaid_account_name: selectedAccount.name,
       company_id: companyId,
-      selected_category_id: primaryEntry.account_id,
-      split_data: splitData
+      selected_category_id: primaryEntry.account_id
     };
 
     // Insert into imported_transactions table (this adds it to "To Add" table)
@@ -140,8 +126,7 @@ export async function POST(request: NextRequest) {
         entries.find(e => e.account_id !== primaryEntry.account_id)?.account_id : null,
       plaid_account_id: selectedAccount.plaid_account_id,
       plaid_account_name: selectedAccount.name,
-      company_id: companyId,
-      split_data: splitData
+      company_id: companyId
     };
 
     // Insert into transactions table (this adds it to "Added" table)

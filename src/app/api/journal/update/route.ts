@@ -14,7 +14,7 @@ export async function PUT(request: NextRequest) {
     const { companyId } = context;
     
     const body = await request.json()
-    const { id, date, description, transactions, hasSplit } = body
+    const { id, date, description, transactions } = body
 
     if (!id || !date || !description) {
       return NextResponse.json(
@@ -30,13 +30,38 @@ export async function PUT(request: NextRequest) {
       )
     }
 
-    // Find the transaction_id from existing journal entry and get existing transaction data
-    const { data: existingEntry } = await supabase
+    // First try to find by journal entry ID, then by transaction ID
+    let transactionId = id;
+    let existingEntry = null;
+    
+    // Try to find by journal entry ID first
+    const { data: journalEntry } = await supabase
       .from('journal')
       .select('transaction_id')
       .eq('id', id)
       .eq('company_id', companyId)
       .single();
+    
+    if (journalEntry) {
+      // Found by journal entry ID
+      existingEntry = journalEntry;
+      transactionId = journalEntry.transaction_id;
+    } else {
+      // Try to find by transaction ID
+      const { data: transactionEntry } = await supabase
+        .from('journal')
+        .select('transaction_id')
+        .eq('transaction_id', id)
+        .eq('company_id', companyId)
+        .limit(1)
+        .single();
+      
+      if (transactionEntry) {
+        // Found by transaction ID
+        existingEntry = transactionEntry;
+        transactionId = id;
+      }
+    }
 
     if (!existingEntry) {
       return NextResponse.json(
@@ -44,8 +69,6 @@ export async function PUT(request: NextRequest) {
         { status: 404 }
       )
     }
-
-    const transactionId = existingEntry.transaction_id;
 
     // Get the existing transaction data to preserve key fields
     const { data: existingTransaction } = await supabase
@@ -76,25 +99,7 @@ export async function PUT(request: NextRequest) {
       .eq('id', transactionId)
       .eq('company_id', companyId);
 
-    // Create split_data if transaction has been split
-    let splitData = null;
-    if (hasSplit && transactions.length > 2) {
-      // Filter out the bank account entry (corresponding_category_id) to get only the split categories
-      const splitTransactions = transactions.filter(tx => 
-        tx.account_id !== existingTransaction.corresponding_category_id
-      );
-      
-      splitData = {
-        splits: splitTransactions.map(tx => ({
-          id: uuidv4(),
-          date: date,
-          description: description,
-          spent: tx.type === 'debit' ? tx.amount.toString() : '0.00',
-          received: tx.type === 'credit' ? tx.amount.toString() : '0.00',
-          selected_category_id: tx.account_id
-        }))
-      };
-    }
+    // Split transactions are handled via multiple journal entries
 
     // Create a single transaction entry that represents the journal entry
     // Preserve the original spent/received values to maintain transaction integrity
@@ -108,7 +113,6 @@ export async function PUT(request: NextRequest) {
       corresponding_category_id: existingTransaction.corresponding_category_id, // Preserve the original corresponding_category_id
       plaid_account_id: existingTransaction.plaid_account_id, // Preserve the original plaid_account_id
       plaid_account_name: existingTransaction.plaid_account_name, // Preserve the original plaid_account_name
-      split_data: splitData, // Add split data if transaction was split
       company_id: companyId
     };
 
