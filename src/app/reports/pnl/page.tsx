@@ -1,14 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { supabase } from "../../../lib/supabase";
-import React from "react";
 import { v4 as uuidv4 } from "uuid";
 import { useAuthStore } from "@/zustand/authStore";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
+import { PeriodSelector } from "@/components/ui/period-selector";
 
 type Account = {
   id: string;
@@ -36,8 +36,15 @@ export default function Page() {
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
   const [selectedCategory, setSelectedCategory] = useState<Account | null>(null);
-  const [isMonthlyView, setIsMonthlyView] = useState(false);
+  const [isMonthlyView, setIsMonthlyView] = useState(true);
   const [showPreviousPeriod, setShowPreviousPeriod] = useState(false);
+  const [showPercentages, setShowPercentages] = useState(false);
+  const [loading, setLoading] = useState<boolean>(true);
+  
+  // Period Selector state
+  const [selectedPeriod, setSelectedPeriod] = useState("thisYearToLastMonth");
+  const [selectedDisplay, setSelectedDisplay] = useState("byMonth");
+  const [selectedComparison, setSelectedComparison] = useState("none");
   const [editModal, setEditModal] = useState<{
     isOpen: boolean;
     transaction: Transaction | null;
@@ -95,6 +102,67 @@ export default function Page() {
     const end = new Date(date.getFullYear(), 11, 31);
     return { start, end };
   };
+
+  // Handle period selector changes
+  const handlePeriodChange = (period: string) => {
+    setSelectedPeriod(period);
+    
+    switch (period) {
+      case "thisMonth":
+        handleDateRangeSelect("currentMonth");
+        break;
+      case "lastMonth":
+        handleDateRangeSelect("previousMonth");
+        break;
+      case "last4Months":
+        // Last 4 months
+        const today = new Date();
+        const fourMonthsAgo = new Date(today.getFullYear(), today.getMonth() - 4, 1);
+        const endOfLastMonth = new Date(today.getFullYear(), today.getMonth(), 0);
+        setStartDate(formatDate(fourMonthsAgo));
+        setEndDate(formatDate(endOfLastMonth));
+        break;
+      case "last12Months":
+        // Last 12 months
+        const todayFor12 = new Date();
+        const twelveMonthsAgo = new Date(todayFor12.getFullYear(), todayFor12.getMonth() - 12, 1);
+        const endOfCurrentMonth = new Date(todayFor12.getFullYear(), todayFor12.getMonth() + 1, 0);
+        setStartDate(formatDate(twelveMonthsAgo));
+        setEndDate(formatDate(endOfCurrentMonth));
+        break;
+      case "thisQuarter":
+        handleDateRangeSelect("currentQuarter");
+        break;
+      case "lastQuarter":
+        handleDateRangeSelect("previousQuarter");
+        break;
+      case "thisYearToLastMonth":
+        handleDateRangeSelect("yearToLastMonth");
+        break;
+      case "thisYearToToday":
+        handleDateRangeSelect("ytd");
+        break;
+      default:
+        handleDateRangeSelect("yearToLastMonth");
+    }
+  };
+
+  const handleDisplayChange = (display: string) => {
+    setSelectedDisplay(display);
+    // Map display options to existing view state
+    setIsMonthlyView(display === "byMonth");
+    setShowPercentages(display === "withPercentages");
+  };
+
+  const handleComparisonChange = (comparison: string) => {
+    setSelectedComparison(comparison);
+    // Map comparison options to existing state
+    setShowPreviousPeriod(comparison === "previousPeriod" || comparison === "previousYear");
+  };
+
+
+
+
 
   const handleDateRangeSelect = (
     range:
@@ -175,28 +243,45 @@ export default function Page() {
     setEndDate(formatDate(end));
   };
 
+  // Calculate today's date once
+  const today = React.useMemo(() => new Date().toISOString().split('T')[0], []);
+
   useEffect(() => {
     setStartDate("2025-01-01");
-    setEndDate(new Date().toISOString().slice(0, 10));
-  }, []);
+    setEndDate(today);
+  }, [today]);
 
   useEffect(() => {
     const fetchData = async () => {
-      const { data: accountsData } = await supabase
-        .from("chart_of_accounts")
-        .select("*")
-        .in("type", ["Revenue", "COGS", "Expense"]);
-      setAccounts(accountsData || []);
-
-      let journalQuery = supabase.from("journal").select("*");
-      if (startDate && endDate) {
-        journalQuery = journalQuery.gte("date", startDate).lte("date", endDate);
+      if (!hasCompanyContext) {
+        setLoading(false);
+        return;
       }
-      const { data: journalData } = await journalQuery;
-      setJournalEntries(journalData || []);
+
+      setLoading(true);
+
+      try {
+        const { data: accountsData } = await supabase
+          .from("chart_of_accounts")
+          .select("*")
+          .eq("company_id", currentCompany!.id)
+          .in("type", ["Revenue", "COGS", "Expense"]);
+        setAccounts(accountsData || []);
+
+        let journalQuery = supabase.from("journal").select("*").eq("company_id", currentCompany!.id);
+        if (startDate && endDate) {
+          journalQuery = journalQuery.gte("date", startDate).lte("date", endDate);
+        }
+        const { data: journalData } = await journalQuery;
+        setJournalEntries(journalData || []);
+      } catch (error) {
+        console.error("Error fetching P&L data:", error);
+      } finally {
+        setLoading(false);
+      }
     };
     if (startDate && endDate) fetchData();
-  }, [startDate, endDate]);
+  }, [startDate, endDate, currentCompany?.id, hasCompanyContext]);
 
   // Helper: get all subaccounts for a parent
   const getSubaccounts = (parentId: string) => accounts.filter((acc) => acc.parent_id === parentId);
@@ -208,9 +293,13 @@ export default function Page() {
         .filter((tx) => tx.chart_account_id === account.id)
         .reduce((sum, tx) => sum + Number(tx.credit), 0);
     } else if (account.type === "Expense" || account.type === "COGS") {
-      return journalEntries
+      const totalDebits = journalEntries
         .filter((tx) => tx.chart_account_id === account.id)
         .reduce((sum, tx) => sum + Number(tx.debit), 0);
+      const totalCredits = journalEntries
+        .filter((tx) => tx.chart_account_id === account.id)
+        .reduce((sum, tx) => sum + Number(tx.credit), 0);
+      return totalDebits - totalCredits;
     }
     return 0;
   };
@@ -322,12 +411,23 @@ export default function Page() {
   // Helper: get months between start and end date
   const getMonthsInRange = () => {
     const months: string[] = [];
-    const start = new Date(startDate + "T00:00:00");
-    const end = new Date(endDate + "T00:00:00");
+    
+    // Parse dates as local dates to avoid timezone issues
+    const [startYear, startMonth, startDay] = startDate.split('-').map(Number);
+    const [endYear, endMonth, endDay] = endDate.split('-').map(Number);
+    
+    const start = new Date(startYear, startMonth - 1, startDay); // Month is 0-indexed
+    const end = new Date(endYear, endMonth - 1, endDay);
 
+    // Start from the first day of the start month
     let current = new Date(start.getFullYear(), start.getMonth(), 1);
+    
     while (current <= end) {
-      months.push(current.toISOString().slice(0, 7)); // Format: YYYY-MM
+      const year = current.getFullYear();
+      const month = String(current.getMonth() + 1).padStart(2, '0'); // Convert back to 1-indexed
+      months.push(`${year}-${month}`); // Format: YYYY-MM
+      
+      // Move to next month
       current = new Date(current.getFullYear(), current.getMonth() + 1, 1);
     }
     return months;
@@ -349,9 +449,13 @@ export default function Page() {
         .filter((tx) => tx.chart_account_id === account.id && tx.date.startsWith(month))
         .reduce((sum, tx) => sum + Number(tx.credit), 0);
     } else if (account.type === "Expense" || account.type === "COGS") {
-      return journalEntries
+      const totalDebits = journalEntries
         .filter((tx) => tx.chart_account_id === account.id && tx.date.startsWith(month))
         .reduce((sum, tx) => sum + Number(tx.debit), 0);
+      const totalCredits = journalEntries
+        .filter((tx) => tx.chart_account_id === account.id && tx.date.startsWith(month))
+        .reduce((sum, tx) => sum + Number(tx.credit), 0);
+      return totalDebits - totalCredits;
     }
     return 0;
   };
@@ -389,9 +493,13 @@ export default function Page() {
         .filter((tx) => tx.chart_account_id === account.id && tx.date >= startStr && tx.date <= endStr)
         .reduce((sum, tx) => sum + Number(tx.credit), 0);
     } else if (account.type === "Expense" || account.type === "COGS") {
-      return journalEntries
+      const totalDebits = journalEntries
         .filter((tx) => tx.chart_account_id === account.id && tx.date >= startStr && tx.date <= endStr)
         .reduce((sum, tx) => sum + Number(tx.debit), 0);
+      const totalCredits = journalEntries
+        .filter((tx) => tx.chart_account_id === account.id && tx.date >= startStr && tx.date <= endStr)
+        .reduce((sum, tx) => sum + Number(tx.credit), 0);
+      return totalDebits - totalCredits;
     }
     return 0;
   };
@@ -423,6 +531,55 @@ export default function Page() {
 
   const formatNumber = (num: number): string => {
     return num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
+  const formatPercentage = (num: number, base: number): string => {
+    if (base === 0) return "—";
+    const percentage = (num / Math.abs(base)) * 100;
+    return `${percentage.toFixed(1)}%`;
+  };
+
+  // Helper function to get appropriate base for percentage calculation
+  const getPercentageBase = (accountType: string): number => {
+    if (totalRevenue !== 0) {
+      return totalRevenue; // Normal case: use revenue as base
+    }
+    // When revenue is zero, use appropriate totals
+    switch (accountType) {
+      case "Expense":
+        return totalExpenses;
+      case "COGS":
+        return totalCOGS;
+      default:
+        return totalRevenue;
+    }
+  };
+
+  const formatPercentageForAccount = (num: number, account: Account): string => {
+    const base = getPercentageBase(account.type);
+    if (base === 0) return "—";
+    const percentage = (num / Math.abs(base)) * 100;
+    return `${percentage.toFixed(1)}%`;
+  };
+
+  const calculatePercentageForMonth = (amount: number, month: string): string => {
+    const monthRevenue = revenueRows.reduce(
+      (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
+      0
+    );
+    return formatPercentage(amount, monthRevenue);
+  };
+
+  // Helper: calculate display amount for P&L transactions
+  const getTransactionDisplayAmount = (tx: Transaction, accountType: string): number => {
+    if (accountType === "Revenue") {
+      // For revenue: credits are positive, debits are negative
+      return Number(tx.credit) - Number(tx.debit);
+    } else if (accountType === "Expense" || accountType === "COGS") {
+      // For expenses/COGS: debits are positive, credits are negative
+      return Number(tx.debit) - Number(tx.credit);
+    }
+    return Number(tx.debit); // fallback
   };
 
   // Export function
@@ -533,19 +690,39 @@ export default function Page() {
             </div>
           </td>
           {months.map((month) => (
-            <td key={month} className="border p-1 text-right">
-              {formatNumber(
-                isParent && isCollapsed
-                  ? calculateAccountTotalForMonthWithSubaccounts(account, month)
-                  : calculateAccountTotalForMonth(account, month)
+            <React.Fragment key={month}>
+              <td className="border p-1 text-right">
+                {formatNumber(
+                  isParent && isCollapsed
+                    ? calculateAccountTotalForMonthWithSubaccounts(account, month)
+                    : calculateAccountTotalForMonth(account, month)
+                )}
+              </td>
+              {showPercentages && (
+                <td className="border p-1 text-right text-xs text-slate-600">
+                  {formatPercentageForAccount(
+                    isParent && isCollapsed
+                      ? calculateAccountTotalForMonthWithSubaccounts(account, month)
+                      : calculateAccountTotalForMonth(account, month),
+                    account
+                  )}
+                </td>
               )}
-            </td>
+            </React.Fragment>
           ))}
           <td className="border p-1 text-right font-semibold">
             {formatNumber(
               isParent && isCollapsed ? calculateAccountTotal(account) : calculateAccountDirectTotal(account)
             )}
           </td>
+                        {showPercentages && (
+                <td className="border p-1 text-right text-xs text-slate-600">
+                  {formatPercentageForAccount(
+                    isParent && isCollapsed ? calculateAccountTotal(account) : calculateAccountDirectTotal(account),
+                    account
+                  )}
+                </td>
+              )}
         </tr>
         {!isCollapsed && subaccounts.map((sub) => renderAccountRowWithMonthlyTotals(sub, level + 1))}
         {isParent && !isCollapsed && (
@@ -564,13 +741,25 @@ export default function Page() {
               </div>
             </td>
             {months.map((month) => (
-              <td key={month} className="border p-1 text-right font-semibold bg-gray-50">
-                {formatNumber(calculateAccountTotalForMonthWithSubaccounts(account, month))}
-              </td>
+              <React.Fragment key={month}>
+                <td className="border p-1 text-right font-semibold bg-gray-50">
+                  {formatNumber(calculateAccountTotalForMonthWithSubaccounts(account, month))}
+                </td>
+                {showPercentages && (
+                  <td className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
+                    {formatPercentageForAccount(calculateAccountTotalForMonthWithSubaccounts(account, month), account)}
+                  </td>
+                )}
+              </React.Fragment>
             ))}
             <td className="border p-1 text-right font-semibold bg-gray-50">
               {formatNumber(calculateAccountTotal(account))}
             </td>
+            {showPercentages && (
+              <td className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
+                {formatPercentageForAccount(calculateAccountTotal(account), account)}
+              </td>
+            )}
           </tr>
         )}
       </React.Fragment>
@@ -630,11 +819,21 @@ export default function Page() {
           <td className="border p-1 text-right" style={{ width: "20%" }}>
             {formatNumber(isParent && isCollapsed ? currentTotal : directTotal)}
           </td>
+          {showPercentages && (
+            <td className="border p-1 text-right text-sm text-slate-600">
+              {formatPercentageForAccount(isParent && isCollapsed ? currentTotal : directTotal, account)}
+            </td>
+          )}
           {showPreviousPeriod && (
             <>
               <td className="border p-1 text-right" style={{ width: "20%" }}>
                 {formatNumber(isParent && isCollapsed ? previousTotal : directPreviousTotal)}
               </td>
+              {showPercentages && (
+                <td className="border p-1 text-right text-xs text-slate-600">
+                  {formatPercentage(isParent && isCollapsed ? previousTotal : directPreviousTotal, calculatePreviousPeriodTotal(revenueRows))}
+                </td>
+              )}
               <td className="border p-1 text-right" style={{ width: "20%" }}>
                 {formatNumber(variance)}
               </td>
@@ -662,11 +861,21 @@ export default function Page() {
             <td className="border p-1 text-right font-semibold bg-gray-50" style={{ width: "20%" }}>
               {formatNumber(currentTotal)}
             </td>
+            {showPercentages && (
+              <td className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
+                {formatPercentageForAccount(currentTotal, account)}
+              </td>
+            )}
             {showPreviousPeriod && (
               <>
                 <td className="border p-1 text-right font-semibold bg-gray-50" style={{ width: "20%" }}>
                   {formatNumber(previousTotal)}
                 </td>
+                {showPercentages && (
+                  <td className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
+                    {formatPercentage(previousTotal, calculatePreviousPeriodTotal(revenueRows))}
+                  </td>
+                )}
                 <td className="border p-1 text-right font-semibold bg-gray-50" style={{ width: "20%" }}>
                   {formatNumber(currentTotal - previousTotal)}
                 </td>
@@ -697,48 +906,64 @@ export default function Page() {
       <div className="max-w-7xl mx-auto">
         <div className="text-center mb-6">
           <h1 className="text-2xl font-bold text-slate-800 mb-3">Profit & Loss</h1>
-          {/* Date Range Filter */}
-          <div className="space-y-4">
-            <div className="flex items-center justify-center gap-4">
-              <label className="text-sm font-medium text-slate-600">Start Date:</label>
-              <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-auto" />
-              <label className="text-sm font-medium text-slate-600">End Date:</label>
-              <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-auto" />
-              <Button
-                onClick={() => setIsMonthlyView(!isMonthlyView)}
-                variant={isMonthlyView ? "default" : "outline"}
-                className="text-sm font-medium"
-              >
-                {isMonthlyView ? "Single View" : "Monthly View"}
-              </Button>
+          {/* Period Selector */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="flex justify-center">
+                <PeriodSelector
+                  selectedPeriod={selectedPeriod}
+                  onPeriodChange={handlePeriodChange}
+                  selectedDisplay={selectedDisplay}
+                  onDisplayChange={handleDisplayChange}
+                  selectedComparison={selectedComparison}
+                  onComparisonChange={handleComparisonChange}
+                />
+              </div>
+
+                              {/* Manual date override option */}
+                <div className="flex items-center justify-center gap-4 text-sm">
+                  
+                  <Input 
+                    type="date" 
+                    value={startDate} 
+                    max={endDate || today}
+                    onChange={(e) => {
+                      const newStartDate = e.target.value;
+                      setStartDate(newStartDate);
+                      // If start date is after end date, update end date
+                      if (endDate && newStartDate > endDate) {
+                        setEndDate(newStartDate);
+                      }
+                    }} 
+                    className="w-auto text-sm h-8 transition-none" 
+                  />
+                  <span className="text-slate-600">to</span>
+                  <Input 
+                    type="date" 
+                    value={endDate} 
+                    min={startDate}
+                    max={today}
+                    onChange={(e) => {
+                      const newEndDate = e.target.value;
+                      
+                      // Prevent setting end date in the future
+                      if (newEndDate > today) {
+                        setEndDate(today);
+                        return;
+                      }
+                      
+                      setEndDate(newEndDate);
+                      // If end date is before start date, update start date
+                      if (startDate && newEndDate < startDate) {
+                        setStartDate(newEndDate);
+                      }
+                    }} 
+                    className="w-auto text-sm h-8 transition-none" 
+                  />
+                </div>
             </div>
-            <div className="flex justify-center gap-2 flex-wrap">
-              <Button onClick={() => handleDateRangeSelect("currentMonth")} variant="outline" size="sm">
-                This Month
-              </Button>
-              <Button onClick={() => handleDateRangeSelect("currentQuarter")} variant="outline" size="sm">
-                This Quarter
-              </Button>
-              <Button onClick={() => handleDateRangeSelect("currentYear")} variant="outline" size="sm">
-                This Year
-              </Button>
-              <Button onClick={() => handleDateRangeSelect("yearToLastMonth")} variant="outline" size="sm">
-                This Year to Last Month
-              </Button>
-              <Button onClick={() => handleDateRangeSelect("ytd")} variant="outline" size="sm">
-                YTD
-              </Button>
-              <Button onClick={() => handleDateRangeSelect("previousMonth")} variant="outline" size="sm">
-                Last Month
-              </Button>
-              <Button onClick={() => handleDateRangeSelect("previousQuarter")} variant="outline" size="sm">
-                Last Quarter
-              </Button>
-              <Button onClick={() => handleDateRangeSelect("previousYear")} variant="outline" size="sm">
-                Last Year
-              </Button>
-            </div>
-            <div className="flex justify-center mt-4">
+
+            <div className="flex justify-center">
               <Button onClick={exportToCSV} className="text-sm font-medium">
                 Export CSV
               </Button>
@@ -746,53 +971,169 @@ export default function Page() {
           </div>
         </div>
 
-        {/* Previous Period Toggle */}
-        {!isMonthlyView && (
-          <div className="flex justify-center mb-6">
-            <label className="flex items-center gap-2 text-sm text-slate-600">
-              <input
-                type="checkbox"
-                checked={showPreviousPeriod}
-                onChange={(e) => setShowPreviousPeriod(e.target.checked)}
-                className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-              />
-              Show Previous Period
-            </label>
-          </div>
-        )}
-
         {/* P&L Table */}
         <Card>
           <CardContent className="p-0">
-            <table className="w-full border-collapse">
+            <table className="w-full border-collapse" style={{ tableLayout: "fixed" }}>
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
-                  <th className="px-4 py-3 text-left font-semibold text-slate-700">Account</th>
+                  <th className="px-4 py-3 text-left font-semibold text-slate-700" style={{ width: "25%" }}>Account</th>
                   {isMonthlyView ? (
-                    getMonthsInRange().map((month) => (
-                      <th key={month} className="px-4 py-3 text-right font-semibold text-slate-700 w-32">
-                        {formatMonth(month)}
-                      </th>
-                    ))
+                    <>
+                      {getMonthsInRange().map((month) => (
+                        <React.Fragment key={month}>
+                          <th className="px-4 py-3 text-right font-semibold text-slate-700" style={{ width: showPercentages ? `${35 / ((getMonthsInRange().length + 1) * 2)}%` : `${75 / (getMonthsInRange().length + 1)}%` }}>
+                            {formatMonth(month)}
+                          </th>
+                          {showPercentages && (
+                            <th className="px-4 py-3 text-right font-semibold text-slate-700 text-xs" style={{ width: `${40 / ((getMonthsInRange().length + 1) * 2)}%` }}>
+                              %
+                            </th>
+                          )}
+                        </React.Fragment>
+                      ))}
+                      <th className="px-4 py-3 text-right font-semibold text-slate-700" style={{ width: showPercentages ? `${35 / ((getMonthsInRange().length + 1) * 2)}%` : `${75 / (getMonthsInRange().length + 1)}%` }}>Total</th>
+                      {showPercentages && (
+                        <th className="px-4 py-3 text-right font-semibold text-slate-700 text-xs" style={{ width: `${40 / ((getMonthsInRange().length + 1) * 2)}%` }}>
+                          %
+                        </th>
+                      )}
+                    </>
                   ) : (
                     <>
-                      <th className="px-4 py-3 text-right font-semibold text-slate-700 w-32">Total</th>
+                      <th className="px-4 py-3 text-right font-semibold text-slate-700" style={{ width: showPercentages ? "20%" : "25%" }}>Total</th>
+                      {showPercentages && (
+                        <th className="px-4 py-3 text-right font-semibold text-slate-700 text-xs" style={{ width: "15%" }}>%</th>
+                      )}
                       {showPreviousPeriod && (
                         <>
-                          <th className="px-4 py-3 text-right font-semibold text-slate-700 w-32">Previous Period</th>
-                          <th className="px-4 py-3 text-right font-semibold text-slate-700 w-32">Difference</th>
+                          <th className="px-4 py-3 text-right font-semibold text-slate-700" style={{ width: showPercentages ? "20%" : "25%" }}>Previous Period</th>
+                          {showPercentages && (
+                            <th className="px-4 py-3 text-right font-semibold text-slate-700 text-xs" style={{ width: "15%" }}>%</th>
+                          )}
+                          <th className="px-4 py-3 text-right font-semibold text-slate-700" style={{ width: showPercentages ? "20%" : "25%" }}>Difference</th>
                         </>
                       )}
                     </>
                   )}
-                  {isMonthlyView && <th className="px-4 py-3 text-right font-semibold text-slate-700 w-32">Total</th>}
                 </tr>
               </thead>
               <tbody>
+                {loading ? (
+                  /* Loading State */
+                  <>
+                    {/* REVENUE SECTION */}
+                    <tr className="bg-slate-100 border-b border-slate-200">
+                      <td 
+                        colSpan={
+                          isMonthlyView 
+                            ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
+                            : showPreviousPeriod 
+                              ? (showPercentages ? 6 : 4)
+                              : (showPercentages ? 3 : 2)
+                        }
+                        className="px-4 py-3 font-bold text-slate-800 text-sm tracking-wide"
+                      >
+                        REVENUE
+                      </td>
+                    </tr>
+                    <tr>
+                      <td 
+                        colSpan={
+                          isMonthlyView 
+                            ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
+                            : showPreviousPeriod 
+                              ? (showPercentages ? 6 : 4)
+                              : (showPercentages ? 3 : 2)
+                        }
+                        className="px-4 py-8 text-center border-b border-slate-100"
+                      >
+                        <div className="flex flex-col items-center space-y-3">
+                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600"></div>
+                          <span className="text-sm text-slate-500">Loading revenue accounts...</span>
+                        </div>
+                      </td>
+                    </tr>
+
+                    {/* COGS SECTION */}
+                    <tr className="bg-slate-100 border-b border-slate-200">
+                      <td 
+                        colSpan={
+                          isMonthlyView 
+                            ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
+                            : showPreviousPeriod 
+                              ? (showPercentages ? 6 : 4)
+                              : (showPercentages ? 3 : 2)
+                        }
+                        className="px-4 py-3 font-bold text-slate-800 text-sm tracking-wide"
+                      >
+                        COST OF GOODS SOLD
+                      </td>
+                    </tr>
+                    <tr>
+                      <td 
+                        colSpan={
+                          isMonthlyView 
+                            ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
+                            : showPreviousPeriod 
+                              ? (showPercentages ? 6 : 4)
+                              : (showPercentages ? 3 : 2)
+                        }
+                        className="px-4 py-8 text-center border-b border-slate-100"
+                      >
+                        <div className="flex flex-col items-center space-y-3">
+                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-600"></div>
+                          <span className="text-sm text-slate-500">Loading COGS accounts...</span>
+                        </div>
+                      </td>
+                    </tr>
+
+                    {/* EXPENSES SECTION */}
+                    <tr className="bg-slate-100 border-b border-slate-200">
+                      <td 
+                        colSpan={
+                          isMonthlyView 
+                            ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
+                            : showPreviousPeriod 
+                              ? (showPercentages ? 6 : 4)
+                              : (showPercentages ? 3 : 2)
+                        }
+                        className="px-4 py-3 font-bold text-slate-800 text-sm tracking-wide"
+                      >
+                        EXPENSES
+                      </td>
+                    </tr>
+                    <tr>
+                      <td 
+                        colSpan={
+                          isMonthlyView 
+                            ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
+                            : showPreviousPeriod 
+                              ? (showPercentages ? 6 : 4)
+                              : (showPercentages ? 3 : 2)
+                        }
+                        className="px-4 py-8 text-center border-b border-slate-100"
+                      >
+                        <div className="flex flex-col items-center space-y-3">
+                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600"></div>
+                          <span className="text-sm text-slate-500">Loading expense accounts...</span>
+                        </div>
+                      </td>
+                    </tr>
+                  </>
+                ) : (
+                  /* Normal Content */
+                  <>
                 {/* Revenue */}
                 <tr className="bg-slate-100 border-b border-slate-200">
                   <td
-                    colSpan={isMonthlyView ? getMonthsInRange().length + 2 : showPreviousPeriod ? 4 : 2}
+                    colSpan={
+                      isMonthlyView 
+                        ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
+                        : showPreviousPeriod 
+                          ? (showPercentages ? 6 : 4)
+                          : (showPercentages ? 3 : 2)
+                    }
                     className="px-4 py-3 font-bold text-slate-800 text-sm tracking-wide"
                   >
                     REVENUE
@@ -824,43 +1165,77 @@ export default function Page() {
                   <td className="border p-1 font-semibold" style={{ width: "30%" }}>
                     Total Revenue
                   </td>
-                  {isMonthlyView ? (
-                    <>
-                      {getMonthsInRange().map((month) => (
-                        <td key={month} className="border p-1 text-right font-semibold">
-                          {formatNumber(
-                            revenueRows.reduce(
-                              (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
-                              0
-                            )
-                          )}
-                        </td>
-                      ))}
-                      <td className="border p-1 text-right font-semibold">{formatNumber(totalRevenue)}</td>
-                    </>
-                  ) : (
-                    <>
-                      <td className="border p-1 text-right font-semibold" style={{ width: "20%" }}>
-                        {formatNumber(totalRevenue)}
-                      </td>
-                      {showPreviousPeriod && (
-                        <>
-                          <td className="border p-1 text-right font-semibold" style={{ width: "20%" }}>
-                            {formatNumber(calculatePreviousPeriodTotal(revenueRows))}
-                          </td>
-                          <td className="border p-1 text-right font-semibold" style={{ width: "20%" }}>
-                            {formatNumber(calculatePreviousPeriodVariance(totalRevenue, revenueRows))}
-                          </td>
-                        </>
+                            {isMonthlyView ? (
+            <>
+              {getMonthsInRange().map((month) => (
+                <React.Fragment key={month}>
+                  <td className="border p-1 text-right font-semibold">
+                    {formatNumber(
+                      revenueRows.reduce(
+                        (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
+                        0
+                      )
+                    )}
+                  </td>
+                  {showPercentages && (
+                    <td className="border p-1 text-right text-xs text-slate-600">
+                      {calculatePercentageForMonth(
+                        revenueRows.reduce(
+                          (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
+                          0
+                        ),
+                        month
                       )}
-                    </>
+                    </td>
+                  )}
+                </React.Fragment>
+              ))}
+              <td className="border p-1 text-right font-semibold">{formatNumber(totalRevenue)}</td>
+              {showPercentages && (
+                <td className="border p-1 text-right text-sm font-bold text-slate-600">
+                  {totalRevenue !== 0 ? "100.0%" : "—"}
+                </td>
+              )}
+            </>
+          ) : (
+                                <>
+              <td className="border p-1 text-right font-semibold" style={{ width: "20%" }}>
+                {formatNumber(totalRevenue)}
+              </td>
+              {showPercentages && (
+                <td className="border p-1 text-right text-xs text-slate-600">
+                  {formatPercentage(totalRevenue, totalRevenue)}
+                </td>
+              )}
+              {showPreviousPeriod && (
+                <>
+                  <td className="border p-1 text-right font-semibold" style={{ width: "20%" }}>
+                    {formatNumber(calculatePreviousPeriodTotal(revenueRows))}
+                  </td>
+                                {showPercentages && (
+                <td className="border p-1 text-right text-sm font-bold text-slate-600">
+                  {calculatePreviousPeriodTotal(revenueRows) !== 0 ? "100.0%" : "—"}
+                </td>
+              )}
+                  <td className="border p-1 text-right font-semibold" style={{ width: "20%" }}>
+                    {formatNumber(calculatePreviousPeriodVariance(totalRevenue, revenueRows))}
+                  </td>
+                </>
+              )}
+            </>
                   )}
                 </tr>
 
                 {/* COGS */}
                 <tr>
                   <td
-                    colSpan={isMonthlyView ? getMonthsInRange().length + 2 : showPreviousPeriod ? 4 : 2}
+                    colSpan={
+                      isMonthlyView 
+                        ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
+                        : showPreviousPeriod 
+                          ? (showPercentages ? 6 : 4)
+                          : (showPercentages ? 3 : 2)
+                    }
                     className="border p-1 font-semibold"
                   >
                     Cost of Goods Sold (COGS)
@@ -888,22 +1263,47 @@ export default function Page() {
                   {isMonthlyView ? (
                     <>
                       {getMonthsInRange().map((month) => (
-                        <td key={month} className="border p-1 text-right font-semibold">
-                          {formatNumber(
-                            cogsRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0)
+                        <React.Fragment key={month}>
+                          <td className="border p-1 text-right font-semibold">
+                            {formatNumber(
+                              cogsRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0)
+                            )}
+                          </td>
+                          {showPercentages && (
+                            <td className="border p-1 text-right text-xs text-slate-600">
+                              {calculatePercentageForMonth(
+                                cogsRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0),
+                                month
+                              )}
+                            </td>
                           )}
-                        </td>
+                        </React.Fragment>
                       ))}
                       <td className="border p-1 text-right font-semibold">{formatNumber(totalCOGS)}</td>
+                      {showPercentages && (
+                        <td className="border p-1 text-right text-sm font-bold text-slate-600">
+                          {totalRevenue !== 0 ? formatPercentage(totalCOGS, totalRevenue) : (totalCOGS !== 0 ? "100.0%" : "—")}
+                        </td>
+                      )}
                     </>
                   ) : (
                     <>
                       <td className="border p-1 text-right font-semibold w-[150px]">{formatNumber(totalCOGS)}</td>
+                      {showPercentages && (
+                        <td className="border p-1 text-right text-sm font-bold text-slate-600">
+                          {totalRevenue !== 0 ? formatPercentage(totalCOGS, totalRevenue) : (totalCOGS !== 0 ? "100.0%" : "—")}
+                        </td>
+                      )}
                       {showPreviousPeriod && (
                         <>
                           <td className="border p-1 text-right font-semibold w-[150px]">
                             {formatNumber(calculatePreviousPeriodTotal(cogsRows))}
                           </td>
+                          {showPercentages && (
+                            <td className="border p-1 text-right text-xs text-slate-600">
+                              {formatPercentage(calculatePreviousPeriodTotal(cogsRows), calculatePreviousPeriodTotal(revenueRows))}
+                            </td>
+                          )}
                           <td className="border p-1 text-right font-semibold w-[150px]">
                             {formatNumber(calculatePreviousPeriodVariance(totalCOGS, cogsRows))}
                           </td>
@@ -920,25 +1320,50 @@ export default function Page() {
                   </td>
                   {isMonthlyView &&
                     getMonthsInRange().map((month) => (
-                      <td key={month} className="border p-1 text-right" style={{ width: "15%" }}>
-                        {formatNumber(
-                          revenueRows.reduce(
-                            (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
-                            0
-                          ) -
-                            cogsRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0)
+                      <React.Fragment key={month}>
+                        <td className="border p-1 text-right" style={{ width: "15%" }}>
+                          {formatNumber(
+                            revenueRows.reduce(
+                              (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
+                              0
+                            ) -
+                              cogsRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0)
+                          )}
+                        </td>
+                        {showPercentages && (
+                          <td className="border p-1 text-right text-xs text-slate-600">
+                            {calculatePercentageForMonth(
+                              revenueRows.reduce(
+                                (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                0
+                              ) -
+                                cogsRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0),
+                              month
+                            )}
+                          </td>
                         )}
-                      </td>
+                      </React.Fragment>
                     ))}
                   <td className="border p-1 text-right" style={{ width: "15%" }}>
                     {formatNumber(grossProfit)}
                   </td>
+                  {showPercentages && isMonthlyView && (
+                    <td className="border p-1 text-right text-sm font-bold text-slate-600">
+                      {totalRevenue !== 0 ? formatPercentage(grossProfit, totalRevenue) : "—"}
+                    </td>
+                  )}
                 </tr>
 
                 {/* Expenses */}
                 <tr>
                   <td
-                    colSpan={isMonthlyView ? getMonthsInRange().length + 2 : showPreviousPeriod ? 4 : 2}
+                    colSpan={
+                      isMonthlyView 
+                        ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
+                        : showPreviousPeriod 
+                          ? (showPercentages ? 6 : 4)
+                          : (showPercentages ? 3 : 2)
+                    }
                     className="border p-1 font-semibold"
                   >
                     Expenses
@@ -971,25 +1396,53 @@ export default function Page() {
                   {isMonthlyView ? (
                     <>
                       {getMonthsInRange().map((month) => (
-                        <td key={month} className="border p-1 text-right font-semibold">
-                          {formatNumber(
-                            expenseRows.reduce(
-                              (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
-                              0
-                            )
+                        <React.Fragment key={month}>
+                          <td className="border p-1 text-right font-semibold">
+                            {formatNumber(
+                              expenseRows.reduce(
+                                (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                0
+                              )
+                            )}
+                          </td>
+                          {showPercentages && (
+                            <td className="border p-1 text-right text-xs text-slate-600">
+                              {calculatePercentageForMonth(
+                                expenseRows.reduce(
+                                  (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                  0
+                                ),
+                                month
+                              )}
+                            </td>
                           )}
-                        </td>
+                        </React.Fragment>
                       ))}
                       <td className="border p-1 text-right font-semibold">{formatNumber(totalExpenses)}</td>
+                      {showPercentages && (
+                        <td className="border p-1 text-right text-sm font-bold text-slate-600">
+                          {totalRevenue !== 0 ? formatPercentage(totalExpenses, totalRevenue) : (totalExpenses !== 0 ? "100.0%" : "—")}
+                        </td>
+                      )}
                     </>
                   ) : (
                     <>
                       <td className="border p-1 text-right font-semibold w-[150px]">{formatNumber(totalExpenses)}</td>
+                      {showPercentages && (
+                        <td className="border p-1 text-right text-sm font-bold text-slate-600">
+                          {totalRevenue !== 0 ? formatPercentage(totalExpenses, totalRevenue) : (totalExpenses !== 0 ? "100.0%" : "—")}
+                        </td>
+                      )}
                       {showPreviousPeriod && (
                         <>
                           <td className="border p-1 text-right font-semibold w-[150px]">
                             {formatNumber(calculatePreviousPeriodTotal(expenseRows))}
                           </td>
+                          {showPercentages && (
+                            <td className="border p-1 text-right text-xs text-slate-600">
+                              {formatPercentage(calculatePreviousPeriodTotal(expenseRows), calculatePreviousPeriodTotal(revenueRows))}
+                            </td>
+                          )}
                           <td className="border p-1 text-right font-semibold w-[150px]">
                             {formatNumber(calculatePreviousPeriodVariance(totalExpenses, expenseRows))}
                           </td>
@@ -1007,30 +1460,61 @@ export default function Page() {
                   {isMonthlyView ? (
                     <>
                       {getMonthsInRange().map((month) => (
-                        <td key={month} className="border p-1 text-right" style={{ width: "15%" }}>
-                          {formatNumber(
-                            revenueRows.reduce(
-                              (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
-                              0
-                            ) -
-                              cogsRows.reduce(
+                        <React.Fragment key={month}>
+                          <td className="border p-1 text-right" style={{ width: "15%" }}>
+                            {formatNumber(
+                              revenueRows.reduce(
                                 (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
                                 0
                               ) -
-                              expenseRows.reduce(
-                                (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
-                                0
-                              )
+                                cogsRows.reduce(
+                                  (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                  0
+                                ) -
+                                expenseRows.reduce(
+                                  (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                  0
+                                )
+                            )}
+                          </td>
+                          {showPercentages && (
+                            <td className="border p-1 text-right text-xs text-slate-600">
+                              {calculatePercentageForMonth(
+                                revenueRows.reduce(
+                                  (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                  0
+                                ) -
+                                  cogsRows.reduce(
+                                    (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                    0
+                                  ) -
+                                  expenseRows.reduce(
+                                    (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                    0
+                                  ),
+                                month
+                              )}
+                            </td>
                           )}
-                        </td>
+                        </React.Fragment>
                       ))}
                       <td className="border p-1 text-right" style={{ width: "15%" }}>
                         {formatNumber(netIncome)}
                       </td>
+                      {showPercentages && (
+                        <td className="border p-1 text-right text-sm font-bold text-slate-600">
+                          {totalRevenue !== 0 ? formatPercentage(netIncome, totalRevenue) : "—"}
+                        </td>
+                      )}
                     </>
                   ) : (
                     <>
                       <td className="border p-1 text-right w-[150px]">{formatNumber(netIncome)}</td>
+                      {showPercentages && (
+                        <td className="border p-1 text-right text-sm font-bold text-slate-600">
+                          {totalRevenue !== 0 ? formatPercentage(netIncome, totalRevenue) : "—"}
+                        </td>
+                      )}
                       {showPreviousPeriod && (
                         <>
                           <td className="border p-1 text-right w-[150px]">
@@ -1043,6 +1527,19 @@ export default function Page() {
                               })()
                             )}
                           </td>
+                          {showPercentages && (
+                            <td className="border p-1 text-right text-xs text-slate-600">
+                              {formatPercentage(
+                                (() => {
+                                  const previousRevenue = calculatePreviousPeriodTotal(revenueRows);
+                                  const previousCOGS = calculatePreviousPeriodTotal(cogsRows);
+                                  const previousExpenses = calculatePreviousPeriodTotal(expenseRows);
+                                  return previousRevenue - previousCOGS - previousExpenses;
+                                })(),
+                                calculatePreviousPeriodTotal(revenueRows)
+                              )}
+                            </td>
+                          )}
                           <td className="border p-1 text-right w-[150px]">
                             {formatNumber(
                               (() => {
@@ -1059,6 +1556,8 @@ export default function Page() {
                     </>
                   )}
                 </tr>
+                  </>
+                )}
               </tbody>
             </table>
           </CardContent>
@@ -1191,7 +1690,9 @@ export default function Page() {
                           <td className="p-2">
                             {viewerModal.category ? getCategoryName(tx, viewerModal.category) : ""}
                           </td>
-                          <td className="p-2 text-right">{formatNumber(Number(tx.debit))}</td>
+                          <td className="p-2 text-right">
+                            {formatNumber(getTransactionDisplayAmount(tx, viewerModal.category?.type || ""))}
+                          </td>
                           <td className="p-2 text-center">
                             <button
                               onClick={() => setEditingTransaction(tx)}
@@ -1210,7 +1711,12 @@ export default function Page() {
                         Total
                       </td>
                       <td className="p-2 text-right">
-                        {formatNumber(selectedCategoryTransactions.reduce((sum, tx) => sum + Number(tx.debit), 0))}
+                        {formatNumber(
+                          selectedCategoryTransactions.reduce(
+                            (sum, tx) => sum + getTransactionDisplayAmount(tx, viewerModal.category?.type || ""),
+                            0
+                          )
+                        )}
                       </td>
                       <td></td>
                     </tr>
