@@ -3020,12 +3020,12 @@ export default function TransactionsPage() {
         </div>
       )}
 
-      {/* Journal Entry Modal */}
+      {/* Transaction Modal */}
       {journalEntryModal.isOpen && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50">
           <div className="bg-white p-6 rounded-lg w-[800px] overflow-y-auto shadow-xl">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Add Journal Entry</h2>
+              <h2 className="text-lg font-semibold">Add Transaction</h2>
               <button
                 onClick={() => setJournalEntryModal((prev) => ({ ...prev, isOpen: false }))}
                 className="text-gray-500 hover:text-gray-700 text-xl"
@@ -3311,12 +3311,12 @@ export default function TransactionsPage() {
         </div>
       )}
 
-      {/* Edit Journal Entry Modal */}
+      {/* Edit Transaction Modal */}
       {editJournalEntryModal.isOpen && editJournalEntryModal.entry && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50">
           <div className="bg-white p-6 rounded-lg w-[800px] overflow-y-auto shadow-xl">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Edit Journal Entry</h2>
+              <h2 className="text-lg font-semibold">Edit Transaction</h2>
               <button
                 onClick={() => setEditJournalEntryModal({ isOpen: false, entry: null })}
                 className="text-gray-500 hover:text-gray-700 text-xl"
@@ -4328,7 +4328,7 @@ export default function TransactionsPage() {
         </div>
       )}
 
-      {/* Edit Journal Entry Modal - Updated to match manual-je format */}
+      {/* Edit Transaction Modal - Updated to match manual-je format */}
       {editJournalModal.isOpen && (
         <div 
           className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
@@ -4339,7 +4339,7 @@ export default function TransactionsPage() {
             onClick={e => e.stopPropagation()}
           >
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Edit Journal Entry</h2>
+              <h2 className="text-lg font-semibold">Edit Transaction</h2>
               <button
                 onClick={() => setEditJournalModal(prev => ({ ...prev, isOpen: false }))}
                 className="text-gray-500 hover:text-gray-700 text-xl"
@@ -4391,7 +4391,7 @@ export default function TransactionsPage() {
                   </div>
                 </div>
                 
-                {/* Journal Entry Table */}
+                {/* Transaction Table */}
                 <div className="border rounded-lg overflow-hidden">
                   <table className="w-full border-collapse">
                     <thead className="bg-gray-50">

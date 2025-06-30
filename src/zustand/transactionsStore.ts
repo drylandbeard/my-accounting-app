@@ -161,6 +161,14 @@ export interface JournalTableEntry {
   // Fields for split items displayed as journal entries
   is_split_item?: boolean;
   split_item_data?: SplitItem;
+  // Fields for manual journal entries
+  is_manual_entry?: boolean;
+  reference_number?: string;
+  je_name?: string;
+  payee_id?: string; // Direct payee_id for manual entries
+  created_at?: string;
+  updated_at?: string;
+  entry_source?: 'journal' | 'manual_journal'; // Track the source table
   [key: string]: unknown; // Allow dynamic property access for additional columns
 }
 
@@ -398,11 +406,13 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
     }
   },
 
-  // Fetch journal entries directly from the journal table
+  // Fetch journal entries from both journal and manual_journal_entries tables
   fetchJournalEntries: async (companyId: string) => {
     try {
-      // Fetch journal entries directly from the journal table with related data
-      const { data: journalEntries, error } = await supabase
+      set({ isLoading: true, error: null });
+
+      // Fetch journal entries from the journal table with related data
+      const { data: journalEntries, error: journalError } = await supabase
         .from('journal')
         .select(`
           *,
@@ -411,10 +421,19 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
         .eq('company_id', companyId)
         .order('date', { ascending: false });
 
-      if (error) throw error;
+      if (journalError) throw journalError;
 
-      // Process the journal entries to match the expected format
-      const processedEntries: JournalTableEntry[] = (journalEntries || []).map((entry: {
+      // Fetch manual journal entries
+      const { data: manualJournalEntries, error: manualError } = await supabase
+        .from('manual_journal_entries')
+        .select('*')
+        .eq('company_id', companyId)
+        .order('date', { ascending: false });
+
+      if (manualError) throw manualError;
+
+      // Process regular journal entries
+      const processedJournalEntries: JournalTableEntry[] = (journalEntries || []).map((entry: {
         id: string;
         date: string;
         description: string;
@@ -445,6 +464,8 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
             return {
               ...entry,
               is_split_item: true,
+              is_manual_entry: false,
+              entry_source: 'journal' as const,
               split_item_data: {
                 id: matchingSplit.id || entry.id,
                 date: matchingSplit.date || entry.date,
@@ -461,14 +482,45 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
         // Regular journal entry (no split or bank account entry)
         return {
           ...entry,
-          is_split_item: false
+          is_split_item: false,
+          is_manual_entry: false,
+          entry_source: 'journal' as const
         };
       });
+
+      // Process manual journal entries
+      const processedManualEntries: JournalTableEntry[] = (manualJournalEntries || []).map((entry: {
+        id: string;
+        date: string;
+        description: string;
+        debit: number;
+        credit: number;
+        chart_account_id: string;
+        payee_id?: string;
+        company_id: string;
+        reference_number: string;
+        je_name?: string;
+        created_at: string;
+        updated_at: string;
+      }) => ({
+        ...entry,
+        transaction_id: entry.reference_number, // Use reference_number as transaction_id for manual entries
+        is_split_item: false,
+        is_manual_entry: true,
+        entry_source: 'manual_journal' as const,
+        transactions: {
+          payee_id: entry.payee_id
+        }
+      }));
+
+      // Combine both types of entries and sort by date
+      const allEntries = [...processedJournalEntries, ...processedManualEntries]
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       
-      set({ journalEntries: processedEntries });
+      set({ journalEntries: allEntries, isLoading: false });
     } catch (error) {
       console.error('Error fetching journal entries:', error);
-      set({ error: 'Failed to fetch journal entries' });
+      set({ error: 'Failed to fetch journal entries', isLoading: false });
     }
   },
   
