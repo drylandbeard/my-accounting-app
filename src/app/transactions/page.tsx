@@ -995,19 +995,13 @@ export default function TransactionsPage() {
         const q = toAddSearchQuery.toLowerCase();
         const desc = tx.description?.toLowerCase() || "";
         const date = formatDate(tx.date).toLowerCase();
-        const spent = tx.spent || "";
-        const received = tx.received || "";
-        const amount = tx.amount || "";
-        // Also search formatted amounts (what user sees in display)
-        const spentFormatted = tx.spent ? formatAmount(tx.spent, { showCurrency: false }) : "";
-        const receivedFormatted = tx.received ? formatAmount(tx.received, { showCurrency: false }) : "";
-        const amountFormatted = tx.amount ? formatAmount(tx.amount, { showCurrency: false }) : "";
+        // Search formatted amounts (what user sees in display)
+        const spentFormatted = tx.spent ? formatAmount(tx.spent, { showCurrency: false }).toLowerCase() : "";
+        const receivedFormatted = tx.received ? formatAmount(tx.received, { showCurrency: false }).toLowerCase() : "";
+        const amountFormatted = tx.amount ? formatAmount(tx.amount, { showCurrency: false }).toLowerCase() : "";
         return (
           desc.includes(q) ||
           date.includes(q) ||
-          spent.includes(q) ||
-          received.includes(q) ||
-          amount.includes(q) ||
           spentFormatted.includes(q) ||
           receivedFormatted.includes(q) ||
           amountFormatted.includes(q)
@@ -1040,13 +1034,10 @@ export default function TransactionsPage() {
         const q = addedSearchQuery.toLowerCase();
         const desc = tx.description?.toLowerCase() || "";
         const date = formatDate(tx.date).toLowerCase();
-        const spent = tx.spent || "";
-        const received = tx.received || "";
-        const amount = tx.amount || "";
-        // Also search formatted amounts (what user sees in display)
-        const spentFormatted = tx.spent ? formatAmount(tx.spent, { showCurrency: false }) : "";
-        const receivedFormatted = tx.received ? formatAmount(tx.received, { showCurrency: false }) : "";
-        const amountFormatted = tx.amount ? formatAmount(tx.amount, { showCurrency: false }) : "";
+        // Search formatted amounts (what user sees in display)
+        const spentFormatted = tx.spent ? formatAmount(tx.spent, { showCurrency: false }).toLowerCase() : "";
+        const receivedFormatted = tx.received ? formatAmount(tx.received, { showCurrency: false }).toLowerCase() : "";
+        const amountFormatted = tx.amount ? formatAmount(tx.amount, { showCurrency: false }).toLowerCase() : "";
         // Get the category name for this transaction
         const isAccountDebit = tx.selected_category_id === selectedAccountIdInCOA;
         const categoryId = isAccountDebit ? tx.corresponding_category_id : tx.selected_category_id;
@@ -1055,9 +1046,6 @@ export default function TransactionsPage() {
         return (
           desc.includes(q) ||
           date.includes(q) ||
-          spent.includes(q) ||
-          received.includes(q) ||
-          amount.includes(q) ||
           spentFormatted.includes(q) ||
           receivedFormatted.includes(q) ||
           amountFormatted.includes(q) ||
