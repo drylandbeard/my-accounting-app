@@ -816,11 +816,10 @@ export default function JournalTablePage() {
         </div>
       ) : (
         <div className="space-y-4">
-          <div className="flex justify-between items-center mb-4">
-            <h1 className="text-xl font-semibold">Manual Journal Entries</h1>
+          <div className="flex justify-end items-center mb-4">
             <button
               onClick={() => setShowAddModal(true)}
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
+              className="border px-3 py-1 rounded text-xs flex items-center space-x-1 bg-gray-100 hover:bg-gray-200"
             >
               Add Manual Entry
             </button>
