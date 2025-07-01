@@ -3,12 +3,13 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "../../../lib/supabase";
 import { useAuthStore } from "@/zustand/authStore";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, Download, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { PeriodSelector } from "@/components/ui/period-selector";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import ExcelJS from "exceljs";
 
 type Account = {
   id: string;
@@ -74,6 +75,13 @@ export default function Page() {
     const month = String(date.getMonth() + 1).padStart(2, "0");
     const day = String(date.getDate()).padStart(2, "0");
     return `${year}-${month}-${day}`;
+  };
+
+  // Helper: parse date string and format for display without timezone issues
+  const formatDateForDisplay = (dateString: string): string => {
+    const [year, month, day] = dateString.split('-').map(Number);
+    const date = new Date(year, month - 1, day); // month is 0-indexed
+    return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   };
 
   // Helper: get first and last day of month
@@ -311,8 +319,11 @@ export default function Page() {
     if (startDate && endDate) fetchData();
   }, [startDate, endDate, currentCompany?.id, hasCompanyContext]);
 
-  // Helper: get all subaccounts for a parent
-  const getSubaccounts = (parentId: string) => accounts.filter((acc) => acc.parent_id === parentId);
+  // Helper: get all subaccounts for a parent, sorted alphabetically
+  const getSubaccounts = (parentId: string) => 
+    accounts
+      .filter((acc) => acc.parent_id === parentId)
+      .sort((a, b) => a.name.localeCompare(b.name));
 
   // Helper: calculate direct total for an account (only its own transactions)
   const calculateAccountDirectTotal = (account: Account): number => {
@@ -360,8 +371,12 @@ export default function Page() {
     return subaccounts.some((sub) => hasTransactions(sub));
   };
 
-  // Top-level accounts (no parent) with transactions
-  const topLevel = (type: string) => accounts.filter((a) => a.type === type && !a.parent_id).filter(hasTransactions);
+  // Top-level accounts (no parent) with transactions, sorted alphabetically
+  const topLevel = (type: string) => 
+    accounts
+      .filter((a) => a.type === type && !a.parent_id)
+      .filter(hasTransactions)
+      .sort((a, b) => a.name.localeCompare(b.name));
 
   // For COGS, Expense, Revenue
   const revenueRows = topLevel("Revenue");
@@ -581,731 +596,446 @@ export default function Page() {
   };
 
   // Export function
-  const exportToCSV = () => {
-    const csvData = [];
-    const months = getMonthsInRange();
+  const exportToXLSX = async () => {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Profit & Loss");
 
-    // Header
-    if (isMonthlyView) {
-      const headerRow = ["Account"];
+    // Set basic styles
+    const titleStyle = { font: { size: 12, bold: true }, alignment: { horizontal: "center" as const } };
+    const headerStyle = { 
+      font: { bold: true, size: 10 }, 
+      alignment: { horizontal: "center" as const }
+    };
+    const sectionStyle = { 
+      font: { bold: true, size: 10 }
+    };
+    const numberStyle = { 
+      font: { size: 10 },
+      numFmt: "#,##0.00", 
+      alignment: { horizontal: "right" as const }
+    };
+    const percentStyle = { 
+      font: { size: 10 },
+      numFmt: "0.0%", 
+      alignment: { horizontal: "right" as const }
+    };
+    const totalStyle = { 
+      font: { bold: true, size: 10 }, 
+      numFmt: "#,##0.00", 
+      alignment: { horizontal: "right" as const }
+    };
 
-      months.forEach((month: string) => {
-        headerRow.push(formatMonth(month));
-        if (showPercentages) {
-          headerRow.push("%");
-        }
-      });
+    let currentRow = 1;
+    const months = isMonthlyView ? getMonthsInRange() : [];
+    const totalColumns = isMonthlyView 
+      ? 1 + months.length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1)
+      : showPercentages ? 3 : 2;
 
-      headerRow.push("Total");
-      if (showPercentages) {
-        headerRow.push("%");
-      }
-
-      csvData.push(["Profit & Loss", `${startDate} to ${endDate}`]);
-      csvData.push([""]);
-      csvData.push(headerRow);
-    } else {
-      const headerRow = ["Account", "Total"];
-
-      if (showPercentages) {
-        headerRow.push("%");
-      }
-
-      if (showPreviousPeriod) {
-        headerRow.push("Previous Period");
-        if (showPercentages) {
-          headerRow.push("%");
-        }
-        headerRow.push("Difference");
-      }
-
-      csvData.push(["Profit & Loss", `${startDate} to ${endDate}`]);
-      csvData.push([""]);
-      csvData.push(headerRow);
+    // Title and company info at top
+    worksheet.mergeCells(`A${currentRow}:${String.fromCharCode(64 + totalColumns)}${currentRow}`);
+    worksheet.getCell(`A${currentRow}`).value = "Profit & Loss";
+    worksheet.getCell(`A${currentRow}`).style = titleStyle;
+    currentRow++;
+    
+    if (currentCompany) {
+      worksheet.mergeCells(`A${currentRow}:${String.fromCharCode(64 + totalColumns)}${currentRow}`);
+      worksheet.getCell(`A${currentRow}`).value = currentCompany.name;
+      worksheet.getCell(`A${currentRow}`).style = { font: { size: 10 }, alignment: { horizontal: "center" as const } };
+      currentRow++;
     }
+    
+    worksheet.mergeCells(`A${currentRow}:${String.fromCharCode(64 + totalColumns)}${currentRow}`);
+    worksheet.getCell(`A${currentRow}`).value = `${formatDateForDisplay(startDate)} to ${formatDateForDisplay(endDate)}`;
+    worksheet.getCell(`A${currentRow}`).style = { font: { size: 10 }, alignment: { horizontal: "center" as const } };
+    currentRow++;
 
-    // Revenue
-    csvData.push(["Revenue"]);
+    // Table headers
+    let colIndex = 1;
+    worksheet.getCell(currentRow, colIndex++).value = "Account";
+    worksheet.getCell(currentRow, colIndex - 1).style = headerStyle;
 
     if (isMonthlyView) {
-      // Export revenue with monthly columns
-      revenueRows.forEach((account) => {
-        const isCollapsed = collapsedAccounts.has(account.id);
-
-        // Account row
-        const accountRow = [account.name];
-
-        months.forEach((month: string) => {
-          accountRow.push(
-            formatNumber(
-              isCollapsed
-                ? calculateAccountTotalForMonthWithSubaccounts(account, month)
-                : calculateAccountTotalForMonth(account, month)
-            )
-          );
-
+      months.forEach((month) => {
+        worksheet.getCell(currentRow, colIndex++).value = formatMonth(month);
+        worksheet.getCell(currentRow, colIndex - 1).style = headerStyle;
           if (showPercentages) {
-            accountRow.push(
-              formatPercentageForAccount(
-                isCollapsed
-                  ? calculateAccountTotalForMonthWithSubaccounts(account, month)
-                  : calculateAccountTotalForMonth(account, month),
-                account
-              )
-            );
-          }
-        });
-
-        // Total column
-        accountRow.push(
-          formatNumber(isCollapsed ? calculateAccountTotal(account) : calculateAccountDirectTotal(account))
-        );
-
-        if (showPercentages) {
-          accountRow.push(
-            formatPercentageForAccount(
-              isCollapsed ? calculateAccountTotal(account) : calculateAccountDirectTotal(account),
-              account
-            )
-          );
-        }
-
-        csvData.push(accountRow);
-
-        // Add subaccounts if not collapsed
-        if (!isCollapsed) {
-          getSubaccounts(account.id)
-            .filter(hasTransactions)
-            .forEach((sub) => {
-              const subRow = [`  ${sub.name}`];
-
-              months.forEach((month: string) => {
-                subRow.push(formatNumber(calculateAccountTotalForMonth(sub, month)));
-                if (showPercentages) {
-                  subRow.push(formatPercentageForAccount(calculateAccountTotalForMonth(sub, month), sub));
-                }
-              });
-
-              subRow.push(formatNumber(calculateAccountDirectTotal(sub)));
-              if (showPercentages) {
-                subRow.push(formatPercentageForAccount(calculateAccountDirectTotal(sub), sub));
-              }
-
-              csvData.push(subRow);
-            });
+          worksheet.getCell(currentRow, colIndex++).value = "%";
+          worksheet.getCell(currentRow, colIndex - 1).style = headerStyle;
         }
       });
-
-      // Total Revenue row
-      const totalRevenueRow = ["Total Revenue"];
-
-      months.forEach((month: string) => {
-        totalRevenueRow.push(
-          formatNumber(revenueRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0))
-        );
-
+      worksheet.getCell(currentRow, colIndex++).value = "Total";
+      worksheet.getCell(currentRow, colIndex - 1).style = headerStyle;
         if (showPercentages) {
-          totalRevenueRow.push(totalRevenue !== 0 ? "100.0%" : "—");
-        }
-      });
-
-      totalRevenueRow.push(formatNumber(totalRevenue));
-      if (showPercentages) {
-        totalRevenueRow.push(totalRevenue !== 0 ? "100.0%" : "—");
+        worksheet.getCell(currentRow, colIndex++).value = "%";
+        worksheet.getCell(currentRow, colIndex - 1).style = headerStyle;
       }
-
-      csvData.push(totalRevenueRow);
     } else {
-      // Export revenue without monthly breakdown
-      revenueRows.forEach((account) => {
-        const isCollapsed = collapsedAccounts.has(account.id);
-        const accountRow = [
-          account.name,
-          formatNumber(isCollapsed ? calculateAccountTotal(account) : calculateAccountDirectTotal(account)),
-        ];
-
+      worksheet.getCell(currentRow, colIndex++).value = "Total";
+      worksheet.getCell(currentRow, colIndex - 1).style = headerStyle;
         if (showPercentages) {
-          accountRow.push(
-            formatPercentageForAccount(
-              isCollapsed ? calculateAccountTotal(account) : calculateAccountDirectTotal(account),
-              account
-            )
-          );
-        }
-
-        if (showPreviousPeriod) {
-          const previousTotal = calculatePreviousPeriodTotal([account]);
-          accountRow.push(formatNumber(previousTotal));
-
-          if (showPercentages) {
-            accountRow.push(formatPercentage(previousTotal, calculatePreviousPeriodTotal(revenueRows)));
-          }
-
-          accountRow.push(
-            formatNumber(
-              (isCollapsed ? calculateAccountTotal(account) : calculateAccountDirectTotal(account)) - previousTotal
-            )
-          );
-        }
-
-        csvData.push(accountRow);
-
-        // Add subaccounts if not collapsed
-        if (!isCollapsed) {
-          getSubaccounts(account.id)
-            .filter(hasTransactions)
-            .forEach((sub) => {
-              const subRow = [`  ${sub.name}`, formatNumber(calculateAccountDirectTotal(sub))];
-
-              if (showPercentages) {
-                subRow.push(formatPercentageForAccount(calculateAccountDirectTotal(sub), sub));
-              }
-
-              if (showPreviousPeriod) {
-                const previousSubTotal = calculatePreviousPeriodTotal([sub]);
-                subRow.push(formatNumber(previousSubTotal));
-
-                if (showPercentages) {
-                  subRow.push(formatPercentage(previousSubTotal, calculatePreviousPeriodTotal(revenueRows)));
-                }
-
-                subRow.push(formatNumber(calculateAccountDirectTotal(sub) - previousSubTotal));
-              }
-
-              csvData.push(subRow);
-            });
-        }
-      });
-
-      // Total Revenue row
-      const totalRevenueRow = ["Total Revenue", formatNumber(totalRevenue)];
-
-      if (showPercentages) {
-        totalRevenueRow.push(totalRevenue !== 0 ? "100.0%" : "—");
+        worksheet.getCell(currentRow, colIndex++).value = "%";
+        worksheet.getCell(currentRow, colIndex - 1).style = headerStyle;
       }
-
-      if (showPreviousPeriod) {
-        const previousRevenue = calculatePreviousPeriodTotal(revenueRows);
-        totalRevenueRow.push(formatNumber(previousRevenue));
-
-        if (showPercentages) {
-          totalRevenueRow.push(previousRevenue !== 0 ? "100.0%" : "—");
-        }
-
-        totalRevenueRow.push(formatNumber(totalRevenue - previousRevenue));
-      }
-
-      csvData.push(totalRevenueRow);
     }
+    currentRow++;
 
-    csvData.push([""]);
+    // Helper function to add account rows
+    const addAccountRows = (accounts: Account[], sectionName: string, level = 0) => {
+      if (accounts.length === 0) return 0;
 
-    // COGS
-    if (cogsRows.length > 0) {
-      csvData.push(["COST OF GOODS SOLD"]);
+      // Section header
+      worksheet.mergeCells(`A${currentRow}:${String.fromCharCode(64 + totalColumns)}${currentRow}`);
+      worksheet.getCell(`A${currentRow}`).value = sectionName;
+      worksheet.getCell(`A${currentRow}`).style = sectionStyle;
+      currentRow++;
+
+      // Account rows
+      accounts.forEach((account) => {
+        const addAccountRow = (acc: Account, accountLevel: number) => {
+          const subaccounts = getSubaccounts(acc.id).filter(hasTransactions);
+          const isParent = subaccounts.length > 0;
+          const isCollapsed = collapsedAccounts.has(acc.id);
+          const accountTotal = calculateAccountTotal(acc);
+          const directTotal = calculateAccountDirectTotal(acc);
+
+          if (Math.abs(isParent && isCollapsed ? accountTotal : directTotal) < 0.01 && !isParent) return;
+
+          let colIndex = 1;
+          const indent = "  ".repeat(accountLevel);
+          worksheet.getCell(currentRow, colIndex++).value = `${indent}${acc.name}`;
+          worksheet.getCell(currentRow, 1).style = { font: { size: 10 } };
 
       if (isMonthlyView) {
-        // Export COGS with monthly columns
-        cogsRows.forEach((account) => {
-          const isCollapsed = collapsedAccounts.has(account.id);
-
-          // Account row
-          const accountRow = [account.name];
-
-          months.forEach((month: string) => {
-            accountRow.push(
-              formatNumber(
-                isCollapsed
-                  ? calculateAccountTotalForMonthWithSubaccounts(account, month)
-                  : calculateAccountTotalForMonth(account, month)
-              )
-            );
+            months.forEach((month) => {
+              const monthlyTotal = isParent && isCollapsed 
+                ? calculateAccountTotalForMonthWithSubaccounts(acc, month)
+                : calculateAccountTotalForMonth(acc, month);
+              
+              worksheet.getCell(currentRow, colIndex++).value = monthlyTotal;
+              worksheet.getCell(currentRow, colIndex - 1).style = numberStyle;
 
             if (showPercentages) {
-              accountRow.push(
-                calculatePercentageForMonth(
-                  isCollapsed
-                    ? calculateAccountTotalForMonthWithSubaccounts(account, month)
-                    : calculateAccountTotalForMonth(account, month),
-                  month
-                )
-              );
+                const percentValue = formatPercentageForAccount(monthlyTotal, acc);
+                worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
+                worksheet.getCell(currentRow, colIndex - 1).style = percentStyle;
             }
           });
 
           // Total column
-          accountRow.push(
-            formatNumber(isCollapsed ? calculateAccountTotal(account) : calculateAccountDirectTotal(account))
-          );
+            worksheet.getCell(currentRow, colIndex++).value = isParent && isCollapsed ? accountTotal : directTotal;
+            worksheet.getCell(currentRow, colIndex - 1).style = numberStyle;
 
           if (showPercentages) {
-            accountRow.push(
-              formatPercentage(
-                isCollapsed ? calculateAccountTotal(account) : calculateAccountDirectTotal(account),
-                totalRevenue
-              )
-            );
-          }
-
-          csvData.push(accountRow);
-
-          // Add subaccounts if not collapsed
-          if (!isCollapsed) {
-            getSubaccounts(account.id)
-              .filter(hasTransactions)
-              .forEach((sub) => {
-                const subRow = [`  ${sub.name}`];
-
-                months.forEach((month: string) => {
-                  subRow.push(formatNumber(calculateAccountTotalForMonth(sub, month)));
-                  if (showPercentages) {
-                    subRow.push(calculatePercentageForMonth(calculateAccountTotalForMonth(sub, month), month));
-                  }
-                });
-
-                subRow.push(formatNumber(calculateAccountDirectTotal(sub)));
-                if (showPercentages) {
-                  subRow.push(formatPercentage(calculateAccountDirectTotal(sub), totalRevenue));
-                }
-
-                csvData.push(subRow);
-              });
-          }
-        });
-
-        // Total COGS row
-        const totalCOGSRow = ["Total COGS"];
-
-        months.forEach((month: string) => {
-          totalCOGSRow.push(
-            formatNumber(cogsRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0))
-          );
-
-          if (showPercentages) {
-            totalCOGSRow.push(
-              calculatePercentageForMonth(
-                cogsRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0),
-                month
-              )
-            );
-          }
-        });
-
-        totalCOGSRow.push(formatNumber(totalCOGS));
-        if (showPercentages) {
-          totalCOGSRow.push(
-            totalRevenue !== 0 ? formatPercentage(totalCOGS, totalRevenue) : totalCOGS !== 0 ? "100.0%" : "—"
-          );
-        }
-
-        csvData.push(totalCOGSRow);
-
-        // Gross Profit row
-        const grossProfitRow = ["Gross Profit"];
-
-        months.forEach((month: string) => {
-          const monthlyGrossProfit =
-            revenueRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0) -
-            cogsRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0);
-
-          grossProfitRow.push(formatNumber(monthlyGrossProfit));
-
-          if (showPercentages) {
-            grossProfitRow.push(calculatePercentageForMonth(monthlyGrossProfit, month));
-          }
-        });
-
-        grossProfitRow.push(formatNumber(grossProfit));
-        if (showPercentages) {
-          grossProfitRow.push(totalRevenue !== 0 ? formatPercentage(grossProfit, totalRevenue) : "—");
-        }
-
-        csvData.push(grossProfitRow);
-      } else {
-        // Export COGS without monthly breakdown
-        cogsRows.forEach((account) => {
-          const isCollapsed = collapsedAccounts.has(account.id);
-          const accountRow = [
-            account.name,
-            formatNumber(isCollapsed ? calculateAccountTotal(account) : calculateAccountDirectTotal(account)),
-          ];
-
-          if (showPercentages) {
-            accountRow.push(
-              totalRevenue !== 0
-                ? formatPercentage(
-                    isCollapsed ? calculateAccountTotal(account) : calculateAccountDirectTotal(account),
-                    totalRevenue
-                  )
-                : "—"
-            );
-          }
-
-          if (showPreviousPeriod) {
-            const previousTotal = calculatePreviousPeriodTotal([account]);
-            accountRow.push(formatNumber(previousTotal));
-
-            if (showPercentages) {
-              const previousRevenue = calculatePreviousPeriodTotal(revenueRows);
-              accountRow.push(previousRevenue !== 0 ? formatPercentage(previousTotal, previousRevenue) : "—");
+              const percentValue = formatPercentageForAccount(isParent && isCollapsed ? accountTotal : directTotal, acc);
+              worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
+              worksheet.getCell(currentRow, colIndex - 1).style = percentStyle;
             }
-
-            accountRow.push(
-              formatNumber(
-                (isCollapsed ? calculateAccountTotal(account) : calculateAccountDirectTotal(account)) - previousTotal
-              )
-            );
+          } else {
+            worksheet.getCell(currentRow, colIndex++).value = isParent && isCollapsed ? accountTotal : directTotal;
+            worksheet.getCell(currentRow, colIndex - 1).style = numberStyle;
+            
+                  if (showPercentages) {
+              const percentValue = formatPercentageForAccount(isParent && isCollapsed ? accountTotal : directTotal, acc);
+              worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
+              worksheet.getCell(currentRow, colIndex - 1).style = percentStyle;
+            }
           }
-
-          csvData.push(accountRow);
+          currentRow++;
 
           // Add subaccounts if not collapsed
-          if (!isCollapsed) {
-            getSubaccounts(account.id)
-              .filter(hasTransactions)
-              .forEach((sub) => {
-                const subRow = [`  ${sub.name}`, formatNumber(calculateAccountDirectTotal(sub))];
+          if (isParent && !isCollapsed) {
+            subaccounts.forEach((sub) => {
+              addAccountRow(sub, accountLevel + 1);
+            });
 
-                if (showPercentages) {
-                  subRow.push(
-                    totalRevenue !== 0 ? formatPercentage(calculateAccountDirectTotal(sub), totalRevenue) : "—"
-                  );
+            // Add total row for parent
+            colIndex = 1;
+            const indentTotal = "  ".repeat(accountLevel);
+            worksheet.getCell(currentRow, colIndex++).value = `${indentTotal}Total ${acc.name}`;
+            worksheet.getCell(currentRow, 1).style = totalStyle;
+
+            if (isMonthlyView) {
+              months.forEach((month) => {
+                const monthlyTotal = calculateAccountTotalForMonthWithSubaccounts(acc, month);
+                worksheet.getCell(currentRow, colIndex++).value = monthlyTotal;
+                worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
+
+          if (showPercentages) {
+                  const percentValue = formatPercentageForAccount(monthlyTotal, acc);
+                  worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
+                  worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%" };
                 }
-
-                if (showPreviousPeriod) {
-                  const previousSubTotal = calculatePreviousPeriodTotal([sub]);
-                  subRow.push(formatNumber(previousSubTotal));
-
-                  if (showPercentages) {
-                    const previousRevenue = calculatePreviousPeriodTotal(revenueRows);
-                    subRow.push(previousRevenue !== 0 ? formatPercentage(previousSubTotal, previousRevenue) : "—");
-                  }
-
-                  subRow.push(formatNumber(calculateAccountDirectTotal(sub) - previousSubTotal));
-                }
-
-                csvData.push(subRow);
               });
-          }
-        });
-
-        // Total COGS row
-        const totalCOGSRow = ["Total COGS", formatNumber(totalCOGS)];
-
-        if (showPercentages) {
-          totalCOGSRow.push(
-            totalRevenue !== 0 ? formatPercentage(totalCOGS, totalRevenue) : totalCOGS !== 0 ? "100.0%" : "—"
-          );
-        }
-
-        if (showPreviousPeriod) {
-          const previousCOGS = calculatePreviousPeriodTotal(cogsRows);
-          totalCOGSRow.push(formatNumber(previousCOGS));
+              
+              // Total column
+              worksheet.getCell(currentRow, colIndex++).value = accountTotal;
+              worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
 
           if (showPercentages) {
-            const previousRevenue = calculatePreviousPeriodTotal(revenueRows);
-            totalCOGSRow.push(previousRevenue !== 0 ? formatPercentage(previousCOGS, previousRevenue) : "—");
-          }
-
-          totalCOGSRow.push(formatNumber(totalCOGS - previousCOGS));
-        }
-
-        csvData.push(totalCOGSRow);
-
-        // Gross Profit row
-        const grossProfitRow = ["Gross Profit", formatNumber(grossProfit)];
-
-        if (showPercentages) {
-          grossProfitRow.push(totalRevenue !== 0 ? formatPercentage(grossProfit, totalRevenue) : "—");
-        }
-
-        if (showPreviousPeriod) {
-          const previousRevenue = calculatePreviousPeriodTotal(revenueRows);
-          const previousCOGS = calculatePreviousPeriodTotal(cogsRows);
-          const previousGrossProfit = previousRevenue - previousCOGS;
-
-          grossProfitRow.push(formatNumber(previousGrossProfit));
+                const percentValue = formatPercentageForAccount(accountTotal, acc);
+                worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
+                worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%" };
+              }
+      } else {
+              worksheet.getCell(currentRow, colIndex++).value = accountTotal;
+              worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
 
           if (showPercentages) {
-            grossProfitRow.push(previousRevenue !== 0 ? formatPercentage(previousGrossProfit, previousRevenue) : "—");
+                const percentValue = formatPercentageForAccount(accountTotal, acc);
+                worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
+                worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%" };
+              }
+            }
+            currentRow++;
           }
+        };
 
-          grossProfitRow.push(formatNumber(grossProfit - previousGrossProfit));
-        }
+        addAccountRow(account, level);
+      });
 
-        csvData.push(grossProfitRow);
-      }
-
-      csvData.push([""]);
-    }
-
-    // Expenses
-    csvData.push(["EXPENSES"]);
+      // Section total
+      const sectionTotal = accounts.reduce((sum, a) => sum + calculateAccountTotal(a), 0);
+      colIndex = 1;
+      worksheet.getCell(currentRow, colIndex++).value = `Total ${sectionName}`;
+      worksheet.getCell(currentRow, 1).style = totalStyle;
 
     if (isMonthlyView) {
-      // Export expenses with monthly columns
-      expenseRows.forEach((account) => {
-        const isCollapsed = collapsedAccounts.has(account.id);
-
-        // Account row
-        const accountRow = [account.name];
-
-        months.forEach((month: string) => {
-          accountRow.push(
-            formatNumber(
-              isCollapsed
-                ? calculateAccountTotalForMonthWithSubaccounts(account, month)
-                : calculateAccountTotalForMonth(account, month)
-            )
-          );
+        months.forEach((month) => {
+          const monthlyTotal = accounts.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0);
+          worksheet.getCell(currentRow, colIndex++).value = monthlyTotal;
+          worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
 
           if (showPercentages) {
-            accountRow.push(
-              calculatePercentageForMonth(
-                isCollapsed
-                  ? calculateAccountTotalForMonthWithSubaccounts(account, month)
-                  : calculateAccountTotalForMonth(account, month),
-                month
-              )
-            );
+            const percentValue = sectionName === "Revenue" 
+              ? "100.0%" 
+              : calculatePercentageForMonth(monthlyTotal, month);
+            worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
+            worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%" };
           }
         });
 
         // Total column
-        accountRow.push(
-          formatNumber(isCollapsed ? calculateAccountTotal(account) : calculateAccountDirectTotal(account))
-        );
+        worksheet.getCell(currentRow, colIndex++).value = sectionTotal;
+        worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
 
         if (showPercentages) {
-          accountRow.push(
-            formatPercentage(
-              isCollapsed ? calculateAccountTotal(account) : calculateAccountDirectTotal(account),
-              totalRevenue
-            )
-          );
+          const percentValue = sectionName === "Revenue" && totalRevenue !== 0 ? "100.0%" : formatPercentage(sectionTotal, totalRevenue);
+          worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
+          worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%" };
         }
-
-        csvData.push(accountRow);
-
-        // Add subaccounts if not collapsed
-        if (!isCollapsed) {
-          getSubaccounts(account.id)
-            .filter(hasTransactions)
-            .forEach((sub) => {
-              const subRow = [`  ${sub.name}`];
-
-              months.forEach((month: string) => {
-                subRow.push(formatNumber(calculateAccountTotalForMonth(sub, month)));
-                if (showPercentages) {
-                  subRow.push(calculatePercentageForMonth(calculateAccountTotalForMonth(sub, month), month));
-                }
-              });
-
-              subRow.push(formatNumber(calculateAccountDirectTotal(sub)));
-              if (showPercentages) {
-                subRow.push(formatPercentage(calculateAccountDirectTotal(sub), totalRevenue));
-              }
-
-              csvData.push(subRow);
-            });
-        }
-      });
-
-      // Total Expenses row
-      const totalExpensesRow = ["Total Expenses"];
-
-      months.forEach((month: string) => {
-        totalExpensesRow.push(
-          formatNumber(expenseRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0))
-        );
-
-        if (showPercentages) {
-          totalExpensesRow.push(
-            calculatePercentageForMonth(
-              expenseRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0),
-              month
-            )
-          );
-        }
-      });
-
-      totalExpensesRow.push(formatNumber(totalExpenses));
-      if (showPercentages) {
-        totalExpensesRow.push(
-          totalRevenue !== 0 ? formatPercentage(totalExpenses, totalRevenue) : totalExpenses !== 0 ? "100.0%" : "—"
-        );
-      }
-
-      csvData.push(totalExpensesRow);
     } else {
-      // Export expenses without monthly breakdown
-      expenseRows.forEach((account) => {
-        const isCollapsed = collapsedAccounts.has(account.id);
-        const accountRow = [
-          account.name,
-          formatNumber(isCollapsed ? calculateAccountTotal(account) : calculateAccountDirectTotal(account)),
-        ];
+        worksheet.getCell(currentRow, colIndex++).value = sectionTotal;
+        worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
 
         if (showPercentages) {
-          accountRow.push(
-            totalRevenue !== 0
-              ? formatPercentage(
-                  isCollapsed ? calculateAccountTotal(account) : calculateAccountDirectTotal(account),
-                  totalRevenue
-                )
-              : "—"
-          );
+          const percentValue = sectionName === "Revenue" && totalRevenue !== 0 ? "100.0%" : formatPercentage(sectionTotal, totalRevenue);
+          worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
+          worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%" };
         }
+      }
+      currentRow++;
 
-        if (showPreviousPeriod) {
-          const previousTotal = calculatePreviousPeriodTotal([account]);
-          accountRow.push(formatNumber(previousTotal));
+      return sectionTotal;
+    };
 
-          if (showPercentages) {
-            const previousRevenue = calculatePreviousPeriodTotal(revenueRows);
-            accountRow.push(previousRevenue !== 0 ? formatPercentage(previousTotal, previousRevenue) : "—");
-          }
+    // Add sections
+    const totalRevenue = addAccountRows(revenueRows, "Revenue");
+    const totalCOGS = addAccountRows(cogsRows, "Cost of Goods Sold (COGS)");
+    
+    // Gross Profit
+    const grossProfit = totalRevenue - totalCOGS;
+    colIndex = 1;
+    worksheet.getCell(currentRow, colIndex++).value = "Gross Profit";
+    worksheet.getCell(currentRow, 1).style = totalStyle;
 
-          accountRow.push(
-            formatNumber(
-              (isCollapsed ? calculateAccountTotal(account) : calculateAccountDirectTotal(account)) - previousTotal
-            )
-          );
-        }
-
-        csvData.push(accountRow);
-
-        // Add subaccounts if not collapsed
-        if (!isCollapsed) {
-          getSubaccounts(account.id)
-            .filter(hasTransactions)
-            .forEach((sub) => {
-              const subRow = [`  ${sub.name}`, formatNumber(calculateAccountDirectTotal(sub))];
-
-              if (showPercentages) {
-                subRow.push(
-                  totalRevenue !== 0 ? formatPercentage(calculateAccountDirectTotal(sub), totalRevenue) : "—"
-                );
-              }
-
-              if (showPreviousPeriod) {
-                const previousSubTotal = calculatePreviousPeriodTotal([sub]);
-                subRow.push(formatNumber(previousSubTotal));
+    if (isMonthlyView) {
+      months.forEach((month) => {
+        const monthlyGrossProfit = 
+          revenueRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0) -
+          cogsRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0);
+        worksheet.getCell(currentRow, colIndex++).value = monthlyGrossProfit;
+        worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
 
                 if (showPercentages) {
-                  const previousRevenue = calculatePreviousPeriodTotal(revenueRows);
-                  subRow.push(previousRevenue !== 0 ? formatPercentage(previousSubTotal, previousRevenue) : "—");
-                }
-
-                subRow.push(formatNumber(calculateAccountDirectTotal(sub) - previousSubTotal));
-              }
-
-              csvData.push(subRow);
-            });
+          const percentValue = calculatePercentageForMonth(monthlyGrossProfit, month);
+          worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
+          worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%" };
         }
       });
-
-      // Total Expenses row
-      const totalExpensesRow = ["Total Expenses", formatNumber(totalExpenses)];
+      
+      // Total column
+      worksheet.getCell(currentRow, colIndex++).value = grossProfit;
+      worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
 
       if (showPercentages) {
-        totalExpensesRow.push(
-          totalRevenue !== 0 ? formatPercentage(totalExpenses, totalRevenue) : totalExpenses !== 0 ? "100.0%" : "—"
-        );
+        const percentValue = formatPercentage(grossProfit, totalRevenue);
+        worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
+        worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%" };
       }
-
-      if (showPreviousPeriod) {
-        const previousExpenses = calculatePreviousPeriodTotal(expenseRows);
-        totalExpensesRow.push(formatNumber(previousExpenses));
+    } else {
+      worksheet.getCell(currentRow, colIndex++).value = grossProfit;
+      worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
 
         if (showPercentages) {
-          const previousRevenue = calculatePreviousPeriodTotal(revenueRows);
-          totalExpensesRow.push(previousRevenue !== 0 ? formatPercentage(previousExpenses, previousRevenue) : "—");
+        const percentValue = formatPercentage(grossProfit, totalRevenue);
+        worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
+        worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%" };
         }
-
-        totalExpensesRow.push(formatNumber(totalExpenses - previousExpenses));
       }
+    currentRow++;
 
-      csvData.push(totalExpensesRow);
-    }
-
-    csvData.push([""]);
+    const totalExpenses = addAccountRows(expenseRows, "Expenses");
 
     // Net Income
-    if (isMonthlyView) {
-      const netIncomeRow = ["Net Income"];
+    const netIncome = totalRevenue - totalCOGS - totalExpenses;
+    colIndex = 1;
+    worksheet.getCell(currentRow, colIndex++).value = "Net Income";
+    worksheet.getCell(currentRow, 1).style = { 
+      font: { bold: true, color: { argb: netIncome >= 0 ? "FF006100" : "FF9C0006" } }, 
+      alignment: { horizontal: "left" as const },
+      fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: netIncome >= 0 ? "FFF0FFF0" : "FFFEF2F2" } }
+    };
 
-      getMonthsInRange().forEach((month: string) => {
+    if (isMonthlyView) {
+      months.forEach((month) => {
         const monthlyNetIncome =
           revenueRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0) -
           cogsRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0) -
           expenseRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0);
-
-        netIncomeRow.push(formatNumber(monthlyNetIncome));
+        worksheet.getCell(currentRow, colIndex++).value = monthlyNetIncome;
+        worksheet.getCell(currentRow, colIndex - 1).style = { 
+          font: { bold: true, color: { argb: monthlyNetIncome >= 0 ? "FF006100" : "FF9C0006" } }, 
+          numFmt: "#,##0.00", 
+          alignment: { horizontal: "right" as const },
+          fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: monthlyNetIncome >= 0 ? "FFF0FFF0" : "FFFEF2F2" } }
+        };
 
         if (showPercentages) {
-          netIncomeRow.push(calculatePercentageForMonth(monthlyNetIncome, month));
+          const percentValue = calculatePercentageForMonth(monthlyNetIncome, month);
+          worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
+          worksheet.getCell(currentRow, colIndex - 1).style = { 
+            font: { bold: true, color: { argb: monthlyNetIncome >= 0 ? "FF006100" : "FF9C0006" } }, 
+            numFmt: "0.0%", 
+            alignment: { horizontal: "right" as const },
+              fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: monthlyNetIncome >= 0 ? "FFF0FFF0" : "FFFEF2F2" } }
+          };
         }
       });
-
-      netIncomeRow.push(formatNumber(netIncome));
+      
+      // Total column
+      worksheet.getCell(currentRow, colIndex++).value = netIncome;
+      worksheet.getCell(currentRow, colIndex - 1).style = { 
+        font: { bold: true, color: { argb: netIncome >= 0 ? "FF006100" : "FF9C0006" } }, 
+        numFmt: "#,##0.00", 
+        alignment: { horizontal: "right" as const },
+        fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: netIncome >= 0 ? "FFF0FFF0" : "FFFEF2F2" } }
+      };
+      
       if (showPercentages) {
-        netIncomeRow.push(totalRevenue !== 0 ? formatPercentage(netIncome, totalRevenue) : "—");
+        const percentValue = formatPercentage(netIncome, totalRevenue);
+        worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
+        worksheet.getCell(currentRow, colIndex - 1).style = { 
+          font: { bold: true, color: { argb: netIncome >= 0 ? "FF006100" : "FF9C0006" } }, 
+          numFmt: "0.0%", 
+          alignment: { horizontal: "right" as const },
+          fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: netIncome >= 0 ? "FFF0FFF0" : "FFFEF2F2" } }
+        };
       }
-
-      csvData.push(netIncomeRow);
     } else {
-      const netIncomeRow = ["Net Income", formatNumber(netIncome)];
+      worksheet.getCell(currentRow, colIndex++).value = netIncome;
+      worksheet.getCell(currentRow, colIndex - 1).style = { 
+        font: { bold: true, color: { argb: netIncome >= 0 ? "FF006100" : "FF9C0006" } }, 
+        numFmt: "#,##0.00", 
+        alignment: { horizontal: "right" as const },
+        fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: netIncome >= 0 ? "FFF0FFF0" : "FFFEF2F2" } }
+      };
 
       if (showPercentages) {
-        netIncomeRow.push(totalRevenue !== 0 ? formatPercentage(netIncome, totalRevenue) : "—");
+        const percentValue = formatPercentage(netIncome, totalRevenue);
+        worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
+        worksheet.getCell(currentRow, colIndex - 1).style = { 
+          font: { bold: true, color: { argb: netIncome >= 0 ? "FF006100" : "FF9C0006" } }, 
+          numFmt: "0.0%", 
+          alignment: { horizontal: "right" as const },
+          fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: netIncome >= 0 ? "FFF0FFF0" : "FFFEF2F2" } }
+        };
       }
-
-      if (showPreviousPeriod) {
-        const previousRevenue = calculatePreviousPeriodTotal(revenueRows);
-        const previousCOGS = calculatePreviousPeriodTotal(cogsRows);
-        const previousExpenses = calculatePreviousPeriodTotal(expenseRows);
-        const previousNetIncome = previousRevenue - previousCOGS - previousExpenses;
-
-        netIncomeRow.push(formatNumber(previousNetIncome));
-
-        if (showPercentages) {
-          netIncomeRow.push(previousRevenue !== 0 ? formatPercentage(previousNetIncome, previousRevenue) : "—");
-        }
-
-        netIncomeRow.push(formatNumber(netIncome - previousNetIncome));
-      }
-
-      csvData.push(netIncomeRow);
     }
 
-    const csvContent = csvData.map((row) => row.map((cell) => `"${cell}"`).join(",")).join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    // Set column widths
+    worksheet.getColumn("A").width = 35;
+    for (let i = 2; i <= totalColumns; i++) {
+      worksheet.getColumn(i).width = 15;
+    }
+    
+    // Add footer
+    currentRow += 3;
+    
+    const today = new Date();
+    worksheet.mergeCells(`A${currentRow}:${String.fromCharCode(64 + totalColumns)}${currentRow}`);
+    worksheet.getCell(`A${currentRow}`).value = `switch | ${currentCompany?.name} | ${formatDateForDisplay(
+      today.toISOString().split("T")[0]
+    )} ${today.toLocaleTimeString()}`;
+    worksheet.getCell(`A${currentRow}`).style = { font: { size: 9, color: { argb: "FF666666" } },
+      alignment: { horizontal: "center" as const } };
+
+    // Save the file
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url = window.URL.createObjectURL(blob);
     const link = document.createElement("a");
-    const url = URL.createObjectURL(blob);
-    link.setAttribute("href", url);
-    link.setAttribute("download", `profit-loss-${startDate}-to-${endDate}.csv`);
-    link.style.visibility = "hidden";
-    document.body.appendChild(link);
+    link.href = url;
+    link.download = `profit-loss-${startDate}-to-${endDate}.xlsx`;
     link.click();
-    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
   };
 
   // Export modal transactions function
-  const exportModalTransactions = () => {
+  const exportModalTransactions = async () => {
     if (!viewerModal.category || selectedCategoryTransactions.length === 0) return;
 
-    const csvData = [];
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Transactions");
 
-    // Header with category info
-    csvData.push([
-      `${viewerModal.category.name} Transactions`,
-      viewerModal.selectedMonth ? `for ${formatMonth(viewerModal.selectedMonth)}` : `${startDate} to ${endDate}`,
-    ]);
-    csvData.push([""]);
+    // Set styles
+    const headerStyle = { font: { bold: true, size: 10 } };
+    const numberStyle = { font: { size: 10 }, numFmt: "#,##0.00", alignment: { horizontal: "right" as const } };
+    const dateStyle = { font: { size: 10 }, alignment: { horizontal: "left" as const } };
 
-    // Table headers
-    csvData.push(["Date", "Description", "Category", "Source", "Amount"]);
+    let currentRow = 1;
+
+    // Title and company info
+    worksheet.mergeCells(`A${currentRow}:E${currentRow}`);
+    worksheet.getCell(`A${currentRow}`).value = `${viewerModal.category.name} Transactions`;
+    worksheet.getCell(`A${currentRow}`).style = { font: { size: 12, bold: true }, alignment: { horizontal: "center" as const } };
+    currentRow++;
+
+    if (currentCompany) {
+      worksheet.mergeCells(`A${currentRow}:E${currentRow}`);
+      worksheet.getCell(`A${currentRow}`).value = currentCompany.name;
+      worksheet.getCell(`A${currentRow}`).style = { font: { size: 10 }, alignment: { horizontal: "center" as const } };
+      currentRow++;
+    }
+    
+    worksheet.mergeCells(`A${currentRow}:E${currentRow}`);
+    worksheet.getCell(`A${currentRow}`).value = viewerModal.selectedMonth 
+      ? `for ${formatMonth(viewerModal.selectedMonth)}` 
+      : `${formatDateForDisplay(startDate)} to ${formatDateForDisplay(endDate)}`;
+    worksheet.getCell(`A${currentRow}`).style = { font: { size: 10 }, alignment: { horizontal: "center" as const } };
+    currentRow++; // Empty row
+
+    // Headers
+    worksheet.getCell(`A${currentRow}`).value = "Date";
+    worksheet.getCell(`A${currentRow}`).style = headerStyle;
+    worksheet.getCell(`B${currentRow}`).value = "Description";
+    worksheet.getCell(`B${currentRow}`).style = headerStyle;
+    worksheet.getCell(`C${currentRow}`).value = "Category";
+    worksheet.getCell(`C${currentRow}`).style = headerStyle;
+    worksheet.getCell(`D${currentRow}`).value = "Source";
+    worksheet.getCell(`D${currentRow}`).style = headerStyle;
+    worksheet.getCell(`E${currentRow}`).value = "Amount";
+    worksheet.getCell(`E${currentRow}`).style = headerStyle;
+    currentRow++;
 
     // Transaction rows
     selectedCategoryTransactions.forEach((tx) => {
@@ -1313,7 +1043,17 @@ export default function Page() {
       const categoryName = viewerModal.category ? getCategoryName(tx, viewerModal.category) : "";
       const source = tx.source === "manual" ? "Manual" : "Journal";
 
-      csvData.push([tx.date, tx.description, categoryName, source, displayAmount.toFixed(2)]);
+      worksheet.getCell(`A${currentRow}`).value = tx.date;
+      worksheet.getCell(`A${currentRow}`).style = dateStyle;
+      worksheet.getCell(`B${currentRow}`).value = tx.description;
+      worksheet.getCell(`B${currentRow}`).style = dateStyle;
+      worksheet.getCell(`C${currentRow}`).value = categoryName;
+      worksheet.getCell(`C${currentRow}`).style = dateStyle;
+      worksheet.getCell(`D${currentRow}`).value = source;
+      worksheet.getCell(`D${currentRow}`).style = dateStyle;
+      worksheet.getCell(`E${currentRow}`).value = displayAmount;
+      worksheet.getCell(`E${currentRow}`).style = numberStyle;
+      currentRow++;
     });
 
     // Total row
@@ -1322,23 +1062,39 @@ export default function Page() {
       0
     );
 
-    csvData.push([""]);
-    csvData.push(["Total", "", "", "", total.toFixed(2)]);
+    currentRow++; // Empty row
+    worksheet.getCell(`A${currentRow}`).value = "Total";
+    worksheet.getCell(`A${currentRow}`).style = { font: { bold: true, size: 10 } };
+    worksheet.getCell(`E${currentRow}`).value = total;
+    worksheet.getCell(`E${currentRow}`).style = { font: { bold: true, size: 10 }, numFmt: "#,##0.00", alignment: { horizontal: "right" as const } };
+    
+    // Add footer
+    currentRow += 3;
+    
+    const today = new Date();
+    worksheet.mergeCells(`A${currentRow}:E${currentRow}`);
+    worksheet.getCell(`A${currentRow}`).value = `switch | ${currentCompany?.name} | ${formatDateForDisplay(
+      today.toISOString().split("T")[0]
+    )} ${today.toLocaleTimeString()}`;
+    worksheet.getCell(`A${currentRow}`).style = { font: { size: 9, color: { argb: "FF666666" } }, 
+      alignment: { horizontal: "center" as const } };
 
-    // Generate and download CSV
-    const csvContent = csvData.map((row) => row.map((cell) => `"${cell}"`).join(",")).join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    // Set column widths
+    worksheet.getColumn("A").width = 12;
+    worksheet.getColumn("B").width = 30;
+    worksheet.getColumn("C").width = 20;
+    worksheet.getColumn("D").width = 10;
+    worksheet.getColumn("E").width = 15;
+
+    // Save the file
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url = window.URL.createObjectURL(blob);
     const link = document.createElement("a");
-    const url = URL.createObjectURL(blob);
-    link.setAttribute("href", url);
-    link.setAttribute(
-      "download",
-      `${viewerModal.category.name.replace(/[^a-zA-Z0-9]/g, "-")}-transactions-${startDate}-to-${endDate}.csv`
-    );
-    link.style.visibility = "hidden";
-    document.body.appendChild(link);
+    link.href = url;
+    link.download = `${viewerModal.category.name.replace(/[^a-zA-Z0-9]/g, "-")}-transactions-${startDate}-to-${endDate}.xlsx`;
     link.click();
-    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
   };
 
   // Helper: render account row with monthly totals
@@ -1617,7 +1373,7 @@ export default function Page() {
 
   return (
     <div className="p-6 bg-white min-h-screen">
-      <div className="w-full">
+      <div className="max-w-7xl mx-auto">
         <div className="text-center mb-6">
           {/* Period Selector */}
           <div className="flex items-center justify-between">
@@ -1653,7 +1409,6 @@ export default function Page() {
                 <Input
                   type="date"
                   value={endDate}
-                  min={startDate}
                   max={today}
                   onChange={(e) => {
                     const newEndDate = e.target.value;
@@ -1676,20 +1431,22 @@ export default function Page() {
             </div>
 
             <div className="flex justify-center">
-              <Button onClick={exportToCSV} className="text-xs font-medium">
-                Export
+              <Button onClick={exportToXLSX} disabled={loading} className="text-xs font-medium min-w-17">
+                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Export"}
               </Button>
             </div>
           </div>
         </div>
 
         {/* P&L Table */}
-        <Card className="py-3">
+        <Card className="pt-3 pb-0">
           <CardContent className="p-0">
             <h1 className="text-2xl font-bold text-slate-800 mb-1 text-center">Profit & Loss</h1>
+            {currentCompany && (
+              <p className="text-lg text-slate-700 mb-1 text-center font-medium">{currentCompany.name}</p>
+            )}
             <p className="text-sm text-slate-600 mb-3 text-center">
-              {new Date(startDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} to{" "}
-              {new Date(endDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+              {formatDateForDisplay(startDate)} to {formatDateForDisplay(endDate)}
             </p>
             <Table className="border border-gray-300">
               <TableHeader className="bg-gray-100">
@@ -2402,7 +2159,7 @@ export default function Page() {
               <div className="flex items-center gap-4">
                 {selectedCategoryTransactions.length > 0 && (
                   <Button onClick={exportModalTransactions} className="text-xs font-medium" size="sm">
-                    Export
+                    <Download className="w-4 h-4" />
                   </Button>
                 )}
                 <button
