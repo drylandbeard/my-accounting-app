@@ -444,7 +444,7 @@ export default function TransactionsPage() {
     isManualEntry: false,
     editEntry: {
       date: "",
-      jeName: "",
+      description: "",
       lines: [],
     },
     saving: false,
@@ -2027,7 +2027,7 @@ export default function TransactionsPage() {
         transaction,
         editEntry: {
           date: transaction.date,
-          jeName: transaction.description || "",
+          description: transaction.description || "",
           lines: editLines,
         },
         isLoading: false,
@@ -2050,7 +2050,7 @@ export default function TransactionsPage() {
       transaction,
       editEntry: {
         date: "",
-        jeName: "",
+        description: "",
         lines: [],
       },
       saving: false,
@@ -2211,7 +2211,7 @@ export default function TransactionsPage() {
       const response = await api.put('/api/journal/update', {
         id: transaction.id, // Use transaction ID
         date: editJournalModal.editEntry.date,
-        description: editJournalModal.editEntry.jeName || transaction.description || '',
+        description: editJournalModal.editEntry.description || transaction.description || '',
         transactions: entries,
         hasSplit: entries.length > 2,
       });
@@ -4272,9 +4272,9 @@ export default function TransactionsPage() {
           ...prev,
           editEntry: { ...prev.editEntry, date }
         }))}
-        onJeNameChange={(jeName) => setEditJournalModal(prev => ({
+        onDescriptionChange={(description) => setEditJournalModal(prev => ({
           ...prev,
-          editEntry: { ...prev.editEntry, jeName }
+          editEntry: { ...prev.editEntry, description }
         }))}
         onOpenCategoryModal={(lineId, defaultType) => {
           setNewCategoryModal({

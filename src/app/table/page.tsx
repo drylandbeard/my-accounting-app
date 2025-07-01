@@ -28,7 +28,7 @@ import {
 // Define types specific to the journal table
 
 type SortConfig = {
-  key: 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category' | 'reference_number' | 'je_name' | 'entry_source' | null;
+  key: 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category' | 'reference_number' | 'entry_source' | null;
   direction: 'asc' | 'desc';
 };
 
@@ -108,7 +108,7 @@ export default function JournalTablePage() {
     isManualEntry: false,
     editEntry: {
       date: '',
-      jeName: '',
+      description: '',
       lines: []
     },
     saving: false,
@@ -231,13 +231,6 @@ export default function JournalTablePage() {
           ? aRef.localeCompare(bRef)
           : bRef.localeCompare(aRef);
       }
-      if (sortConfig.key === 'je_name') {
-        const aJeName = a.je_name || '';
-        const bJeName = b.je_name || '';
-        return sortConfig.direction === 'asc'
-          ? aJeName.localeCompare(bJeName)
-          : bJeName.localeCompare(aJeName);
-      }
       if (sortConfig.key === 'entry_source') {
         const aSource = a.entry_source || '';
         const bSource = b.entry_source || '';
@@ -250,7 +243,7 @@ export default function JournalTablePage() {
     });
   };
 
-  const handleSort = (key: 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category' | 'reference_number' | 'je_name' | 'entry_source') => {
+  const handleSort = (key: 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category' | 'reference_number' | 'entry_source') => {
     setSortConfig(current => ({
       key,
       direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc'
@@ -274,7 +267,6 @@ export default function JournalTablePage() {
     { key: 'credit', label: 'Credit', sortable: true },
     { key: 'payee', label: 'Payee', isCustom: true, sortable: true },
     { key: 'reference_number', label: 'Reference', sortable: true },
-    { key: 'je_name', label: 'JE Name', sortable: true },
     { key: 'entry_source', label: 'Source', isCustom: true, sortable: true }
   ];
 
@@ -292,8 +284,7 @@ export default function JournalTablePage() {
     col !== 'payee_id' && 
     col !== 'transactions' &&
     col !== 'is_split_item' &&
-    col !== 'split_item_data' &&
-    col !== 'split_data'
+    col !== 'split_item_data'
   );
 
   // Combine ordered columns with any additional columns not in our predefined list, then add category at the end
@@ -360,9 +351,6 @@ export default function JournalTablePage() {
       if (entry.is_manual_entry) {
         // Search in reference number
         if (entry.reference_number && entry.reference_number.toLowerCase().includes(lowercaseSearch)) return true;
-        
-        // Search in JE name
-        if (entry.je_name && entry.je_name.toLowerCase().includes(lowercaseSearch)) return true;
         
         // Search in entry source
         if (entry.entry_source && entry.entry_source.toLowerCase().includes(lowercaseSearch)) return true;
@@ -526,7 +514,7 @@ export default function JournalTablePage() {
       isManualEntry: entry.is_manual_entry || false,
       editEntry: {
         date: '',
-        jeName: '',
+        description: '',
         lines: []
       },
       saving: false,
@@ -583,7 +571,7 @@ export default function JournalTablePage() {
         ...prev,
         editEntry: {
           date: firstEntry?.date || new Date().toISOString().split('T')[0],
-          jeName: firstEntry?.description || firstEntry?.transactions?.description || '',
+          description: firstEntry?.description || firstEntry?.transactions?.description || '',
           lines: editLines
         },
         isLoading: false,
@@ -641,7 +629,7 @@ export default function JournalTablePage() {
         ...prev,
         editEntry: {
           date: firstEntry?.date || new Date().toISOString().split('T')[0],
-          jeName: firstEntry?.je_name || '',
+          description: firstEntry?.description || '',
           lines: editLines
         },
         isLoading: false,
@@ -994,7 +982,7 @@ export default function JournalTablePage() {
                       className={`border p-2 text-center text-xs font-medium tracking-wider whitespace-nowrap ${
                         col.sortable ? 'cursor-pointer hover:bg-gray-200' : ''
                       }`}
-                      onClick={col.sortable ? () => handleSort(col.key as 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category' | 'reference_number' | 'je_name' | 'entry_source') : undefined}
+                      onClick={col.sortable ? () => handleSort(col.key as 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category' | 'reference_number' | 'entry_source') : undefined}
                     >
                       {col.label}
                       {col.sortable && sortConfig.key === col.key && (
@@ -1034,8 +1022,6 @@ export default function JournalTablePage() {
 
                         ) : col.key === 'reference_number' ? (
                           entry.is_manual_entry ? (entry.reference_number || '') : ''
-                        ) : col.key === 'je_name' ? (
-                          entry.is_manual_entry ? (entry.je_name || '') : ''
                         ) : col.key === 'entry_source' ? (
                           <span className={`px-2 py-1 rounded text-xs ${
                             entry.entry_source === 'manual_journal' 

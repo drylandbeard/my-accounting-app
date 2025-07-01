@@ -138,7 +138,6 @@ export interface JournalTableEntry {
   // Fields for manual journal entries
   is_manual_entry?: boolean;
   reference_number?: string;
-  je_name?: string;
   payee_id?: string; // Direct payee_id for manual entries
   created_at?: string;
   updated_at?: string;
@@ -156,7 +155,6 @@ export interface ManualJournalEntry {
   payee_id?: string;
   company_id: string;
   reference_number: string;
-  je_name?: string;
   created_at: string;
   updated_at: string;
   chart_of_accounts?: {
@@ -327,7 +325,7 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
     try {
       const { data } = await supabase
         .from('imported_transactions')
-        .select('id, date, description, spent, received, plaid_account_id, plaid_account_name, selected_category_id, payee_id, company_id, split_data')
+        .select('id, date, description, spent, received, plaid_account_id, plaid_account_name, selected_category_id, payee_id, company_id')
         .eq('company_id', companyId)
         .neq('plaid_account_name', null);
       
@@ -343,7 +341,7 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
     try {
       const { data } = await supabase
         .from('transactions')
-        .select('id, date, description, spent, received, plaid_account_id, plaid_account_name, selected_category_id, corresponding_category_id, payee_id, company_id, split_data')
+        .select('id, date, description, spent, received, plaid_account_id, plaid_account_name, selected_category_id, corresponding_category_id, payee_id, company_id')
         .eq('company_id', companyId)
         .neq('plaid_account_name', null);
       
@@ -390,7 +388,7 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
         .from('journal')
         .select(`
           *,
-          transactions!inner(payee_id, split_data, corresponding_category_id)
+          transactions!inner(payee_id, corresponding_category_id)
         `)
         .eq('company_id', companyId)
         .order('date', { ascending: false });
@@ -441,7 +439,6 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
         payee_id?: string;
         company_id: string;
         reference_number: string;
-        je_name?: string;
         created_at: string;
         updated_at: string;
       }) => ({

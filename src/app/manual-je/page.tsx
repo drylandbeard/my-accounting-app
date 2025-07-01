@@ -24,7 +24,7 @@ import {
 // Define types specific to the journal table
 
 type SortConfig = {
-  key: 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category' | 'reference_number' | 'je_name' | null;
+  key: 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category' | 'reference_number' | null;
   direction: 'asc' | 'desc';
 };
 
@@ -44,7 +44,7 @@ type JournalEntryLine = {
 
 type NewJournalEntry = {
   date: string;
-  jeName: string;
+  description: string;
   lines: JournalEntryLine[];
 };
 
@@ -67,7 +67,7 @@ export default function JournalTablePage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [newEntry, setNewEntry] = useState<NewJournalEntry>({
     date: new Date().toISOString().split('T')[0],
-    jeName: '',
+    description: '',
     lines: [
       {
         id: '1',
@@ -134,7 +134,7 @@ export default function JournalTablePage() {
     referenceNumber: '',
     editEntry: {
       date: '',
-      jeName: '',
+      description: '',
       lines: []
     },
     saving: false,
@@ -242,9 +242,9 @@ export default function JournalTablePage() {
           ? a.reference_number.localeCompare(b.reference_number)
           : b.reference_number.localeCompare(a.reference_number);
       }
-      if (sortConfig.key === 'je_name') {
-        const aName = a.je_name || '';
-        const bName = b.je_name || '';
+      if (sortConfig.key === 'description') {
+        const aName = a.description || '';
+        const bName = b.description || '';
         return sortConfig.direction === 'asc'
           ? aName.localeCompare(bName)
           : bName.localeCompare(aName);
@@ -254,7 +254,7 @@ export default function JournalTablePage() {
     });
   };
 
-  const handleSort = (key: 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category' | 'reference_number' | 'je_name') => {
+  const handleSort = (key: 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category' | 'reference_number' | 'description') => {
     setSortConfig(current => ({
       key,
       direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc'
@@ -272,7 +272,6 @@ export default function JournalTablePage() {
   // Define specific column order for the manual journal table
   const orderedColumns = [
     { key: 'date', label: 'Date', sortable: true },
-    { key: 'je_name', label: 'JE Name', sortable: true },
     { key: 'description', label: 'Description', sortable: true },
     { key: 'payee', label: 'Payee', isCustom: true, sortable: true },
     { key: 'type', label: 'Type', isCustom: true, sortable: true },
@@ -519,7 +518,7 @@ export default function JournalTablePage() {
       referenceNumber: entry.reference_number,
       editEntry: {
         date: entry.date,
-        jeName: entry.je_name || '',
+        description: entry.description || '',
         lines: editLines
       },
       saving: false,
@@ -618,7 +617,7 @@ export default function JournalTablePage() {
       // Reset form and close modal
       setNewEntry({
         date: new Date().toISOString().split('T')[0],
-        jeName: '',
+        description: '',
         lines: [
           {
             id: '1',
@@ -659,7 +658,7 @@ export default function JournalTablePage() {
       // Use the manual journal entry save function
       const result = await saveManualJournalEntry({
         date: newEntry.date,
-        jeName: newEntry.jeName,
+        description: newEntry.description,
         lines: newEntry.lines
       }, currentCompany.id);
       
@@ -726,7 +725,7 @@ export default function JournalTablePage() {
       const success = await updateManualJournalEntry({
         referenceNumber: editModal.referenceNumber,
         date: editModal.editEntry.date,
-        jeName: editModal.editEntry.jeName,
+        description: editModal.editEntry.description,
         lines: editModal.editEntry.lines
       }, currentCompany.id);
       
@@ -739,7 +738,7 @@ export default function JournalTablePage() {
       setEditModal({
         isOpen: false,
         referenceNumber: '',
-        editEntry: { date: '', jeName: '', lines: [] },
+        editEntry: { date: '', description: '', lines: [] },
         saving: false,
         error: null
       });
@@ -860,7 +859,7 @@ export default function JournalTablePage() {
                       className={`border p-2 text-center text-xs font-medium tracking-wider whitespace-nowrap ${
                         col.sortable ? 'cursor-pointer hover:bg-gray-200' : ''
                       }`}
-                      onClick={col.sortable ? () => handleSort(col.key as 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category' | 'reference_number' | 'je_name') : undefined}
+                      onClick={col.sortable ? () => handleSort(col.key as 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category' | 'reference_number' | 'description') : undefined}
                     >
                       {col.label}
                       {col.sortable && sortConfig.key === col.key && (
@@ -883,22 +882,16 @@ export default function JournalTablePage() {
                       <td key={col.key} className="border p-2 text-center text-xs whitespace-nowrap">
                         {col.key === 'date' ? (
                           formatDate(entry.date)
-                        ) : col.key === 'je_name' ? (
-                          entry.je_name || ''
                         ) : col.key === 'description' ? (
-                          <div className="flex items-center gap-1">
-                            <span>
-                              {entry.description}
-                            </span>
-                          </div>
+                          entry.description || ''
+                        ) : col.key === 'payee' ? (
+                          getPayeeName(entry.payee_id || '')
+                        ) : col.key === 'type' ? (
+                          getAccountType(entry.chart_account_id)
                         ) : col.key === 'debit' ? (
                           formatAmountLocal(entry.debit)
                         ) : col.key === 'credit' ? (
                           formatAmountLocal(entry.credit)
-                        ) : col.key === 'type' ? (
-                          getAccountType(entry.chart_account_id)
-                        ) : col.key === 'payee' ? (
-                          getPayeeName(entry.payee_id || '')
                         ) : col.key === 'category' ? (
                           getAccountName(entry.chart_account_id)
                         ) : col.key === 'reference_number' ? (
@@ -950,7 +943,7 @@ export default function JournalTablePage() {
               </button>
             </div>
             
-            {/* Date and JE Name selectors */}
+            {/* Date and Description selectors */}
             <div className="mb-4 grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Date</label>
@@ -963,13 +956,13 @@ export default function JournalTablePage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">JE Name</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
                 <input
                   type="text"
-                  value={newEntry.jeName}
-                  onChange={(e) => setNewEntry(prev => ({ ...prev, jeName: e.target.value }))}
+                  value={newEntry.description}
+                  onChange={(e) => setNewEntry(prev => ({ ...prev, description: e.target.value }))}
                   className="border px-3 py-2 rounded text-sm w-full"
-                  placeholder="Enter journal entry name"
+                  placeholder="Enter journal entry description"
                 />
               </div>
             </div>
@@ -1280,7 +1273,7 @@ export default function JournalTablePage() {
               </div>
             )}
             
-            {/* Date and JE Name selectors */}
+            {/* Date and Description selectors */}
             <div className="mb-4 grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Date</label>
@@ -1296,16 +1289,16 @@ export default function JournalTablePage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">JE Name</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
                 <input
                   type="text"
-                  value={editModal.editEntry.jeName}
+                  value={editModal.editEntry.description}
                   onChange={(e) => setEditModal(prev => ({
                     ...prev,
-                    editEntry: { ...prev.editEntry, jeName: e.target.value }
+                    editEntry: { ...prev.editEntry, description: e.target.value }
                   }))}
                   className="border px-3 py-2 rounded text-sm w-full"
-                  placeholder="Enter journal entry name"
+                  placeholder="Enter journal entry description"
                 />
               </div>
             </div>

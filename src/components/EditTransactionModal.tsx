@@ -13,7 +13,7 @@ export type JournalEntryLine = {
 
 export type EditJournalEntry = {
   date: string;
-  jeName: string;
+  description: string;
   lines: JournalEntryLine[];
 };
 
@@ -45,7 +45,7 @@ interface EditTransactionModalProps {
   onAddLine: () => void;
   onSave: () => void;
   onDateChange: (date: string) => void;
-  onJeNameChange: (jeName: string) => void;
+  onDescriptionChange: (description: string) => void;
   onOpenCategoryModal: (lineId: string, defaultType?: string) => void;
   calculateTotals: () => { totalDebits: number; totalCredits: number };
 }
@@ -61,7 +61,7 @@ export default function EditTransactionModal({
   onAddLine,
   onSave,
   onDateChange,
-  onJeNameChange,
+  onDescriptionChange,
   onOpenCategoryModal,
   calculateTotals
 }: EditTransactionModalProps) {
@@ -108,7 +108,7 @@ export default function EditTransactionModal({
           </div>
         ) : (
           <>
-            {/* Date and JE Name selectors */}
+            {/* Date and Description selectors */}
             <div className="mb-4 grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Date</label>
@@ -121,13 +121,13 @@ export default function EditTransactionModal({
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">JE Name</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
                 <input
                   type="text"
-                  value={modalState.editEntry.jeName}
-                  onChange={(e) => onJeNameChange(e.target.value)}
+                  value={modalState.editEntry.description}
+                  onChange={(e) => onDescriptionChange(e.target.value)}
                   className="border px-3 py-2 rounded text-sm w-full"
-                  placeholder="Enter journal entry name"
+                  placeholder="Enter journal entry description"
                 />
               </div>
             </div>

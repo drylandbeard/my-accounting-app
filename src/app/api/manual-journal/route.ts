@@ -1,10 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { supabase } from '@/lib/supabase';
 
 interface JournalEntryLine {
   description: string;
@@ -55,7 +50,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { companyId, date, lines, referenceNumber, jeName } = body;
+    const { companyId, date, lines, referenceNumber } = body;
 
     if (!companyId || !date || !lines || !Array.isArray(lines)) {
       return NextResponse.json({ 
@@ -93,7 +88,6 @@ export async function POST(request: NextRequest) {
         chart_account_id: line.categoryId,
         payee_id: line.payeeId || null,
         reference_number: finalReferenceNumber,
-        je_name: jeName || null
       }));
 
     if (journalEntries.length === 0) {
