@@ -128,13 +128,16 @@ export default function JournalTablePage() {
   ];
 
   useEffect(() => {
-    if (hasCompanyContext) {
-      fetchJournalEntries(currentCompany!.id);
-      refreshCategories();
-      refreshPayees();
-      fetchAccounts(currentCompany!.id);
+    if (hasCompanyContext && currentCompany?.id) {
+      const fetchData = async () => {
+        await fetchJournalEntries(currentCompany.id);
+        await refreshCategories();
+        await refreshPayees();
+        await fetchAccounts(currentCompany.id);
+      };
+      fetchData();
     }
-  }, [currentCompany?.id, hasCompanyContext, refreshCategories, refreshPayees, fetchAccounts, fetchJournalEntries]);
+  }, [currentCompany, hasCompanyContext, refreshCategories, refreshPayees, fetchAccounts, fetchJournalEntries]);
 
   // Reset to first page when search term or date filters change
   useEffect(() => {
@@ -827,7 +830,7 @@ export default function JournalTablePage() {
           companyId: currentCompany!.id,
           referenceNumber: editJournalModal.transactionId,
           date: editJournalModal.editEntry.date,
-          jeName: editJournalModal.editEntry.jeName,
+          description: editJournalModal.editEntry.description,
           lines: lines
         });
       } else {
@@ -843,7 +846,7 @@ export default function JournalTablePage() {
         response = await api.put('/api/journal/update', {
           id: editJournalModal.transactionId,
           date: editJournalModal.editEntry.date,
-          description: editJournalModal.editEntry.jeName || editJournalModal.editEntry.lines[0]?.description || 'Journal Entry',
+          description: editJournalModal.editEntry.description || editJournalModal.editEntry.lines[0]?.description || 'Journal Entry',
           transactions: entries,
           hasSplit: entries.length > 2
         });
@@ -863,7 +866,7 @@ export default function JournalTablePage() {
         isOpen: false,
         transactionId: '',
         isManualEntry: false,
-        editEntry: { date: '', jeName: '', lines: [] },
+        editEntry: { date: '', description: '', lines: [] },
         saving: false,
         isLoading: false,
         error: null
@@ -1353,9 +1356,9 @@ export default function JournalTablePage() {
           ...prev,
           editEntry: { ...prev.editEntry, date }
         }))}
-        onJeNameChange={(jeName) => setEditJournalModal((prev: EditJournalModalState) => ({
+        onDescriptionChange={(description) => setEditJournalModal((prev: EditJournalModalState) => ({
           ...prev,
-          editEntry: { ...prev.editEntry, jeName }
+          editEntry: { ...prev.editEntry, description }
         }))}
         onOpenCategoryModal={(lineId, defaultType) => {
           setNewCategoryModal({
