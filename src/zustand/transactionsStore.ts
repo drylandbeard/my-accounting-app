@@ -314,7 +314,7 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
       // Auto-select first account if none selected
       const { selectedAccountId } = get();
       if (accounts.length > 0 && !selectedAccountId) {
-        set({ selectedAccountId: accounts[0].plaid_account_id });
+        set({ selectedAccountId: accounts[0].id });
       }
     } catch (error) {
       console.error('Error fetching accounts:', error);
