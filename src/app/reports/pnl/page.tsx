@@ -543,6 +543,7 @@ export default function Page() {
   };
 
   const formatNumber = (num: number): string => {
+    if (Math.abs(num) < 0.01) return "—"; // Em dash for zero values
     return num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
@@ -601,7 +602,7 @@ export default function Page() {
     const worksheet = workbook.addWorksheet("Profit & Loss");
 
     // Set basic styles
-    const titleStyle = { font: { size: 12, bold: true }, alignment: { horizontal: "center" as const } };
+    const companyStyle = { font: { size: 12, bold: true }, alignment: { horizontal: "center" as const } };
     const headerStyle = { 
       font: { bold: true, size: 10 }, 
       alignment: { horizontal: "center" as const }
@@ -611,38 +612,37 @@ export default function Page() {
     };
     const numberStyle = { 
       font: { size: 10 },
-      numFmt: "#,##0.00", 
+      numFmt: "#,##0.00;(#,##0.00);\"—\"", // Format to show dash for zero values
       alignment: { horizontal: "right" as const }
     };
-    const percentStyle = { 
-      font: { size: 10 },
-      numFmt: "0.0%", 
-      alignment: { horizontal: "right" as const }
-    };
+    // Note: percentStyle is used as the base for other percentage styles
     const totalStyle = { 
       font: { bold: true, size: 10 }, 
-      numFmt: "#,##0.00", 
+      numFmt: "#,##0.00;(#,##0.00);\"—\"", // Format to show dash for zero values
       alignment: { horizontal: "right" as const }
     };
-
+    
     let currentRow = 1;
     const months = isMonthlyView ? getMonthsInRange() : [];
     const totalColumns = isMonthlyView 
       ? 1 + months.length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1)
       : showPercentages ? 3 : 2;
 
-    // Title and company info at top
-    worksheet.mergeCells(`A${currentRow}:${String.fromCharCode(64 + totalColumns)}${currentRow}`);
-    worksheet.getCell(`A${currentRow}`).value = "Profit & Loss";
-    worksheet.getCell(`A${currentRow}`).style = titleStyle;
-    currentRow++;
-    
     if (currentCompany) {
       worksheet.mergeCells(`A${currentRow}:${String.fromCharCode(64 + totalColumns)}${currentRow}`);
       worksheet.getCell(`A${currentRow}`).value = currentCompany.name;
-      worksheet.getCell(`A${currentRow}`).style = { font: { size: 10 }, alignment: { horizontal: "center" as const } };
+      worksheet.getCell(`A${currentRow}`).style = companyStyle;
       currentRow++;
     }
+
+    // Title and company info at top
+    worksheet.mergeCells(`A${currentRow}:${String.fromCharCode(64 + totalColumns)}${currentRow}`);
+    worksheet.getCell(`A${currentRow}`).value = "Profit & Loss";
+    worksheet.getCell(`A${currentRow}`).style = {
+      font: { size: 10 },
+      alignment: { horizontal: "center" as const },
+    };
+    currentRow++;
     
     worksheet.mergeCells(`A${currentRow}:${String.fromCharCode(64 + totalColumns)}${currentRow}`);
     worksheet.getCell(`A${currentRow}`).value = `${formatDateForDisplay(startDate)} to ${formatDateForDisplay(endDate)}`;
@@ -717,7 +717,7 @@ export default function Page() {
             if (showPercentages) {
                 const percentValue = formatPercentageForAccount(monthlyTotal, acc);
                 worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
-                worksheet.getCell(currentRow, colIndex - 1).style = percentStyle;
+                worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
             }
           });
 
@@ -728,7 +728,7 @@ export default function Page() {
           if (showPercentages) {
               const percentValue = formatPercentageForAccount(isParent && isCollapsed ? accountTotal : directTotal, acc);
               worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
-              worksheet.getCell(currentRow, colIndex - 1).style = percentStyle;
+              worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
             }
           } else {
             worksheet.getCell(currentRow, colIndex++).value = isParent && isCollapsed ? accountTotal : directTotal;
@@ -737,7 +737,7 @@ export default function Page() {
                   if (showPercentages) {
               const percentValue = formatPercentageForAccount(isParent && isCollapsed ? accountTotal : directTotal, acc);
               worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
-              worksheet.getCell(currentRow, colIndex - 1).style = percentStyle;
+              worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
             }
           }
           currentRow++;
@@ -763,7 +763,7 @@ export default function Page() {
           if (showPercentages) {
                   const percentValue = formatPercentageForAccount(monthlyTotal, acc);
                   worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
-                  worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%" };
+                  worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
                 }
               });
               
@@ -774,7 +774,7 @@ export default function Page() {
           if (showPercentages) {
                 const percentValue = formatPercentageForAccount(accountTotal, acc);
                 worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
-                worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%" };
+                worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
               }
       } else {
               worksheet.getCell(currentRow, colIndex++).value = accountTotal;
@@ -783,7 +783,7 @@ export default function Page() {
           if (showPercentages) {
                 const percentValue = formatPercentageForAccount(accountTotal, acc);
                 worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
-                worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%" };
+                worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
               }
             }
             currentRow++;
@@ -810,7 +810,7 @@ export default function Page() {
               ? "100.0%" 
               : calculatePercentageForMonth(monthlyTotal, month);
             worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
-            worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%" };
+            worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
           }
         });
 
@@ -821,7 +821,7 @@ export default function Page() {
         if (showPercentages) {
           const percentValue = sectionName === "Revenue" && totalRevenue !== 0 ? "100.0%" : formatPercentage(sectionTotal, totalRevenue);
           worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
-          worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%" };
+          worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
         }
     } else {
         worksheet.getCell(currentRow, colIndex++).value = sectionTotal;
@@ -830,7 +830,7 @@ export default function Page() {
         if (showPercentages) {
           const percentValue = sectionName === "Revenue" && totalRevenue !== 0 ? "100.0%" : formatPercentage(sectionTotal, totalRevenue);
           worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
-          worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%" };
+          worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
         }
       }
       currentRow++;
@@ -859,7 +859,7 @@ export default function Page() {
                 if (showPercentages) {
           const percentValue = calculatePercentageForMonth(monthlyGrossProfit, month);
           worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
-          worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%" };
+          worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
         }
       });
       
@@ -870,7 +870,7 @@ export default function Page() {
       if (showPercentages) {
         const percentValue = formatPercentage(grossProfit, totalRevenue);
         worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
-        worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%" };
+        worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
       }
     } else {
       worksheet.getCell(currentRow, colIndex++).value = grossProfit;
@@ -879,7 +879,7 @@ export default function Page() {
         if (showPercentages) {
         const percentValue = formatPercentage(grossProfit, totalRevenue);
         worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
-        worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%" };
+        worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
         }
       }
     currentRow++;
@@ -905,7 +905,7 @@ export default function Page() {
         worksheet.getCell(currentRow, colIndex++).value = monthlyNetIncome;
         worksheet.getCell(currentRow, colIndex - 1).style = { 
           font: { bold: true, color: { argb: monthlyNetIncome >= 0 ? "FF006100" : "FF9C0006" } }, 
-          numFmt: "#,##0.00", 
+          numFmt: "#,##0.00;(#,##0.00);\"—\"", // Correct number format with dash for zero values
           alignment: { horizontal: "right" as const },
           fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: monthlyNetIncome >= 0 ? "FFF0FFF0" : "FFFEF2F2" } }
         };
@@ -926,7 +926,7 @@ export default function Page() {
       worksheet.getCell(currentRow, colIndex++).value = netIncome;
       worksheet.getCell(currentRow, colIndex - 1).style = { 
         font: { bold: true, color: { argb: netIncome >= 0 ? "FF006100" : "FF9C0006" } }, 
-        numFmt: "#,##0.00", 
+        numFmt: "#,##0.00;(#,##0.00);\"—\"", // Correct number format with dash for zero values
         alignment: { horizontal: "right" as const },
         fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: netIncome >= 0 ? "FFF0FFF0" : "FFFEF2F2" } }
       };
@@ -945,7 +945,7 @@ export default function Page() {
       worksheet.getCell(currentRow, colIndex++).value = netIncome;
       worksheet.getCell(currentRow, colIndex - 1).style = { 
         font: { bold: true, color: { argb: netIncome >= 0 ? "FF006100" : "FF9C0006" } }, 
-        numFmt: "#,##0.00", 
+        numFmt: "#,##0.00;(#,##0.00);\"—\"", // Correct number format with dash for zero values
         alignment: { horizontal: "right" as const },
         fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: netIncome >= 0 ? "FFF0FFF0" : "FFFEF2F2" } }
       };
@@ -999,9 +999,13 @@ export default function Page() {
 
     // Set styles
     const headerStyle = { font: { bold: true, size: 10 } };
-    const numberStyle = { font: { size: 10 }, numFmt: "#,##0.00", alignment: { horizontal: "right" as const } };
+    const numberStyle = { 
+      font: { size: 10 }, 
+      numFmt: "#,##0.00;(#,##0.00);\"—\"", // Format to show dash for zero values
+      alignment: { horizontal: "right" as const } 
+    };
     const dateStyle = { font: { size: 10 }, alignment: { horizontal: "left" as const } };
-
+    
     let currentRow = 1;
 
     // Title and company info
@@ -1066,7 +1070,7 @@ export default function Page() {
     worksheet.getCell(`A${currentRow}`).value = "Total";
     worksheet.getCell(`A${currentRow}`).style = { font: { bold: true, size: 10 } };
     worksheet.getCell(`E${currentRow}`).value = total;
-    worksheet.getCell(`E${currentRow}`).style = { font: { bold: true, size: 10 }, numFmt: "#,##0.00", alignment: { horizontal: "right" as const } };
+    worksheet.getCell(`E${currentRow}`).style = { font: { bold: true, size: 10 }, numFmt: "#,##0.00;(#,##0.00);\"—\"", alignment: { horizontal: "right" as const } };
     
     // Add footer
     currentRow += 3;
@@ -1104,11 +1108,16 @@ export default function Page() {
     const isCollapsed = collapsedAccounts.has(account.id);
     const months = getMonthsInRange();
 
-    // If this account and all its subaccounts have no transactions in any month, do not render
-    const hasAnyTransactions = months.some(
+    // Check if this account has any transactions in the journalEntries (not limited to displayed months)
+    const hasDirectTransactions = journalEntries.some(tx => tx.chart_account_id === account.id);
+    
+    // Check if account has any transactions in displayed months
+    const hasTransactionsInMonths = months.some(
       (month) => calculateAccountTotalForMonthWithSubaccounts(account, month) !== 0
     );
-    if (!hasAnyTransactions) return null;
+    
+    // Either display if it has transactions in the selected months OR it has direct transactions in journalEntries
+    if (!hasTransactionsInMonths && !hasDirectTransactions && !isParent) return null;
 
     return (
       <React.Fragment key={account.id}>
@@ -1250,6 +1259,10 @@ export default function Page() {
     const variance =
       (isParent && isCollapsed ? currentTotal : directTotal) -
       (isParent && isCollapsed ? previousTotal : directPreviousTotal);
+      
+    // If this account has no transactions in the current period and no transactions overall, don't render
+    const hasDirectTransactions = journalEntries.some(tx => tx.chart_account_id === account.id);
+    if (currentTotal === 0 && !hasDirectTransactions && !isParent) return null;
 
     return (
       <React.Fragment key={account.id}>
@@ -1441,9 +1454,9 @@ export default function Page() {
         {/* P&L Table */}
         <Card className="pt-3 pb-0">
           <CardContent className="p-0">
-            <h1 className="text-2xl font-bold text-slate-800 mb-1 text-center">Profit & Loss</h1>
+            <h1 className="text-2xl font-bold text-slate-800 mb-1 text-center">{currentCompany.name}</h1>
             {currentCompany && (
-              <p className="text-lg text-slate-700 mb-1 text-center font-medium">{currentCompany.name}</p>
+              <p className="text-lg text-slate-700 mb-1 text-center font-medium">Profit & Loss</p>
             )}
             <p className="text-sm text-slate-600 mb-3 text-center">
               {formatDateForDisplay(startDate)} to {formatDateForDisplay(endDate)}
@@ -1455,18 +1468,18 @@ export default function Page() {
                     className="border p-1 text-center font-medium text-xs whitespace-nowrap"
                     style={{ width: "25%" }}
                   >
-                    Account
                   </TableHead>
                   {isMonthlyView ? (
                     <>
                       {getMonthsInRange().map((month) => (
-                        <TableHead
-                          key={month}
-                          className="border p-1 text-center font-medium text-xs whitespace-nowrap"
-                          style={{ width: `${65 / (getMonthsInRange().length + 1)}% !important` }}
-                        >
-                          {formatMonth(month)}
-                        </TableHead>
+                        <React.Fragment key={month}>
+                          <TableHead
+                            className="border p-1 text-center font-medium text-xs whitespace-nowrap"
+                            style={{ width: `${65 / (getMonthsInRange().length + 1)}%` }}
+                          >
+                            {formatMonth(month)}
+                          </TableHead>
+                        </React.Fragment>
                       ))}
                       <TableHead
                         className="border p-1 text-center font-medium text-xs whitespace-nowrap"
@@ -1657,7 +1670,7 @@ export default function Page() {
                             ? 3
                             : 2
                         }
-                        className="border p-1 text-xs"
+                        className="border p-1 font-semibold text-xs"
                       >
                         Revenue
                       </TableCell>
@@ -1877,7 +1890,7 @@ export default function Page() {
                       {isMonthlyView &&
                         getMonthsInRange().map((month) => (
                           <React.Fragment key={month}>
-                            <TableCell className="border p-1 text-right text-xs" style={{ width: "15%" }}>
+                            <TableCell className="border p-1 text-right text-xs">
                               {formatNumber(
                                 revenueRows.reduce(
                                   (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
@@ -1906,7 +1919,7 @@ export default function Page() {
                             )}
                           </React.Fragment>
                         ))}
-                      <TableCell className="border p-1 text-right text-xs" style={{ width: "15%" }}>
+                      <TableCell className="border p-1 text-right text-xs">
                         {formatNumber(grossProfit)}
                       </TableCell>
                       {showPercentages && isMonthlyView && (
@@ -2042,7 +2055,7 @@ export default function Page() {
                         <>
                           {getMonthsInRange().map((month) => (
                             <React.Fragment key={month}>
-                              <TableCell className="border p-1 text-right text-xs" style={{ width: "15%" }}>
+                              <TableCell className="border p-1 text-right text-xs">
                                 {formatNumber(
                                   revenueRows.reduce(
                                     (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
@@ -2079,7 +2092,7 @@ export default function Page() {
                               )}
                             </React.Fragment>
                           ))}
-                          <TableCell className="border p-1 text-right text-xs" style={{ width: "15%" }}>
+                          <TableCell className="border p-1 text-right text-xs">
                             {formatNumber(netIncome)}
                           </TableCell>
                           {showPercentages && (
