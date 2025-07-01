@@ -246,19 +246,11 @@ export default function JournalTablePage() {
     });
   };
 
-  const handleSort = (key: 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category' | 'reference_number' | 'entry_source') => {
+  const handleSort = (key: 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category' | 'entry_source') => {
     setSortConfig(current => ({
       key,
       direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc'
     }));
-  };
-
-  const formatColumnLabel = (columnName: string) => {
-    // Convert snake_case to proper Title Case
-    return columnName
-      .split('_')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-      .join(' ');
   };
 
   // Define specific column order for the journal table
@@ -268,36 +260,13 @@ export default function JournalTablePage() {
     { key: 'type', label: 'Type', isCustom: true, sortable: true },
     { key: 'debit', label: 'Debit', sortable: true },
     { key: 'credit', label: 'Credit', sortable: true },
+    { key: 'entry_source', label: 'Source', isCustom: true, sortable: true },
     { key: 'payee', label: 'Payee', isCustom: true, sortable: true },
-    { key: 'reference_number', label: 'Reference', sortable: true },
-    { key: 'entry_source', label: 'Source', isCustom: true, sortable: true }
-  ];
-
-  // Get all available columns from journalEntries to include any additional fields
-  const availableColumns = Array.from(
-    journalEntries.reduce((cols, entry) => {
-      Object.keys(entry).forEach((k) => cols.add(k));
-      return cols;
-    }, new Set<string>())
-  ).filter((col): col is string => 
-    col !== 'id' && 
-    col !== 'transaction_id' && 
-    col !== 'company_id' && 
-    col !== 'chart_account_id' && 
-    col !== 'payee_id' && 
-    col !== 'transactions' &&
-    col !== 'is_split_item' &&
-    col !== 'split_item_data'
-  );
-
-  // Combine ordered columns with any additional columns not in our predefined list, then add category at the end
-  const finalColumns = [
-    ...orderedColumns,
-    ...availableColumns
-      .filter(col => !orderedColumns.some(ordCol => ordCol.key === col))
-      .map(col => ({ key: col, label: formatColumnLabel(col), sortable: false })),
     { key: 'category', label: 'Category', isCustom: true, sortable: true }
   ];
+
+  // Use only the columns defined in orderedColumns
+  const finalColumns = orderedColumns;
 
   const filterEntries = (entries: JournalTableEntry[], searchTerm: string, startDate: string, endDate: string) => {
     let filteredEntries = entries;
@@ -985,7 +954,7 @@ export default function JournalTablePage() {
                       className={`border p-2 text-center text-xs font-medium tracking-wider whitespace-nowrap ${
                         col.sortable ? 'cursor-pointer hover:bg-gray-200' : ''
                       }`}
-                      onClick={col.sortable ? () => handleSort(col.key as 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category' | 'reference_number' | 'entry_source') : undefined}
+                      onClick={col.sortable ? () => handleSort(col.key as 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category' | 'entry_source') : undefined}
                     >
                       {col.label}
                       {col.sortable && sortConfig.key === col.key && (
@@ -1009,11 +978,7 @@ export default function JournalTablePage() {
                         {col.key === 'date' ? (
                           formatDate(entry.date)
                         ) : col.key === 'description' ? (
-                          <div className="flex items-center gap-1">
-                            <span>
-                              {entry.description}
-                            </span>
-                          </div>
+                          entry.description
                         ) : col.key === 'debit' ? (
                           formatAmountLocal(entry.debit)
                         ) : col.key === 'credit' ? (
