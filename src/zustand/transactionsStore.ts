@@ -135,10 +135,8 @@ export interface JournalTableEntry {
     payee_id?: string;
     description?: string;
   };
-  // Fields for manual journal entries
   is_manual_entry?: boolean;
   reference_number?: string;
-  payee_id?: string; // Direct payee_id for manual entries
   created_at?: string;
   updated_at?: string;
   entry_source?: 'journal' | 'manual_journal'; // Track the source table

@@ -126,7 +126,7 @@ export default function JournalTablePage() {
   const [editModal, setEditModal] = useState<{
     isOpen: boolean;
     referenceNumber: string;
-    editEntry: NewJournalEntry;
+    editEntry: NewJournalEntry & { referenceNumber?: string };
     saving: boolean;
     error: string | null;
   }>({
@@ -203,15 +203,20 @@ export default function JournalTablePage() {
     if (!sortConfig.key) return entries;
 
     return [...entries].sort((a, b) => {
+      if (!sortConfig.key) return 0;
+      
       if (sortConfig.key === 'date') {
         return sortConfig.direction === 'asc' 
           ? new Date(a.date).getTime() - new Date(b.date).getTime()
           : new Date(b.date).getTime() - new Date(a.date).getTime();
       }
+      
       if (sortConfig.key === 'description') {
+        const aName = a.description || '';
+        const bName = b.description || '';
         return sortConfig.direction === 'asc'
-          ? a.description.localeCompare(b.description)
-          : b.description.localeCompare(a.description);
+          ? aName.localeCompare(bName)
+          : bName.localeCompare(aName);
       }
       if (sortConfig.key === 'type') {
         const aType = getAccountType(a.chart_account_id);
@@ -242,19 +247,11 @@ export default function JournalTablePage() {
           ? a.reference_number.localeCompare(b.reference_number)
           : b.reference_number.localeCompare(a.reference_number);
       }
-      if (sortConfig.key === 'description') {
-        const aName = a.description || '';
-        const bName = b.description || '';
-        return sortConfig.direction === 'asc'
-          ? aName.localeCompare(bName)
-          : bName.localeCompare(aName);
-      }
-
       return 0;
     });
   };
 
-  const handleSort = (key: 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category' | 'reference_number' | 'description') => {
+  const handleSort = (key: 'date' | 'description' | 'type' | 'payee' | 'debit' | 'credit' | 'category' | 'reference_number') => {
     setSortConfig(current => ({
       key,
       direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc'
@@ -273,11 +270,10 @@ export default function JournalTablePage() {
   const orderedColumns = [
     { key: 'date', label: 'Date', sortable: true },
     { key: 'description', label: 'Description', sortable: true },
-    { key: 'payee', label: 'Payee', isCustom: true, sortable: true },
     { key: 'type', label: 'Type', isCustom: true, sortable: true },
     { key: 'debit', label: 'Debit', sortable: true },
     { key: 'credit', label: 'Credit', sortable: true },
-    { key: 'reference_number', label: 'Reference', sortable: true }
+    { key: 'payee', label: 'Payee', isCustom: true, sortable: true }
   ];
 
   // Get all available columns from manualJournalEntries to include any additional fields
@@ -300,7 +296,7 @@ export default function JournalTablePage() {
   const finalColumns = [
     ...orderedColumns,
     ...availableColumns
-      .filter(col => !orderedColumns.some(ordCol => ordCol.key === col))
+      .filter(col => !orderedColumns.some(ordCol => ordCol.key === col) && col !== 'payee_id' && col !== 'reference_number')
       .map(col => ({ key: col, label: formatColumnLabel(col), sortable: false })),
     { key: 'category', label: 'Category', isCustom: true, sortable: true }
   ];
@@ -658,8 +654,14 @@ export default function JournalTablePage() {
       // Use the manual journal entry save function
       const result = await saveManualJournalEntry({
         date: newEntry.date,
-        description: newEntry.description,
-        lines: newEntry.lines
+        jeName: newEntry.description,
+        lines: newEntry.lines.map(line => ({
+          description: line.description,
+          categoryId: line.categoryId,
+          payeeId: line.payeeId,
+          debit: line.debit,
+          credit: line.credit
+        }))
       }, currentCompany.id);
       
       if (!result.success) {
@@ -725,8 +727,14 @@ export default function JournalTablePage() {
       const success = await updateManualJournalEntry({
         referenceNumber: editModal.referenceNumber,
         date: editModal.editEntry.date,
-        description: editModal.editEntry.description,
-        lines: editModal.editEntry.lines
+        jeName: editModal.editEntry.description,
+        lines: editModal.editEntry.lines.map(line => ({
+          description: line.description,
+          categoryId: line.categoryId,
+          payeeId: line.payeeId,
+          debit: line.debit,
+          credit: line.credit
+        }))
       }, currentCompany.id);
       
       if (!success) {
