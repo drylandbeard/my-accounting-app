@@ -65,7 +65,7 @@ PeriodSelectorProps) {
         </PopoverTrigger>
         <PopoverContent className="w-96 p-0" align="start">
           <div className="p-4">
-            <div className="grid grid-cols-2 gap-6">
+            <div className="grid grid-cols-2 gap-3">
               {/* Left Column - Period Options */}
               <div>
                 <h3 className="text-sm font-medium text-gray-700 mb-3">Period</h3>
@@ -74,9 +74,9 @@ PeriodSelectorProps) {
                     <button
                       key={option.value}
                       onClick={() => onPeriodChange(option.value)}
-                      className="w-full flex items-center justify-between px-2 py-1.5 text-sm hover:bg-gray-50 rounded"
+                      className="w-full flex items-center justify-between px-1 py-1.5 text-xs hover:bg-gray-50 rounded text-left"
                     >
-                      <span className={cn(selectedPeriod === option.value ? "font-medium" : "font-normal")}>
+                      <span className={cn(selectedPeriod === option.value ? "font-medium" : "font-normal", "whitespace-nowrap")}>
                         {option.label}
                       </span>
                       {selectedPeriod === option.value && <Check className="h-4 w-4 text-blue-600" />}
@@ -95,9 +95,14 @@ PeriodSelectorProps) {
                       <button
                         key={option.value}
                         onClick={() => onDisplayChange(option.value)}
-                        className="w-full flex items-center justify-between px-2 py-1.5 text-sm hover:bg-gray-50 rounded"
+                        className="w-full flex items-center justify-between px-1 py-1.5 text-xs hover:bg-gray-50 rounded"
                       >
-                        <span className={cn(selectedDisplay === option.value ? "font-medium" : "font-normal")}>
+                        <span
+                          className={cn(
+                            selectedDisplay === option.value ? "font-medium" : "font-normal",
+                            "whitespace-nowrap"
+                          )}
+                        >
                           {option.label}
                         </span>
                         {selectedDisplay === option.value && <Check className="h-4 w-4 text-blue-600" />}
