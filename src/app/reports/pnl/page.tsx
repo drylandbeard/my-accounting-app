@@ -1108,7 +1108,9 @@ export default function Page() {
     const hasAnyTransactions = months.some(
       (month) => calculateAccountTotalForMonthWithSubaccounts(account, month) !== 0
     );
-    if (!hasAnyTransactions) return null;
+    
+    // Either display if it has transactions in the selected months OR it has direct transactions in journalEntries
+    if (!hasTransactionsInMonths && !hasDirectTransactions && !isParent) return null;
 
     return (
       <React.Fragment key={account.id}>
@@ -1250,6 +1252,10 @@ export default function Page() {
     const variance =
       (isParent && isCollapsed ? currentTotal : directTotal) -
       (isParent && isCollapsed ? previousTotal : directPreviousTotal);
+      
+    // If this account has no transactions in the current period and no transactions overall, don't render
+    const hasDirectTransactions = journalEntries.some(tx => tx.chart_account_id === account.id);
+    if (currentTotal === 0 && !hasDirectTransactions && !isParent) return null;
 
     return (
       <React.Fragment key={account.id}>
