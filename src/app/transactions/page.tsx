@@ -97,7 +97,8 @@ type ImportModalState = {
 type CSVRow = {
   Date: string;
   Description: string;
-  Amount: string;
+  Spent: string;
+  Received: string;
 };
 
 type SortConfig = {
@@ -1075,13 +1076,13 @@ export default function TransactionsPage() {
   const switchBalance = sumAmounts(confirmedAccountTransactions.map((tx) => calculateNetAmount(tx.spent, tx.received)));
 
   const downloadTemplate = () => {
-    const headers = ["Date", "Description", "Amount"];
+    const headers = ["Date", "Description", "Spent", "Received"];
     const exampleData = [
-      ["01-15-2025", "Client Payment - Invoice #1001", "1000.00"],
-      ["01-16-2025", "Office Supplies - Staples", "150.75"],
-      ["01-17-2025", "Bank Interest Received", "25.50"],
-      ["01-18-2025", "Monthly Software Subscription", "99.99"],
-      ["01-19-2025", "Customer Refund", "200.00"],
+      ["01-15-2025", "Client Payment - Invoice #1001", "0.00", "1000.00"],
+      ["01-16-2025", "Office Supplies - Staples", "150.75", "0.00"],
+      ["01-17-2025", "Bank Interest Received", "0.00", "25.50"],
+      ["01-18-2025", "Monthly Software Subscription", "99.99", "0.00"],
+      ["01-19-2025", "Customer Refund", "200.00", "0.00"],
     ];
 
     const csvContent = [headers.join(","), ...exampleData.map((row) => row.join(","))].join("\n");
@@ -1102,19 +1103,19 @@ export default function TransactionsPage() {
       return "CSV file is empty";
     }
 
-    const requiredColumns = ["Date", "Description", "Amount"];
+    const requiredColumns = ["Date", "Description", "Spent", "Received"];
     const headers = Object.keys(data.data[0]);
 
     const missingColumns = requiredColumns.filter((col) => !headers.includes(col));
     if (missingColumns.length > 0) {
-      return `Missing required columns: ${missingColumns.join(", ")}. Expected: Date, Description, Amount`;
+      return `Missing required columns: ${missingColumns.join(", ")}. Expected: Date, Description, Spent, Received`;
     }
 
     // Filter out empty rows before validation
-    const nonEmptyRows = data.data.filter((row) => row.Date && row.Amount && row.Description);
+    const nonEmptyRows = data.data.filter((row) => row.Date && (row.Spent || row.Received) && row.Description);
 
     if (nonEmptyRows.length === 0) {
-      return "No valid transaction data found. Please ensure you have at least one row with Date, Description, and Amount.";
+      return "No valid transaction data found. Please ensure you have at least one row with Date, Description, and either Spent or Received amount.";
     }
 
     // Validate each non-empty row
@@ -1156,10 +1157,21 @@ export default function TransactionsPage() {
         }". Please use MM-DD-YYYY format (recommended) or YYYY-MM-DD format.`;
       }
 
-      // Validate amount
-      const amount = parseFloat(row.Amount);
-      if (isNaN(amount)) {
-        return `Invalid amount in row ${i + 1}: "${row.Amount}". Please use numeric values (e.g., 100.50 or -75.25)`;
+      // Validate spent and received amounts
+      const spent = parseFloat(row.Spent || "0");
+      const received = parseFloat(row.Received || "0");
+      
+      if (isNaN(spent)) {
+        return `Invalid spent amount in row ${i + 1}: "${row.Spent}". Please use numeric values (e.g., 100.50 or 0.00)`;
+      }
+      
+      if (isNaN(received)) {
+        return `Invalid received amount in row ${i + 1}: "${row.Received}". Please use numeric values (e.g., 100.50 or 0.00)`;
+      }
+      
+      // Ensure at least one amount is specified
+      if (spent === 0 && received === 0) {
+        return `No amount specified in row ${i + 1}. Please provide either a Spent or Received amount (or both).`;
       }
 
       // Validate description is not empty
@@ -1194,7 +1206,7 @@ export default function TransactionsPage() {
 
         // Convert CSV data to transactions, filtering out any empty rows
         const transactions = results.data
-          .filter((row: CSVRow) => row.Date && row.Amount && row.Description)
+          .filter((row: CSVRow) => row.Date && (row.Spent || row.Received) && row.Description)
           .map((row: CSVRow) => {
             // Parse date - try MM-DD-YYYY format first
             let parsedDate: Date;
@@ -1221,15 +1233,17 @@ export default function TransactionsPage() {
               parsedDate = new Date(Date.UTC(year, month - 1, day));
             }
 
-            const amount = parseFloat(row.Amount);
+            const spent = parseFloat(row.Spent || "0");
+            const received = parseFloat(row.Received || "0");
+            const netAmount = received - spent;
 
             return {
               id: uuidv4(),
               date: parsedDate.toISOString().split("T")[0], // Store as YYYY-MM-DD
               description: row.Description.trim(),
-              amount: toFinancialAmount(amount), // Convert to FinancialAmount string
-              spent: amount < 0 ? toFinancialAmount(Math.abs(amount)) : toFinancialAmount(0), // Negative amounts become spent
-              received: amount > 0 ? toFinancialAmount(amount) : toFinancialAmount(0), // Positive amounts become received
+              amount: toFinancialAmount(netAmount), // Net amount for compatibility
+              spent: spent > 0 ? toFinancialAmount(spent) : toFinancialAmount(0),
+              received: received > 0 ? toFinancialAmount(received) : toFinancialAmount(0),
               plaid_account_id: importModal.selectedAccount?.plaid_account_id || null,
               plaid_account_name: importModal.selectedAccount?.name || null,
               company_id: currentCompany?.id,
@@ -2357,7 +2371,7 @@ export default function TransactionsPage() {
       {/* Import Modal */}
       {importModal.isOpen && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50 p-4">
-          <div className="bg-white rounded-lg p-6 w-[600px] max-h-[90vh] shadow-xl flex flex-col">
+          <div className="bg-white rounded-lg p-6 w-[720px] max-h-[90vh] shadow-xl flex flex-col">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold">Import Transactions</h2>
               <button
@@ -2431,8 +2445,10 @@ export default function TransactionsPage() {
                               • <strong>Description:</strong> Any text describing the transaction
                             </li>
                             <li>
-                              • <strong>Amount:</strong> Enter positive amounts only. Use categories to determine if
-                              it&apos;s income or expense.
+                              • <strong>Spent:</strong> Amount spent (expenses). Use 0.00 if no amount spent.
+                            </li>
+                            <li>
+                              • <strong>Received:</strong> Amount received (income). Use 0.00 if no amount received.
                             </li>
                           </ul>
                           <p className="text-xs text-blue-600 mt-2">
@@ -2520,7 +2536,10 @@ export default function TransactionsPage() {
                                 Description
                               </th>
                               <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-8">
-                                Amount
+                                Spent
+                              </th>
+                              <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-8">
+                                Received
                               </th>
                             </tr>
                           </thead>
@@ -2553,19 +2572,30 @@ export default function TransactionsPage() {
                                   {tx.description}
                                 </td>
                                 <td className="px-4 py-2 text-sm text-gray-900 text-right w-8">
-                                  {formatAmount(tx.amount ?? calculateNetAmount(tx.spent, tx.received))}
+                                  {tx.spent && parseFloat(tx.spent) > 0 ? formatAmount(tx.spent) : "—"}
+                                </td>
+                                <td className="px-4 py-2 text-sm text-gray-900 text-right w-8">
+                                  {tx.received && parseFloat(tx.received) > 0 ? formatAmount(tx.received) : "—"}
                                 </td>
                               </tr>
                             ))}
                           </tbody>
                           <tfoot className="bg-gray-50">
                             <tr>
-                              <td colSpan={4} className="px-4 py-2 text-sm font-medium text-gray-900 text-right w-8">
+                              <td colSpan={3} className="px-4 py-2 text-sm font-medium text-gray-700 text-right w-8">
+                                Total:
+                              </td>
+                              <td className="px-4 py-2 text-sm font-medium text-gray-900 text-right w-8">
                                 {formatAmount(
                                   sumAmounts(
-                                    importModal.csvData.map(
-                                      (tx) => tx.amount ?? calculateNetAmount(tx.spent, tx.received)
-                                    )
+                                    importModal.csvData.map((tx) => tx.spent || toFinancialAmount(0))
+                                  )
+                                )}
+                              </td>
+                              <td className="px-4 py-2 text-sm font-medium text-gray-900 text-right w-8">
+                                {formatAmount(
+                                  sumAmounts(
+                                    importModal.csvData.map((tx) => tx.received || toFinancialAmount(0))
                                   )
                                 )}
                               </td>
