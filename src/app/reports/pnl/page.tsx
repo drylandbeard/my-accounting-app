@@ -2,13 +2,14 @@
 
 import React, { useEffect, useState } from "react";
 import { supabase } from "../../../lib/supabase";
-import { v4 as uuidv4 } from "uuid";
 import { useAuthStore } from "@/zustand/authStore";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, Download, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { PeriodSelector } from "@/components/ui/period-selector";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import ExcelJS from "exceljs";
 
 type Account = {
   id: string;
@@ -26,6 +27,7 @@ type Transaction = {
   debit: number;
   credit: number;
   transaction_id: string;
+  source: "journal" | "manual";
 };
 
 export default function Page() {
@@ -37,29 +39,23 @@ export default function Page() {
   const [endDate, setEndDate] = useState<string>("");
   const [selectedCategory, setSelectedCategory] = useState<Account | null>(null);
   const [isMonthlyView, setIsMonthlyView] = useState(true);
+  // eslint-disable-next-line
   const [showPreviousPeriod, setShowPreviousPeriod] = useState(false);
   const [showPercentages, setShowPercentages] = useState(false);
   const [loading, setLoading] = useState<boolean>(true);
-  
+
   // Period Selector state
   const [selectedPeriod, setSelectedPeriod] = useState("thisYearToLastMonth");
   const [selectedDisplay, setSelectedDisplay] = useState("byMonth");
-  const [selectedComparison, setSelectedComparison] = useState("none");
-  const [editModal, setEditModal] = useState<{
-    isOpen: boolean;
-    transaction: Transaction | null;
-  }>({
-    isOpen: false,
-    transaction: null,
-  });
+  // const [selectedComparison, setSelectedComparison] = useState("none");
   const [viewerModal, setViewerModal] = useState<{
     isOpen: boolean;
     category: Account | null;
+    selectedMonth?: string;
   }>({
     isOpen: false,
     category: null,
   });
-  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [collapsedAccounts, setCollapsedAccounts] = useState<Set<string>>(new Set());
 
   // Toggle function for collapse/expand accounts
@@ -79,6 +75,13 @@ export default function Page() {
     const month = String(date.getMonth() + 1).padStart(2, "0");
     const day = String(date.getDate()).padStart(2, "0");
     return `${year}-${month}-${day}`;
+  };
+
+  // Helper: parse date string and format for display without timezone issues
+  const formatDateForDisplay = (dateString: string): string => {
+    const [year, month, day] = dateString.split('-').map(Number);
+    const date = new Date(year, month - 1, day); // month is 0-indexed
+    return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   };
 
   // Helper: get first and last day of month
@@ -106,7 +109,7 @@ export default function Page() {
   // Handle period selector changes
   const handlePeriodChange = (period: string) => {
     setSelectedPeriod(period);
-    
+
     switch (period) {
       case "thisMonth":
         handleDateRangeSelect("currentMonth");
@@ -154,15 +157,11 @@ export default function Page() {
     setShowPercentages(display === "withPercentages");
   };
 
-  const handleComparisonChange = (comparison: string) => {
-    setSelectedComparison(comparison);
-    // Map comparison options to existing state
-    setShowPreviousPeriod(comparison === "previousPeriod" || comparison === "previousYear");
-  };
-
-
-
-
+  // const handleComparisonChange = (comparison: string) => {
+  //   setSelectedComparison(comparison);
+  //   // Map comparison options to existing state
+  //   setShowPreviousPeriod(comparison === "previousPeriod" || comparison === "previousYear");
+  // };
 
   const handleDateRangeSelect = (
     range:
@@ -244,7 +243,7 @@ export default function Page() {
   };
 
   // Calculate today's date once
-  const today = React.useMemo(() => new Date().toISOString().split('T')[0], []);
+  const today = React.useMemo(() => new Date().toISOString().split("T")[0], []);
 
   useEffect(() => {
     setStartDate("2025-01-01");
@@ -268,12 +267,49 @@ export default function Page() {
           .in("type", ["Revenue", "COGS", "Expense"]);
         setAccounts(accountsData || []);
 
+        // Fetch regular journal entries
         let journalQuery = supabase.from("journal").select("*").eq("company_id", currentCompany!.id);
         if (startDate && endDate) {
           journalQuery = journalQuery.gte("date", startDate).lte("date", endDate);
         }
         const { data: journalData } = await journalQuery;
-        setJournalEntries(journalData || []);
+
+        // Fetch manual journal entries
+        let manualJournalQuery = supabase
+          .from("manual_journal_entries")
+          .select("*")
+          .eq("company_id", currentCompany!.id);
+        if (startDate && endDate) {
+          manualJournalQuery = manualJournalQuery.gte("date", startDate).lte("date", endDate);
+        }
+        const { data: manualJournalData } = await manualJournalQuery;
+
+        // Transform and combine both datasets
+        const regularEntries: Transaction[] = (journalData || []).map((entry) => ({
+          id: entry.id,
+          date: entry.date,
+          description: entry.description,
+          chart_account_id: entry.chart_account_id,
+          debit: entry.debit,
+          credit: entry.credit,
+          transaction_id: entry.transaction_id,
+          source: "journal" as const,
+        }));
+
+        const manualEntries: Transaction[] = (manualJournalData || []).map((entry) => ({
+          id: entry.id,
+          date: entry.date,
+          description: entry.description || entry.je_name || "Manual Entry",
+          chart_account_id: entry.chart_account_id,
+          debit: entry.debit,
+          credit: entry.credit,
+          transaction_id: entry.reference_number || entry.id,
+          source: "manual" as const,
+        }));
+
+        // Combine all entries
+        const allEntries = [...regularEntries, ...manualEntries];
+        setJournalEntries(allEntries);
       } catch (error) {
         console.error("Error fetching P&L data:", error);
       } finally {
@@ -283,8 +319,11 @@ export default function Page() {
     if (startDate && endDate) fetchData();
   }, [startDate, endDate, currentCompany?.id, hasCompanyContext]);
 
-  // Helper: get all subaccounts for a parent
-  const getSubaccounts = (parentId: string) => accounts.filter((acc) => acc.parent_id === parentId);
+  // Helper: get all subaccounts for a parent, sorted alphabetically
+  const getSubaccounts = (parentId: string) => 
+    accounts
+      .filter((acc) => acc.parent_id === parentId)
+      .sort((a, b) => a.name.localeCompare(b.name));
 
   // Helper: calculate direct total for an account (only its own transactions)
   const calculateAccountDirectTotal = (account: Account): number => {
@@ -332,8 +371,12 @@ export default function Page() {
     return subaccounts.some((sub) => hasTransactions(sub));
   };
 
-  // Top-level accounts (no parent) with transactions
-  const topLevel = (type: string) => accounts.filter((a) => a.type === type && !a.parent_id).filter(hasTransactions);
+  // Top-level accounts (no parent) with transactions, sorted alphabetically
+  const topLevel = (type: string) => 
+    accounts
+      .filter((a) => a.type === type && !a.parent_id)
+      .filter(hasTransactions)
+      .sort((a, b) => a.name.localeCompare(b.name));
 
   // For COGS, Expense, Revenue
   const revenueRows = topLevel("Revenue");
@@ -358,75 +401,45 @@ export default function Page() {
 
   // Quick view: transactions for selected category or total line (all subaccounts included)
   const selectedCategoryTransactions = selectedCategory
-    ? selectedCategory.id === "REVENUE_GROUP"
-      ? journalEntries.filter((tx) => getAllGroupAccountIds(revenueRows).includes(tx.chart_account_id))
-      : selectedCategory.id === "COGS_GROUP"
-      ? journalEntries.filter((tx) => getAllGroupAccountIds(cogsRows).includes(tx.chart_account_id))
-      : selectedCategory.id === "EXPENSE_GROUP"
-      ? journalEntries.filter((tx) => getAllGroupAccountIds(expenseRows).includes(tx.chart_account_id))
-      : journalEntries.filter((tx) => getAllAccountIds(selectedCategory).includes(tx.chart_account_id))
+    ? (() => {
+        let transactions =
+          selectedCategory.id === "REVENUE_GROUP"
+            ? journalEntries.filter((tx) => getAllGroupAccountIds(revenueRows).includes(tx.chart_account_id))
+            : selectedCategory.id === "COGS_GROUP"
+            ? journalEntries.filter((tx) => getAllGroupAccountIds(cogsRows).includes(tx.chart_account_id))
+            : selectedCategory.id === "EXPENSE_GROUP"
+            ? journalEntries.filter((tx) => getAllGroupAccountIds(expenseRows).includes(tx.chart_account_id))
+            : journalEntries.filter((tx) => getAllAccountIds(selectedCategory).includes(tx.chart_account_id));
+
+        // If a specific month is selected, filter transactions for that month only
+        const selectedMonth = viewerModal.selectedMonth;
+        if (selectedMonth && typeof selectedMonth === "string") {
+          transactions = transactions.filter((tx) => tx.date.startsWith(selectedMonth));
+        }
+
+        return transactions;
+      })()
     : [];
-
-  const handleSaveTransaction = async (updatedTx: Transaction) => {
-    try {
-      // Delete existing journal entries for this transaction
-      await supabase.from("journal").delete().eq("transaction_id", updatedTx.transaction_id);
-
-      // Create new journal entries
-      const { error } = await supabase.from("journal").insert([
-        {
-          id: uuidv4(),
-          transaction_id: updatedTx.transaction_id,
-          date: updatedTx.date,
-          description: updatedTx.description,
-          chart_account_id: updatedTx.chart_account_id,
-          debit: updatedTx.debit,
-          credit: updatedTx.credit,
-        },
-      ]);
-
-      if (error) throw error;
-
-      setEditModal({ isOpen: false, transaction: null });
-
-      // Refresh data
-      const { data: accountsData } = await supabase
-        .from("chart_of_accounts")
-        .select("*")
-        .in("type", ["Revenue", "COGS", "Expense"]);
-      setAccounts(accountsData || []);
-
-      let journalQuery = supabase.from("journal").select("*");
-      if (startDate && endDate) {
-        journalQuery = journalQuery.gte("date", startDate).lte("date", endDate);
-      }
-      const { data: journalData } = await journalQuery;
-      setJournalEntries(journalData || []);
-    } catch (error) {
-      console.error("Error updating transaction:", error);
-      alert("Failed to update transaction. Please try again.");
-    }
-  };
 
   // Helper: get months between start and end date
   const getMonthsInRange = () => {
     const months: string[] = [];
-    
+
     // Parse dates as local dates to avoid timezone issues
-    const [startYear, startMonth, startDay] = startDate.split('-').map(Number);
-    const [endYear, endMonth, endDay] = endDate.split('-').map(Number);
-    
+    const [startYear, startMonth, startDay] = startDate.split("-").map(Number);
+    const [endYear, endMonth, endDay] = endDate.split("-").map(Number);
+
     const start = new Date(startYear, startMonth - 1, startDay); // Month is 0-indexed
     const end = new Date(endYear, endMonth - 1, endDay);
 
     // Start from the first day of the start month
     let current = new Date(start.getFullYear(), start.getMonth(), 1);
-    
+
     while (current <= end) {
       const year = current.getFullYear();
-      const month = String(current.getMonth() + 1).padStart(2, '0'); // Convert back to 1-indexed
+      const month = String(current.getMonth() + 1).padStart(2, "0"); // Convert back to 1-indexed
       months.push(`${year}-${month}`); // Format: YYYY-MM
-      
+
       // Move to next month
       current = new Date(current.getFullYear(), current.getMonth() + 1, 1);
     }
@@ -583,65 +596,505 @@ export default function Page() {
   };
 
   // Export function
-  const exportToCSV = () => {
-    const csvData = [];
-    csvData.push(["Profit & Loss", `${startDate} to ${endDate}`]);
-    csvData.push([""]);
+  const exportToXLSX = async () => {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Profit & Loss");
 
-    // Revenue
-    csvData.push(["REVENUE", ""]);
-    revenueRows.forEach((account) => {
-      csvData.push([account.name, calculateAccountTotal(account).toFixed(2)]);
-      getSubaccounts(account.id)
-        .filter(hasTransactions)
-        .forEach((sub) => {
-          csvData.push([`  ${sub.name}`, calculateAccountTotal(sub).toFixed(2)]);
-        });
-    });
-    csvData.push(["Total Revenue", totalRevenue.toFixed(2)]);
-    csvData.push([""]);
+    // Set basic styles
+    const titleStyle = { font: { size: 12, bold: true }, alignment: { horizontal: "center" as const } };
+    const headerStyle = { 
+      font: { bold: true, size: 10 }, 
+      alignment: { horizontal: "center" as const }
+    };
+    const sectionStyle = { 
+      font: { bold: true, size: 10 }
+    };
+    const numberStyle = { 
+      font: { size: 10 },
+      numFmt: "#,##0.00", 
+      alignment: { horizontal: "right" as const }
+    };
+    const percentStyle = { 
+      font: { size: 10 },
+      numFmt: "0.0%", 
+      alignment: { horizontal: "right" as const }
+    };
+    const totalStyle = { 
+      font: { bold: true, size: 10 }, 
+      numFmt: "#,##0.00", 
+      alignment: { horizontal: "right" as const }
+    };
 
-    // COGS
-    if (cogsRows.length > 0) {
-      csvData.push(["COST OF GOODS SOLD", ""]);
-      cogsRows.forEach((account) => {
-        csvData.push([account.name, calculateAccountTotal(account).toFixed(2)]);
-        getSubaccounts(account.id)
-          .filter(hasTransactions)
-          .forEach((sub) => {
-            csvData.push([`  ${sub.name}`, calculateAccountTotal(sub).toFixed(2)]);
-          });
+    let currentRow = 1;
+    const months = isMonthlyView ? getMonthsInRange() : [];
+    const totalColumns = isMonthlyView 
+      ? 1 + months.length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1)
+      : showPercentages ? 3 : 2;
+
+    // Title and company info at top
+    worksheet.mergeCells(`A${currentRow}:${String.fromCharCode(64 + totalColumns)}${currentRow}`);
+    worksheet.getCell(`A${currentRow}`).value = "Profit & Loss";
+    worksheet.getCell(`A${currentRow}`).style = titleStyle;
+    currentRow++;
+    
+    if (currentCompany) {
+      worksheet.mergeCells(`A${currentRow}:${String.fromCharCode(64 + totalColumns)}${currentRow}`);
+      worksheet.getCell(`A${currentRow}`).value = currentCompany.name;
+      worksheet.getCell(`A${currentRow}`).style = { font: { size: 10 }, alignment: { horizontal: "center" as const } };
+      currentRow++;
+    }
+    
+    worksheet.mergeCells(`A${currentRow}:${String.fromCharCode(64 + totalColumns)}${currentRow}`);
+    worksheet.getCell(`A${currentRow}`).value = `${formatDateForDisplay(startDate)} to ${formatDateForDisplay(endDate)}`;
+    worksheet.getCell(`A${currentRow}`).style = { font: { size: 10 }, alignment: { horizontal: "center" as const } };
+    currentRow++;
+
+    // Table headers
+    let colIndex = 1;
+    worksheet.getCell(currentRow, colIndex++).value = "Account";
+    worksheet.getCell(currentRow, colIndex - 1).style = headerStyle;
+
+    if (isMonthlyView) {
+      months.forEach((month) => {
+        worksheet.getCell(currentRow, colIndex++).value = formatMonth(month);
+        worksheet.getCell(currentRow, colIndex - 1).style = headerStyle;
+          if (showPercentages) {
+          worksheet.getCell(currentRow, colIndex++).value = "%";
+          worksheet.getCell(currentRow, colIndex - 1).style = headerStyle;
+        }
       });
-      csvData.push(["Total COGS", totalCOGS.toFixed(2)]);
-      csvData.push([""]);
-      csvData.push(["Gross Profit", grossProfit.toFixed(2)]);
-      csvData.push([""]);
+      worksheet.getCell(currentRow, colIndex++).value = "Total";
+      worksheet.getCell(currentRow, colIndex - 1).style = headerStyle;
+        if (showPercentages) {
+        worksheet.getCell(currentRow, colIndex++).value = "%";
+        worksheet.getCell(currentRow, colIndex - 1).style = headerStyle;
+      }
+    } else {
+      worksheet.getCell(currentRow, colIndex++).value = "Total";
+      worksheet.getCell(currentRow, colIndex - 1).style = headerStyle;
+        if (showPercentages) {
+        worksheet.getCell(currentRow, colIndex++).value = "%";
+        worksheet.getCell(currentRow, colIndex - 1).style = headerStyle;
+      }
+    }
+    currentRow++;
+
+    // Helper function to add account rows
+    const addAccountRows = (accounts: Account[], sectionName: string, level = 0) => {
+      if (accounts.length === 0) return 0;
+
+      // Section header
+      worksheet.mergeCells(`A${currentRow}:${String.fromCharCode(64 + totalColumns)}${currentRow}`);
+      worksheet.getCell(`A${currentRow}`).value = sectionName;
+      worksheet.getCell(`A${currentRow}`).style = sectionStyle;
+      currentRow++;
+
+      // Account rows
+      accounts.forEach((account) => {
+        const addAccountRow = (acc: Account, accountLevel: number) => {
+          const subaccounts = getSubaccounts(acc.id).filter(hasTransactions);
+          const isParent = subaccounts.length > 0;
+          const isCollapsed = collapsedAccounts.has(acc.id);
+          const accountTotal = calculateAccountTotal(acc);
+          const directTotal = calculateAccountDirectTotal(acc);
+
+          if (Math.abs(isParent && isCollapsed ? accountTotal : directTotal) < 0.01 && !isParent) return;
+
+          let colIndex = 1;
+          const indent = "  ".repeat(accountLevel);
+          worksheet.getCell(currentRow, colIndex++).value = `${indent}${acc.name}`;
+          worksheet.getCell(currentRow, 1).style = { font: { size: 10 } };
+
+      if (isMonthlyView) {
+            months.forEach((month) => {
+              const monthlyTotal = isParent && isCollapsed 
+                ? calculateAccountTotalForMonthWithSubaccounts(acc, month)
+                : calculateAccountTotalForMonth(acc, month);
+              
+              worksheet.getCell(currentRow, colIndex++).value = monthlyTotal;
+              worksheet.getCell(currentRow, colIndex - 1).style = numberStyle;
+
+            if (showPercentages) {
+                const percentValue = formatPercentageForAccount(monthlyTotal, acc);
+                worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
+                worksheet.getCell(currentRow, colIndex - 1).style = percentStyle;
+            }
+          });
+
+          // Total column
+            worksheet.getCell(currentRow, colIndex++).value = isParent && isCollapsed ? accountTotal : directTotal;
+            worksheet.getCell(currentRow, colIndex - 1).style = numberStyle;
+
+          if (showPercentages) {
+              const percentValue = formatPercentageForAccount(isParent && isCollapsed ? accountTotal : directTotal, acc);
+              worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
+              worksheet.getCell(currentRow, colIndex - 1).style = percentStyle;
+            }
+          } else {
+            worksheet.getCell(currentRow, colIndex++).value = isParent && isCollapsed ? accountTotal : directTotal;
+            worksheet.getCell(currentRow, colIndex - 1).style = numberStyle;
+            
+                  if (showPercentages) {
+              const percentValue = formatPercentageForAccount(isParent && isCollapsed ? accountTotal : directTotal, acc);
+              worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
+              worksheet.getCell(currentRow, colIndex - 1).style = percentStyle;
+            }
+          }
+          currentRow++;
+
+          // Add subaccounts if not collapsed
+          if (isParent && !isCollapsed) {
+            subaccounts.forEach((sub) => {
+              addAccountRow(sub, accountLevel + 1);
+            });
+
+            // Add total row for parent
+            colIndex = 1;
+            const indentTotal = "  ".repeat(accountLevel);
+            worksheet.getCell(currentRow, colIndex++).value = `${indentTotal}Total ${acc.name}`;
+            worksheet.getCell(currentRow, 1).style = totalStyle;
+
+            if (isMonthlyView) {
+              months.forEach((month) => {
+                const monthlyTotal = calculateAccountTotalForMonthWithSubaccounts(acc, month);
+                worksheet.getCell(currentRow, colIndex++).value = monthlyTotal;
+                worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
+
+          if (showPercentages) {
+                  const percentValue = formatPercentageForAccount(monthlyTotal, acc);
+                  worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
+                  worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%" };
+                }
+              });
+              
+              // Total column
+              worksheet.getCell(currentRow, colIndex++).value = accountTotal;
+              worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
+
+          if (showPercentages) {
+                const percentValue = formatPercentageForAccount(accountTotal, acc);
+                worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
+                worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%" };
+              }
+      } else {
+              worksheet.getCell(currentRow, colIndex++).value = accountTotal;
+              worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
+
+          if (showPercentages) {
+                const percentValue = formatPercentageForAccount(accountTotal, acc);
+                worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
+                worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%" };
+              }
+            }
+            currentRow++;
+          }
+        };
+
+        addAccountRow(account, level);
+      });
+
+      // Section total
+      const sectionTotal = accounts.reduce((sum, a) => sum + calculateAccountTotal(a), 0);
+      colIndex = 1;
+      worksheet.getCell(currentRow, colIndex++).value = `Total ${sectionName}`;
+      worksheet.getCell(currentRow, 1).style = totalStyle;
+
+    if (isMonthlyView) {
+        months.forEach((month) => {
+          const monthlyTotal = accounts.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0);
+          worksheet.getCell(currentRow, colIndex++).value = monthlyTotal;
+          worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
+
+          if (showPercentages) {
+            const percentValue = sectionName === "Revenue" 
+              ? "100.0%" 
+              : calculatePercentageForMonth(monthlyTotal, month);
+            worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
+            worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%" };
+          }
+        });
+
+        // Total column
+        worksheet.getCell(currentRow, colIndex++).value = sectionTotal;
+        worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
+
+        if (showPercentages) {
+          const percentValue = sectionName === "Revenue" && totalRevenue !== 0 ? "100.0%" : formatPercentage(sectionTotal, totalRevenue);
+          worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
+          worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%" };
+        }
+    } else {
+        worksheet.getCell(currentRow, colIndex++).value = sectionTotal;
+        worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
+
+        if (showPercentages) {
+          const percentValue = sectionName === "Revenue" && totalRevenue !== 0 ? "100.0%" : formatPercentage(sectionTotal, totalRevenue);
+          worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
+          worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%" };
+        }
+      }
+      currentRow++;
+
+      return sectionTotal;
+    };
+
+    // Add sections
+    const totalRevenue = addAccountRows(revenueRows, "Revenue");
+    const totalCOGS = addAccountRows(cogsRows, "Cost of Goods Sold (COGS)");
+    
+    // Gross Profit
+    const grossProfit = totalRevenue - totalCOGS;
+    colIndex = 1;
+    worksheet.getCell(currentRow, colIndex++).value = "Gross Profit";
+    worksheet.getCell(currentRow, 1).style = totalStyle;
+
+    if (isMonthlyView) {
+      months.forEach((month) => {
+        const monthlyGrossProfit = 
+          revenueRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0) -
+          cogsRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0);
+        worksheet.getCell(currentRow, colIndex++).value = monthlyGrossProfit;
+        worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
+
+                if (showPercentages) {
+          const percentValue = calculatePercentageForMonth(monthlyGrossProfit, month);
+          worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
+          worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%" };
+        }
+      });
+      
+      // Total column
+      worksheet.getCell(currentRow, colIndex++).value = grossProfit;
+      worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
+
+      if (showPercentages) {
+        const percentValue = formatPercentage(grossProfit, totalRevenue);
+        worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
+        worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%" };
+      }
+    } else {
+      worksheet.getCell(currentRow, colIndex++).value = grossProfit;
+      worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
+
+        if (showPercentages) {
+        const percentValue = formatPercentage(grossProfit, totalRevenue);
+        worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
+        worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%" };
+        }
+      }
+    currentRow++;
+
+    const totalExpenses = addAccountRows(expenseRows, "Expenses");
+
+    // Net Income
+    const netIncome = totalRevenue - totalCOGS - totalExpenses;
+    colIndex = 1;
+    worksheet.getCell(currentRow, colIndex++).value = "Net Income";
+    worksheet.getCell(currentRow, 1).style = { 
+      font: { bold: true, color: { argb: netIncome >= 0 ? "FF006100" : "FF9C0006" } }, 
+      alignment: { horizontal: "left" as const },
+      fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: netIncome >= 0 ? "FFF0FFF0" : "FFFEF2F2" } }
+    };
+
+    if (isMonthlyView) {
+      months.forEach((month) => {
+        const monthlyNetIncome =
+          revenueRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0) -
+          cogsRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0) -
+          expenseRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0);
+        worksheet.getCell(currentRow, colIndex++).value = monthlyNetIncome;
+        worksheet.getCell(currentRow, colIndex - 1).style = { 
+          font: { bold: true, color: { argb: monthlyNetIncome >= 0 ? "FF006100" : "FF9C0006" } }, 
+          numFmt: "#,##0.00", 
+          alignment: { horizontal: "right" as const },
+          fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: monthlyNetIncome >= 0 ? "FFF0FFF0" : "FFFEF2F2" } }
+        };
+
+        if (showPercentages) {
+          const percentValue = calculatePercentageForMonth(monthlyNetIncome, month);
+          worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
+          worksheet.getCell(currentRow, colIndex - 1).style = { 
+            font: { bold: true, color: { argb: monthlyNetIncome >= 0 ? "FF006100" : "FF9C0006" } }, 
+            numFmt: "0.0%", 
+            alignment: { horizontal: "right" as const },
+              fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: monthlyNetIncome >= 0 ? "FFF0FFF0" : "FFFEF2F2" } }
+          };
+        }
+      });
+      
+      // Total column
+      worksheet.getCell(currentRow, colIndex++).value = netIncome;
+      worksheet.getCell(currentRow, colIndex - 1).style = { 
+        font: { bold: true, color: { argb: netIncome >= 0 ? "FF006100" : "FF9C0006" } }, 
+        numFmt: "#,##0.00", 
+        alignment: { horizontal: "right" as const },
+        fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: netIncome >= 0 ? "FFF0FFF0" : "FFFEF2F2" } }
+      };
+      
+      if (showPercentages) {
+        const percentValue = formatPercentage(netIncome, totalRevenue);
+        worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
+        worksheet.getCell(currentRow, colIndex - 1).style = { 
+          font: { bold: true, color: { argb: netIncome >= 0 ? "FF006100" : "FF9C0006" } }, 
+          numFmt: "0.0%", 
+          alignment: { horizontal: "right" as const },
+          fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: netIncome >= 0 ? "FFF0FFF0" : "FFFEF2F2" } }
+        };
+      }
+    } else {
+      worksheet.getCell(currentRow, colIndex++).value = netIncome;
+      worksheet.getCell(currentRow, colIndex - 1).style = { 
+        font: { bold: true, color: { argb: netIncome >= 0 ? "FF006100" : "FF9C0006" } }, 
+        numFmt: "#,##0.00", 
+        alignment: { horizontal: "right" as const },
+        fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: netIncome >= 0 ? "FFF0FFF0" : "FFFEF2F2" } }
+      };
+
+      if (showPercentages) {
+        const percentValue = formatPercentage(netIncome, totalRevenue);
+        worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
+        worksheet.getCell(currentRow, colIndex - 1).style = { 
+          font: { bold: true, color: { argb: netIncome >= 0 ? "FF006100" : "FF9C0006" } }, 
+          numFmt: "0.0%", 
+          alignment: { horizontal: "right" as const },
+          fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: netIncome >= 0 ? "FFF0FFF0" : "FFFEF2F2" } }
+        };
+      }
     }
 
-    // Expenses
-    csvData.push(["EXPENSES", ""]);
-    expenseRows.forEach((account) => {
-      csvData.push([account.name, calculateAccountTotal(account).toFixed(2)]);
-      getSubaccounts(account.id)
-        .filter(hasTransactions)
-        .forEach((sub) => {
-          csvData.push([`  ${sub.name}`, calculateAccountTotal(sub).toFixed(2)]);
-        });
-    });
-    csvData.push(["Total Expenses", totalExpenses.toFixed(2)]);
-    csvData.push([""]);
-    csvData.push(["Net Income", netIncome.toFixed(2)]);
+    // Set column widths
+    worksheet.getColumn("A").width = 35;
+    for (let i = 2; i <= totalColumns; i++) {
+      worksheet.getColumn(i).width = 15;
+    }
+    
+    // Add footer
+    currentRow += 3;
+    
+    const today = new Date();
+    worksheet.mergeCells(`A${currentRow}:${String.fromCharCode(64 + totalColumns)}${currentRow}`);
+    worksheet.getCell(`A${currentRow}`).value = `switch | ${currentCompany?.name} | ${formatDateForDisplay(
+      today.toISOString().split("T")[0]
+    )} ${today.toLocaleTimeString()}`;
+    worksheet.getCell(`A${currentRow}`).style = { font: { size: 9, color: { argb: "FF666666" } },
+      alignment: { horizontal: "center" as const } };
 
-    const csvContent = csvData.map((row) => row.map((cell) => `"${cell}"`).join(",")).join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    // Save the file
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url = window.URL.createObjectURL(blob);
     const link = document.createElement("a");
-    const url = URL.createObjectURL(blob);
-    link.setAttribute("href", url);
-    link.setAttribute("download", `profit-loss-${startDate}-to-${endDate}.csv`);
-    link.style.visibility = "hidden";
-    document.body.appendChild(link);
+    link.href = url;
+    link.download = `profit-loss-${startDate}-to-${endDate}.xlsx`;
     link.click();
-    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  };
+
+  // Export modal transactions function
+  const exportModalTransactions = async () => {
+    if (!viewerModal.category || selectedCategoryTransactions.length === 0) return;
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Transactions");
+
+    // Set styles
+    const headerStyle = { font: { bold: true, size: 10 } };
+    const numberStyle = { font: { size: 10 }, numFmt: "#,##0.00", alignment: { horizontal: "right" as const } };
+    const dateStyle = { font: { size: 10 }, alignment: { horizontal: "left" as const } };
+
+    let currentRow = 1;
+
+    // Title and company info
+    worksheet.mergeCells(`A${currentRow}:E${currentRow}`);
+    worksheet.getCell(`A${currentRow}`).value = `${viewerModal.category.name} Transactions`;
+    worksheet.getCell(`A${currentRow}`).style = { font: { size: 12, bold: true }, alignment: { horizontal: "center" as const } };
+    currentRow++;
+
+    if (currentCompany) {
+      worksheet.mergeCells(`A${currentRow}:E${currentRow}`);
+      worksheet.getCell(`A${currentRow}`).value = currentCompany.name;
+      worksheet.getCell(`A${currentRow}`).style = { font: { size: 10 }, alignment: { horizontal: "center" as const } };
+      currentRow++;
+    }
+    
+    worksheet.mergeCells(`A${currentRow}:E${currentRow}`);
+    worksheet.getCell(`A${currentRow}`).value = viewerModal.selectedMonth 
+      ? `for ${formatMonth(viewerModal.selectedMonth)}` 
+      : `${formatDateForDisplay(startDate)} to ${formatDateForDisplay(endDate)}`;
+    worksheet.getCell(`A${currentRow}`).style = { font: { size: 10 }, alignment: { horizontal: "center" as const } };
+    currentRow++; // Empty row
+
+    // Headers
+    worksheet.getCell(`A${currentRow}`).value = "Date";
+    worksheet.getCell(`A${currentRow}`).style = headerStyle;
+    worksheet.getCell(`B${currentRow}`).value = "Description";
+    worksheet.getCell(`B${currentRow}`).style = headerStyle;
+    worksheet.getCell(`C${currentRow}`).value = "Category";
+    worksheet.getCell(`C${currentRow}`).style = headerStyle;
+    worksheet.getCell(`D${currentRow}`).value = "Source";
+    worksheet.getCell(`D${currentRow}`).style = headerStyle;
+    worksheet.getCell(`E${currentRow}`).value = "Amount";
+    worksheet.getCell(`E${currentRow}`).style = headerStyle;
+    currentRow++;
+
+    // Transaction rows
+    selectedCategoryTransactions.forEach((tx) => {
+      const displayAmount = getTransactionDisplayAmount(tx, viewerModal.category?.type || "");
+      const categoryName = viewerModal.category ? getCategoryName(tx, viewerModal.category) : "";
+      const source = tx.source === "manual" ? "Manual" : "Journal";
+
+      worksheet.getCell(`A${currentRow}`).value = tx.date;
+      worksheet.getCell(`A${currentRow}`).style = dateStyle;
+      worksheet.getCell(`B${currentRow}`).value = tx.description;
+      worksheet.getCell(`B${currentRow}`).style = dateStyle;
+      worksheet.getCell(`C${currentRow}`).value = categoryName;
+      worksheet.getCell(`C${currentRow}`).style = dateStyle;
+      worksheet.getCell(`D${currentRow}`).value = source;
+      worksheet.getCell(`D${currentRow}`).style = dateStyle;
+      worksheet.getCell(`E${currentRow}`).value = displayAmount;
+      worksheet.getCell(`E${currentRow}`).style = numberStyle;
+      currentRow++;
+    });
+
+    // Total row
+    const total = selectedCategoryTransactions.reduce(
+      (sum, tx) => sum + getTransactionDisplayAmount(tx, viewerModal.category?.type || ""),
+      0
+    );
+
+    currentRow++; // Empty row
+    worksheet.getCell(`A${currentRow}`).value = "Total";
+    worksheet.getCell(`A${currentRow}`).style = { font: { bold: true, size: 10 } };
+    worksheet.getCell(`E${currentRow}`).value = total;
+    worksheet.getCell(`E${currentRow}`).style = { font: { bold: true, size: 10 }, numFmt: "#,##0.00", alignment: { horizontal: "right" as const } };
+    
+    // Add footer
+    currentRow += 3;
+    
+    const today = new Date();
+    worksheet.mergeCells(`A${currentRow}:E${currentRow}`);
+    worksheet.getCell(`A${currentRow}`).value = `switch | ${currentCompany?.name} | ${formatDateForDisplay(
+      today.toISOString().split("T")[0]
+    )} ${today.toLocaleTimeString()}`;
+    worksheet.getCell(`A${currentRow}`).style = { font: { size: 9, color: { argb: "FF666666" } }, 
+      alignment: { horizontal: "center" as const } };
+
+    // Set column widths
+    worksheet.getColumn("A").width = 12;
+    worksheet.getColumn("B").width = 30;
+    worksheet.getColumn("C").width = 20;
+    worksheet.getColumn("D").width = 10;
+    worksheet.getColumn("E").width = 15;
+
+    // Save the file
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${viewerModal.category.name.replace(/[^a-zA-Z0-9]/g, "-")}-transactions-${startDate}-to-${endDate}.xlsx`;
+    link.click();
+    window.URL.revokeObjectURL(url);
   };
 
   // Helper: render account row with monthly totals
@@ -659,14 +1112,14 @@ export default function Page() {
 
     return (
       <React.Fragment key={account.id}>
-        <tr
+        <TableRow
           className="cursor-pointer hover:bg-gray-100"
           onClick={() => {
             setSelectedCategory(account);
             setViewerModal({ isOpen: true, category: account });
           }}
         >
-          <td className="border p-1" style={{ paddingLeft: `${level * 20 + 8}px` }}>
+          <TableCell className="border p-1 text-xs" style={{ paddingLeft: `${level * 20 + 8}px` }}>
             <div className="flex items-center">
               {level > 0 && <span className="text-gray-400 mr-2 text-xs">└</span>}
               {isParent ? (
@@ -686,47 +1139,61 @@ export default function Page() {
               ) : (
                 !level && <div className="mr-2 w-5"></div>
               )}
-              <span>{account.name}</span>
+              <span className="font-semibold">{account.name}</span>
             </div>
-          </td>
+          </TableCell>
           {months.map((month) => (
             <React.Fragment key={month}>
-              <td className="border p-1 text-right">
+              <TableCell
+                className="border p-1 text-right text-xs cursor-pointer hover:bg-gray-50"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedCategory(account);
+                  setViewerModal({ isOpen: true, category: account, selectedMonth: month });
+                }}
+              >
                 {formatNumber(
                   isParent && isCollapsed
                     ? calculateAccountTotalForMonthWithSubaccounts(account, month)
                     : calculateAccountTotalForMonth(account, month)
                 )}
-              </td>
+              </TableCell>
               {showPercentages && (
-                <td className="border p-1 text-right text-xs text-slate-600">
+                <TableCell
+                  className="border p-1 text-right text-xs text-slate-600 cursor-pointer hover:bg-gray-50"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedCategory(account);
+                    setViewerModal({ isOpen: true, category: account, selectedMonth: month });
+                  }}
+                >
                   {formatPercentageForAccount(
                     isParent && isCollapsed
                       ? calculateAccountTotalForMonthWithSubaccounts(account, month)
                       : calculateAccountTotalForMonth(account, month),
                     account
                   )}
-                </td>
+                </TableCell>
               )}
             </React.Fragment>
           ))}
-          <td className="border p-1 text-right font-semibold">
+          <TableCell className="border p-1 text-right font-semibold text-xs">
             {formatNumber(
               isParent && isCollapsed ? calculateAccountTotal(account) : calculateAccountDirectTotal(account)
             )}
-          </td>
-                        {showPercentages && (
-                <td className="border p-1 text-right text-xs text-slate-600">
-                  {formatPercentageForAccount(
-                    isParent && isCollapsed ? calculateAccountTotal(account) : calculateAccountDirectTotal(account),
-                    account
-                  )}
-                </td>
+          </TableCell>
+          {showPercentages && (
+            <TableCell className="border p-1 text-right text-xs text-slate-600">
+              {formatPercentageForAccount(
+                isParent && isCollapsed ? calculateAccountTotal(account) : calculateAccountDirectTotal(account),
+                account
               )}
-        </tr>
+            </TableCell>
+          )}
+        </TableRow>
         {!isCollapsed && subaccounts.map((sub) => renderAccountRowWithMonthlyTotals(sub, level + 1))}
         {isParent && !isCollapsed && (
-          <tr
+          <TableRow
             key={`${account.id}-total`}
             className="cursor-pointer hover:bg-blue-50"
             onClick={() => {
@@ -734,33 +1201,33 @@ export default function Page() {
               setViewerModal({ isOpen: true, category: account });
             }}
           >
-            <td className="border p-1 font-semibold bg-gray-50" style={{ paddingLeft: `${level * 20 + 8}px` }}>
+            <TableCell className="border p-1 text-xs bg-gray-50" style={{ paddingLeft: `${level * 20 + 8}px` }}>
               <div className="flex items-center">
                 <div className="mr-2 w-5"></div>
-                <span>Total {account.name}</span>
+                <span className="font-semibold">Total {account.name}</span>
               </div>
-            </td>
+            </TableCell>
             {months.map((month) => (
               <React.Fragment key={month}>
-                <td className="border p-1 text-right font-semibold bg-gray-50">
+                <TableCell className="border p-1 text-right font-semibold bg-gray-50 text-xs">
                   {formatNumber(calculateAccountTotalForMonthWithSubaccounts(account, month))}
-                </td>
+                </TableCell>
                 {showPercentages && (
-                  <td className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
+                  <TableCell className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
                     {formatPercentageForAccount(calculateAccountTotalForMonthWithSubaccounts(account, month), account)}
-                  </td>
+                  </TableCell>
                 )}
               </React.Fragment>
             ))}
-            <td className="border p-1 text-right font-semibold bg-gray-50">
+            <TableCell className="border p-1 text-right font-semibold bg-gray-50 text-xs">
               {formatNumber(calculateAccountTotal(account))}
-            </td>
+            </TableCell>
             {showPercentages && (
-              <td className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
+              <TableCell className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
                 {formatPercentageForAccount(calculateAccountTotal(account), account)}
-              </td>
+              </TableCell>
             )}
-          </tr>
+          </TableRow>
         )}
       </React.Fragment>
     );
@@ -786,14 +1253,14 @@ export default function Page() {
 
     return (
       <React.Fragment key={account.id}>
-        <tr
+        <TableRow
           className="cursor-pointer hover:bg-gray-100"
           onClick={() => {
             setSelectedCategory(account);
             setViewerModal({ isOpen: true, category: account });
           }}
         >
-          <td className="border p-1" style={{ paddingLeft: `${level * 20 + 8}px`, width: "30%" }}>
+          <TableCell className="border p-1 text-xs" style={{ paddingLeft: `${level * 20 + 8}px`, width: "30%" }}>
             <div className="flex items-center">
               {level > 0 && <span className="text-gray-400 mr-2 text-xs">└</span>}
               {isParent ? (
@@ -813,75 +1280,78 @@ export default function Page() {
               ) : (
                 !level && <div className="mr-2 w-5"></div>
               )}
-              <span>{account.name}</span>
+              <span className="font-semibold">{account.name}</span>
             </div>
-          </td>
-          <td className="border p-1 text-right" style={{ width: "20%" }}>
+          </TableCell>
+          <TableCell className="border p-1 text-right text-xs" style={{ width: "20%" }}>
             {formatNumber(isParent && isCollapsed ? currentTotal : directTotal)}
-          </td>
+          </TableCell>
           {showPercentages && (
-            <td className="border p-1 text-right text-sm text-slate-600">
+            <TableCell className="border p-1 text-right text-xs text-slate-600">
               {formatPercentageForAccount(isParent && isCollapsed ? currentTotal : directTotal, account)}
-            </td>
+            </TableCell>
           )}
           {showPreviousPeriod && (
             <>
-              <td className="border p-1 text-right" style={{ width: "20%" }}>
+              <TableCell className="border p-1 text-right text-xs" style={{ width: "20%" }}>
                 {formatNumber(isParent && isCollapsed ? previousTotal : directPreviousTotal)}
-              </td>
+              </TableCell>
               {showPercentages && (
-                <td className="border p-1 text-right text-xs text-slate-600">
-                  {formatPercentage(isParent && isCollapsed ? previousTotal : directPreviousTotal, calculatePreviousPeriodTotal(revenueRows))}
-                </td>
+                <TableCell className="border p-1 text-right text-xs text-slate-600">
+                  {formatPercentage(
+                    isParent && isCollapsed ? previousTotal : directPreviousTotal,
+                    calculatePreviousPeriodTotal(revenueRows)
+                  )}
+                </TableCell>
               )}
-              <td className="border p-1 text-right" style={{ width: "20%" }}>
+              <TableCell className="border p-1 text-right text-xs" style={{ width: "20%" }}>
                 {formatNumber(variance)}
-              </td>
+              </TableCell>
             </>
           )}
-        </tr>
+        </TableRow>
         {!isCollapsed && subaccounts.map((sub) => renderAccountRowWithPreviousPeriod(sub, level + 1))}
         {isParent && !isCollapsed && (
-          <tr
+          <TableRow
             className="cursor-pointer hover:bg-blue-50"
             onClick={() => {
               setSelectedCategory(account);
               setViewerModal({ isOpen: true, category: account });
             }}
           >
-            <td
-              className="border p-1 font-semibold bg-gray-50"
+            <TableCell
+              className="border p-1 text-xs bg-gray-50"
               style={{ paddingLeft: `${level * 20 + 8}px`, width: "30%" }}
             >
               <div className="flex items-center">
                 <div className="mr-2 w-5"></div>
-                <span>Total {account.name}</span>
+                <span className="font-semibold">Total {account.name}</span>
               </div>
-            </td>
-            <td className="border p-1 text-right font-semibold bg-gray-50" style={{ width: "20%" }}>
+            </TableCell>
+            <TableCell className="border p-1 text-right font-semibold bg-gray-50 text-xs" style={{ width: "20%" }}>
               {formatNumber(currentTotal)}
-            </td>
+            </TableCell>
             {showPercentages && (
-              <td className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
+              <TableCell className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
                 {formatPercentageForAccount(currentTotal, account)}
-              </td>
+              </TableCell>
             )}
             {showPreviousPeriod && (
               <>
-                <td className="border p-1 text-right font-semibold bg-gray-50" style={{ width: "20%" }}>
+                <TableCell className="border p-1 text-right font-semibold bg-gray-50 text-xs" style={{ width: "20%" }}>
                   {formatNumber(previousTotal)}
-                </td>
+                </TableCell>
                 {showPercentages && (
-                  <td className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
+                  <TableCell className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
                     {formatPercentage(previousTotal, calculatePreviousPeriodTotal(revenueRows))}
-                  </td>
+                  </TableCell>
                 )}
-                <td className="border p-1 text-right font-semibold bg-gray-50" style={{ width: "20%" }}>
+                <TableCell className="border p-1 text-right font-semibold bg-gray-50 text-xs" style={{ width: "20%" }}>
                   {formatNumber(currentTotal - previousTotal)}
-                </td>
+                </TableCell>
               </>
             )}
-          </tr>
+          </TableRow>
         )}
       </React.Fragment>
     );
@@ -892,8 +1362,8 @@ export default function Page() {
     return (
       <div className="p-4 bg-white text-gray-900 font-sans text-xs space-y-6">
         <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-          <h3 className="text-sm font-semibold text-yellow-800 mb-2">Company Selection Required</h3>
-          <p className="text-sm text-yellow-700">
+          <h3 className="text-xs font-semibold text-yellow-800 mb-2">Company Selection Required</h3>
+          <p className="text-xs text-yellow-700">
             Please select a company from the dropdown in the navigation bar to view profit & loss reports.
           </p>
         </div>
@@ -902,10 +1372,9 @@ export default function Page() {
   }
 
   return (
-    <div className="p-6 bg-slate-50 min-h-screen">
+    <div className="p-6 bg-white min-h-screen">
       <div className="max-w-7xl mx-auto">
         <div className="text-center mb-6">
-          <h1 className="text-2xl font-bold text-slate-800 mb-3">Profit & Loss</h1>
           {/* Period Selector */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
@@ -915,571 +1384,501 @@ export default function Page() {
                   onPeriodChange={handlePeriodChange}
                   selectedDisplay={selectedDisplay}
                   onDisplayChange={handleDisplayChange}
-                  selectedComparison={selectedComparison}
-                  onComparisonChange={handleComparisonChange}
+                  // selectedComparison={selectedComparison}
+                  // onComparisonChange={handleComparisonChange}
                 />
               </div>
 
-                              {/* Manual date override option */}
-                <div className="flex items-center justify-center gap-4 text-sm">
-                  
-                  <Input 
-                    type="date" 
-                    value={startDate} 
-                    max={endDate || today}
-                    onChange={(e) => {
-                      const newStartDate = e.target.value;
-                      setStartDate(newStartDate);
-                      // If start date is after end date, update end date
-                      if (endDate && newStartDate > endDate) {
-                        setEndDate(newStartDate);
-                      }
-                    }} 
-                    className="w-auto text-sm h-8 transition-none" 
-                  />
-                  <span className="text-slate-600">to</span>
-                  <Input 
-                    type="date" 
-                    value={endDate} 
-                    min={startDate}
-                    max={today}
-                    onChange={(e) => {
-                      const newEndDate = e.target.value;
-                      
-                      // Prevent setting end date in the future
-                      if (newEndDate > today) {
-                        setEndDate(today);
-                        return;
-                      }
-                      
-                      setEndDate(newEndDate);
-                      // If end date is before start date, update start date
-                      if (startDate && newEndDate < startDate) {
-                        setStartDate(newEndDate);
-                      }
-                    }} 
-                    className="w-auto text-sm h-8 transition-none" 
-                  />
-                </div>
+              {/* Manual date override option */}
+              <div className="flex items-center justify-center gap-4 text-xs">
+                <Input
+                  type="date"
+                  value={startDate}
+                  max={endDate || today}
+                  onChange={(e) => {
+                    const newStartDate = e.target.value;
+                    setStartDate(newStartDate);
+                    // If start date is after end date, update end date
+                    if (endDate && newStartDate > endDate) {
+                      setEndDate(newStartDate);
+                    }
+                  }}
+                  className="w-auto text-xs h-8 transition-none"
+                />
+                <span className="text-slate-600">to</span>
+                <Input
+                  type="date"
+                  value={endDate}
+                  max={today}
+                  onChange={(e) => {
+                    const newEndDate = e.target.value;
+
+                    // Prevent setting end date in the future
+                    if (newEndDate > today) {
+                      setEndDate(today);
+                      return;
+                    }
+
+                    setEndDate(newEndDate);
+                    // If end date is before start date, update start date
+                    if (startDate && newEndDate < startDate) {
+                      setStartDate(newEndDate);
+                    }
+                  }}
+                  className="w-auto text-xs h-8 transition-none"
+                />
+              </div>
             </div>
 
             <div className="flex justify-center">
-              <Button onClick={exportToCSV} className="text-sm font-medium">
-                Export CSV
+              <Button onClick={exportToXLSX} disabled={loading} className="text-xs font-medium min-w-17">
+                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Export"}
               </Button>
             </div>
           </div>
         </div>
 
         {/* P&L Table */}
-        <Card>
+        <Card className="pt-3 pb-0">
           <CardContent className="p-0">
-            <table className="w-full border-collapse" style={{ tableLayout: "fixed" }}>
-              <thead className="bg-slate-50 border-b border-slate-200">
-                <tr>
-                  <th className="px-4 py-3 text-left font-semibold text-slate-700" style={{ width: "25%" }}>Account</th>
+            <h1 className="text-2xl font-bold text-slate-800 mb-1 text-center">Profit & Loss</h1>
+            {currentCompany && (
+              <p className="text-lg text-slate-700 mb-1 text-center font-medium">{currentCompany.name}</p>
+            )}
+            <p className="text-sm text-slate-600 mb-3 text-center">
+              {formatDateForDisplay(startDate)} to {formatDateForDisplay(endDate)}
+            </p>
+            <Table className="border border-gray-300">
+              <TableHeader className="bg-gray-100">
+                <TableRow>
+                  <TableHead
+                    className="border p-1 text-center font-medium text-xs whitespace-nowrap"
+                    style={{ width: "25%" }}
+                  >
+                    Account
+                  </TableHead>
                   {isMonthlyView ? (
                     <>
                       {getMonthsInRange().map((month) => (
-                        <React.Fragment key={month}>
-                          <th className="px-4 py-3 text-right font-semibold text-slate-700" style={{ width: showPercentages ? `${35 / ((getMonthsInRange().length + 1) * 2)}%` : `${75 / (getMonthsInRange().length + 1)}%` }}>
-                            {formatMonth(month)}
-                          </th>
-                          {showPercentages && (
-                            <th className="px-4 py-3 text-right font-semibold text-slate-700 text-xs" style={{ width: `${40 / ((getMonthsInRange().length + 1) * 2)}%` }}>
-                              %
-                            </th>
-                          )}
-                        </React.Fragment>
+                        <TableHead
+                          key={month}
+                          className="border p-1 text-center font-medium text-xs whitespace-nowrap"
+                          style={{ width: `${65 / (getMonthsInRange().length + 1)}% !important` }}
+                        >
+                          {formatMonth(month)}
+                        </TableHead>
                       ))}
-                      <th className="px-4 py-3 text-right font-semibold text-slate-700" style={{ width: showPercentages ? `${35 / ((getMonthsInRange().length + 1) * 2)}%` : `${75 / (getMonthsInRange().length + 1)}%` }}>Total</th>
-                      {showPercentages && (
-                        <th className="px-4 py-3 text-right font-semibold text-slate-700 text-xs" style={{ width: `${40 / ((getMonthsInRange().length + 1) * 2)}%` }}>
-                          %
-                        </th>
-                      )}
+                      <TableHead
+                        className="border p-1 text-center font-medium text-xs whitespace-nowrap"
+                        style={{ width: `${65 / (getMonthsInRange().length + 1)}%` }}
+                      >
+                        Total
+                      </TableHead>
                     </>
                   ) : (
                     <>
-                      <th className="px-4 py-3 text-right font-semibold text-slate-700" style={{ width: showPercentages ? "20%" : "25%" }}>Total</th>
+                      <TableHead
+                        className="border p-1 text-center font-medium text-xs"
+                        style={{ width: showPercentages ? "20%" : "25%" }}
+                      >
+                        Total
+                      </TableHead>
                       {showPercentages && (
-                        <th className="px-4 py-3 text-right font-semibold text-slate-700 text-xs" style={{ width: "15%" }}>%</th>
+                        <TableHead className="border p-1 text-center font-medium text-xs" style={{ width: "15%" }}>
+                          %
+                        </TableHead>
                       )}
                       {showPreviousPeriod && (
                         <>
-                          <th className="px-4 py-3 text-right font-semibold text-slate-700" style={{ width: showPercentages ? "20%" : "25%" }}>Previous Period</th>
+                          <TableHead
+                            className="border p-1 text-center font-medium text-xs"
+                            style={{ width: showPercentages ? "20%" : "25%" }}
+                          >
+                            Previous Period
+                          </TableHead>
                           {showPercentages && (
-                            <th className="px-4 py-3 text-right font-semibold text-slate-700 text-xs" style={{ width: "15%" }}>%</th>
+                            <TableHead className="border p-1 text-center font-medium text-xs" style={{ width: "15%" }}>
+                              %
+                            </TableHead>
                           )}
-                          <th className="px-4 py-3 text-right font-semibold text-slate-700" style={{ width: showPercentages ? "20%" : "25%" }}>Difference</th>
+                          <TableHead
+                            className="border p-1 text-center font-medium text-xs"
+                            style={{ width: showPercentages ? "20%" : "25%" }}
+                          >
+                            Difference
+                          </TableHead>
                         </>
                       )}
                     </>
                   )}
-                </tr>
-              </thead>
-              <tbody>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {loading ? (
                   /* Loading State */
                   <>
-                    {/* REVENUE SECTION */}
-                    <tr className="bg-slate-100 border-b border-slate-200">
-                      <td 
+                    {/* Revenue SECTION */}
+                    <TableRow className="bg-gray-100">
+                      <TableCell
                         colSpan={
-                          isMonthlyView 
+                          isMonthlyView
                             ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
-                            : showPreviousPeriod 
-                              ? (showPercentages ? 6 : 4)
-                              : (showPercentages ? 3 : 2)
+                            : showPreviousPeriod
+                            ? showPercentages
+                              ? 6
+                              : 4
+                            : showPercentages
+                            ? 3
+                            : 2
                         }
-                        className="px-4 py-3 font-bold text-slate-800 text-sm tracking-wide"
+                        className="border p-1 font-semibold text-xs"
                       >
-                        REVENUE
-                      </td>
-                    </tr>
-                    <tr>
-                      <td 
+                        Revenue
+                      </TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell
                         colSpan={
-                          isMonthlyView 
+                          isMonthlyView
                             ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
-                            : showPreviousPeriod 
-                              ? (showPercentages ? 6 : 4)
-                              : (showPercentages ? 3 : 2)
+                            : showPreviousPeriod
+                            ? showPercentages
+                              ? 6
+                              : 4
+                            : showPercentages
+                            ? 3
+                            : 2
                         }
-                        className="px-4 py-8 text-center border-b border-slate-100"
+                        className="border p-1 text-center"
                       >
                         <div className="flex flex-col items-center space-y-3">
-                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600"></div>
-                          <span className="text-sm text-slate-500">Loading revenue accounts...</span>
+                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-black"></div>
+                          <span className="text-xs">Loading revenue accounts...</span>
                         </div>
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
 
                     {/* COGS SECTION */}
-                    <tr className="bg-slate-100 border-b border-slate-200">
-                      <td 
+                    <TableRow className="bg-gray-100">
+                      <TableCell
                         colSpan={
-                          isMonthlyView 
+                          isMonthlyView
                             ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
-                            : showPreviousPeriod 
-                              ? (showPercentages ? 6 : 4)
-                              : (showPercentages ? 3 : 2)
+                            : showPreviousPeriod
+                            ? showPercentages
+                              ? 6
+                              : 4
+                            : showPercentages
+                            ? 3
+                            : 2
                         }
-                        className="px-4 py-3 font-bold text-slate-800 text-sm tracking-wide"
+                        className="border p-1 font-semibold text-xs"
                       >
-                        COST OF GOODS SOLD
-                      </td>
-                    </tr>
-                    <tr>
-                      <td 
+                        Cost of Goods Sold (COGS)
+                      </TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell
                         colSpan={
-                          isMonthlyView 
+                          isMonthlyView
                             ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
-                            : showPreviousPeriod 
-                              ? (showPercentages ? 6 : 4)
-                              : (showPercentages ? 3 : 2)
+                            : showPreviousPeriod
+                            ? showPercentages
+                              ? 6
+                              : 4
+                            : showPercentages
+                            ? 3
+                            : 2
                         }
-                        className="px-4 py-8 text-center border-b border-slate-100"
+                        className="border p-1 text-center"
                       >
                         <div className="flex flex-col items-center space-y-3">
-                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-600"></div>
-                          <span className="text-sm text-slate-500">Loading COGS accounts...</span>
+                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-black"></div>
+                          <span className="text-xs">Loading COGS accounts...</span>
                         </div>
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
 
                     {/* EXPENSES SECTION */}
-                    <tr className="bg-slate-100 border-b border-slate-200">
-                      <td 
+                    <TableRow className="bg-gray-100">
+                      <TableCell
                         colSpan={
-                          isMonthlyView 
+                          isMonthlyView
                             ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
-                            : showPreviousPeriod 
-                              ? (showPercentages ? 6 : 4)
-                              : (showPercentages ? 3 : 2)
+                            : showPreviousPeriod
+                            ? showPercentages
+                              ? 6
+                              : 4
+                            : showPercentages
+                            ? 3
+                            : 2
                         }
-                        className="px-4 py-3 font-bold text-slate-800 text-sm tracking-wide"
+                        className="border p-1 font-semibold text-xs"
                       >
-                        EXPENSES
-                      </td>
-                    </tr>
-                    <tr>
-                      <td 
+                        Expenses
+                      </TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell
                         colSpan={
-                          isMonthlyView 
+                          isMonthlyView
                             ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
-                            : showPreviousPeriod 
-                              ? (showPercentages ? 6 : 4)
-                              : (showPercentages ? 3 : 2)
+                            : showPreviousPeriod
+                            ? showPercentages
+                              ? 6
+                              : 4
+                            : showPercentages
+                            ? 3
+                            : 2
                         }
-                        className="px-4 py-8 text-center border-b border-slate-100"
+                        className="border p-1 text-center"
                       >
                         <div className="flex flex-col items-center space-y-3">
-                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600"></div>
-                          <span className="text-sm text-slate-500">Loading expense accounts...</span>
+                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-black"></div>
+                          <span className="text-xs">Loading expense accounts...</span>
                         </div>
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   </>
                 ) : (
                   /* Normal Content */
                   <>
-                {/* Revenue */}
-                <tr className="bg-slate-100 border-b border-slate-200">
-                  <td
-                    colSpan={
-                      isMonthlyView 
-                        ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
-                        : showPreviousPeriod 
-                          ? (showPercentages ? 6 : 4)
-                          : (showPercentages ? 3 : 2)
-                    }
-                    className="px-4 py-3 font-bold text-slate-800 text-sm tracking-wide"
-                  >
-                    REVENUE
-                  </td>
-                </tr>
-                {revenueRows.map((row) => {
-                  if (isMonthlyView) {
-                    return renderAccountRowWithMonthlyTotals(row);
-                  } else {
-                    return renderAccountRowWithPreviousPeriod(row);
-                  }
-                })}
-                {/* Total Revenue */}
-                <tr
-                  className="cursor-pointer hover:bg-blue-50"
-                  onClick={() => {
-                    setSelectedCategory({
-                      id: "REVENUE_GROUP",
-                      name: "Total Revenue",
-                      type: "Revenue",
-                      parent_id: null,
-                    });
-                    setViewerModal({
-                      isOpen: true,
-                      category: { id: "REVENUE_GROUP", name: "Total Revenue", type: "Revenue", parent_id: null },
-                    });
-                  }}
-                >
-                  <td className="border p-1 font-semibold" style={{ width: "30%" }}>
-                    Total Revenue
-                  </td>
-                            {isMonthlyView ? (
-            <>
-              {getMonthsInRange().map((month) => (
-                <React.Fragment key={month}>
-                  <td className="border p-1 text-right font-semibold">
-                    {formatNumber(
-                      revenueRows.reduce(
-                        (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
-                        0
-                      )
-                    )}
-                  </td>
-                  {showPercentages && (
-                    <td className="border p-1 text-right text-xs text-slate-600">
-                      {calculatePercentageForMonth(
-                        revenueRows.reduce(
-                          (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
-                          0
-                        ),
-                        month
-                      )}
-                    </td>
-                  )}
-                </React.Fragment>
-              ))}
-              <td className="border p-1 text-right font-semibold">{formatNumber(totalRevenue)}</td>
-              {showPercentages && (
-                <td className="border p-1 text-right text-sm font-bold text-slate-600">
-                  {totalRevenue !== 0 ? "100.0%" : "—"}
-                </td>
-              )}
-            </>
-          ) : (
-                                <>
-              <td className="border p-1 text-right font-semibold" style={{ width: "20%" }}>
-                {formatNumber(totalRevenue)}
-              </td>
-              {showPercentages && (
-                <td className="border p-1 text-right text-xs text-slate-600">
-                  {formatPercentage(totalRevenue, totalRevenue)}
-                </td>
-              )}
-              {showPreviousPeriod && (
-                <>
-                  <td className="border p-1 text-right font-semibold" style={{ width: "20%" }}>
-                    {formatNumber(calculatePreviousPeriodTotal(revenueRows))}
-                  </td>
-                                {showPercentages && (
-                <td className="border p-1 text-right text-sm font-bold text-slate-600">
-                  {calculatePreviousPeriodTotal(revenueRows) !== 0 ? "100.0%" : "—"}
-                </td>
-              )}
-                  <td className="border p-1 text-right font-semibold" style={{ width: "20%" }}>
-                    {formatNumber(calculatePreviousPeriodVariance(totalRevenue, revenueRows))}
-                  </td>
-                </>
-              )}
-            </>
-                  )}
-                </tr>
-
-                {/* COGS */}
-                <tr>
-                  <td
-                    colSpan={
-                      isMonthlyView 
-                        ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
-                        : showPreviousPeriod 
-                          ? (showPercentages ? 6 : 4)
-                          : (showPercentages ? 3 : 2)
-                    }
-                    className="border p-1 font-semibold"
-                  >
-                    Cost of Goods Sold (COGS)
-                  </td>
-                </tr>
-                {cogsRows.map((row) => {
-                  if (isMonthlyView) {
-                    return renderAccountRowWithMonthlyTotals(row);
-                  } else {
-                    return renderAccountRowWithPreviousPeriod(row);
-                  }
-                })}
-                {/* Total COGS */}
-                <tr
-                  className="cursor-pointer hover:bg-blue-50"
-                  onClick={() => {
-                    setSelectedCategory({ id: "COGS_GROUP", name: "Total COGS", type: "COGS", parent_id: null });
-                    setViewerModal({
-                      isOpen: true,
-                      category: { id: "COGS_GROUP", name: "Total COGS", type: "COGS", parent_id: null },
-                    });
-                  }}
-                >
-                  <td className="border p-1 font-semibold">Total COGS</td>
-                  {isMonthlyView ? (
-                    <>
-                      {getMonthsInRange().map((month) => (
-                        <React.Fragment key={month}>
-                          <td className="border p-1 text-right font-semibold">
-                            {formatNumber(
-                              cogsRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0)
-                            )}
-                          </td>
-                          {showPercentages && (
-                            <td className="border p-1 text-right text-xs text-slate-600">
-                              {calculatePercentageForMonth(
-                                cogsRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0),
-                                month
-                              )}
-                            </td>
-                          )}
-                        </React.Fragment>
-                      ))}
-                      <td className="border p-1 text-right font-semibold">{formatNumber(totalCOGS)}</td>
-                      {showPercentages && (
-                        <td className="border p-1 text-right text-sm font-bold text-slate-600">
-                          {totalRevenue !== 0 ? formatPercentage(totalCOGS, totalRevenue) : (totalCOGS !== 0 ? "100.0%" : "—")}
-                        </td>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      <td className="border p-1 text-right font-semibold w-[150px]">{formatNumber(totalCOGS)}</td>
-                      {showPercentages && (
-                        <td className="border p-1 text-right text-sm font-bold text-slate-600">
-                          {totalRevenue !== 0 ? formatPercentage(totalCOGS, totalRevenue) : (totalCOGS !== 0 ? "100.0%" : "—")}
-                        </td>
-                      )}
-                      {showPreviousPeriod && (
+                    {/* Revenue */}
+                    <TableRow className="bg-gray-100">
+                      <TableCell
+                        colSpan={
+                          isMonthlyView
+                            ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
+                            : showPreviousPeriod
+                            ? showPercentages
+                              ? 6
+                              : 4
+                            : showPercentages
+                            ? 3
+                            : 2
+                        }
+                        className="border p-1 text-xs"
+                      >
+                        Revenue
+                      </TableCell>
+                    </TableRow>
+                    {revenueRows.map((row) => {
+                      if (isMonthlyView) {
+                        return renderAccountRowWithMonthlyTotals(row);
+                      } else {
+                        return renderAccountRowWithPreviousPeriod(row);
+                      }
+                    })}
+                    {/* Total Revenue */}
+                    <TableRow
+                      className="cursor-pointer hover:bg-blue-50"
+                      onClick={() => {
+                        setSelectedCategory({
+                          id: "REVENUE_GROUP",
+                          name: "Total Revenue",
+                          type: "Revenue",
+                          parent_id: null,
+                        });
+                        setViewerModal({
+                          isOpen: true,
+                          category: { id: "REVENUE_GROUP", name: "Total Revenue", type: "Revenue", parent_id: null },
+                        });
+                      }}
+                    >
+                      <TableCell className="border p-1 text-xs font-semibold" style={{ width: "30%" }}>
+                        Total Revenue
+                      </TableCell>
+                      {isMonthlyView ? (
                         <>
-                          <td className="border p-1 text-right font-semibold w-[150px]">
-                            {formatNumber(calculatePreviousPeriodTotal(cogsRows))}
-                          </td>
+                          {getMonthsInRange().map((month) => (
+                            <React.Fragment key={month}>
+                              <TableCell className="border p-1 text-right font-semibold text-xs">
+                                {formatNumber(
+                                  revenueRows.reduce(
+                                    (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                    0
+                                  )
+                                )}
+                              </TableCell>
+                              {showPercentages && (
+                                <TableCell className="border p-1 text-right text-xs text-slate-600">
+                                  {calculatePercentageForMonth(
+                                    revenueRows.reduce(
+                                      (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                      0
+                                    ),
+                                    month
+                                  )}
+                                </TableCell>
+                              )}
+                            </React.Fragment>
+                          ))}
+                          <TableCell className="border p-1 text-right font-semibold text-xs">
+                            {formatNumber(totalRevenue)}
+                          </TableCell>
                           {showPercentages && (
-                            <td className="border p-1 text-right text-xs text-slate-600">
-                              {formatPercentage(calculatePreviousPeriodTotal(cogsRows), calculatePreviousPeriodTotal(revenueRows))}
-                            </td>
+                            <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                              {totalRevenue !== 0 ? "100.0%" : "—"}
+                            </TableCell>
                           )}
-                          <td className="border p-1 text-right font-semibold w-[150px]">
-                            {formatNumber(calculatePreviousPeriodVariance(totalCOGS, cogsRows))}
-                          </td>
+                        </>
+                      ) : (
+                        <>
+                          <TableCell className="border p-1 text-right font-semibold text-xs" style={{ width: "20%" }}>
+                            {formatNumber(totalRevenue)}
+                          </TableCell>
+                          {showPercentages && (
+                            <TableCell className="border p-1 text-right text-xs text-slate-600">
+                              {formatPercentage(totalRevenue, totalRevenue)}
+                            </TableCell>
+                          )}
+                          {showPreviousPeriod && (
+                            <>
+                              <TableCell
+                                className="border p-1 text-right font-semibold text-xs"
+                                style={{ width: "20%" }}
+                              >
+                                {formatNumber(calculatePreviousPeriodTotal(revenueRows))}
+                              </TableCell>
+                              {showPercentages && (
+                                <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                                  {calculatePreviousPeriodTotal(revenueRows) !== 0 ? "100.0%" : "—"}
+                                </TableCell>
+                              )}
+                              <TableCell
+                                className="border p-1 text-right font-semibold text-xs"
+                                style={{ width: "20%" }}
+                              >
+                                {formatNumber(calculatePreviousPeriodVariance(totalRevenue, revenueRows))}
+                              </TableCell>
+                            </>
+                          )}
                         </>
                       )}
-                    </>
-                  )}
-                </tr>
+                    </TableRow>
 
-                {/* Gross Profit */}
-                <tr className="bg-gray-50 font-semibold">
-                  <td className="border p-1" style={{ width: "25%" }}>
-                    Gross Profit
-                  </td>
-                  {isMonthlyView &&
-                    getMonthsInRange().map((month) => (
-                      <React.Fragment key={month}>
-                        <td className="border p-1 text-right" style={{ width: "15%" }}>
-                          {formatNumber(
-                            revenueRows.reduce(
-                              (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
-                              0
-                            ) -
-                              cogsRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0)
-                          )}
-                        </td>
-                        {showPercentages && (
-                          <td className="border p-1 text-right text-xs text-slate-600">
-                            {calculatePercentageForMonth(
-                              revenueRows.reduce(
-                                (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
-                                0
-                              ) -
-                                cogsRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0),
-                              month
-                            )}
-                          </td>
-                        )}
-                      </React.Fragment>
-                    ))}
-                  <td className="border p-1 text-right" style={{ width: "15%" }}>
-                    {formatNumber(grossProfit)}
-                  </td>
-                  {showPercentages && isMonthlyView && (
-                    <td className="border p-1 text-right text-sm font-bold text-slate-600">
-                      {totalRevenue !== 0 ? formatPercentage(grossProfit, totalRevenue) : "—"}
-                    </td>
-                  )}
-                </tr>
-
-                {/* Expenses */}
-                <tr>
-                  <td
-                    colSpan={
-                      isMonthlyView 
-                        ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
-                        : showPreviousPeriod 
-                          ? (showPercentages ? 6 : 4)
-                          : (showPercentages ? 3 : 2)
-                    }
-                    className="border p-1 font-semibold"
-                  >
-                    Expenses
-                  </td>
-                </tr>
-                {expenseRows.map((row) => {
-                  if (isMonthlyView) {
-                    return renderAccountRowWithMonthlyTotals(row);
-                  } else {
-                    return renderAccountRowWithPreviousPeriod(row);
-                  }
-                })}
-                {/* Total Expenses */}
-                <tr
-                  className="cursor-pointer hover:bg-blue-50"
-                  onClick={() => {
-                    setSelectedCategory({
-                      id: "EXPENSE_GROUP",
-                      name: "Total Expenses",
-                      type: "Expense",
-                      parent_id: null,
-                    });
-                    setViewerModal({
-                      isOpen: true,
-                      category: { id: "EXPENSE_GROUP", name: "Total Expenses", type: "Expense", parent_id: null },
-                    });
-                  }}
-                >
-                  <td className="border p-1 font-semibold">Total Expenses</td>
-                  {isMonthlyView ? (
-                    <>
-                      {getMonthsInRange().map((month) => (
-                        <React.Fragment key={month}>
-                          <td className="border p-1 text-right font-semibold">
-                            {formatNumber(
-                              expenseRows.reduce(
-                                (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
-                                0
-                              )
-                            )}
-                          </td>
-                          {showPercentages && (
-                            <td className="border p-1 text-right text-xs text-slate-600">
-                              {calculatePercentageForMonth(
-                                expenseRows.reduce(
-                                  (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
-                                  0
-                                ),
-                                month
-                              )}
-                            </td>
-                          )}
-                        </React.Fragment>
-                      ))}
-                      <td className="border p-1 text-right font-semibold">{formatNumber(totalExpenses)}</td>
-                      {showPercentages && (
-                        <td className="border p-1 text-right text-sm font-bold text-slate-600">
-                          {totalRevenue !== 0 ? formatPercentage(totalExpenses, totalRevenue) : (totalExpenses !== 0 ? "100.0%" : "—")}
-                        </td>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      <td className="border p-1 text-right font-semibold w-[150px]">{formatNumber(totalExpenses)}</td>
-                      {showPercentages && (
-                        <td className="border p-1 text-right text-sm font-bold text-slate-600">
-                          {totalRevenue !== 0 ? formatPercentage(totalExpenses, totalRevenue) : (totalExpenses !== 0 ? "100.0%" : "—")}
-                        </td>
-                      )}
-                      {showPreviousPeriod && (
+                    {/* COGS */}
+                    <TableRow>
+                      <TableCell
+                        colSpan={
+                          isMonthlyView
+                            ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
+                            : showPreviousPeriod
+                            ? showPercentages
+                              ? 6
+                              : 4
+                            : showPercentages
+                            ? 3
+                            : 2
+                        }
+                        className="border p-1 text-xs font-semibold"
+                      >
+                        Cost of Goods Sold (COGS)
+                      </TableCell>
+                    </TableRow>
+                    {cogsRows.map((row) => {
+                      if (isMonthlyView) {
+                        return renderAccountRowWithMonthlyTotals(row);
+                      } else {
+                        return renderAccountRowWithPreviousPeriod(row);
+                      }
+                    })}
+                    {/* Total COGS */}
+                    <TableRow
+                      className="cursor-pointer hover:bg-blue-50"
+                      onClick={() => {
+                        setSelectedCategory({ id: "COGS_GROUP", name: "Total COGS", type: "COGS", parent_id: null });
+                        setViewerModal({
+                          isOpen: true,
+                          category: { id: "COGS_GROUP", name: "Total COGS", type: "COGS", parent_id: null },
+                        });
+                      }}
+                    >
+                      <TableCell className="border p-1 text-xs font-semibold">Total COGS</TableCell>
+                      {isMonthlyView ? (
                         <>
-                          <td className="border p-1 text-right font-semibold w-[150px]">
-                            {formatNumber(calculatePreviousPeriodTotal(expenseRows))}
-                          </td>
+                          {getMonthsInRange().map((month) => (
+                            <React.Fragment key={month}>
+                              <TableCell className="border p-1 text-right font-semibold text-xs">
+                                {formatNumber(
+                                  cogsRows.reduce(
+                                    (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                    0
+                                  )
+                                )}
+                              </TableCell>
+                              {showPercentages && (
+                                <TableCell className="border p-1 text-right text-xs text-slate-600">
+                                  {calculatePercentageForMonth(
+                                    cogsRows.reduce(
+                                      (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                      0
+                                    ),
+                                    month
+                                  )}
+                                </TableCell>
+                              )}
+                            </React.Fragment>
+                          ))}
+                          <TableCell className="border p-1 text-right font-semibold text-xs">
+                            {formatNumber(totalCOGS)}
+                          </TableCell>
                           {showPercentages && (
-                            <td className="border p-1 text-right text-xs text-slate-600">
-                              {formatPercentage(calculatePreviousPeriodTotal(expenseRows), calculatePreviousPeriodTotal(revenueRows))}
-                            </td>
+                            <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                              {totalRevenue !== 0
+                                ? formatPercentage(totalCOGS, totalRevenue)
+                                : totalCOGS !== 0
+                                ? "100.0%"
+                                : "—"}
+                            </TableCell>
                           )}
-                          <td className="border p-1 text-right font-semibold w-[150px]">
-                            {formatNumber(calculatePreviousPeriodVariance(totalExpenses, expenseRows))}
-                          </td>
+                        </>
+                      ) : (
+                        <>
+                          <TableCell className="border p-1 text-right font-semibold text-xs w-[150px]">
+                            {formatNumber(totalCOGS)}
+                          </TableCell>
+                          {showPercentages && (
+                            <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                              {totalRevenue !== 0
+                                ? formatPercentage(totalCOGS, totalRevenue)
+                                : totalCOGS !== 0
+                                ? "100.0%"
+                                : "—"}
+                            </TableCell>
+                          )}
+                          {showPreviousPeriod && (
+                            <>
+                              <TableCell className="border p-1 text-right font-semibold text-xs w-[150px]">
+                                {formatNumber(calculatePreviousPeriodTotal(cogsRows))}
+                              </TableCell>
+                              {showPercentages && (
+                                <TableCell className="border p-1 text-right text-xs text-slate-600">
+                                  {formatPercentage(
+                                    calculatePreviousPeriodTotal(cogsRows),
+                                    calculatePreviousPeriodTotal(revenueRows)
+                                  )}
+                                </TableCell>
+                              )}
+                              <TableCell className="border p-1 text-right font-semibold text-xs w-[150px]">
+                                {formatNumber(calculatePreviousPeriodVariance(totalCOGS, cogsRows))}
+                              </TableCell>
+                            </>
+                          )}
                         </>
                       )}
-                    </>
-                  )}
-                </tr>
+                    </TableRow>
 
-                {/* Net Income */}
-                <tr className="bg-gray-50 font-bold">
-                  <td className="border p-1" style={{ width: "25%" }}>
-                    Net Income
-                  </td>
-                  {isMonthlyView ? (
-                    <>
-                      {getMonthsInRange().map((month) => (
-                        <React.Fragment key={month}>
-                          <td className="border p-1 text-right" style={{ width: "15%" }}>
-                            {formatNumber(
-                              revenueRows.reduce(
-                                (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
-                                0
-                              ) -
-                                cogsRows.reduce(
-                                  (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
-                                  0
-                                ) -
-                                expenseRows.reduce(
-                                  (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
-                                  0
-                                )
-                            )}
-                          </td>
-                          {showPercentages && (
-                            <td className="border p-1 text-right text-xs text-slate-600">
-                              {calculatePercentageForMonth(
+                    {/* Gross Profit */}
+                    <TableRow className="bg-gray-50 font-semibold">
+                      <TableCell className="border p-1 text-xs font-semibold" style={{ width: "25%" }}>
+                        Gross Profit
+                      </TableCell>
+                      {isMonthlyView &&
+                        getMonthsInRange().map((month) => (
+                          <React.Fragment key={month}>
+                            <TableCell className="border p-1 text-right text-xs" style={{ width: "15%" }}>
+                              {formatNumber(
                                 revenueRows.reduce(
                                   (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
                                   0
@@ -1487,79 +1886,263 @@ export default function Page() {
                                   cogsRows.reduce(
                                     (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
                                     0
+                                  )
+                              )}
+                            </TableCell>
+                            {showPercentages && (
+                              <TableCell className="border p-1 text-right text-xs text-slate-600">
+                                {calculatePercentageForMonth(
+                                  revenueRows.reduce(
+                                    (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                    0
                                   ) -
+                                    cogsRows.reduce(
+                                      (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                      0
+                                    ),
+                                  month
+                                )}
+                              </TableCell>
+                            )}
+                          </React.Fragment>
+                        ))}
+                      <TableCell className="border p-1 text-right text-xs" style={{ width: "15%" }}>
+                        {formatNumber(grossProfit)}
+                      </TableCell>
+                      {showPercentages && isMonthlyView && (
+                        <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                          {totalRevenue !== 0 ? formatPercentage(grossProfit, totalRevenue) : "—"}
+                        </TableCell>
+                      )}
+                    </TableRow>
+
+                    {/* Expenses */}
+                    <TableRow>
+                      <TableCell
+                        colSpan={
+                          isMonthlyView
+                            ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
+                            : showPreviousPeriod
+                            ? showPercentages
+                              ? 6
+                              : 4
+                            : showPercentages
+                            ? 3
+                            : 2
+                        }
+                        className="border p-1 text-xs font-semibold"
+                      >
+                        Expenses
+                      </TableCell>
+                    </TableRow>
+                    {expenseRows.map((row) => {
+                      if (isMonthlyView) {
+                        return renderAccountRowWithMonthlyTotals(row);
+                      } else {
+                        return renderAccountRowWithPreviousPeriod(row);
+                      }
+                    })}
+                    {/* Total Expenses */}
+                    <TableRow
+                      className="cursor-pointer hover:bg-blue-50"
+                      onClick={() => {
+                        setSelectedCategory({
+                          id: "EXPENSE_GROUP",
+                          name: "Total Expenses",
+                          type: "Expense",
+                          parent_id: null,
+                        });
+                        setViewerModal({
+                          isOpen: true,
+                          category: { id: "EXPENSE_GROUP", name: "Total Expenses", type: "Expense", parent_id: null },
+                        });
+                      }}
+                    >
+                      <TableCell className="border p-1 text-xs font-semibold">Total Expenses</TableCell>
+                      {isMonthlyView ? (
+                        <>
+                          {getMonthsInRange().map((month) => (
+                            <React.Fragment key={month}>
+                              <TableCell className="border p-1 text-right font-semibold text-xs">
+                                {formatNumber(
                                   expenseRows.reduce(
                                     (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
                                     0
-                                  ),
-                                month
+                                  )
+                                )}
+                              </TableCell>
+                              {showPercentages && (
+                                <TableCell className="border p-1 text-right text-xs text-slate-600">
+                                  {calculatePercentageForMonth(
+                                    expenseRows.reduce(
+                                      (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                      0
+                                    ),
+                                    month
+                                  )}
+                                </TableCell>
                               )}
-                            </td>
-                          )}
-                        </React.Fragment>
-                      ))}
-                      <td className="border p-1 text-right" style={{ width: "15%" }}>
-                        {formatNumber(netIncome)}
-                      </td>
-                      {showPercentages && (
-                        <td className="border p-1 text-right text-sm font-bold text-slate-600">
-                          {totalRevenue !== 0 ? formatPercentage(netIncome, totalRevenue) : "—"}
-                        </td>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      <td className="border p-1 text-right w-[150px]">{formatNumber(netIncome)}</td>
-                      {showPercentages && (
-                        <td className="border p-1 text-right text-sm font-bold text-slate-600">
-                          {totalRevenue !== 0 ? formatPercentage(netIncome, totalRevenue) : "—"}
-                        </td>
-                      )}
-                      {showPreviousPeriod && (
-                        <>
-                          <td className="border p-1 text-right w-[150px]">
-                            {formatNumber(
-                              (() => {
-                                const previousRevenue = calculatePreviousPeriodTotal(revenueRows);
-                                const previousCOGS = calculatePreviousPeriodTotal(cogsRows);
-                                const previousExpenses = calculatePreviousPeriodTotal(expenseRows);
-                                return previousRevenue - previousCOGS - previousExpenses;
-                              })()
-                            )}
-                          </td>
+                            </React.Fragment>
+                          ))}
+                          <TableCell className="border p-1 text-right font-semibold text-xs">
+                            {formatNumber(totalExpenses)}
+                          </TableCell>
                           {showPercentages && (
-                            <td className="border p-1 text-right text-xs text-slate-600">
-                              {formatPercentage(
-                                (() => {
-                                  const previousRevenue = calculatePreviousPeriodTotal(revenueRows);
-                                  const previousCOGS = calculatePreviousPeriodTotal(cogsRows);
-                                  const previousExpenses = calculatePreviousPeriodTotal(expenseRows);
-                                  return previousRevenue - previousCOGS - previousExpenses;
-                                })(),
-                                calculatePreviousPeriodTotal(revenueRows)
-                              )}
-                            </td>
+                            <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                              {totalRevenue !== 0
+                                ? formatPercentage(totalExpenses, totalRevenue)
+                                : totalExpenses !== 0
+                                ? "100.0%"
+                                : "—"}
+                            </TableCell>
                           )}
-                          <td className="border p-1 text-right w-[150px]">
-                            {formatNumber(
-                              (() => {
-                                const previousRevenue = calculatePreviousPeriodTotal(revenueRows);
-                                const previousCOGS = calculatePreviousPeriodTotal(cogsRows);
-                                const previousExpenses = calculatePreviousPeriodTotal(expenseRows);
-                                const previousNetIncome = previousRevenue - previousCOGS - previousExpenses;
-                                return netIncome - previousNetIncome;
-                              })()
-                            )}
-                          </td>
+                        </>
+                      ) : (
+                        <>
+                          <TableCell className="border p-1 text-right font-semibold text-xs w-[150px]">
+                            {formatNumber(totalExpenses)}
+                          </TableCell>
+                          {showPercentages && (
+                            <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                              {totalRevenue !== 0
+                                ? formatPercentage(totalExpenses, totalRevenue)
+                                : totalExpenses !== 0
+                                ? "100.0%"
+                                : "—"}
+                            </TableCell>
+                          )}
+                          {showPreviousPeriod && (
+                            <>
+                              <TableCell className="border p-1 text-right font-semibold text-xs w-[150px]">
+                                {formatNumber(calculatePreviousPeriodTotal(expenseRows))}
+                              </TableCell>
+                              {showPercentages && (
+                                <TableCell className="border p-1 text-right text-xs text-slate-600">
+                                  {formatPercentage(
+                                    calculatePreviousPeriodTotal(expenseRows),
+                                    calculatePreviousPeriodTotal(revenueRows)
+                                  )}
+                                </TableCell>
+                              )}
+                              <TableCell className="border p-1 text-right font-semibold text-xs w-[150px]">
+                                {formatNumber(calculatePreviousPeriodVariance(totalExpenses, expenseRows))}
+                              </TableCell>
+                            </>
+                          )}
                         </>
                       )}
-                    </>
-                  )}
-                </tr>
+                    </TableRow>
+
+                    {/* Net Income */}
+                    <TableRow className="bg-gray-50 font-bold">
+                      <TableCell className="border p-1 text-xs font-semibold" style={{ width: "25%" }}>
+                        Net Income
+                      </TableCell>
+                      {isMonthlyView ? (
+                        <>
+                          {getMonthsInRange().map((month) => (
+                            <React.Fragment key={month}>
+                              <TableCell className="border p-1 text-right text-xs" style={{ width: "15%" }}>
+                                {formatNumber(
+                                  revenueRows.reduce(
+                                    (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                    0
+                                  ) -
+                                    cogsRows.reduce(
+                                      (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                      0
+                                    ) -
+                                    expenseRows.reduce(
+                                      (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                      0
+                                    )
+                                )}
+                              </TableCell>
+                              {showPercentages && (
+                                <TableCell className="border p-1 text-right text-xs text-slate-600">
+                                  {calculatePercentageForMonth(
+                                    revenueRows.reduce(
+                                      (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                      0
+                                    ) -
+                                      cogsRows.reduce(
+                                        (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                        0
+                                      ) -
+                                      expenseRows.reduce(
+                                        (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                        0
+                                      ),
+                                    month
+                                  )}
+                                </TableCell>
+                              )}
+                            </React.Fragment>
+                          ))}
+                          <TableCell className="border p-1 text-right text-xs" style={{ width: "15%" }}>
+                            {formatNumber(netIncome)}
+                          </TableCell>
+                          {showPercentages && (
+                            <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                              {totalRevenue !== 0 ? formatPercentage(netIncome, totalRevenue) : "—"}
+                            </TableCell>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <TableCell className="border p-1 text-right text-xs w-[150px]">
+                            {formatNumber(netIncome)}
+                          </TableCell>
+                          {showPercentages && (
+                            <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                              {totalRevenue !== 0 ? formatPercentage(netIncome, totalRevenue) : "—"}
+                            </TableCell>
+                          )}
+                          {showPreviousPeriod && (
+                            <>
+                              <TableCell className="border p-1 text-right text-xs w-[150px]">
+                                {formatNumber(
+                                  (() => {
+                                    const previousRevenue = calculatePreviousPeriodTotal(revenueRows);
+                                    const previousCOGS = calculatePreviousPeriodTotal(cogsRows);
+                                    const previousExpenses = calculatePreviousPeriodTotal(expenseRows);
+                                    return previousRevenue - previousCOGS - previousExpenses;
+                                  })()
+                                )}
+                              </TableCell>
+                              {showPercentages && (
+                                <TableCell className="border p-1 text-right text-xs text-slate-600">
+                                  {formatPercentage(
+                                    (() => {
+                                      const previousRevenue = calculatePreviousPeriodTotal(revenueRows);
+                                      const previousCOGS = calculatePreviousPeriodTotal(cogsRows);
+                                      const previousExpenses = calculatePreviousPeriodTotal(expenseRows);
+                                      return previousRevenue - previousCOGS - previousExpenses;
+                                    })(),
+                                    calculatePreviousPeriodTotal(revenueRows)
+                                  )}
+                                </TableCell>
+                              )}
+                              <TableCell className="border p-1 text-right text-xs w-[150px]">
+                                {formatNumber(
+                                  (() => {
+                                    const previousRevenue = calculatePreviousPeriodTotal(revenueRows);
+                                    const previousCOGS = calculatePreviousPeriodTotal(cogsRows);
+                                    const previousExpenses = calculatePreviousPeriodTotal(expenseRows);
+                                    const previousNetIncome = previousRevenue - previousCOGS - previousExpenses;
+                                    return netIncome - previousNetIncome;
+                                  })()
+                                )}
+                              </TableCell>
+                            </>
+                          )}
+                        </>
+                      )}
+                    </TableRow>
                   </>
                 )}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </CardContent>
         </Card>
       </div>
@@ -1569,292 +2152,77 @@ export default function Page() {
         <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-white rounded-lg w-[800px] max-h-[80vh] flex flex-col">
             <div className="p-4 border-b flex justify-between items-center">
-              <h2 className="text-lg font-semibold">{viewerModal.category.name} Transactions</h2>
-              <button
-                onClick={() => setViewerModal({ isOpen: false, category: null })}
-                className="text-gray-500 hover:text-gray-700"
-              >
-                ×
-              </button>
+              <h2 className="text-lg font-semibold">
+                {viewerModal.category.name} Transactions
+                {viewerModal.selectedMonth && ` for ${formatMonth(viewerModal.selectedMonth)}`}
+              </h2>
+              <div className="flex items-center gap-4">
+                {selectedCategoryTransactions.length > 0 && (
+                  <Button onClick={exportModalTransactions} className="text-xs font-medium" size="sm">
+                    <Download className="w-4 h-4" />
+                  </Button>
+                )}
+                <button
+                  onClick={() => setViewerModal({ isOpen: false, category: null })}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  ×
+                </button>
+              </div>
             </div>
             <div className="p-4 overflow-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="text-left p-2">Date</th>
-                    <th className="text-left p-2">Description</th>
-                    <th className="text-left p-2">Category</th>
-                    <th className="text-right p-2">Amount</th>
-                    <th className="text-center p-2">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
+              <Table className="w-full text-xs">
+                <TableHeader className="bg-gray-50">
+                  <TableRow>
+                    <TableHead className="text-left p-2">Date</TableHead>
+                    <TableHead className="text-left p-2">Description</TableHead>
+                    <TableHead className="text-left p-2">Category</TableHead>
+                    <TableHead className="text-left p-2">Source</TableHead>
+                    <TableHead className="text-right p-2">Amount</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {selectedCategoryTransactions.map((tx) => (
-                    <tr key={tx.id} className="hover:bg-gray-50">
-                      {editingTransaction?.id === tx.id ? (
-                        <>
-                          <td className="p-2">
-                            <input
-                              type="date"
-                              value={editingTransaction.date}
-                              onChange={(e) =>
-                                setEditingTransaction((prev) => (prev ? { ...prev, date: e.target.value } : null))
-                              }
-                              className="w-full border px-2 py-1 rounded"
-                            />
-                          </td>
-                          <td className="p-2">
-                            <input
-                              type="text"
-                              value={editingTransaction.description}
-                              onChange={(e) =>
-                                setEditingTransaction((prev) =>
-                                  prev ? { ...prev, description: e.target.value } : null
-                                )
-                              }
-                              className="w-full border px-2 py-1 rounded"
-                            />
-                          </td>
-                          <td className="p-2">
-                            <select
-                              value={
-                                viewerModal.category?.type === "Revenue"
-                                  ? editingTransaction.chart_account_id
-                                  : editingTransaction.chart_account_id
-                              }
-                              onChange={(e) => {
-                                const accountId = e.target.value;
-                                setEditingTransaction((prev) =>
-                                  prev
-                                    ? {
-                                        ...prev,
-                                        ...(viewerModal.category?.type === "Revenue"
-                                          ? { chart_account_id: accountId }
-                                          : { chart_account_id: accountId }),
-                                      }
-                                    : null
-                                );
-                              }}
-                              className="w-full border px-2 py-1 rounded"
-                            >
-                              <option value="">Select Category</option>
-                              {accounts
-                                .filter((a) => a.type === viewerModal.category?.type)
-                                .map((account) => (
-                                  <option key={account.id} value={account.id}>
-                                    {account.name}
-                                  </option>
-                                ))}
-                            </select>
-                          </td>
-                          <td className="p-2">
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              value={editingTransaction.debit === 0 ? "" : editingTransaction.debit.toString()}
-                              onChange={(e) => {
-                                const value = e.target.value;
-                                if (value === "" || value === "-" || /^-?\d*\.?\d{0,2}$/.test(value)) {
-                                  setEditingTransaction((prev) =>
-                                    prev
-                                      ? {
-                                          ...prev,
-                                          debit: value === "" || value === "-" ? 0 : parseFloat(value),
-                                        }
-                                      : null
-                                  );
-                                }
-                              }}
-                              className="w-full border px-2 py-1 rounded text-right"
-                            />
-                          </td>
-                          <td className="p-2 text-center space-x-2">
-                            <button
-                              onClick={() => handleSaveTransaction(editingTransaction)}
-                              className="text-green-600 hover:text-green-800"
-                            >
-                              Save
-                            </button>
-                            <button
-                              onClick={() => setEditingTransaction(null)}
-                              className="text-gray-600 hover:text-gray-800"
-                            >
-                              Cancel
-                            </button>
-                          </td>
-                        </>
-                      ) : (
-                        <>
-                          <td className="p-2">{tx.date}</td>
-                          <td className="p-2">{tx.description}</td>
-                          <td className="p-2">
-                            {viewerModal.category ? getCategoryName(tx, viewerModal.category) : ""}
-                          </td>
-                          <td className="p-2 text-right">
-                            {formatNumber(getTransactionDisplayAmount(tx, viewerModal.category?.type || ""))}
-                          </td>
-                          <td className="p-2 text-center">
-                            <button
-                              onClick={() => setEditingTransaction(tx)}
-                              className="text-blue-600 hover:text-blue-800"
-                            >
-                              Edit
-                            </button>
-                          </td>
-                        </>
-                      )}
-                    </tr>
+                    <TableRow key={tx.id} className="hover:bg-gray-50">
+                      <TableCell className="p-2">{tx.date}</TableCell>
+                      <TableCell className="p-2">{tx.description}</TableCell>
+                      <TableCell className="p-2">
+                        {viewerModal.category ? getCategoryName(tx, viewerModal.category) : ""}
+                      </TableCell>
+                      <TableCell className="p-2">
+                        <span
+                          className={`px-2 py-1 rounded-full text-xs ${
+                            tx.source === "manual" ? "bg-blue-100 text-blue-800" : "bg-gray-100 text-gray-800"
+                          }`}
+                        >
+                          {tx.source === "manual" ? "Manual" : "Journal"}
+                        </span>
+                      </TableCell>
+                      <TableCell className="p-2 text-right">
+                        {formatNumber(getTransactionDisplayAmount(tx, viewerModal.category?.type || ""))}
+                      </TableCell>
+                    </TableRow>
                   ))}
                   {selectedCategoryTransactions.length > 0 && (
-                    <tr className="bg-gray-50 font-semibold">
-                      <td colSpan={3} className="p-2 text-right">
+                    <TableRow className="bg-gray-50 font-semibold">
+                      <TableCell colSpan={4} className="p-2 text-right">
                         Total
-                      </td>
-                      <td className="p-2 text-right">
+                      </TableCell>
+                      <TableCell className="p-2 text-right">
                         {formatNumber(
                           selectedCategoryTransactions.reduce(
                             (sum, tx) => sum + getTransactionDisplayAmount(tx, viewerModal.category?.type || ""),
                             0
                           )
                         )}
-                      </td>
-                      <td></td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   )}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
               {selectedCategoryTransactions.length === 0 && (
-                <div className="text-gray-500 text-center py-4">No transactions in this category.</div>
+                <div className="text-gray-500 text-center py-4">No transactions to show.</div>
               )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Edit Transaction Modal */}
-      {editModal.isOpen && editModal.transaction && (
-        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center">
-          <div className="bg-white p-6 rounded-lg w-[500px] shadow-xl">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Edit Transaction</h2>
-              <button
-                onClick={() => setEditModal({ isOpen: false, transaction: null })}
-                className="text-gray-500 hover:text-gray-700"
-              >
-                ×
-              </button>
-            </div>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Date</label>
-                <input
-                  type="date"
-                  value={editModal.transaction.date}
-                  onChange={(e) =>
-                    setEditModal((prev) => ({
-                      ...prev,
-                      transaction: prev.transaction
-                        ? {
-                            ...prev.transaction,
-                            date: e.target.value,
-                          }
-                        : null,
-                    }))
-                  }
-                  className="w-full border px-2 py-1 rounded"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Description</label>
-                <input
-                  type="text"
-                  value={editModal.transaction.description}
-                  onChange={(e) =>
-                    setEditModal((prev) => ({
-                      ...prev,
-                      transaction: prev.transaction
-                        ? {
-                            ...prev.transaction,
-                            description: e.target.value,
-                          }
-                        : null,
-                    }))
-                  }
-                  className="w-full border px-2 py-1 rounded"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Category</label>
-                <select
-                  value={
-                    selectedCategory?.type === "Revenue"
-                      ? editModal.transaction.chart_account_id
-                      : editModal.transaction.chart_account_id
-                  }
-                  onChange={(e) => {
-                    const accountId = e.target.value;
-                    setEditModal((prev) => ({
-                      ...prev,
-                      transaction: prev.transaction
-                        ? {
-                            ...prev.transaction,
-                            ...(selectedCategory?.type === "Revenue"
-                              ? { chart_account_id: accountId }
-                              : { chart_account_id: accountId }),
-                          }
-                        : null,
-                    }));
-                  }}
-                  className="w-full border px-2 py-1 rounded"
-                >
-                  <option value="">Select Category</option>
-                  {accounts
-                    .filter((a) => a.type === selectedCategory?.type)
-                    .map((account) => (
-                      <option key={account.id} value={account.id}>
-                        {account.name}
-                      </option>
-                    ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Amount</label>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={editModal.transaction.debit === 0 ? "" : editModal.transaction.debit.toString()}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    // Allow empty string, minus sign, and numbers with up to 2 decimal places
-                    if (value === "" || value === "-" || /^-?\d*\.?\d{0,2}$/.test(value)) {
-                      setEditModal((prev) => ({
-                        ...prev,
-                        transaction: prev.transaction
-                          ? {
-                              ...prev.transaction,
-                              debit: value === "" || value === "-" ? 0 : parseFloat(value),
-                            }
-                          : null,
-                      }));
-                    }
-                  }}
-                  className="w-full border px-2 py-1 rounded"
-                />
-              </div>
-              <div className="flex justify-end space-x-2">
-                <button
-                  onClick={() => setEditModal({ isOpen: false, transaction: null })}
-                  className="px-4 py-2 border rounded hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => editModal.transaction && handleSaveTransaction(editModal.transaction)}
-                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                >
-                  Save
-                </button>
-              </div>
             </div>
           </div>
         </div>

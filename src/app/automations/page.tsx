@@ -1088,18 +1088,19 @@ export default function AutomationsPage() {
         {/* Payee Automations Section - Left Side */}
         <div className="w-full">
           <div className="flex justify-between items-center mb-4">
-            <button
-              onClick={() =>
-                setPayeeAutomationModal({
-                  ...payeeAutomationModal,
-                  isOpen: true,
-                })
-              }
-              className="px-3 py-1 text-xs border border-gray-300 rounded bg-gray-100 hover:bg-gray-200"
-            >
-              + New Payee Automation
-            </button>
+            <h2 className="text-lg font-semibold">Payee Automations</h2>
             <div className="flex gap-2">
+              <button
+                onClick={() =>
+                  setPayeeAutomationModal({
+                    ...payeeAutomationModal,
+                    isOpen: true,
+                  })
+                }
+                className="px-3 py-1 text-xs border border-gray-300 rounded bg-gray-100 hover:bg-gray-200"
+              >
+                + New Payee Automation
+              </button>
               <button
                 onClick={() =>
                   setAutomationImportModal((prev) => ({
@@ -1172,18 +1173,19 @@ export default function AutomationsPage() {
         {/* Category Automations Section - Right Side */}
         <div className="w-full">
           <div className="flex justify-between items-center mb-4">
-            <button
-              onClick={() =>
-                setCategoryAutomationModal({
-                  ...categoryAutomationModal,
-                  isOpen: true,
-                })
-              }
-              className="px-3 py-1 text-xs border border-gray-300 rounded bg-gray-100 hover:bg-gray-200"
-            >
-              + New Category Automation
-            </button>
+            <h2 className="text-lg font-semibold">Category Automations</h2>
             <div className="flex gap-2">
+              <button
+                onClick={() =>
+                  setCategoryAutomationModal({
+                    ...categoryAutomationModal,
+                    isOpen: true,
+                  })
+                }
+                className="px-3 py-1 text-xs border border-gray-300 rounded bg-gray-100 hover:bg-gray-200"
+              >
+                + New Category Automation
+              </button>
               <button
                 onClick={() =>
                   setAutomationImportModal((prev) => ({
