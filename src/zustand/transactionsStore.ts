@@ -85,8 +85,7 @@ export interface Transaction {
   received?: FinancialAmount;
   payee_id?: string;
   company_id?: string;
-  split_data?: SplitData;
-  has_split?: boolean; // Added to track if transaction has multiple journal entries
+  has_split?: boolean; // Calculated based on journal entry count (>2 entries = split)
 }
 
 export interface BulkTransactionRequest {
@@ -120,27 +119,7 @@ export interface JournalEntry {
   transactions: JournalTransaction[];
 }
 
-export interface SplitData {
-  splits: {
-    id?: string;
-    date?: string;
-    description?: string;
-    spent?: string;
-    received?: string;
-    payee_id?: string;
-    selected_category_id?: string;
-  }[];
-}
-
-export interface SplitItem {
-  id: string;
-  date: string;
-  description: string;
-  spent?: string;
-  received?: string;
-  payee_id?: string;
-  selected_category_id?: string;
-}
+// Split data interfaces removed - splits are now represented as multiple journal entries
 
 // Journal entry types for table display
 export interface JournalTableEntry {
@@ -152,20 +131,12 @@ export interface JournalTableEntry {
   transaction_id: string;
   chart_account_id: string;
   company_id: string;
-  split_data?: SplitData; // Added to track split data at journal level
   transactions?: {
     payee_id?: string;
-    split_data?: SplitData;
     description?: string;
   };
-  // Fields for split items displayed as journal entries
-  is_split_item?: boolean;
-  split_item_data?: SplitItem;
-  // Fields for manual journal entries
   is_manual_entry?: boolean;
   reference_number?: string;
-  je_name?: string;
-  payee_id?: string; // Direct payee_id for manual entries
   created_at?: string;
   updated_at?: string;
   entry_source?: 'journal' | 'manual_journal'; // Track the source table
@@ -182,7 +153,6 @@ export interface ManualJournalEntry {
   payee_id?: string;
   company_id: string;
   reference_number: string;
-  je_name?: string;
   created_at: string;
   updated_at: string;
   chart_of_accounts?: {
@@ -340,7 +310,7 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
       // Auto-select first account if none selected
       const { selectedAccountId } = get();
       if (accounts.length > 0 && !selectedAccountId) {
-        set({ selectedAccountId: accounts[0].plaid_account_id });
+        set({ selectedAccountId: accounts[0].id });
       }
     } catch (error) {
       console.error('Error fetching accounts:', error);
@@ -353,7 +323,7 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
     try {
       const { data } = await supabase
         .from('imported_transactions')
-        .select('id, date, description, spent, received, plaid_account_id, plaid_account_name, selected_category_id, payee_id, company_id, split_data')
+        .select('id, date, description, spent, received, plaid_account_id, plaid_account_name, selected_category_id, payee_id, company_id')
         .eq('company_id', companyId)
         .neq('plaid_account_name', null);
       
@@ -369,7 +339,7 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
     try {
       const { data } = await supabase
         .from('transactions')
-        .select('id, date, description, spent, received, plaid_account_id, plaid_account_name, selected_category_id, corresponding_category_id, payee_id, company_id, split_data')
+        .select('id, date, description, spent, received, plaid_account_id, plaid_account_name, selected_category_id, corresponding_category_id, payee_id, company_id')
         .eq('company_id', companyId)
         .neq('plaid_account_name', null);
       
@@ -416,7 +386,7 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
         .from('journal')
         .select(`
           *,
-          transactions!inner(payee_id, split_data, corresponding_category_id)
+          transactions!inner(payee_id, corresponding_category_id)
         `)
         .eq('company_id', companyId)
         .order('date', { ascending: false });
@@ -444,49 +414,17 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
         company_id: string;
         transactions: {
           payee_id?: string;
-          split_data?: SplitData;
           corresponding_category_id: string;
         };
-      }) => {
-        // Check if this journal entry is part of a split transaction
-        const hasSplitData = entry.transactions?.split_data?.splits && entry.transactions.split_data.splits.length > 0;
-        
-        if (hasSplitData) {
-          // Find the matching split item for this journal entry
-          const matchingSplit = entry.transactions.split_data!.splits.find((split) => 
-            // Match by category for expense/income journal entries, or by being the bank account entry
-            split.selected_category_id === entry.chart_account_id ||
-            entry.chart_account_id === entry.transactions.corresponding_category_id
-          );
-
-          if (matchingSplit && entry.chart_account_id !== entry.transactions.corresponding_category_id) {
-            // This is a split item (not the bank account entry)
-            return {
-              ...entry,
-              is_split_item: true,
-              is_manual_entry: false,
-              entry_source: 'journal' as const,
-              split_item_data: {
-                id: matchingSplit.id || entry.id,
-                date: matchingSplit.date || entry.date,
-                description: matchingSplit.description || entry.description,
-                spent: matchingSplit.spent,
-                received: matchingSplit.received,
-                payee_id: matchingSplit.payee_id,
-                selected_category_id: matchingSplit.selected_category_id
-              }
-            };
-          }
+      }) => ({
+        ...entry,
+        is_manual_entry: false,
+        entry_source: 'journal' as const,
+        transactions: {
+          payee_id: entry.transactions?.payee_id,
+          description: entry.description
         }
-
-        // Regular journal entry (no split or bank account entry)
-        return {
-          ...entry,
-          is_split_item: false,
-          is_manual_entry: false,
-          entry_source: 'journal' as const
-        };
-      });
+      }));
 
       // Process manual journal entries
       const processedManualEntries: JournalTableEntry[] = (manualJournalEntries || []).map((entry: {
@@ -499,7 +437,6 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
         payee_id?: string;
         company_id: string;
         reference_number: string;
-        je_name?: string;
         created_at: string;
         updated_at: string;
       }) => ({
@@ -618,24 +555,12 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
   },
   
   // Update single transaction
-  updateTransaction: async (transactionId: string, updates: Partial<Transaction & { splits?: SplitItem[] }>, companyId: string) => {
+  updateTransaction: async (transactionId: string, updates: Partial<Transaction>, companyId: string) => {
     try {
       set({ isLoading: true, error: null });
 
       // The API will determine which table to update based on where the transaction exists
-      const requestData: {
-        transactionId: string;
-        companyId: string;
-        date?: string;
-        description?: string;
-        spent?: string;
-        received?: string;
-        payeeId?: string;
-        selectedCategoryId?: string;
-        correspondingCategoryId?: string;
-        isSplitTransaction?: boolean;
-        splits?: SplitItem[];
-      } = {
+      const requestData = {
         transactionId,
         companyId,
         date: updates.date,
@@ -643,15 +568,9 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
         spent: updates.spent,
         received: updates.received,
         payeeId: updates.payee_id,
-        selectedCategoryId: updates.selected_category_id, // Fix: use correct field name
+        selectedCategoryId: updates.selected_category_id,
         correspondingCategoryId: updates.corresponding_category_id
       };
-
-      // Add split data if present
-      if (updates.splits && updates.splits.length > 0) {
-        requestData.isSplitTransaction = true;
-        requestData.splits = updates.splits;
-      }
       
       const response = await api.post('/api/transactions/update', requestData);
       

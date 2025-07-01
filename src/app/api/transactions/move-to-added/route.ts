@@ -11,15 +11,7 @@ interface BulkTransactionRequest {
   payee_id?: string;
 }
 
-interface SplitItem {
-  id: string;
-  date: string;
-  description: string;
-  spent: string;
-  received: string;
-  payee_id?: string;
-  selected_category_id: string;
-}
+// Split functionality removed - transactions are handled via journal entries
 
 export async function POST(req: NextRequest) {
   try {
@@ -89,8 +81,7 @@ export async function POST(req: NextRequest) {
         plaid_account_id: importedTx.plaid_account_id,
         plaid_account_name: importedTx.plaid_account_name,
         company_id: companyId,
-        // Preserve split_data when moving transactions
-        split_data: importedTx.split_data || null
+        // No split_data needed - handled via journal entries
       };
     });
 
@@ -121,112 +112,52 @@ export async function POST(req: NextRequest) {
     // 5. Generate journal entries for the new transactions
     const journalEntries = [];
     for (const tx of createdTransactions) {
-      
-      // Check if this is a split transaction
-      if (tx.split_data && typeof tx.split_data === 'object' && tx.split_data.splits) {
-        const splitData = tx.split_data as { splits: SplitItem[] };
-        
-        // For split transactions, create journal entries for each split item
-        for (const split of splitData.splits) {
-          const splitSpent = parseFloat(split.spent) || 0;
-          const splitReceived = parseFloat(split.received) || 0;
-          
-          if (splitSpent > 0) {
-            // Debit the split category, credit the corresponding account
-            journalEntries.push({
-              id: uuidv4(),
-              transaction_id: tx.id,
-              date: split.date,
-              description: split.description || tx.description,
-              chart_account_id: split.selected_category_id,
-              debit: splitSpent,
-              credit: 0,
-              company_id: companyId,
-            });
-            journalEntries.push({
-              id: uuidv4(),
-              transaction_id: tx.id,
-              date: split.date,
-              description: split.description || tx.description,
-              chart_account_id: tx.corresponding_category_id,
-              debit: 0,
-              credit: splitSpent,
-              company_id: companyId,
-            });
-          }
-          
-          if (splitReceived > 0) {
-            // Credit the split category, debit the corresponding account
-            journalEntries.push({
-              id: uuidv4(),
-              transaction_id: tx.id,
-              date: split.date,
-              description: split.description || tx.description,
-              chart_account_id: split.selected_category_id,
-              debit: 0,
-              credit: splitReceived,
-              company_id: companyId,
-            });
-            journalEntries.push({
-              id: uuidv4(),
-              transaction_id: tx.id,
-              date: split.date,
-              description: split.description || tx.description,
-              chart_account_id: tx.corresponding_category_id,
-              debit: splitReceived,
-              credit: 0,
-              company_id: companyId,
-            });
-          }
-        }
-      } else {
-        // Handle regular (non-split) transactions as before
-        // If spent > 0: debit selected, credit corresponding
-        if (tx.spent && tx.spent > 0) {
-          journalEntries.push({
-            id: uuidv4(),
-            transaction_id: tx.id,
-            date: tx.date,
-            description: tx.description,
-            chart_account_id: tx.selected_category_id,
-            debit: tx.spent,
-            credit: 0,
-            company_id: companyId,
-          });
-          journalEntries.push({
-            id: uuidv4(),
-            transaction_id: tx.id,
-            date: tx.date,
-            description: tx.description,
-            chart_account_id: tx.corresponding_category_id,
-            debit: 0,
-            credit: tx.spent,
-            company_id: companyId,
-          });
-        }
-        // If received > 0: credit selected, debit corresponding
-        if (tx.received && tx.received > 0) {
-          journalEntries.push({
-            id: uuidv4(),
-            transaction_id: tx.id,
-            date: tx.date,
-            description: tx.description,
-            chart_account_id: tx.selected_category_id,
-            debit: 0,
-            credit: tx.received,
-            company_id: companyId,
-          });
-          journalEntries.push({
-            id: uuidv4(),
-            transaction_id: tx.id,
-            date: tx.date,
-            description: tx.description,
-            chart_account_id: tx.corresponding_category_id,
-            debit: tx.received,
-            credit: 0,
-            company_id: companyId,
-          });
-        }
+      // Handle all transactions the same way - create basic journal entries
+      // If spent > 0: debit selected, credit corresponding
+      if (tx.spent && tx.spent > 0) {
+        journalEntries.push({
+          id: uuidv4(),
+          transaction_id: tx.id,
+          date: tx.date,
+          description: tx.description,
+          chart_account_id: tx.selected_category_id,
+          debit: tx.spent,
+          credit: 0,
+          company_id: companyId,
+        });
+        journalEntries.push({
+          id: uuidv4(),
+          transaction_id: tx.id,
+          date: tx.date,
+          description: tx.description,
+          chart_account_id: tx.corresponding_category_id,
+          debit: 0,
+          credit: tx.spent,
+          company_id: companyId,
+        });
+      }
+      // If received > 0: credit selected, debit corresponding
+      if (tx.received && tx.received > 0) {
+        journalEntries.push({
+          id: uuidv4(),
+          transaction_id: tx.id,
+          date: tx.date,
+          description: tx.description,
+          chart_account_id: tx.selected_category_id,
+          debit: 0,
+          credit: tx.received,
+          company_id: companyId,
+        });
+        journalEntries.push({
+          id: uuidv4(),
+          transaction_id: tx.id,
+          date: tx.date,
+          description: tx.description,
+          chart_account_id: tx.corresponding_category_id,
+          debit: tx.received,
+          credit: 0,
+          company_id: companyId,
+        });
       }
     }
 
@@ -246,8 +177,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ 
       status: "success",
       processed: createdTransactions.length,
-      transactions: createdTransactions,
-      split_transactions: createdTransactions.filter(tx => tx.split_data).length
+      transactions: createdTransactions
     });
 
   } catch (err: unknown) {

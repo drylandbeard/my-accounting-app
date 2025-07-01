@@ -142,6 +142,10 @@ export const useCategoriesStore = create<CategoriesState>((set, get) => ({
   },
   
   addCategory: async (categoryData) => {
+    // categoryData contains
+    // 1. parent_id
+    // 2. name
+    // 3. type
     try {
       // Handle parent_id conversion if it's provided as a name
       let processedParentId = categoryData.parent_id || null;

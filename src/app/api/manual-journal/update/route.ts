@@ -19,7 +19,7 @@ interface JournalEntryLine {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { companyId, referenceNumber, date, lines, jeName } = body;
+    const { companyId, referenceNumber, date, lines } = body;
 
     if (!companyId || !referenceNumber || !date || !lines || !Array.isArray(lines)) {
       return NextResponse.json({ 
@@ -65,8 +65,7 @@ export async function PUT(request: NextRequest) {
         credit: parseFloat(line.credit) || 0,
         chart_account_id: line.categoryId,
         payee_id: line.payeeId || null,
-        reference_number: referenceNumber,
-        je_name: jeName || null
+        reference_number: referenceNumber
       }));
 
     if (journalEntries.length === 0) {

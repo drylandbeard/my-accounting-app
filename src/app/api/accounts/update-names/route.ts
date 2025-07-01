@@ -23,13 +23,13 @@ export async function PUT(request: NextRequest) {
             name: account.name,
             display_order: account.order || 0
           })
-          .eq('plaid_account_id', account.id);
+          .eq('id', account.id);
 
         // Update chart_of_accounts table
         await supabase
           .from('chart_of_accounts')
           .update({ name: account.name })
-          .eq('plaid_account_id', account.id);
+          .eq('id', account.id);
       }
     }
 

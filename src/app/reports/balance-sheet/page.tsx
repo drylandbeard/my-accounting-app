@@ -162,25 +162,104 @@ export default function BalanceSheetPage() {
           .in("type", ["Asset", "Liability", "Equity", "Revenue", "COGS", "Expense"]);
         setAccounts(accountsData || []);
 
-        // Fetch regular journal entries
-        let journalQuery = supabase.from("journal").select("*").eq("company_id", currentCompany!.id);
+        // Fetch ALL journal entries with pagination to handle more than 1000 rows
+        let allJournalData: Array<{
+          id: string;
+          date: string;
+          description: string;
+          chart_account_id: string;
+          debit: number;
+          credit: number;
+          transaction_id: string;
+          company_id: string;
+        }> = [];
+        let page = 0;
+        const pageSize = 1000;
+        let hasMore = true;
+        
+        // Base query
+        let baseQuery = supabase
+          .from("journal")
+          .select("*")
+          .eq("company_id", currentCompany!.id);
+          
+        // Add date range if provided  
         if (asOfDate) {
-          journalQuery = journalQuery.lte("date", asOfDate);
+          baseQuery = baseQuery.lte("date", asOfDate);
         }
-        const { data: journalData } = await journalQuery;
+        
+        // Fetch all pages of data
+        while (hasMore) {
+          const { data: journalData, error } = await baseQuery
+            .range(page * pageSize, (page + 1) * pageSize - 1)
+            .order('date', { ascending: true });
+            
+          if (error) {
+            console.error("Error fetching journal data:", error);
+            break;
+          }
+          
+          if (journalData && journalData.length > 0) {
+            allJournalData = [...allJournalData, ...journalData];
+            page++;
+            hasMore = journalData.length === pageSize;
+          } else {
+            hasMore = false;
+          }
+        }
+        
+        console.log(`Total journal entries fetched: ${allJournalData.length}`);
 
-        // Fetch manual journal entries
-        let manualJournalQuery = supabase
+        // Fetch manual journal entries with pagination
+        let allManualJournalData: Array<{
+          id: string;
+          date: string;
+          description?: string;
+          je_name?: string;
+          chart_account_id: string;
+          debit: number;
+          credit: number;
+          reference_number?: string;
+          company_id: string;
+        }> = [];
+        page = 0;
+        hasMore = true;
+        
+        // Base query for manual entries
+        let baseManualQuery = supabase
           .from("manual_journal_entries")
           .select("*")
           .eq("company_id", currentCompany!.id);
+          
+        // Add date range if provided  
         if (asOfDate) {
-          manualJournalQuery = manualJournalQuery.lte("date", asOfDate);
+          baseManualQuery = baseManualQuery.lte("date", asOfDate);
         }
-        const { data: manualJournalData } = await manualJournalQuery;
+        
+        // Fetch all pages of manual journal data
+        while (hasMore) {
+          const { data: manualJournalData, error } = await baseManualQuery
+            .range(page * pageSize, (page + 1) * pageSize - 1)
+            .order('date', { ascending: true });
+            
+          if (error) {
+            console.error("Error fetching manual journal data:", error);
+            break;
+          }
+          
+          if (manualJournalData && manualJournalData.length > 0) {
+            allManualJournalData = [...allManualJournalData, ...manualJournalData];
+            page++;
+            hasMore = manualJournalData.length === pageSize;
+          } else {
+            hasMore = false;
+          }
+        }
+        
+        console.log(`Total manual journal entries fetched: ${allManualJournalData.length}`);
 
         // Transform and combine both datasets
-        const regularEntries: Transaction[] = (journalData || []).map((entry) => ({
+        const regularEntries: Transaction[] = allJournalData.map((entry) => ({
           id: entry.id,
           date: entry.date,
           description: entry.description,
@@ -191,7 +270,7 @@ export default function BalanceSheetPage() {
           source: "journal" as const,
         }));
 
-        const manualEntries: Transaction[] = (manualJournalData || []).map((entry) => ({
+        const manualEntries: Transaction[] = allManualJournalData.map((entry) => ({
           id: entry.id,
           date: entry.date,
           description: entry.description || entry.je_name || "Manual Entry",
