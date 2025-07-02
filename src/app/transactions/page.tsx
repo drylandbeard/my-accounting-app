@@ -82,6 +82,7 @@ type Account = {
   created_at?: string;
   subtype?: string;
   display_order?: number; // Add display order for sorting
+  plaid_item_id?: string;
 };
 
 type ImportModalState = {
