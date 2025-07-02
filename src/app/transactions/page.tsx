@@ -3842,7 +3842,17 @@ export default function TransactionsPage() {
             <table className="w-full border-collapse border border-gray-300">
               <thead className="bg-gray-100">
                 <tr>
-                  <th className="border p-1 w-8 text-center">
+                  <th 
+                    className="border p-1 w-8 text-center cursor-pointer"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (imported.length > 0 && selectedToAdd.size === imported.length) {
+                        setSelectedToAdd(new Set());
+                      } else {
+                        setSelectedToAdd(new Set(imported.map((tx) => tx.id)));
+                      }
+                    }}
+                  >
                     <input
                       type="checkbox"
                       checked={imported.length > 0 && selectedToAdd.size === imported.length}
@@ -3853,7 +3863,7 @@ export default function TransactionsPage() {
                           setSelectedToAdd(new Set());
                         }
                       }}
-                      className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                      className="rounded border-gray-300 text-gray-900 focus:ring-gray-900 pointer-events-none"
                     />
                   </th>
                   <th
@@ -3905,7 +3915,19 @@ export default function TransactionsPage() {
                       }}
                       className="hover:bg-gray-50"
                     >
-                      <td className="border p-1 w-8 text-center">
+                      <td 
+                        className="border p-1 w-8 text-center cursor-pointer"
+                        onClick={(e) => {
+                          e.stopPropagation(); // Prevent row click handler
+                          const newSelected = new Set(selectedToAdd);
+                          if (selectedToAdd.has(tx.id)) {
+                            newSelected.delete(tx.id);
+                          } else {
+                            newSelected.add(tx.id);
+                          }
+                          setSelectedToAdd(newSelected);
+                        }}
+                      >
                         <input
                           type="checkbox"
                           checked={selectedToAdd.has(tx.id)}
@@ -3918,7 +3940,7 @@ export default function TransactionsPage() {
                             }
                             setSelectedToAdd(newSelected);
                           }}
-                          className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                          className="rounded border-gray-300 text-gray-900 focus:ring-gray-900 pointer-events-none"
                         />
                       </td>
                       <td className="border p-1 w-20 text-center text-xs cursor-pointer">{formatDate(tx.date)}</td>
@@ -4177,7 +4199,17 @@ export default function TransactionsPage() {
             <table className="w-full border-collapse border border-gray-300">
               <thead className="bg-gray-100">
                 <tr>
-                  <th className="border p-1 w-8 text-center">
+                  <th 
+                    className="border p-1 w-8 text-center cursor-pointer"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (confirmed.length > 0 && selectedAdded.size === confirmed.length) {
+                        setSelectedAdded(new Set());
+                      } else {
+                        setSelectedAdded(new Set(confirmed.map((tx) => tx.id)));
+                      }
+                    }}
+                  >
                     <input
                       type="checkbox"
                       checked={confirmed.length > 0 && selectedAdded.size === confirmed.length}
@@ -4188,7 +4220,7 @@ export default function TransactionsPage() {
                           setSelectedAdded(new Set());
                         }
                       }}
-                      className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                      className="rounded border-gray-300 text-gray-900 focus:ring-gray-900 pointer-events-none"
                     />
                   </th>
                   <th
@@ -4243,7 +4275,19 @@ export default function TransactionsPage() {
                       }}
                       className="hover:bg-gray-50"
                     >
-                      <td className="border p-1 w-8 text-center">
+                      <td 
+                        className="border p-1 w-8 text-center cursor-pointer"
+                        onClick={(e) => {
+                          e.stopPropagation(); // Prevent row click handler
+                          const newSelected = new Set(selectedAdded);
+                          if (selectedAdded.has(tx.id)) {
+                            newSelected.delete(tx.id);
+                          } else {
+                            newSelected.add(tx.id);
+                          }
+                          setSelectedAdded(newSelected);
+                        }}
+                      >
                         <input
                           type="checkbox"
                           checked={selectedAdded.has(tx.id)}
@@ -4256,7 +4300,7 @@ export default function TransactionsPage() {
                             }
                             setSelectedAdded(newSelected);
                           }}
-                          className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                          className="rounded border-gray-300 text-gray-900 focus:ring-gray-900 pointer-events-none"
                         />
                       </td>
                       <td className="border p-1 w-20 text-center text-xs cursor-pointer">{formatDate(tx.date)}</td>
