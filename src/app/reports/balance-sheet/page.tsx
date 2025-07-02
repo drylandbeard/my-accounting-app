@@ -37,6 +37,7 @@ export default function BalanceSheetPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [journalEntries, setJournalEntries] = useState<Transaction[]>([]);
   const [asOfDate, setAsOfDate] = useState<string>("");
+  const [startDate, setStartDate] = useState<string>("");
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
   const [collapsedAccounts, setCollapsedAccounts] = useState<Set<string>>(new Set());
@@ -55,7 +56,7 @@ export default function BalanceSheetPage() {
   const [showPreviousPeriod, setShowPreviousPeriod] = useState(false);
 
   // Period Selector state
-  const [selectedPeriod, setSelectedPeriod] = useState("thisYearToToday");
+  const [selectedPeriod, setSelectedPeriod] = useState("lastMonth");
   const [selectedDisplay, setSelectedDisplay] = useState("totalOnly");
   // const [selectedComparison, setSelectedComparison] = useState("none");
 
@@ -69,7 +70,7 @@ export default function BalanceSheetPage() {
 
   // Helper: parse date string and format for display without timezone issues
   const formatDateForDisplay = (dateString: string): string => {
-    const [year, month, day] = dateString.split('-').map(Number);
+    const [year, month, day] = dateString.split("-").map(Number);
     const date = new Date(year, month - 1, day); // month is 0-indexed
     return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   };
@@ -91,6 +92,7 @@ export default function BalanceSheetPage() {
 
     const today = new Date();
     let endDate: Date;
+    let startDate: Date | null = null;
 
     switch (period) {
       case "thisMonth":
@@ -102,9 +104,13 @@ export default function BalanceSheetPage() {
         break;
       case "last4Months":
         endDate = getMonthEnd(new Date(today.getFullYear(), today.getMonth() - 1, 1));
+        // Set start date to 4 months ago from today
+        startDate = new Date(today.getFullYear(), today.getMonth() - 4, 1);
         break;
       case "last12Months":
         endDate = getMonthEnd(today);
+        // Set start date to 12 months ago
+        startDate = new Date(today.getFullYear() - 1, today.getMonth(), 1);
         break;
       case "thisQuarter":
         endDate = getQuarterEnd(today);
@@ -115,6 +121,7 @@ export default function BalanceSheetPage() {
         break;
       case "thisYearToLastMonth":
         endDate = getMonthEnd(new Date(today.getFullYear(), today.getMonth() - 1, 1));
+        startDate = new Date(today.getFullYear(), 0, 1); // January 1st of current year
         break;
       case "thisYearToToday":
       default:
@@ -123,6 +130,11 @@ export default function BalanceSheetPage() {
     }
 
     setAsOfDate(formatDate(endDate));
+    if (startDate) {
+      setStartDate(formatDate(startDate));
+    } else {
+      setStartDate(""); // Clear start date if not needed
+    }
   };
 
   const handleDisplayChange = (display: string) => {
@@ -142,8 +154,9 @@ export default function BalanceSheetPage() {
   const today = React.useMemo(() => new Date().toISOString().split("T")[0], []);
 
   useEffect(() => {
-    setAsOfDate(today);
-  }, [today]);
+    // Initialize with the default period setting instead of hardcoded dates
+    handlePeriodChange("lastMonth");
+  }, []); // Empty dependency array so it only runs once on mount
 
   useEffect(() => {
     const fetchData = async () => {
@@ -176,29 +189,31 @@ export default function BalanceSheetPage() {
         let page = 0;
         const pageSize = 1000;
         let hasMore = true;
-        
+
         // Base query
-        let baseQuery = supabase
-          .from("journal")
-          .select("*")
-          .eq("company_id", currentCompany!.id);
-          
-        // Add date range if provided  
+        let baseQuery = supabase.from("journal").select("*").eq("company_id", currentCompany!.id);
+
+        // Add date range if provided
         if (asOfDate) {
           baseQuery = baseQuery.lte("date", asOfDate);
         }
         
+        // Add start date if provided
+        if (startDate) {
+          baseQuery = baseQuery.gte("date", startDate);
+        }
+
         // Fetch all pages of data
         while (hasMore) {
           const { data: journalData, error } = await baseQuery
             .range(page * pageSize, (page + 1) * pageSize - 1)
-            .order('date', { ascending: true });
-            
+            .order("date", { ascending: true });
+
           if (error) {
             console.error("Error fetching journal data:", error);
             break;
           }
-          
+
           if (journalData && journalData.length > 0) {
             allJournalData = [...allJournalData, ...journalData];
             page++;
@@ -207,7 +222,7 @@ export default function BalanceSheetPage() {
             hasMore = false;
           }
         }
-        
+
         console.log(`Total journal entries fetched: ${allJournalData.length}`);
 
         // Fetch manual journal entries with pagination
@@ -224,29 +239,31 @@ export default function BalanceSheetPage() {
         }> = [];
         page = 0;
         hasMore = true;
-        
+
         // Base query for manual entries
-        let baseManualQuery = supabase
-          .from("manual_journal_entries")
-          .select("*")
-          .eq("company_id", currentCompany!.id);
-          
-        // Add date range if provided  
+        let baseManualQuery = supabase.from("manual_journal_entries").select("*").eq("company_id", currentCompany!.id);
+
+        // Add date range if provided
         if (asOfDate) {
           baseManualQuery = baseManualQuery.lte("date", asOfDate);
         }
         
+        // Add start date if provided
+        if (startDate) {
+          baseManualQuery = baseManualQuery.gte("date", startDate);
+        }
+
         // Fetch all pages of manual journal data
         while (hasMore) {
           const { data: manualJournalData, error } = await baseManualQuery
             .range(page * pageSize, (page + 1) * pageSize - 1)
-            .order('date', { ascending: true });
-            
+            .order("date", { ascending: true });
+
           if (error) {
             console.error("Error fetching manual journal data:", error);
             break;
           }
-          
+
           if (manualJournalData && manualJournalData.length > 0) {
             allManualJournalData = [...allManualJournalData, ...manualJournalData];
             page++;
@@ -255,7 +272,7 @@ export default function BalanceSheetPage() {
             hasMore = false;
           }
         }
-        
+
         console.log(`Total manual journal entries fetched: ${allManualJournalData.length}`);
 
         // Transform and combine both datasets
@@ -291,9 +308,9 @@ export default function BalanceSheetPage() {
       }
     };
     if (asOfDate) fetchData();
-  }, [asOfDate, currentCompany?.id, hasCompanyContext]);
+  }, [asOfDate, startDate, currentCompany?.id, hasCompanyContext]);
 
-  // Helper: get months from start of year to asOfDate
+  // Helper: get months from start date (or January) to asOfDate
   const getMonthsInRange = () => {
     const months: string[] = [];
 
@@ -301,8 +318,14 @@ export default function BalanceSheetPage() {
     const [endYear, endMonth, endDay] = asOfDate.split("-").map(Number);
     const endDate = new Date(endYear, endMonth - 1, endDay);
 
-    // Start from January of the same year
-    let current = new Date(endYear, 0, 1); // January 1st
+    // Use startDate if available, otherwise start from January of the same year
+    let current;
+    if (startDate) {
+      const [startYear, startMonth] = startDate.split("-").map(Number);
+      current = new Date(startYear, startMonth - 1, 1); // First day of the start month
+    } else {
+      current = new Date(endYear, 0, 1); // January 1st
+    }
 
     while (current <= endDate) {
       const year = current.getFullYear();
@@ -916,48 +939,50 @@ export default function BalanceSheetPage() {
 
     // Set basic styles
     const companyStyle = { font: { size: 12, bold: true }, alignment: { horizontal: "center" as const } };
-    const headerStyle = { 
-      font: { bold: true, size: 10 }, 
-      alignment: { horizontal: "center" as const }
+    const headerStyle = {
+      font: { bold: true, size: 10 },
+      alignment: { horizontal: "center" as const },
     };
-    const sectionStyle = { 
-      font: { bold: true, size: 10 }
+    const sectionStyle = {
+      font: { bold: true, size: 10 },
     };
-    const numberStyle = { 
+    const numberStyle = {
       font: { size: 10 },
-      numFmt: "#,##0.00;(#,##0.00);\"—\"", // Format to show dash for zero values
-      alignment: { horizontal: "right" as const }
+      numFmt: '#,##0.00;(#,##0.00);"—"', // Format to show dash for zero values
+      alignment: { horizontal: "right" as const },
     };
-      const percentStyle = { 
-    font: { size: 10 },
-    numFmt: "0.0%;-0.0%;\"—\"", // Format to show dash for zero values
-    alignment: { horizontal: "right" as const }
-  };
-    const totalStyle = { 
-      font: { bold: true, size: 10 }, 
-      numFmt: "#,##0.00;(#,##0.00);\"—\"", // Format to show dash for zero values
-      alignment: { horizontal: "right" as const }
+    const percentStyle = {
+      font: { size: 10 },
+      numFmt: '0.0%;-0.0%;"—"', // Format to show dash for zero values
+      alignment: { horizontal: "right" as const },
+    };
+    const totalStyle = {
+      font: { bold: true, size: 10 },
+      numFmt: '#,##0.00;(#,##0.00);"—"', // Format to show dash for zero values
+      alignment: { horizontal: "right" as const },
     };
 
     let currentRow = 1;
     const months = isMonthlyView ? getMonthsInRange() : [];
-    const totalColumns = isMonthlyView 
+    const totalColumns = isMonthlyView
       ? 1 + months.length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1)
-      : showPercentages ? 3 : 2;
+      : showPercentages
+      ? 3
+      : 2;
 
-        if (currentCompany) {
-          worksheet.mergeCells(`A${currentRow}:${String.fromCharCode(64 + totalColumns)}${currentRow}`);
-          worksheet.getCell(`A${currentRow}`).value = currentCompany.name;
-          worksheet.getCell(`A${currentRow}`).style = companyStyle;
-          currentRow++;
-        }
+    if (currentCompany) {
+      worksheet.mergeCells(`A${currentRow}:${String.fromCharCode(64 + totalColumns)}${currentRow}`);
+      worksheet.getCell(`A${currentRow}`).value = currentCompany.name;
+      worksheet.getCell(`A${currentRow}`).style = companyStyle;
+      currentRow++;
+    }
 
     // Title and company info at top
     worksheet.mergeCells(`A${currentRow}:${String.fromCharCode(64 + totalColumns)}${currentRow}`);
     worksheet.getCell(`A${currentRow}`).value = "Balance Sheet";
     worksheet.getCell(`A${currentRow}`).style = { font: { size: 10 }, alignment: { horizontal: "center" as const } };
     currentRow++;
-    
+
     worksheet.mergeCells(`A${currentRow}:${String.fromCharCode(64 + totalColumns)}${currentRow}`);
     worksheet.getCell(`A${currentRow}`).value = `As of ${formatDateForDisplay(asOfDate)}`;
     worksheet.getCell(`A${currentRow}`).style = { font: { size: 10 }, alignment: { horizontal: "center" as const } };
@@ -972,21 +997,21 @@ export default function BalanceSheetPage() {
       months.forEach((month) => {
         worksheet.getCell(currentRow, colIndex++).value = formatMonth(month);
         worksheet.getCell(currentRow, colIndex - 1).style = headerStyle;
-          if (showPercentages) {
+        if (showPercentages) {
           worksheet.getCell(currentRow, colIndex++).value = "%";
           worksheet.getCell(currentRow, colIndex - 1).style = headerStyle;
         }
       });
       worksheet.getCell(currentRow, colIndex++).value = "Total";
       worksheet.getCell(currentRow, colIndex - 1).style = headerStyle;
-        if (showPercentages) {
+      if (showPercentages) {
         worksheet.getCell(currentRow, colIndex++).value = "%";
         worksheet.getCell(currentRow, colIndex - 1).style = headerStyle;
       }
     } else {
       worksheet.getCell(currentRow, colIndex++).value = "Amount";
       worksheet.getCell(currentRow, colIndex - 1).style = headerStyle;
-        if (showPercentages) {
+      if (showPercentages) {
         worksheet.getCell(currentRow, colIndex++).value = "%";
         worksheet.getCell(currentRow, colIndex - 1).style = headerStyle;
       }
@@ -1019,38 +1044,50 @@ export default function BalanceSheetPage() {
           worksheet.getCell(currentRow, accountColIndex++).value = `${indent}${acc.name}`;
           worksheet.getCell(currentRow, 1).style = { font: { size: 10 } };
 
-    if (isMonthlyView) {
+          if (isMonthlyView) {
             months.forEach((month) => {
-              const monthlyTotal = isParent && isCollapsed 
-                ? calculateAccountTotalForMonthWithSubaccounts(acc, month)
-                : calculateAccountTotalForMonth(acc, month);
-              
+              const monthlyTotal =
+                isParent && isCollapsed
+                  ? calculateAccountTotalForMonthWithSubaccounts(acc, month)
+                  : calculateAccountTotalForMonth(acc, month);
+
               worksheet.getCell(currentRow, accountColIndex++).value = monthlyTotal;
               worksheet.getCell(currentRow, accountColIndex - 1).style = numberStyle;
 
-          if (showPercentages) {
+              if (showPercentages) {
                 const percentValue = formatPercentageForAccount(monthlyTotal, acc.type);
-                worksheet.getCell(currentRow, accountColIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
+                worksheet.getCell(currentRow, accountColIndex++).value =
+                  percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
                 worksheet.getCell(currentRow, accountColIndex - 1).style = percentStyle;
-          }
-        });
+              }
+            });
 
-        // Total column
-            worksheet.getCell(currentRow, accountColIndex++).value = isParent && isCollapsed ? accountTotal : directTotal;
+            // Total column
+            worksheet.getCell(currentRow, accountColIndex++).value =
+              isParent && isCollapsed ? accountTotal : directTotal;
             worksheet.getCell(currentRow, accountColIndex - 1).style = numberStyle;
 
-        if (showPercentages) {
-              const percentValue = formatPercentageForAccount(isParent && isCollapsed ? accountTotal : directTotal, acc.type);
-              worksheet.getCell(currentRow, accountColIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
+            if (showPercentages) {
+              const percentValue = formatPercentageForAccount(
+                isParent && isCollapsed ? accountTotal : directTotal,
+                acc.type
+              );
+              worksheet.getCell(currentRow, accountColIndex++).value =
+                percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
               worksheet.getCell(currentRow, accountColIndex - 1).style = percentStyle;
             }
           } else {
-            worksheet.getCell(currentRow, accountColIndex++).value = isParent && isCollapsed ? accountTotal : directTotal;
+            worksheet.getCell(currentRow, accountColIndex++).value =
+              isParent && isCollapsed ? accountTotal : directTotal;
             worksheet.getCell(currentRow, accountColIndex - 1).style = numberStyle;
-            
-                if (showPercentages) {
-              const percentValue = formatPercentageForAccount(isParent && isCollapsed ? accountTotal : directTotal, acc.type);
-              worksheet.getCell(currentRow, accountColIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
+
+            if (showPercentages) {
+              const percentValue = formatPercentageForAccount(
+                isParent && isCollapsed ? accountTotal : directTotal,
+                acc.type
+              );
+              worksheet.getCell(currentRow, accountColIndex++).value =
+                percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
               worksheet.getCell(currentRow, accountColIndex - 1).style = percentStyle;
             }
           }
@@ -1074,30 +1111,33 @@ export default function BalanceSheetPage() {
                 worksheet.getCell(currentRow, totalColIndex++).value = monthlyTotal;
                 worksheet.getCell(currentRow, totalColIndex - 1).style = totalStyle;
 
-        if (showPercentages) {
+                if (showPercentages) {
                   const percentValue = formatPercentageForAccount(monthlyTotal, acc.type);
-                  worksheet.getCell(currentRow, totalColIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
-                  worksheet.getCell(currentRow, totalColIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
+                  worksheet.getCell(currentRow, totalColIndex++).value =
+                    percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
+                  worksheet.getCell(currentRow, totalColIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
                 }
               });
-              
+
               // Total column
               worksheet.getCell(currentRow, totalColIndex++).value = accountTotal;
               worksheet.getCell(currentRow, totalColIndex - 1).style = totalStyle;
-              
-      if (showPercentages) {
+
+              if (showPercentages) {
                 const percentValue = formatPercentageForAccount(accountTotal, acc.type);
-                worksheet.getCell(currentRow, totalColIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
-                worksheet.getCell(currentRow, totalColIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
-      }
-    } else {
+                worksheet.getCell(currentRow, totalColIndex++).value =
+                  percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
+                worksheet.getCell(currentRow, totalColIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
+              }
+            } else {
               worksheet.getCell(currentRow, totalColIndex++).value = accountTotal;
               worksheet.getCell(currentRow, totalColIndex - 1).style = totalStyle;
 
-        if (showPercentages) {
+              if (showPercentages) {
                 const percentValue = formatPercentageForAccount(accountTotal, acc.type);
-                worksheet.getCell(currentRow, totalColIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
-                worksheet.getCell(currentRow, totalColIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
+                worksheet.getCell(currentRow, totalColIndex++).value =
+                  percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
+                worksheet.getCell(currentRow, totalColIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
               }
             }
             currentRow++;
@@ -1115,31 +1155,34 @@ export default function BalanceSheetPage() {
 
       if (isMonthlyView) {
         months.forEach((month) => {
-          const monthlyTotal = accounts.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0);
+          const monthlyTotal = accounts.reduce(
+            (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
+            0
+          );
           worksheet.getCell(currentRow, colIndex++).value = monthlyTotal;
           worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
-          
-                if (showPercentages) {
+
+          if (showPercentages) {
             worksheet.getCell(currentRow, colIndex++).value = sectionName === "ASSETS" ? 1.0 : null;
-            worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
+            worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
           }
         });
-        
+
         // Total column
         worksheet.getCell(currentRow, colIndex++).value = sectionTotal;
         worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
 
-      if (showPercentages) {
+        if (showPercentages) {
           worksheet.getCell(currentRow, colIndex++).value = sectionName === "ASSETS" ? 1.0 : null;
-          worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
-      }
+          worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
+        }
       } else {
         worksheet.getCell(currentRow, colIndex++).value = sectionTotal;
         worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
 
         if (showPercentages) {
           worksheet.getCell(currentRow, colIndex++).value = sectionName === "ASSETS" ? 1.0 : null;
-          worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
+          worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
         }
       }
       currentRow++;
@@ -1156,7 +1199,7 @@ export default function BalanceSheetPage() {
     currentRow++;
 
     addAccountRows(liabilityRows, "Liabilities");
-    
+
     // Equity section
     if (equityRows.length > 0 || netIncome !== 0) {
       worksheet.mergeCells(`A${currentRow}:${String.fromCharCode(64 + totalColumns)}${currentRow}`);
@@ -1177,32 +1220,35 @@ export default function BalanceSheetPage() {
             worksheet.getCell(currentRow, equityColIndex++).value = monthlyTotal;
             worksheet.getCell(currentRow, equityColIndex - 1).style = numberStyle;
 
-          if (showPercentages) {
+            if (showPercentages) {
               const percentValue = formatPercentageForAccount(monthlyTotal, account.type);
-              worksheet.getCell(currentRow, equityColIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
+              worksheet.getCell(currentRow, equityColIndex++).value =
+                percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
               worksheet.getCell(currentRow, equityColIndex - 1).style = percentStyle;
-          }
-        });
+            }
+          });
 
-        // Total column
+          // Total column
           worksheet.getCell(currentRow, equityColIndex++).value = total;
           worksheet.getCell(currentRow, equityColIndex - 1).style = numberStyle;
 
-        if (showPercentages) {
+          if (showPercentages) {
             const percentValue = formatPercentageForAccount(total, account.type);
-            worksheet.getCell(currentRow, equityColIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
+            worksheet.getCell(currentRow, equityColIndex++).value =
+              percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
             worksheet.getCell(currentRow, equityColIndex - 1).style = percentStyle;
           }
         } else {
           worksheet.getCell(currentRow, equityColIndex++).value = total;
           worksheet.getCell(currentRow, equityColIndex - 1).style = numberStyle;
-          
-                if (showPercentages) {
+
+          if (showPercentages) {
             const percentValue = formatPercentageForAccount(total, account.type);
-            worksheet.getCell(currentRow, equityColIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
+            worksheet.getCell(currentRow, equityColIndex++).value =
+              percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
             worksheet.getCell(currentRow, equityColIndex - 1).style = percentStyle;
-                }
-              }
+          }
+        }
         currentRow++;
       });
 
@@ -1214,36 +1260,40 @@ export default function BalanceSheetPage() {
 
         if (isMonthlyView) {
           months.forEach((month) => {
-            const monthlyNetIncome = calculatePLGroupTotalForMonth(revenueAccounts, month) -
-                calculatePLGroupTotalForMonth(cogsAccounts, month) -
+            const monthlyNetIncome =
+              calculatePLGroupTotalForMonth(revenueAccounts, month) -
+              calculatePLGroupTotalForMonth(cogsAccounts, month) -
               calculatePLGroupTotalForMonth(expenseAccounts, month);
             worksheet.getCell(currentRow, netIncomeColIndex++).value = monthlyNetIncome;
             worksheet.getCell(currentRow, netIncomeColIndex - 1).style = totalStyle;
 
-          if (showPercentages) {
+            if (showPercentages) {
               const percentValue = formatPercentageForAccount(monthlyNetIncome, "Equity");
-              worksheet.getCell(currentRow, netIncomeColIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
-              worksheet.getCell(currentRow, netIncomeColIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
+              worksheet.getCell(currentRow, netIncomeColIndex++).value =
+                percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
+              worksheet.getCell(currentRow, netIncomeColIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
             }
           });
-          
+
           // Total column
           worksheet.getCell(currentRow, netIncomeColIndex++).value = netIncome;
           worksheet.getCell(currentRow, netIncomeColIndex - 1).style = totalStyle;
 
-        if (showPercentages) {
+          if (showPercentages) {
             const percentValue = formatPercentageForAccount(netIncome, "Equity");
-            worksheet.getCell(currentRow, netIncomeColIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
-            worksheet.getCell(currentRow, netIncomeColIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
+            worksheet.getCell(currentRow, netIncomeColIndex++).value =
+              percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
+            worksheet.getCell(currentRow, netIncomeColIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
           }
-    } else {
+        } else {
           worksheet.getCell(currentRow, netIncomeColIndex++).value = netIncome;
           worksheet.getCell(currentRow, netIncomeColIndex - 1).style = totalStyle;
 
-        if (showPercentages) {
+          if (showPercentages) {
             const percentValue = formatPercentageForAccount(netIncome, "Equity");
-            worksheet.getCell(currentRow, netIncomeColIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
-            worksheet.getCell(currentRow, netIncomeColIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
+            worksheet.getCell(currentRow, netIncomeColIndex++).value =
+              percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
+            worksheet.getCell(currentRow, netIncomeColIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
           }
         }
         currentRow++;
@@ -1256,37 +1306,41 @@ export default function BalanceSheetPage() {
 
       if (isMonthlyView) {
         months.forEach((month) => {
-          const monthlyEquity = equityRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0) +
+          const monthlyEquity =
+            equityRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0) +
             (calculatePLGroupTotalForMonth(revenueAccounts, month) -
-             calculatePLGroupTotalForMonth(cogsAccounts, month) -
-             calculatePLGroupTotalForMonth(expenseAccounts, month));
+              calculatePLGroupTotalForMonth(cogsAccounts, month) -
+              calculatePLGroupTotalForMonth(expenseAccounts, month));
           worksheet.getCell(currentRow, colIndex++).value = monthlyEquity;
           worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
 
-              if (showPercentages) {
+          if (showPercentages) {
             const percentValue = formatPercentageForAccount(monthlyEquity, "Equity");
-            worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
-            worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
+            worksheet.getCell(currentRow, colIndex++).value =
+              percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
+            worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
           }
         });
-        
+
         // Total column
         worksheet.getCell(currentRow, colIndex++).value = totalEquityWithNetIncome;
         worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
 
         if (showPercentages) {
           const percentValue = formatPercentageForAccount(totalEquityWithNetIncome, "Equity");
-          worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
-          worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
+          worksheet.getCell(currentRow, colIndex++).value =
+            percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
+          worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
         }
       } else {
         worksheet.getCell(currentRow, colIndex++).value = totalEquityWithNetIncome;
         worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
 
-          if (showPercentages) {
+        if (showPercentages) {
           const percentValue = formatPercentageForAccount(totalEquityWithNetIncome, "Equity");
-          worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
-          worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
+          worksheet.getCell(currentRow, colIndex++).value =
+            percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
+          worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
         }
       }
       currentRow++;
@@ -1299,7 +1353,8 @@ export default function BalanceSheetPage() {
 
     if (isMonthlyView) {
       months.forEach((month) => {
-        const monthlyLiabEquity = liabilityRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0) +
+        const monthlyLiabEquity =
+          liabilityRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0) +
           equityRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0) +
           (calculatePLGroupTotalForMonth(revenueAccounts, month) -
             calculatePLGroupTotalForMonth(cogsAccounts, month) -
@@ -1309,17 +1364,20 @@ export default function BalanceSheetPage() {
 
         if (showPercentages) {
           worksheet.getCell(currentRow, totalLiabEquityColIndex++).value = 1.0;
-          worksheet.getCell(currentRow, totalLiabEquityColIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
+          worksheet.getCell(currentRow, totalLiabEquityColIndex - 1).style = {
+            ...totalStyle,
+            numFmt: '0.0%;-0.0%;"—"',
+          };
         }
       });
 
       // Total column
       worksheet.getCell(currentRow, totalLiabEquityColIndex++).value = liabilitiesAndEquity;
       worksheet.getCell(currentRow, totalLiabEquityColIndex - 1).style = totalStyle;
-      
+
       if (showPercentages) {
         worksheet.getCell(currentRow, totalLiabEquityColIndex++).value = 1.0;
-        worksheet.getCell(currentRow, totalLiabEquityColIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
+        worksheet.getCell(currentRow, totalLiabEquityColIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
       }
     } else {
       worksheet.getCell(currentRow, totalLiabEquityColIndex++).value = liabilitiesAndEquity;
@@ -1327,73 +1385,108 @@ export default function BalanceSheetPage() {
 
       if (showPercentages) {
         worksheet.getCell(currentRow, totalLiabEquityColIndex++).value = 1.0;
-        worksheet.getCell(currentRow, totalLiabEquityColIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
+        worksheet.getCell(currentRow, totalLiabEquityColIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
       }
-        }
+    }
     currentRow++;
 
     // Out of balance warning
     if (Math.abs(balanceDifference) > 0.01) {
       let colIndex = 1;
       worksheet.getCell(currentRow, colIndex++).value = "OUT OF BALANCE";
-      worksheet.getCell(currentRow, 1).style = { 
+      worksheet.getCell(currentRow, 1).style = {
         font: { bold: true, color: { argb: "FF991B1B" } },
         fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFFEF2F2" } },
-        border: { top: { style: "thin" as const }, left: { style: "thin" as const }, bottom: { style: "thin" as const }, right: { style: "thin" as const } }
+        border: {
+          top: { style: "thin" as const },
+          left: { style: "thin" as const },
+          bottom: { style: "thin" as const },
+          right: { style: "thin" as const },
+        },
       };
 
       if (isMonthlyView) {
         months.forEach(() => {
           worksheet.getCell(currentRow, colIndex++).value = balanceDifference;
-          worksheet.getCell(currentRow, colIndex - 1).style = { 
-            numFmt: "#,##0.00", 
+          worksheet.getCell(currentRow, colIndex - 1).style = {
+            numFmt: "#,##0.00",
             alignment: { horizontal: "right" as const },
             font: { bold: true, color: { argb: "FF991B1B" } },
             fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFFEF2F2" } },
-            border: { top: { style: "thin" as const }, left: { style: "thin" as const }, bottom: { style: "thin" as const }, right: { style: "thin" as const } }
+            border: {
+              top: { style: "thin" as const },
+              left: { style: "thin" as const },
+              bottom: { style: "thin" as const },
+              right: { style: "thin" as const },
+            },
           };
-          
+
           if (showPercentages) {
             worksheet.getCell(currentRow, colIndex++).value = null;
-            worksheet.getCell(currentRow, colIndex - 1).style = { 
+            worksheet.getCell(currentRow, colIndex - 1).style = {
               fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFFEF2F2" } },
-              border: { top: { style: "thin" as const }, left: { style: "thin" as const }, bottom: { style: "thin" as const }, right: { style: "thin" as const } }
+              border: {
+                top: { style: "thin" as const },
+                left: { style: "thin" as const },
+                bottom: { style: "thin" as const },
+                right: { style: "thin" as const },
+              },
             };
           }
         });
-        
+
         // Total column
         worksheet.getCell(currentRow, colIndex++).value = balanceDifference;
-        worksheet.getCell(currentRow, colIndex - 1).style = { 
-          numFmt: "#,##0.00", 
+        worksheet.getCell(currentRow, colIndex - 1).style = {
+          numFmt: "#,##0.00",
           alignment: { horizontal: "right" as const },
           font: { bold: true, color: { argb: "FF991B1B" } },
           fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFFEF2F2" } },
-          border: { top: { style: "thin" as const }, left: { style: "thin" as const }, bottom: { style: "thin" as const }, right: { style: "thin" as const } }
-        };
-        
-        if (showPercentages) {
-          worksheet.getCell(currentRow, colIndex++).value = null;
-          worksheet.getCell(currentRow, colIndex - 1).style = { 
-            fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFFEF2F2" } },
-            border: { top: { style: "thin" as const }, left: { style: "thin" as const }, bottom: { style: "thin" as const }, right: { style: "thin" as const } }
-          };
-        }
-      } else {
-        worksheet.getCell(currentRow, colIndex++).value = balanceDifference;
-        worksheet.getCell(currentRow, colIndex - 1).style = { 
-          numFmt: "#,##0.00", 
-          alignment: { horizontal: "right" as const },
-          font: { bold: true, color: { argb: "FF991B1B" } },
-          fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFFEF2F2" } },
-          border: { top: { style: "thin" as const }, left: { style: "thin" as const }, bottom: { style: "thin" as const }, right: { style: "thin" as const } }
+          border: {
+            top: { style: "thin" as const },
+            left: { style: "thin" as const },
+            bottom: { style: "thin" as const },
+            right: { style: "thin" as const },
+          },
         };
 
         if (showPercentages) {
           worksheet.getCell(currentRow, colIndex++).value = null;
-          worksheet.getCell(currentRow, colIndex - 1).style = { 
+          worksheet.getCell(currentRow, colIndex - 1).style = {
             fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFFEF2F2" } },
-            border: { top: { style: "thin" as const }, left: { style: "thin" as const }, bottom: { style: "thin" as const }, right: { style: "thin" as const } }
+            border: {
+              top: { style: "thin" as const },
+              left: { style: "thin" as const },
+              bottom: { style: "thin" as const },
+              right: { style: "thin" as const },
+            },
+          };
+        }
+      } else {
+        worksheet.getCell(currentRow, colIndex++).value = balanceDifference;
+        worksheet.getCell(currentRow, colIndex - 1).style = {
+          numFmt: "#,##0.00",
+          alignment: { horizontal: "right" as const },
+          font: { bold: true, color: { argb: "FF991B1B" } },
+          fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFFEF2F2" } },
+          border: {
+            top: { style: "thin" as const },
+            left: { style: "thin" as const },
+            bottom: { style: "thin" as const },
+            right: { style: "thin" as const },
+          },
+        };
+
+        if (showPercentages) {
+          worksheet.getCell(currentRow, colIndex++).value = null;
+          worksheet.getCell(currentRow, colIndex - 1).style = {
+            fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFFEF2F2" } },
+            border: {
+              top: { style: "thin" as const },
+              left: { style: "thin" as const },
+              bottom: { style: "thin" as const },
+              right: { style: "thin" as const },
+            },
           };
         }
       }
@@ -1404,15 +1497,19 @@ export default function BalanceSheetPage() {
     for (let i = 2; i <= totalColumns; i++) {
       worksheet.getColumn(i).width = 15;
     }
-    
+
     // Add footer
     currentRow += 3;
-    
+
     const today = new Date();
     worksheet.mergeCells(`A${currentRow}:${String.fromCharCode(64 + totalColumns)}${currentRow}`);
-    worksheet.getCell(`A${currentRow}`).value = `switch | ${currentCompany?.name} | ${formatDateForDisplay(today.toISOString().split('T')[0])} ${today.toLocaleTimeString()}`;
-    worksheet.getCell(`A${currentRow}`).style = { font: { size: 9, color: { argb: "FF666666" } },
-      alignment: { horizontal: "center" as const } };
+    worksheet.getCell(`A${currentRow}`).value = `switch | ${currentCompany?.name} | ${formatDateForDisplay(
+      today.toISOString().split("T")[0]
+    )} ${today.toLocaleTimeString()}`;
+    worksheet.getCell(`A${currentRow}`).style = {
+      font: { size: 9, color: { argb: "FF666666" } },
+      alignment: { horizontal: "center" as const },
+    };
 
     // Save the file
     const buffer = await workbook.xlsx.writeBuffer();
@@ -1434,10 +1531,10 @@ export default function BalanceSheetPage() {
 
     // Set styles
     const headerStyle = { font: { bold: true, size: 10 } };
-    const numberStyle = { 
-      font: { size: 10 }, 
-      numFmt: "#,##0.00;(#,##0.00);\"—\"", // Format to show dash for zero values
-      alignment: { horizontal: "right" as const } 
+    const numberStyle = {
+      font: { size: 10 },
+      numFmt: '#,##0.00;(#,##0.00);"—"', // Format to show dash for zero values
+      alignment: { horizontal: "right" as const },
     };
     const dateStyle = { font: { size: 10 }, alignment: { horizontal: "left" as const } };
 
@@ -1446,7 +1543,10 @@ export default function BalanceSheetPage() {
     // Title and company info
     worksheet.mergeCells(`A${currentRow}:D${currentRow}`);
     worksheet.getCell(`A${currentRow}`).value = `${viewerModal.category.name} Transactions`;
-    worksheet.getCell(`A${currentRow}`).style = { font: { size: 12, bold: true }, alignment: { horizontal: "center" as const } };
+    worksheet.getCell(`A${currentRow}`).style = {
+      font: { size: 12, bold: true },
+      alignment: { horizontal: "center" as const },
+    };
     currentRow++;
 
     if (currentCompany) {
@@ -1455,7 +1555,7 @@ export default function BalanceSheetPage() {
       worksheet.getCell(`A${currentRow}`).style = { font: { size: 10 }, alignment: { horizontal: "center" as const } };
       currentRow++;
     }
-    
+
     worksheet.mergeCells(`A${currentRow}:D${currentRow}`);
     worksheet.getCell(`A${currentRow}`).value = viewerModal.selectedMonth
       ? viewerModal.category.id === "NET_INCOME"
@@ -1522,16 +1622,24 @@ export default function BalanceSheetPage() {
     worksheet.getCell(`A${currentRow}`).value = "Total";
     worksheet.getCell(`A${currentRow}`).style = { font: { bold: true, size: 10 } };
     worksheet.getCell(`D${currentRow}`).value = total;
-    worksheet.getCell(`D${currentRow}`).style = { font: { bold: true, size: 10 }, numFmt: "#,##0.00;(#,##0.00);\"—\"", alignment: { horizontal: "right" as const } };
+    worksheet.getCell(`D${currentRow}`).style = {
+      font: { bold: true, size: 10 },
+      numFmt: '#,##0.00;(#,##0.00);"—"',
+      alignment: { horizontal: "right" as const },
+    };
 
     // Add footer
     currentRow += 3;
-    
+
     const today = new Date();
     worksheet.mergeCells(`A${currentRow}:D${currentRow}`);
-    worksheet.getCell(`A${currentRow}`).value = `switch | ${currentCompany?.name} | ${formatDateForDisplay(today.toISOString().split('T')[0])} ${today.toLocaleTimeString()}`;
-    worksheet.getCell(`A${currentRow}`).style = { font: { size: 9, color: { argb: "FF666666" } },
-      alignment: { horizontal: "center" as const } };
+    worksheet.getCell(`A${currentRow}`).value = `switch | ${currentCompany?.name} | ${formatDateForDisplay(
+      today.toISOString().split("T")[0]
+    )} ${today.toLocaleTimeString()}`;
+    worksheet.getCell(`A${currentRow}`).style = {
+      font: { size: 9, color: { argb: "FF666666" } },
+      alignment: { horizontal: "center" as const },
+    };
 
     // Set column widths
     worksheet.getColumn("A").width = 12;
@@ -1629,7 +1737,7 @@ export default function BalanceSheetPage() {
         {/* Balance Sheet Table */}
         <Card className="pt-3 pb-0">
           <CardContent className="p-0">
-            <h1 className="text-2xl font-bold text-slate-800 mb-1 text-center">{currentCompany.name}</h1>
+            <h1 className="text-xl font-bold text-slate-800 mb-1 text-center">{currentCompany.name}</h1>
             {currentCompany && <p className="text-lg text-slate-700 mb-1 text-center font-medium">Balance Sheet</p>}
             <p className="text-sm text-slate-600 mb-3 text-center">As of {formatDateForDisplay(asOfDate)}</p>
             <Table className="border border-gray-300">
@@ -1643,9 +1751,7 @@ export default function BalanceSheetPage() {
                     <>
                       {getMonthsInRange().map((month) => (
                         <React.Fragment key={month}>
-                          <TableHead
-                            className="border p-1 text-center font-medium text-xs whitespace-nowrap"
-                          >
+                          <TableHead className="border p-1 text-center font-medium text-xs whitespace-nowrap">
                             {formatMonth(month)}
                           </TableHead>
                         </React.Fragment>
@@ -1704,7 +1810,7 @@ export default function BalanceSheetPage() {
                   /* Loading State */
                   <>
                     {/* ASSETS SECTION */}
-                    <TableRow className="bg-gray-100">
+                    <TableRow className="bg-muted/50 hover:bg-gray-100">
                       <TableCell
                         colSpan={
                           isMonthlyView
@@ -1763,7 +1869,7 @@ export default function BalanceSheetPage() {
                     </TableRow>
 
                     {/* LIABILITIES & EQUITY SECTION */}
-                    <TableRow className="bg-gray-100">
+                    <TableRow className="bg-muted/50 hover:bg-gray-100">
                       <TableCell
                         colSpan={
                           isMonthlyView
@@ -1807,7 +1913,7 @@ export default function BalanceSheetPage() {
                   /* Normal Content */
                   <>
                     {/* ASSETS SECTION */}
-                    <TableRow className="bg-gray-100">
+                    <TableRow className="bg-muted/50 hover:bg-gray-100">
                       <TableCell
                         colSpan={
                           isMonthlyView
@@ -1827,7 +1933,7 @@ export default function BalanceSheetPage() {
                     </TableRow>
                     {assetRows.length > 0 && (
                       <>
-                        <TableRow className="cursor-pointer hover:bg-gray-100 transition-colors">
+                        <TableRow className="cursor-pointer bg-muted/50 hover:bg-gray-100 transition-colors">
                           <TableCell
                             colSpan={
                               isMonthlyView
@@ -1969,7 +2075,7 @@ export default function BalanceSheetPage() {
                     </TableRow>
 
                     {/* LIABILITIES & EQUITY SECTION */}
-                    <TableRow className="bg-gray-100">
+                    <TableRow className="bg-muted/50 hover:bg-gray-100">
                       <TableCell
                         colSpan={
                           isMonthlyView
@@ -1991,7 +2097,7 @@ export default function BalanceSheetPage() {
                     {/* Liabilities */}
                     {liabilityRows.length > 0 && (
                       <>
-                        <TableRow className="cursor-pointer hover:bg-gray-100 transition-colors">
+                        <TableRow className="cursor-pointer bg-muted/50 hover:bg-gray-100 transition-colors">
                           <TableCell
                             colSpan={
                               isMonthlyView
@@ -2031,7 +2137,7 @@ export default function BalanceSheetPage() {
                               </React.Fragment>
                             ))}
                             <TableRow
-                              className="cursor-pointer hover:bg-blue-50 transition-colors"
+                              className="cursor-pointer bg-muted/50 hover:bg-gray-100 transition-colors"
                               onClick={() => {
                                 const liabilityGroup = {
                                   id: "LIABILITY_GROUP",
@@ -2123,7 +2229,7 @@ export default function BalanceSheetPage() {
                     {/* Equity */}
                     {(equityRows.length > 0 || netIncome !== 0) && (
                       <>
-                        <TableRow className="cursor-pointer hover:bg-gray-100 transition-colors">
+                        <TableRow className="cursor-pointer bg-muted/50 hover:bg-gray-100 transition-colors">
                           <TableCell
                             colSpan={
                               isMonthlyView
@@ -2164,7 +2270,7 @@ export default function BalanceSheetPage() {
                             ))}
                             {netIncome !== 0 && (
                               <TableRow
-                                className="cursor-pointer hover:bg-slate-100 transition-colors"
+                                className="cursor-pointer bg-muted/50 hover:bg-gray-100 transition-colors"
                                 onClick={() => {
                                   const netIncomeAccount = {
                                     id: "NET_INCOME",
@@ -2176,7 +2282,7 @@ export default function BalanceSheetPage() {
                                   setViewerModal({ isOpen: true, category: netIncomeAccount });
                                 }}
                               >
-                                <TableCell className="border p-1 text-xs bg-gray-50">
+                                <TableCell className="border p-1 text-xs">
                                   <div className="flex items-center">
                                     <div className="mr-2 w-5"></div>
                                     <span className="font-semibold">Net Income</span>
@@ -2187,7 +2293,7 @@ export default function BalanceSheetPage() {
                                     {getMonthsInRange().map((month) => (
                                       <React.Fragment key={month}>
                                         <TableCell
-                                          className="border p-1 text-right font-semibold bg-gray-50 text-xs cursor-pointer hover:bg-gray-100"
+                                          className="border p-1 text-right font-semibold text-xs cursor-pointer hover:bg-gray-100"
                                           onClick={(e) => {
                                             e.stopPropagation();
                                             const netIncomeAccount = {
@@ -2212,7 +2318,7 @@ export default function BalanceSheetPage() {
                                         </TableCell>
                                         {showPercentages && (
                                           <TableCell
-                                            className="border p-1 text-right text-xs text-slate-600 bg-gray-50 cursor-pointer hover:bg-gray-100"
+                                            className="border p-1 text-right text-xs text-slate-600 cursor-pointer"
                                             onClick={(e) => {
                                               e.stopPropagation();
                                               const netIncomeAccount = {
@@ -2239,11 +2345,11 @@ export default function BalanceSheetPage() {
                                         )}
                                       </React.Fragment>
                                     ))}
-                                    <TableCell className="border p-1 text-right font-semibold bg-gray-50 text-xs">
+                                    <TableCell className="border p-1 text-right font-semibold text-xs">
                                       {formatNumber(netIncome)}
                                     </TableCell>
                                     {showPercentages && (
-                                      <TableCell className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
+                                      <TableCell className="border p-1 text-right text-xs text-slate-600">
                                         {formatPercentageForAccount(netIncome, "Equity")}
                                       </TableCell>
                                     )}
@@ -2251,31 +2357,31 @@ export default function BalanceSheetPage() {
                                 ) : (
                                   <>
                                     <TableCell
-                                      className="border p-1 text-right font-semibold bg-gray-50 text-xs"
+                                      className="border p-1 text-right font-semibold text-xs"
                                       style={{ width: "20%" }}
                                     >
                                       {formatNumber(netIncome)}
                                     </TableCell>
                                     {showPercentages && (
-                                      <TableCell className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
+                                      <TableCell className="border p-1 text-right text-xs text-slate-600">
                                         {formatPercentageForAccount(netIncome, "Equity")}
                                       </TableCell>
                                     )}
                                     {showPreviousPeriod && (
                                       <>
                                         <TableCell
-                                          className="border p-1 text-right font-semibold bg-gray-50 text-xs"
+                                          className="border p-1 text-right font-semibold text-xs"
                                           style={{ width: "20%" }}
                                         >
                                           —
                                         </TableCell>
                                         {showPercentages && (
-                                          <TableCell className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
+                                          <TableCell className="border p-1 text-right text-xs text-slate-600">
                                             —
                                           </TableCell>
                                         )}
                                         <TableCell
-                                          className="border p-1 text-right font-semibold bg-gray-50 text-xs"
+                                          className="border p-1 text-right font-semibold text-xs"
                                           style={{ width: "20%" }}
                                         >
                                           —
@@ -2287,7 +2393,7 @@ export default function BalanceSheetPage() {
                               </TableRow>
                             )}
                             <TableRow
-                              className="cursor-pointer hover:bg-blue-50 transition-colors"
+                              className="cursor-pointer bg-muted/50 hover:bg-gray-100 transition-colors"
                               onClick={() => {
                                 const equityGroup = {
                                   id: "EQUITY_GROUP",
@@ -2384,7 +2490,7 @@ export default function BalanceSheetPage() {
 
                     {/* Total Liabilities + Equity */}
                     <TableRow
-                      className={`cursor-pointer hover:bg-blue-50 ${
+                      className={`cursor-pointer bg-muted/50 hover:bg-gray-100 ${
                         Math.abs(balanceDifference) > 0.01 ? "bg-red-50" : "bg-gray-50"
                       }`}
                       onClick={() => {
