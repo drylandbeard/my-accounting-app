@@ -1535,7 +1535,7 @@ export default function Page() {
         {/* P&L Table */}
         <Card className="pt-3 pb-0">
           <CardContent className="p-0">
-            <h1 className="text-2xl font-bold text-slate-800 mb-1 text-center">{currentCompany.name}</h1>
+            <h1 className="text-xl font-bold text-slate-800 mb-1 text-center">{currentCompany.name}</h1>
             {currentCompany && (
               <p className="text-lg text-slate-700 mb-1 text-center font-medium">Profit & Loss</p>
             )}
@@ -1612,7 +1612,7 @@ export default function Page() {
                   /* Loading State */
                   <>
                     {/* Revenue SECTION */}
-                    <TableRow className="bg-gray-100">
+                    <TableRow className="bg-muted/50 hover:bg-gray-100">
                       <TableCell
                         colSpan={
                           isMonthlyView
@@ -1738,7 +1738,7 @@ export default function Page() {
                   /* Normal Content */
                   <>
                     {/* Revenue */}
-                    <TableRow className="bg-gray-100">
+                    <TableRow className="bg-muted/50 hover:bg-gray-100">
                       <TableCell
                         colSpan={
                           isMonthlyView
@@ -1852,7 +1852,7 @@ export default function Page() {
                     </TableRow>
 
                     {/* COGS */}
-                    <TableRow>
+                    <TableRow className="bg-muted/50 hover:bg-gray-100">
                       <TableCell
                         colSpan={
                           isMonthlyView
@@ -1964,7 +1964,7 @@ export default function Page() {
                     </TableRow>
 
                     {/* Gross Profit */}
-                    <TableRow className="bg-gray-50 font-semibold">
+                    <TableRow className="font-semibold">
                       <TableCell className="border p-1 text-xs font-semibold" style={{ width: "25%" }}>
                         Gross Profit
                       </TableCell>
@@ -2011,7 +2011,7 @@ export default function Page() {
                     </TableRow>
 
                     {/* Expenses */}
-                    <TableRow>
+                    <TableRow className="bg-muted/50 hover:bg-gray-100">
                       <TableCell
                         colSpan={
                           isMonthlyView
@@ -2038,7 +2038,7 @@ export default function Page() {
                     })}
                     {/* Total Expenses */}
                     <TableRow
-                      className="cursor-pointer hover:bg-blue-50"
+                      className="cursor-pointer bg-muted/50 hover:bg-gray-100"
                       onClick={() => {
                         setSelectedCategory({
                           id: "EXPENSE_GROUP",
@@ -2128,7 +2128,7 @@ export default function Page() {
                     </TableRow>
 
                     {/* Net Income */}
-                    <TableRow className="bg-gray-50 font-bold">
+                    <TableRow className="bg-muted/50 hover:bg-gray-100 font-bold">
                       <TableCell className="border p-1 text-xs font-semibold" style={{ width: "25%" }}>
                         Net Income
                       </TableCell>
