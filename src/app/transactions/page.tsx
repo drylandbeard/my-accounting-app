@@ -2519,7 +2519,7 @@ export default function TransactionsPage() {
                   .filter((acc) => acc.plaid_account_id)
                   .map((acc, index) => ({
                     id: acc.plaid_account_id || "",
-                    name: acc.plaid_account_name || acc.name || "Unknown Account",
+                    name: acc.name || "Unknown Account",
                     order: index,
                   })),
                 accountToDelete: null,

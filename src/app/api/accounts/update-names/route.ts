@@ -1,8 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
+import { validateCompanyContext } from '@/lib/auth-utils'
 
 export async function PUT(request: NextRequest) {
   try {
+    // Validate company context
+    const context = validateCompanyContext(request);
+    if ("error" in context) {
+      return NextResponse.json({ error: context.error }, { status: 401 });
+    }
+
+    const { companyId } = context;
     const body = await request.json()
     const { accounts } = body
 
@@ -16,20 +24,34 @@ export async function PUT(request: NextRequest) {
     // Update each account
     for (const account of accounts) {
       if (account.id) {
+        // The frontend sends plaid_account_id as "id", so use it directly
+        const plaidAccountId = account.id;
+
         // Update accounts table - update both name and display_order
-        await supabase
+        const { error: accountUpdateError } = await supabase
           .from('accounts')
           .update({ 
             name: account.name,
             display_order: account.order || 0
           })
-          .eq('id', account.id);
+          .eq('plaid_account_id', plaidAccountId)
+          .eq('company_id', companyId);
 
-        // Update chart_of_accounts table
-        await supabase
+        if (accountUpdateError) {
+          console.error('Error updating account:', accountUpdateError);
+          continue;
+        }
+
+        // Update chart_of_accounts table using plaid_account_id relationship
+        const { error: chartUpdateError } = await supabase
           .from('chart_of_accounts')
           .update({ name: account.name })
-          .eq('id', account.id);
+          .eq('plaid_account_id', plaidAccountId)
+          .eq('company_id', companyId);
+
+        if (chartUpdateError) {
+          console.error('Error updating chart of accounts:', chartUpdateError);
+        }
       }
     }
 
