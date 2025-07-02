@@ -77,6 +77,28 @@ export async function POST(req: NextRequest) {
       }, { status: 409 });
     }
 
+    // Get split data first to determine which transactions have splits
+    const { data: splitData, error: splitError } = await supabase
+      .from('imported_transactions_split')
+      .select('*')
+      .in('imported_transaction_id', importedTransactionIds)
+      .eq('company_id', companyId);
+
+    if (splitError) {
+      console.error("Error fetching split data:", splitError);
+      // Continue without split data
+    }
+
+    // Group split data by imported transaction ID
+    const splitMap = new Map<string, ImportedTransactionSplit[]>();
+    if (splitData) {
+      splitData.forEach(split => {
+        const existing = splitMap.get(split.imported_transaction_id) || [];
+        existing.push(split);
+        splitMap.set(split.imported_transaction_id, existing);
+      });
+    }
+
     // 3. Create transaction records in bulk
     const transactionsToInsert = transactions.map(txRequest => {
       const importedTx = importedTransactions.find(tx => tx.id === txRequest.imported_transaction_id);
@@ -93,7 +115,6 @@ export async function POST(req: NextRequest) {
         plaid_account_id: importedTx.plaid_account_id,
         plaid_account_name: importedTx.plaid_account_name,
         company_id: companyId,
-        // No split_data needed - handled via journal entries
       };
     });
 
@@ -121,28 +142,7 @@ export async function POST(req: NextRequest) {
       // Don't return error here, as the transactions were already created
     }
 
-    // 5. Check for split data and handle split data transfer
-    // First, get all split data for the imported transactions
-    const { data: splitData, error: splitError } = await supabase
-      .from('imported_transactions_split')
-      .select('*')
-      .in('imported_transaction_id', importedTransactionIds)
-      .eq('company_id', companyId);
-
-    if (splitError) {
-      console.error("Error fetching split data:", splitError);
-      // Continue without split data
-    }
-
-    // Group split data by imported transaction ID
-    const splitMap = new Map<string, ImportedTransactionSplit[]>();
-    if (splitData) {
-      splitData.forEach(split => {
-        const existing = splitMap.get(split.imported_transaction_id) || [];
-        existing.push(split);
-        splitMap.set(split.imported_transaction_id, existing);
-      });
-    }
+    // 5. Split data already fetched and grouped above
 
     // 6. Generate journal entries for the new transactions
     const journalEntries = [];
