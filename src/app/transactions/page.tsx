@@ -97,7 +97,8 @@ type ImportModalState = {
 type CSVRow = {
   Date: string;
   Description: string;
-  Amount: string;
+  Spent: string;
+  Received: string;
 };
 
 type SortConfig = {
@@ -234,6 +235,8 @@ export default function TransactionsPage() {
     updateJournalEntry,
     deleteJournalEntry,
     importTransactionsFromCSV,
+    saveImportedTransactionSplit,
+    getImportedTransactionSplitsByTransactionId,
   } = useTransactionsStore();
 
   const { categories, refreshCategories, createCategoryForTransaction, subscribeToCategories } = useCategoriesStore();
@@ -1075,13 +1078,13 @@ export default function TransactionsPage() {
   const switchBalance = sumAmounts(confirmedAccountTransactions.map((tx) => calculateNetAmount(tx.spent, tx.received)));
 
   const downloadTemplate = () => {
-    const headers = ["Date", "Description", "Amount"];
+    const headers = ["Date", "Description", "Spent", "Received"];
     const exampleData = [
-      ["01-15-2025", "Client Payment - Invoice #1001", "1000.00"],
-      ["01-16-2025", "Office Supplies - Staples", "150.75"],
-      ["01-17-2025", "Bank Interest Received", "25.50"],
-      ["01-18-2025", "Monthly Software Subscription", "99.99"],
-      ["01-19-2025", "Customer Refund", "200.00"],
+      ["01-15-2025", "Client Payment - Invoice #1001", "0.00", "1000.00"],
+      ["01-16-2025", "Office Supplies - Staples", "150.75", "0.00"],
+      ["01-17-2025", "Bank Interest Received", "0.00", "25.50"],
+      ["01-18-2025", "Monthly Software Subscription", "99.99", "0.00"],
+      ["01-19-2025", "Customer Refund", "200.00", "0.00"],
     ];
 
     const csvContent = [headers.join(","), ...exampleData.map((row) => row.join(","))].join("\n");
@@ -1102,19 +1105,19 @@ export default function TransactionsPage() {
       return "CSV file is empty";
     }
 
-    const requiredColumns = ["Date", "Description", "Amount"];
+    const requiredColumns = ["Date", "Description", "Spent", "Received"];
     const headers = Object.keys(data.data[0]);
 
     const missingColumns = requiredColumns.filter((col) => !headers.includes(col));
     if (missingColumns.length > 0) {
-      return `Missing required columns: ${missingColumns.join(", ")}. Expected: Date, Description, Amount`;
+      return `Missing required columns: ${missingColumns.join(", ")}. Expected: Date, Description, Spent, Received`;
     }
 
     // Filter out empty rows before validation
-    const nonEmptyRows = data.data.filter((row) => row.Date && row.Amount && row.Description);
+    const nonEmptyRows = data.data.filter((row) => row.Date && (row.Spent || row.Received) && row.Description);
 
     if (nonEmptyRows.length === 0) {
-      return "No valid transaction data found. Please ensure you have at least one row with Date, Description, and Amount.";
+      return "No valid transaction data found. Please ensure you have at least one row with Date, Description, and either Spent or Received amount.";
     }
 
     // Validate each non-empty row
@@ -1156,10 +1159,21 @@ export default function TransactionsPage() {
         }". Please use MM-DD-YYYY format (recommended) or YYYY-MM-DD format.`;
       }
 
-      // Validate amount
-      const amount = parseFloat(row.Amount);
-      if (isNaN(amount)) {
-        return `Invalid amount in row ${i + 1}: "${row.Amount}". Please use numeric values (e.g., 100.50 or -75.25)`;
+      // Validate spent and received amounts
+      const spent = parseFloat(row.Spent || "0");
+      const received = parseFloat(row.Received || "0");
+      
+      if (isNaN(spent)) {
+        return `Invalid spent amount in row ${i + 1}: "${row.Spent}". Please use numeric values (e.g., 100.50 or 0.00)`;
+      }
+      
+      if (isNaN(received)) {
+        return `Invalid received amount in row ${i + 1}: "${row.Received}". Please use numeric values (e.g., 100.50 or 0.00)`;
+      }
+      
+      // Ensure at least one amount is specified
+      if (spent === 0 && received === 0) {
+        return `No amount specified in row ${i + 1}. Please provide either a Spent or Received amount (or both).`;
       }
 
       // Validate description is not empty
@@ -1194,7 +1208,7 @@ export default function TransactionsPage() {
 
         // Convert CSV data to transactions, filtering out any empty rows
         const transactions = results.data
-          .filter((row: CSVRow) => row.Date && row.Amount && row.Description)
+          .filter((row: CSVRow) => row.Date && (row.Spent || row.Received) && row.Description)
           .map((row: CSVRow) => {
             // Parse date - try MM-DD-YYYY format first
             let parsedDate: Date;
@@ -1221,15 +1235,17 @@ export default function TransactionsPage() {
               parsedDate = new Date(Date.UTC(year, month - 1, day));
             }
 
-            const amount = parseFloat(row.Amount);
+            const spent = parseFloat(row.Spent || "0");
+            const received = parseFloat(row.Received || "0");
+            const netAmount = received - spent;
 
             return {
               id: uuidv4(),
               date: parsedDate.toISOString().split("T")[0], // Store as YYYY-MM-DD
               description: row.Description.trim(),
-              amount: toFinancialAmount(amount), // Convert to FinancialAmount string
-              spent: amount < 0 ? toFinancialAmount(Math.abs(amount)) : toFinancialAmount(0), // Negative amounts become spent
-              received: amount > 0 ? toFinancialAmount(amount) : toFinancialAmount(0), // Positive amounts become received
+              amount: toFinancialAmount(netAmount), // Net amount for compatibility
+              spent: spent > 0 ? toFinancialAmount(spent) : toFinancialAmount(0),
+              received: received > 0 ? toFinancialAmount(received) : toFinancialAmount(0),
               plaid_account_id: importModal.selectedAccount?.plaid_account_id || null,
               plaid_account_name: importModal.selectedAccount?.name || null,
               company_id: currentCompany?.id,
@@ -2193,7 +2209,36 @@ export default function TransactionsPage() {
         return;
       }
 
-      // Convert lines back to journal entry format for API
+      // Check if this is for an imported transaction (To Add table)
+      const transaction = editJournalModal.transaction as Record<string, unknown>;
+      const isImportedTransaction = editJournalModal.transactionId && imported.some(tx => tx.id === editJournalModal.transactionId);
+      
+      if (isImportedTransaction) {
+        // Save to imported_transactions_split table
+        const result = await saveImportedTransactionSplit(
+          editJournalModal.transactionId,
+          {
+            date: editJournalModal.editEntry.date,
+            description: editJournalModal.editEntry.description,
+            lines: editJournalModal.editEntry.lines
+          },
+          currentCompany!.id
+        );
+
+        if (result.success) {
+          setNotification({ type: "success", message: "Split transaction saved successfully!" });
+          setEditJournalModal((prev) => ({ ...prev, isOpen: false }));
+        } else {
+          setEditJournalModal((prev) => ({
+            ...prev,
+            error: result.error || "Failed to save split transaction",
+            saving: false,
+          }));
+        }
+        return;
+      }
+
+      // Convert lines back to journal entry format for API (for Added table transactions)
       const entries = editJournalModal.editEntry.lines
         .filter((line) => parseFloat(line.debit) > 0 || parseFloat(line.credit) > 0)
         .map((line) => ({
@@ -2202,8 +2247,6 @@ export default function TransactionsPage() {
           type: parseFloat(line.debit) > 0 ? ("debit" as const) : ("credit" as const),
         }));
 
-      // Get the transaction ID to find the journal entry
-      const transaction = editJournalModal.transaction as Record<string, unknown>;
       if (!transaction?.id) {
         throw new Error('No transaction ID available for update');
       }
@@ -2233,6 +2276,122 @@ export default function TransactionsPage() {
         ...prev,
         error: "Failed to update journal entries",
         saving: false,
+      }));
+    }
+  };
+
+  // Function to open modal for imported transactions (To Add table)
+  const openImportedTransactionModal = (transaction: Transaction) => {
+    setEditJournalModal((prev) => ({
+      ...prev,
+      isOpen: true,
+      transactionId: transaction.id,
+      isManualEntry: false,
+      editEntry: {
+        date: "",
+        description: "",
+        lines: [],
+      },
+      saving: false,
+      isLoading: false,
+      error: null,
+      transaction,
+    }));
+    fetchImportedTransactionSplitsForEdit(transaction);
+  };
+
+  // Function to fetch split data for imported transactions
+  const fetchImportedTransactionSplitsForEdit = async (transaction: Transaction) => {
+    if (!hasCompanyContext) return;
+
+    setEditJournalModal((prev) => ({ ...prev, isLoading: true, error: null }));
+
+    try {
+      // Get split data for this imported transaction from the store (local state only)
+      const splits = getImportedTransactionSplitsByTransactionId(transaction.id);
+
+      if (splits.length > 0) {
+        // Convert split data to edit line format  
+        interface ImportedSplit {
+          chart_account_id: string;
+          payee_id?: string;
+          description: string;
+          debit: number;
+          credit: number;
+        }
+        
+        const editLines = splits.map((split: ImportedSplit, index: number) => ({
+          id: (index + 1).toString(),
+          description: split.description || transaction.description || "",
+          categoryId: split.chart_account_id || "",
+          payeeId: split.payee_id || "",
+          debit: split.debit > 0 ? split.debit.toString() : "0.00",
+          credit: split.credit > 0 ? split.credit.toString() : "0.00",
+        }));
+
+        setEditJournalModal((prev) => ({
+          ...prev,
+          editEntry: {
+            date: transaction.date,
+            description: transaction.description || "",
+            lines: editLines,
+          },
+          isLoading: false,
+        }));
+      } else {
+        // No existing split data - create initial lines based on transaction amounts
+        const hasSpent = transaction.spent && parseFloat(transaction.spent) > 0;
+        const hasReceived = transaction.received && parseFloat(transaction.received) > 0;
+
+        interface EditLine {
+          id: string;
+          description: string;
+          categoryId: string;
+          payeeId: string;
+          debit: string;
+          credit: string;
+        }
+
+        const initialLines: EditLine[] = [];
+        
+        if (hasSpent || hasReceived) {
+          // Add the first line (category line) - initially empty for user to fill
+          initialLines.push({
+            id: "1",
+            description: transaction.description || "",
+            categoryId: "",
+            payeeId: "",
+            debit: hasSpent ? "0.00" : hasReceived ? transaction.received! : "0.00",
+            credit: hasSpent ? transaction.spent! : "0.00",
+          });
+
+          // Add the bank account line (corresponding account line)
+          initialLines.push({
+            id: "2", 
+            description: transaction.description || "",
+            categoryId: selectedAccountIdInCOA || "",
+            payeeId: "",
+            debit: hasSpent ? transaction.spent! : "0.00",
+            credit: hasReceived ? transaction.received! : "0.00",
+          });
+        }
+
+        setEditJournalModal((prev) => ({
+          ...prev,
+          editEntry: {
+            date: transaction.date,
+            description: transaction.description || "",
+            lines: initialLines,
+          },
+          isLoading: false,
+        }));
+      }
+    } catch (error) {
+      console.error("Error fetching imported transaction splits:", error);
+      setEditJournalModal((prev) => ({
+        ...prev,
+        error: "Failed to fetch split data",
+        isLoading: false,
       }));
     }
   };
@@ -2357,7 +2516,7 @@ export default function TransactionsPage() {
       {/* Import Modal */}
       {importModal.isOpen && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50 p-4">
-          <div className="bg-white rounded-lg p-6 w-[600px] max-h-[90vh] shadow-xl flex flex-col">
+          <div className="bg-white rounded-lg p-6 w-[720px] max-h-[90vh] shadow-xl flex flex-col">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold">Import Transactions</h2>
               <button
@@ -2431,8 +2590,10 @@ export default function TransactionsPage() {
                               • <strong>Description:</strong> Any text describing the transaction
                             </li>
                             <li>
-                              • <strong>Amount:</strong> Enter positive amounts only. Use categories to determine if
-                              it&apos;s income or expense.
+                              • <strong>Spent:</strong> Amount spent (expenses). Use 0.00 if no amount spent.
+                            </li>
+                            <li>
+                              • <strong>Received:</strong> Amount received (income). Use 0.00 if no amount received.
                             </li>
                           </ul>
                           <p className="text-xs text-blue-600 mt-2">
@@ -2520,7 +2681,10 @@ export default function TransactionsPage() {
                                 Description
                               </th>
                               <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-8">
-                                Amount
+                                Spent
+                              </th>
+                              <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-8">
+                                Received
                               </th>
                             </tr>
                           </thead>
@@ -2553,19 +2717,30 @@ export default function TransactionsPage() {
                                   {tx.description}
                                 </td>
                                 <td className="px-4 py-2 text-sm text-gray-900 text-right w-8">
-                                  {formatAmount(tx.amount ?? calculateNetAmount(tx.spent, tx.received))}
+                                  {tx.spent && parseFloat(tx.spent) > 0 ? formatAmount(tx.spent) : "—"}
+                                </td>
+                                <td className="px-4 py-2 text-sm text-gray-900 text-right w-8">
+                                  {tx.received && parseFloat(tx.received) > 0 ? formatAmount(tx.received) : "—"}
                                 </td>
                               </tr>
                             ))}
                           </tbody>
                           <tfoot className="bg-gray-50">
                             <tr>
-                              <td colSpan={4} className="px-4 py-2 text-sm font-medium text-gray-900 text-right w-8">
+                              <td colSpan={3} className="px-4 py-2 text-sm font-medium text-gray-700 text-right w-8">
+                                Total:
+                              </td>
+                              <td className="px-4 py-2 text-sm font-medium text-gray-900 text-right w-8">
                                 {formatAmount(
                                   sumAmounts(
-                                    importModal.csvData.map(
-                                      (tx) => tx.amount ?? calculateNetAmount(tx.spent, tx.received)
-                                    )
+                                    importModal.csvData.map((tx) => tx.spent || toFinancialAmount(0))
+                                  )
+                                )}
+                              </td>
+                              <td className="px-4 py-2 text-sm font-medium text-gray-900 text-right w-8">
+                                {formatAmount(
+                                  sumAmounts(
+                                    importModal.csvData.map((tx) => tx.received || toFinancialAmount(0))
                                   )
                                 )}
                               </td>
@@ -2706,7 +2881,7 @@ export default function TransactionsPage() {
       {/* New Category Modal */}
       {newCategoryModal.isOpen && (
         <div
-          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
+          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-100"
           onClick={() =>
             setNewCategoryModal({ isOpen: false, name: "", type: "Expense", parent_id: null, transactionId: null })
           }
@@ -3667,7 +3842,17 @@ export default function TransactionsPage() {
             <table className="w-full border-collapse border border-gray-300">
               <thead className="bg-gray-100">
                 <tr>
-                  <th className="border p-1 w-8 text-center">
+                  <th 
+                    className="border p-1 w-8 text-center cursor-pointer"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (imported.length > 0 && selectedToAdd.size === imported.length) {
+                        setSelectedToAdd(new Set());
+                      } else {
+                        setSelectedToAdd(new Set(imported.map((tx) => tx.id)));
+                      }
+                    }}
+                  >
                     <input
                       type="checkbox"
                       checked={imported.length > 0 && selectedToAdd.size === imported.length}
@@ -3678,7 +3863,7 @@ export default function TransactionsPage() {
                           setSelectedToAdd(new Set());
                         }
                       }}
-                      className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                      className="rounded border-gray-300 text-gray-900 focus:ring-gray-900 pointer-events-none"
                     />
                   </th>
                   <th
@@ -3724,13 +3909,25 @@ export default function TransactionsPage() {
                         const tdIndex = Array.from(clickedTd.parentElement!.children).indexOf(clickedTd);
                         // Allow clicks on columns 1-4 (date, description, spent, received) - skip checkbox column (0)
                         if (tdIndex >= 1 && tdIndex <= 4) {
-                          // Open the transaction edit modal
-                          openJournalEntryModal(tx);
+                          // Open the transaction edit modal for imported transactions
+                          openImportedTransactionModal(tx);
                         }
                       }}
                       className="hover:bg-gray-50"
                     >
-                      <td className="border p-1 w-8 text-center">
+                      <td 
+                        className="border p-1 w-8 text-center cursor-pointer"
+                        onClick={(e) => {
+                          e.stopPropagation(); // Prevent row click handler
+                          const newSelected = new Set(selectedToAdd);
+                          if (selectedToAdd.has(tx.id)) {
+                            newSelected.delete(tx.id);
+                          } else {
+                            newSelected.add(tx.id);
+                          }
+                          setSelectedToAdd(newSelected);
+                        }}
+                      >
                         <input
                           type="checkbox"
                           checked={selectedToAdd.has(tx.id)}
@@ -3743,20 +3940,20 @@ export default function TransactionsPage() {
                             }
                             setSelectedToAdd(newSelected);
                           }}
-                          className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                          className="rounded border-gray-300 text-gray-900 focus:ring-gray-900 pointer-events-none"
                         />
                       </td>
-                      <td className="border p-1 w-20 text-center text-xs">{formatDate(tx.date)}</td>
-                      <td className="border p-1 w-8 text-center text-xs" style={{ minWidth: 250 }}>
+                      <td className="border p-1 w-20 text-center text-xs cursor-pointer">{formatDate(tx.date)}</td>
+                      <td className="border p-1 w-8 text-center text-xs cursor-pointer" style={{ minWidth: 250 }}>
                         {tx.description}
-                        {tx.has_split && (
+                        {(tx.has_split || getImportedTransactionSplitsByTransactionId(tx.id).length > 0) && (
                           <span className="ml-1 inline-block bg-blue-100 text-blue-800 text-xs px-1 rounded">
                             Split
                           </span>
                         )}
                       </td>
-                      <td className="border p-1 w-8 text-center">{tx.spent ? formatAmount(tx.spent) : ""}</td>
-                      <td className="border p-1 w-8 text-center">{tx.received ? formatAmount(tx.received) : ""}</td>
+                      <td className="border p-1 w-8 text-center cursor-pointer">{tx.spent ? formatAmount(tx.spent) : ""}</td>
+                      <td className="border p-1 w-8 text-center cursor-pointer">{tx.received ? formatAmount(tx.received) : ""}</td>
                       <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
                         <Select
                           options={payeeOptions}
@@ -4002,7 +4199,17 @@ export default function TransactionsPage() {
             <table className="w-full border-collapse border border-gray-300">
               <thead className="bg-gray-100">
                 <tr>
-                  <th className="border p-1 w-8 text-center">
+                  <th 
+                    className="border p-1 w-8 text-center cursor-pointer"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (confirmed.length > 0 && selectedAdded.size === confirmed.length) {
+                        setSelectedAdded(new Set());
+                      } else {
+                        setSelectedAdded(new Set(confirmed.map((tx) => tx.id)));
+                      }
+                    }}
+                  >
                     <input
                       type="checkbox"
                       checked={confirmed.length > 0 && selectedAdded.size === confirmed.length}
@@ -4013,7 +4220,7 @@ export default function TransactionsPage() {
                           setSelectedAdded(new Set());
                         }
                       }}
-                      className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                      className="rounded border-gray-300 text-gray-900 focus:ring-gray-900 pointer-events-none"
                     />
                   </th>
                   <th
@@ -4068,7 +4275,19 @@ export default function TransactionsPage() {
                       }}
                       className="hover:bg-gray-50"
                     >
-                      <td className="border p-1 w-8 text-center">
+                      <td 
+                        className="border p-1 w-8 text-center cursor-pointer"
+                        onClick={(e) => {
+                          e.stopPropagation(); // Prevent row click handler
+                          const newSelected = new Set(selectedAdded);
+                          if (selectedAdded.has(tx.id)) {
+                            newSelected.delete(tx.id);
+                          } else {
+                            newSelected.add(tx.id);
+                          }
+                          setSelectedAdded(newSelected);
+                        }}
+                      >
                         <input
                           type="checkbox"
                           checked={selectedAdded.has(tx.id)}
@@ -4081,7 +4300,7 @@ export default function TransactionsPage() {
                             }
                             setSelectedAdded(newSelected);
                           }}
-                          className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                          className="rounded border-gray-300 text-gray-900 focus:ring-gray-900 pointer-events-none"
                         />
                       </td>
                       <td className="border p-1 w-20 text-center text-xs cursor-pointer">{formatDate(tx.date)}</td>

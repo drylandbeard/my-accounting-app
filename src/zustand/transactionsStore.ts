@@ -163,6 +163,20 @@ export interface ManualJournalEntry {
   };
 }
 
+export interface ImportedTransactionSplit {
+  id: string;
+  imported_transaction_id: string;
+  date: string;
+  description: string;
+  debit: number;
+  credit: number;
+  chart_account_id: string;
+  payee_id?: string;
+  company_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
 // Store interface
 interface TransactionsState {
   // Core data states
@@ -173,6 +187,7 @@ interface TransactionsState {
   transactions: Transaction[];
   journalEntries: JournalTableEntry[];
   manualJournalEntries: ManualJournalEntry[];
+  importedTransactionSplits: ImportedTransactionSplit[];
   
   // Loading states for main operations
   isLoading: boolean;
@@ -228,6 +243,13 @@ interface TransactionsState {
   saveManualJournalEntry: (entryData: { date: string; jeName?: string; lines: { description: string; categoryId: string; payeeId?: string; debit: string; credit: string }[]; referenceNumber?: string }, companyId: string) => Promise<{ success: boolean; referenceNumber?: string; error?: string }>;
   updateManualJournalEntry: (entryData: { referenceNumber: string; date: string; jeName?: string; lines: { description: string; categoryId: string; payeeId?: string; debit: string; credit: string }[] }, companyId: string) => Promise<boolean>;
   deleteManualJournalEntry: (referenceNumber: string, companyId: string) => Promise<boolean>;
+
+  // Imported Transaction Split operations
+  fetchImportedTransactionSplits: (companyId: string) => Promise<void>;
+  saveImportedTransactionSplit: (importedTransactionId: string, splitData: { date: string; description: string; lines: { description: string; categoryId: string; payeeId?: string; debit: string; credit: string }[] }, companyId: string) => Promise<{ success: boolean; error?: string }>;
+  updateImportedTransactionSplit: (importedTransactionId: string, splitData: { date: string; description: string; lines: { description: string; categoryId: string; payeeId?: string; debit: string; credit: string }[] }, companyId: string) => Promise<boolean>;
+  deleteImportedTransactionSplit: (importedTransactionId: string, companyId: string) => Promise<boolean>;
+  getImportedTransactionSplitsByTransactionId: (importedTransactionId: string) => ImportedTransactionSplit[];
   
   // CSV Import
   importTransactionsFromCSV: (transactions: Transaction[], companyId: string) => Promise<{ success: boolean; count?: number; error?: string }>;
@@ -259,6 +281,7 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
   transactions: [],
   journalEntries: [],
   manualJournalEntries: [],
+  importedTransactionSplits: [],
   isLoading: false,
   isSyncing: false,
   isAddingTransactions: false,
@@ -327,7 +350,33 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
         .eq('company_id', companyId)
         .neq('plaid_account_name', null);
       
-      set({ importedTransactions: data || [] });
+      if (data && data.length > 0) {
+        // Get split entry counts for each imported transaction to detect splits
+        const transactionIds = data.map(tx => tx.id);
+        const { data: splitCounts } = await supabase
+          .from('imported_transactions_split')
+          .select('imported_transaction_id')
+          .eq('company_id', companyId)
+          .in('imported_transaction_id', transactionIds);
+        
+        // Count split entries per transaction
+        const splitCountMap = new Map<string, number>();
+        (splitCounts || []).forEach(entry => {
+          const count = splitCountMap.get(entry.imported_transaction_id) || 0;
+          splitCountMap.set(entry.imported_transaction_id, count + 1);
+        });
+        
+        // Add split detection to transactions
+        const transactionsWithSplitInfo = data.map(tx => ({
+          ...tx,
+          // A transaction is split if it has more than 2 split entries
+          has_split: (splitCountMap.get(tx.id) || 0) > 2
+        }));
+        
+        set({ importedTransactions: transactionsWithSplitInfo });
+      } else {
+        set({ importedTransactions: [] });
+      }
     } catch (error) {
       console.error('Error fetching imported transactions:', error);
       set({ error: 'Failed to fetch imported transactions' });
@@ -467,8 +516,106 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
       get().fetchAccounts(companyId),
       get().fetchImportedTransactions(companyId),
       get().fetchConfirmedTransactions(companyId),
-      get().fetchJournalEntries(companyId)
+      get().fetchJournalEntries(companyId),
+      get().fetchImportedTransactionSplits(companyId)
     ]);
+  },
+
+  // Fetch imported transaction splits
+  fetchImportedTransactionSplits: async (companyId: string) => {
+    try {
+      const { data } = await supabase
+        .from('imported_transactions_split')
+        .select('*')
+        .eq('company_id', companyId)
+        .order('created_at', { ascending: false });
+      
+      set({ importedTransactionSplits: data || [] });
+    } catch (error) {
+      console.error('Error fetching imported transaction splits:', error);
+      set({ error: 'Failed to fetch imported transaction splits' });
+    }
+  },
+
+  // Save imported transaction split
+  saveImportedTransactionSplit: async (importedTransactionId: string, splitData: { date: string; description: string; lines: { description: string; categoryId: string; payeeId?: string; debit: string; credit: string }[] }, companyId: string) => {
+    try {
+      // Delete existing splits for this transaction
+      await supabase
+        .from('imported_transactions_split')
+        .delete()
+        .eq('imported_transaction_id', importedTransactionId)
+        .eq('company_id', companyId);
+
+      // Create new split entries
+      const splitEntries = splitData.lines.map(line => ({
+        imported_transaction_id: importedTransactionId,
+        date: splitData.date,
+        description: line.description,
+        debit: parseFloat(line.debit) || 0,
+        credit: parseFloat(line.credit) || 0,
+        chart_account_id: line.categoryId,
+        payee_id: line.payeeId || null,
+        company_id: companyId
+      }));
+
+      const { error } = await supabase
+        .from('imported_transactions_split')
+        .insert(splitEntries);
+
+      if (error) throw error;
+
+      // Refresh splits data
+      await get().fetchImportedTransactionSplits(companyId);
+      
+      set({ notification: { type: 'success', message: 'Split transaction saved successfully!' } });
+      return { success: true };
+    } catch (error) {
+      console.error('Error saving imported transaction split:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to save split transaction';
+      set({ notification: { type: 'error', message: errorMessage } });
+      return { success: false, error: errorMessage };
+    }
+  },
+
+  // Update imported transaction split
+  updateImportedTransactionSplit: async (importedTransactionId: string, splitData: { date: string; description: string; lines: { description: string; categoryId: string; payeeId?: string; debit: string; credit: string }[] }, companyId: string) => {
+    try {
+      const result = await get().saveImportedTransactionSplit(importedTransactionId, splitData, companyId);
+      return result.success;
+    } catch (error) {
+      console.error('Error updating imported transaction split:', error);
+      return false;
+    }
+  },
+
+  // Delete imported transaction split
+  deleteImportedTransactionSplit: async (importedTransactionId: string, companyId: string) => {
+    try {
+      const { error } = await supabase
+        .from('imported_transactions_split')
+        .delete()
+        .eq('imported_transaction_id', importedTransactionId)
+        .eq('company_id', companyId);
+
+      if (error) throw error;
+
+      // Refresh splits data
+      await get().fetchImportedTransactionSplits(companyId);
+      
+      set({ notification: { type: 'success', message: 'Split transaction deleted successfully!' } });
+      return true;
+    } catch (error) {
+      console.error('Error deleting imported transaction split:', error);
+      set({ notification: { type: 'error', message: 'Failed to delete split transaction' } });
+      return false;
+    }
+  },
+
+  // Get imported transaction splits by transaction ID
+  getImportedTransactionSplitsByTransactionId: (importedTransactionId: string) => {
+    const { importedTransactionSplits } = get();
+    return importedTransactionSplits.filter(split => split.imported_transaction_id === importedTransactionId);
   },
   
   // Add transactions (bulk operation)

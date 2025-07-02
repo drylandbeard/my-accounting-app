@@ -2,6 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { validateCompanyContext } from "@/lib/auth-utils";
 
+interface JournalEntry {
+  id: string;
+  transaction_id: string;
+  date: string;
+  description: string;
+  chart_account_id: string;
+  debit: number;
+  credit: number;
+  company_id: string;
+}
+
 export async function POST(req: NextRequest) {
   try {
     // Validate company context
@@ -44,7 +55,52 @@ export async function POST(req: NextRequest) {
       }, { status: 404 });
     }
 
-    // 3. Delete journal entries for these transactions in bulk
+    // 3. Get journal entries for these transactions to check for splits and recreate split data
+    const { data: journalEntries, error: journalFetchError } = await supabase
+      .from('journal')
+      .select('*')
+      .in('transaction_id', transaction_ids)
+      .eq('company_id', companyId);
+
+    if (journalFetchError) {
+      console.error('Error fetching journal entries:', journalFetchError);
+      return NextResponse.json({ 
+        error: `Failed to fetch journal entries: ${journalFetchError.message}` 
+      }, { status: 500 });
+    }
+
+    // Group journal entries by transaction_id to identify splits
+    const journalByTransaction = new Map<string, JournalEntry[]>();
+    if (journalEntries) {
+      journalEntries.forEach(entry => {
+        const existing = journalByTransaction.get(entry.transaction_id) || [];
+        existing.push(entry);
+        journalByTransaction.set(entry.transaction_id, existing);
+      });
+    }
+
+    // 4. Recreate split data for transactions that had splits (more than 2 journal entries)
+    const splitDataToInsert = [];
+    for (const tx of transactionsToUndo) {
+      const entries = journalByTransaction.get(tx.id) || [];
+      
+      // If transaction has more than 2 journal entries, it was a split transaction
+      if (entries.length > 2) {
+        for (const entry of entries) {
+          splitDataToInsert.push({
+            imported_transaction_id: tx.id, // Will be replaced with new imported transaction ID
+            date: entry.date,
+            description: entry.description,
+            debit: entry.debit || 0,
+            credit: entry.credit || 0,
+            chart_account_id: entry.chart_account_id,
+            company_id: companyId,
+          });
+        }
+      }
+    }
+
+    // 5. Delete journal entries for these transactions in bulk
     const { error: journalDeleteError } = await supabase
       .from('journal')
       .delete()
@@ -58,7 +114,7 @@ export async function POST(req: NextRequest) {
       }, { status: 500 });
     }
 
-    // 4. Delete the transactions in bulk
+    // 6. Delete the transactions in bulk
     const { error: deleteError } = await supabase
       .from('transactions')
       .delete()
@@ -72,7 +128,7 @@ export async function POST(req: NextRequest) {
       }, { status: 500 });
     }
     
-    // 5. Insert back into imported_transactions in bulk
+    // 7. Insert back into imported_transactions in bulk
     const importedTransactionsToInsert = transactionsToUndo.map(tx => ({
       date: tx.date,
       description: tx.description,
@@ -86,18 +142,47 @@ export async function POST(req: NextRequest) {
       company_id: companyId
     }));
 
-    const { error: insertError } = await supabase
+    const { data: insertedImportedTransactions, error: insertError } = await supabase
       .from('imported_transactions')
-      .insert(importedTransactionsToInsert);
+      .insert(importedTransactionsToInsert)
+      .select();
 
-    if (insertError) {
+    if (insertError || !insertedImportedTransactions) {
       console.error('Error inserting into imported_transactions:', insertError);
       return NextResponse.json({ 
-        error: `Failed to insert into imported_transactions: ${insertError.message}` 
+        error: `Failed to insert into imported_transactions: ${insertError?.message}` 
       }, { status: 500 });
     }
 
-    // 6. Return success response
+    // 8. Update split data with new imported transaction IDs and insert
+    if (splitDataToInsert.length > 0) {
+      // Create a mapping from old transaction ID to new imported transaction ID
+      const transactionMapping = new Map<string, string>();
+      for (let i = 0; i < transactionsToUndo.length; i++) {
+        const oldTx = transactionsToUndo[i];
+        const newImportedTx = insertedImportedTransactions[i];
+        if (newImportedTx) {
+          transactionMapping.set(oldTx.id, newImportedTx.id);
+        }
+      }
+
+      // Update split data with correct imported transaction IDs
+      const updatedSplitData = splitDataToInsert.map(split => ({
+        ...split,
+        imported_transaction_id: transactionMapping.get(split.imported_transaction_id) || split.imported_transaction_id
+      }));
+
+      const { error: splitInsertError } = await supabase
+        .from('imported_transactions_split')
+        .insert(updatedSplitData);
+
+      if (splitInsertError) {
+        console.error('Error inserting split data:', splitInsertError);
+        // Don't fail the whole operation, but log the error
+      }
+    }
+
+    // 9. Return success response
     return NextResponse.json({ 
       status: "success",
       processed: transactionsToUndo.length,

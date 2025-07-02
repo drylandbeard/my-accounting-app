@@ -4,7 +4,7 @@ import { useAuthStore } from "@/zustand/authStore";
 import { api } from "@/lib/api";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { X, Plus } from "lucide-react";
+import { X } from "lucide-react";
 import NavBar from "@/components/NavBar";
 
 interface CompanyModalProps {
@@ -299,7 +299,7 @@ export default function GatewayPage() {
         <div className="text-center max-w-4xl mx-auto px-6">
           {/* Account Section */}
           {showAccountSection && user && (
-            <div className="mb-8 p-6 bg-gray-50 border border-gray-200 rounded-lg max-w-md mx-auto">
+            <div className="mb-8 p-6 bg-gray-50 border border-gray-200 rounded-lg w-lg">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Account Details</h3>
               
               {emailForm.error && (
@@ -434,14 +434,13 @@ export default function GatewayPage() {
           {user && !showAccountSection && (
             <div className="mb-8">
               {companies.length > 0 ? (
-                <div className="space-y-4 max-w-4xl mx-auto">
+                <div className="space-y-4 w-2xl mx-auto">
                   {/* Add Company Button */}
                   <div className="flex justify-start">
                     <button
                       onClick={() => setIsCompanyModalOpen(true)}
                       className="flex items-center gap-2 px-2 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 transition-colors hover:cursor-pointer"
                     >
-                      <Plus className="w-4 h-4" />
                       Add Company
                     </button>
                   </div>
@@ -526,7 +525,6 @@ export default function GatewayPage() {
                     onClick={() => setIsCompanyModalOpen(true)}
                     className="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-md hover:bg-gray-800 transition-colors"
                   >
-                    <Plus className="w-4 h-4" />
                     Create
                   </button>
                 </div>
