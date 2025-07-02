@@ -3921,17 +3921,17 @@ export default function TransactionsPage() {
                           className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
                         />
                       </td>
-                      <td className="border p-1 w-20 text-center text-xs">{formatDate(tx.date)}</td>
-                      <td className="border p-1 w-8 text-center text-xs" style={{ minWidth: 250 }}>
+                      <td className="border p-1 w-20 text-center text-xs cursor-pointer">{formatDate(tx.date)}</td>
+                      <td className="border p-1 w-8 text-center text-xs cursor-pointer" style={{ minWidth: 250 }}>
                         {tx.description}
-                        {tx.has_split && (
+                        {(tx.has_split || getImportedTransactionSplitsByTransactionId(tx.id).length > 0) && (
                           <span className="ml-1 inline-block bg-blue-100 text-blue-800 text-xs px-1 rounded">
                             Split
                           </span>
                         )}
                       </td>
-                      <td className="border p-1 w-8 text-center">{tx.spent ? formatAmount(tx.spent) : ""}</td>
-                      <td className="border p-1 w-8 text-center">{tx.received ? formatAmount(tx.received) : ""}</td>
+                      <td className="border p-1 w-8 text-center cursor-pointer">{tx.spent ? formatAmount(tx.spent) : ""}</td>
+                      <td className="border p-1 w-8 text-center cursor-pointer">{tx.received ? formatAmount(tx.received) : ""}</td>
                       <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
                         <Select
                           options={payeeOptions}
