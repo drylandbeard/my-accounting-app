@@ -235,6 +235,8 @@ export default function TransactionsPage() {
     updateJournalEntry,
     deleteJournalEntry,
     importTransactionsFromCSV,
+    saveImportedTransactionSplit,
+    getImportedTransactionSplitsByTransactionId,
   } = useTransactionsStore();
 
   const { categories, refreshCategories, createCategoryForTransaction, subscribeToCategories } = useCategoriesStore();
@@ -2207,7 +2209,36 @@ export default function TransactionsPage() {
         return;
       }
 
-      // Convert lines back to journal entry format for API
+      // Check if this is for an imported transaction (To Add table)
+      const transaction = editJournalModal.transaction as Record<string, unknown>;
+      const isImportedTransaction = editJournalModal.transactionId && imported.some(tx => tx.id === editJournalModal.transactionId);
+      
+      if (isImportedTransaction) {
+        // Save to imported_transactions_split table
+        const result = await saveImportedTransactionSplit(
+          editJournalModal.transactionId,
+          {
+            date: editJournalModal.editEntry.date,
+            description: editJournalModal.editEntry.description,
+            lines: editJournalModal.editEntry.lines
+          },
+          currentCompany!.id
+        );
+
+        if (result.success) {
+          setNotification({ type: "success", message: "Split transaction saved successfully!" });
+          setEditJournalModal((prev) => ({ ...prev, isOpen: false }));
+        } else {
+          setEditJournalModal((prev) => ({
+            ...prev,
+            error: result.error || "Failed to save split transaction",
+            saving: false,
+          }));
+        }
+        return;
+      }
+
+      // Convert lines back to journal entry format for API (for Added table transactions)
       const entries = editJournalModal.editEntry.lines
         .filter((line) => parseFloat(line.debit) > 0 || parseFloat(line.credit) > 0)
         .map((line) => ({
@@ -2216,8 +2247,6 @@ export default function TransactionsPage() {
           type: parseFloat(line.debit) > 0 ? ("debit" as const) : ("credit" as const),
         }));
 
-      // Get the transaction ID to find the journal entry
-      const transaction = editJournalModal.transaction as Record<string, unknown>;
       if (!transaction?.id) {
         throw new Error('No transaction ID available for update');
       }
@@ -2247,6 +2276,122 @@ export default function TransactionsPage() {
         ...prev,
         error: "Failed to update journal entries",
         saving: false,
+      }));
+    }
+  };
+
+  // Function to open modal for imported transactions (To Add table)
+  const openImportedTransactionModal = (transaction: Transaction) => {
+    setEditJournalModal((prev) => ({
+      ...prev,
+      isOpen: true,
+      transactionId: transaction.id,
+      isManualEntry: false,
+      editEntry: {
+        date: "",
+        description: "",
+        lines: [],
+      },
+      saving: false,
+      isLoading: false,
+      error: null,
+      transaction,
+    }));
+    fetchImportedTransactionSplitsForEdit(transaction);
+  };
+
+  // Function to fetch split data for imported transactions
+  const fetchImportedTransactionSplitsForEdit = async (transaction: Transaction) => {
+    if (!hasCompanyContext) return;
+
+    setEditJournalModal((prev) => ({ ...prev, isLoading: true, error: null }));
+
+    try {
+      // Get split data for this imported transaction from the store (local state only)
+      const splits = getImportedTransactionSplitsByTransactionId(transaction.id);
+
+      if (splits.length > 0) {
+        // Convert split data to edit line format  
+        interface ImportedSplit {
+          chart_account_id: string;
+          payee_id?: string;
+          description: string;
+          debit: number;
+          credit: number;
+        }
+        
+        const editLines = splits.map((split: ImportedSplit, index: number) => ({
+          id: (index + 1).toString(),
+          description: split.description || transaction.description || "",
+          categoryId: split.chart_account_id || "",
+          payeeId: split.payee_id || "",
+          debit: split.debit > 0 ? split.debit.toString() : "0.00",
+          credit: split.credit > 0 ? split.credit.toString() : "0.00",
+        }));
+
+        setEditJournalModal((prev) => ({
+          ...prev,
+          editEntry: {
+            date: transaction.date,
+            description: transaction.description || "",
+            lines: editLines,
+          },
+          isLoading: false,
+        }));
+      } else {
+        // No existing split data - create initial lines based on transaction amounts
+        const hasSpent = transaction.spent && parseFloat(transaction.spent) > 0;
+        const hasReceived = transaction.received && parseFloat(transaction.received) > 0;
+
+        interface EditLine {
+          id: string;
+          description: string;
+          categoryId: string;
+          payeeId: string;
+          debit: string;
+          credit: string;
+        }
+
+        const initialLines: EditLine[] = [];
+        
+        if (hasSpent || hasReceived) {
+          // Add the first line (category line) - initially empty for user to fill
+          initialLines.push({
+            id: "1",
+            description: transaction.description || "",
+            categoryId: "",
+            payeeId: "",
+            debit: hasSpent ? "0.00" : hasReceived ? transaction.received! : "0.00",
+            credit: hasSpent ? transaction.spent! : "0.00",
+          });
+
+          // Add the bank account line (corresponding account line)
+          initialLines.push({
+            id: "2", 
+            description: transaction.description || "",
+            categoryId: selectedAccountIdInCOA || "",
+            payeeId: "",
+            debit: hasSpent ? transaction.spent! : "0.00",
+            credit: hasReceived ? transaction.received! : "0.00",
+          });
+        }
+
+        setEditJournalModal((prev) => ({
+          ...prev,
+          editEntry: {
+            date: transaction.date,
+            description: transaction.description || "",
+            lines: initialLines,
+          },
+          isLoading: false,
+        }));
+      }
+    } catch (error) {
+      console.error("Error fetching imported transaction splits:", error);
+      setEditJournalModal((prev) => ({
+        ...prev,
+        error: "Failed to fetch split data",
+        isLoading: false,
       }));
     }
   };
@@ -2736,7 +2881,7 @@ export default function TransactionsPage() {
       {/* New Category Modal */}
       {newCategoryModal.isOpen && (
         <div
-          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
+          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-100"
           onClick={() =>
             setNewCategoryModal({ isOpen: false, name: "", type: "Expense", parent_id: null, transactionId: null })
           }
@@ -3754,8 +3899,8 @@ export default function TransactionsPage() {
                         const tdIndex = Array.from(clickedTd.parentElement!.children).indexOf(clickedTd);
                         // Allow clicks on columns 1-4 (date, description, spent, received) - skip checkbox column (0)
                         if (tdIndex >= 1 && tdIndex <= 4) {
-                          // Open the transaction edit modal
-                          openJournalEntryModal(tx);
+                          // Open the transaction edit modal for imported transactions
+                          openImportedTransactionModal(tx);
                         }
                       }}
                       className="hover:bg-gray-50"
