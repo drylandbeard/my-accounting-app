@@ -70,6 +70,7 @@ export interface Account {
   created_at?: string;
   subtype?: string;
   display_order?: number;
+  plaid_item_id?: string;
 }
 
 export interface Transaction {
@@ -753,9 +754,53 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
     try {
       set({ isSyncing: true, error: null });
       
-      // Use the API route to sync all transactions for the company
+      const { selectedAccountId, accounts } = get();
+      
+      if (!selectedAccountId) {
+        throw new Error('No account selected for sync');
+      }
+
+      // Find the selected account
+      const selectedAccount = accounts.find(acc => acc.plaid_account_id === selectedAccountId);
+      if (!selectedAccount) {
+        throw new Error('Selected account not found');
+      }
+
+      // Skip sync for manual accounts (they don't have Plaid connections)
+      if (selectedAccount.is_manual) {
+        set({ 
+          notification: { type: 'success', message: 'Manual accounts do not require syncing.' }
+        });
+        return { success: true, newTransactions: 0 };
+      }
+
+      if (!selectedAccount.plaid_item_id) {
+        throw new Error('Account is not connected to Plaid');
+      }
+
+      // Get the Plaid connection info from plaid_items table
+      const { data: plaidItem, error: plaidItemError } = await supabase
+        .from('plaid_items')
+        .select('access_token, item_id')
+        .eq('item_id', selectedAccount.plaid_item_id)
+        .eq('company_id', companyId)
+        .single();
+
+      if (plaidItemError || !plaidItem) {
+        throw new Error('Plaid connection not found. Please reconnect this account.');
+      }
+
+      // Determine start date for sync (use last sync date or 30 days ago)
+      const startDate = selectedAccount.last_synced 
+        ? new Date(selectedAccount.last_synced).toISOString().split('T')[0]
+        : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // 30 days ago
+
+      // Sync with the API
       const response = await api.post('/api/transactions/sync', {
-        companyId: companyId
+        access_token: plaidItem.access_token,
+        item_id: plaidItem.item_id,
+        start_date: startDate,
+        selected_account_ids: [selectedAccountId]
       });
 
       if (!response.ok) {
