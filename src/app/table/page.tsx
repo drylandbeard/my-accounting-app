@@ -37,8 +37,6 @@ type SelectOption = {
   label: string;
 };
 
-
-
 type NewJournalEntry = {
   date: string;
   lines: JournalEntryLine[];

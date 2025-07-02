@@ -183,10 +183,25 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   logout: () => {
     const { clearAuth } = get();
     clearAuth();
-    // Clear refresh token cookie by calling logout endpoint
-    fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
-    // Redirect to login page
-    window.location.href = '/';
+    
+    // Clear refresh token cookie by calling logout endpoint (HttpOnly cookies can only be cleared server-side)
+    // Make this synchronous to ensure it completes before redirect
+    fetch('/api/auth/logout', { 
+      method: 'POST', 
+      credentials: 'include',
+      keepalive: true // Ensures request completes even if page unloads
+    }).finally(() => {
+      // Clear any non-HttpOnly cookies with similar names as a safety measure
+      if (typeof document !== 'undefined') {
+        // Clear any potential non-HttpOnly refreshToken cookie
+        document.cookie = 'refreshToken=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;';
+        // Clear any other auth-related cookies that might exist
+        document.cookie = 'accessToken=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;';
+      }
+      
+      // Redirect to login page
+      window.location.href = '/';
+    });
   },
 
   refreshTokens: async () => {

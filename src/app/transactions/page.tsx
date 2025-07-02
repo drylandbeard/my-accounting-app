@@ -102,7 +102,7 @@ type CSVRow = {
 };
 
 type SortConfig = {
-  key: "date" | "description" | "amount" | "spent" | "received" | null;
+  key: "date" | "description" | "amount" | "spent" | "received" | "payee" | "category" | null;
   direction: "asc" | "desc";
 };
 
@@ -184,7 +184,7 @@ function SortableAccountItem({
               disabled={deleteConfirmation !== "delete"}
               className="px-3 py-1 bg-red-600 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Confirm Delete
+              Confirm
             </button>
             <button
               onClick={() => {
@@ -925,7 +925,7 @@ export default function TransactionsPage() {
   };
 
   // Add sorting function
-  const sortTransactions = (transactions: Transaction[], sortConfig: SortConfig) => {
+  const sortTransactions = (transactions: Transaction[], sortConfig: SortConfig, isToAddTable = false) => {
     if (!sortConfig.key) return transactions;
 
     return [...transactions].sort((a, b) => {
@@ -957,11 +957,65 @@ export default function TransactionsPage() {
         const comparison = compareAmounts(aReceived, bReceived);
         return sortConfig.direction === "asc" ? comparison : -comparison;
       }
+      if (sortConfig.key === "payee") {
+        let aPayeeName = "";
+        let bPayeeName = "";
+        
+        if (isToAddTable) {
+          // For "To Add" table, use selected payees from state
+          const aPayeeId = selectedPayees[a.id];
+          const bPayeeId = selectedPayees[b.id];
+          aPayeeName = aPayeeId ? (payees.find(p => p.id === aPayeeId)?.name || "") : "";
+          bPayeeName = bPayeeId ? (payees.find(p => p.id === bPayeeId)?.name || "") : "";
+        } else {
+          // For "Added" table, use actual payee from transaction
+          aPayeeName = a.payee_id ? (payees.find(p => p.id === a.payee_id)?.name || "") : "";
+          bPayeeName = b.payee_id ? (payees.find(p => p.id === b.payee_id)?.name || "") : "";
+        }
+        
+        return sortConfig.direction === "asc"
+          ? aPayeeName.localeCompare(bPayeeName)
+          : bPayeeName.localeCompare(aPayeeName);
+      }
+      if (sortConfig.key === "category") {
+        let aCategoryName = "";
+        let bCategoryName = "";
+        
+        if (isToAddTable) {
+          // For "To Add" table, use selected categories from state
+          const aCategoryId = selectedCategories[a.id];
+          const bCategoryId = selectedCategories[b.id];
+          aCategoryName = aCategoryId ? (categories.find(c => c.id === aCategoryId)?.name || "") : "";
+          bCategoryName = bCategoryId ? (categories.find(c => c.id === bCategoryId)?.name || "") : "";
+        } else {
+          // For "Added" table, use actual category from transaction
+          if (a.has_split) {
+            aCategoryName = "-- Split --";
+          } else {
+            // Find the category - for added transactions, we need to check both selected_category_id and corresponding_category_id
+            const isAccountDebit = a.selected_category_id === selectedAccountIdInCOA;
+            const aCategoryId = isAccountDebit ? a.corresponding_category_id : a.selected_category_id;
+            aCategoryName = aCategoryId ? (categories.find(c => c.id === aCategoryId)?.name || "") : "";
+          }
+          
+          if (b.has_split) {
+            bCategoryName = "-- Split --";
+          } else {
+            const isAccountDebit = b.selected_category_id === selectedAccountIdInCOA;
+            const bCategoryId = isAccountDebit ? b.corresponding_category_id : b.selected_category_id;
+            bCategoryName = bCategoryId ? (categories.find(c => c.id === bCategoryId)?.name || "") : "";
+          }
+        }
+        
+        return sortConfig.direction === "asc"
+          ? aCategoryName.localeCompare(bCategoryName)
+          : bCategoryName.localeCompare(aCategoryName);
+      }
       return 0;
     });
   };
 
-  const handleSort = (key: "date" | "description" | "amount" | "spent" | "received", section: "toAdd" | "added") => {
+  const handleSort = (key: "date" | "description" | "amount" | "spent" | "received" | "payee" | "category", section: "toAdd" | "added") => {
     if (section === "toAdd") {
       setToAddSortConfig((current) => ({
         key,
@@ -1013,7 +1067,8 @@ export default function TransactionsPage() {
           amountFormatted.includes(q)
         );
       }),
-    toAddSortConfig
+    toAddSortConfig,
+    true // isToAddTable = true
   );
 
   const {
@@ -1058,7 +1113,8 @@ export default function TransactionsPage() {
           categoryName.includes(q)
         );
       }),
-    addedSortConfig
+    addedSortConfig,
+    false // isToAddTable = false
   );
 
   const {
@@ -3891,8 +3947,18 @@ export default function TransactionsPage() {
                   >
                     Received {toAddSortConfig.key === "received" && (toAddSortConfig.direction === "asc" ? "↑" : "↓")}
                   </th>
-                  <th className="border p-1 w-8 text-center">Payee</th>
-                  <th className="border p-1 w-8 text-center">Category</th>
+                  <th 
+                    className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
+                    onClick={() => handleSort("payee", "toAdd")}
+                  >
+                    Payee {toAddSortConfig.key === "payee" && (toAddSortConfig.direction === "asc" ? "↑" : "↓")}
+                  </th>
+                  <th 
+                    className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
+                    onClick={() => handleSort("category", "toAdd")}
+                  >
+                    Category {toAddSortConfig.key === "category" && (toAddSortConfig.direction === "asc" ? "↑" : "↓")}
+                  </th>
                   <th className="border p-1 w-8 text-center">Action</th>
                 </tr>
               </thead>
@@ -4248,8 +4314,18 @@ export default function TransactionsPage() {
                   >
                     Received {addedSortConfig.key === "received" && (addedSortConfig.direction === "asc" ? "↑" : "↓")}
                   </th>
-                  <th className="border p-1 w-8 text-center">Payee</th>
-                  <th className="border p-1 w-8 text-center">Category</th>
+                  <th 
+                    className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
+                    onClick={() => handleSort("payee", "added")}
+                  >
+                    Payee {addedSortConfig.key === "payee" && (addedSortConfig.direction === "asc" ? "↑" : "↓")}
+                  </th>
+                  <th 
+                    className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
+                    onClick={() => handleSort("category", "added")}
+                  >
+                    Category {addedSortConfig.key === "category" && (addedSortConfig.direction === "asc" ? "↑" : "↓")}
+                  </th>
                   <th className="border p-1 w-8 text-center">Action</th>
                 </tr>
               </thead>
