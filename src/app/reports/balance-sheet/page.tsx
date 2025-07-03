@@ -48,8 +48,10 @@ export default function BalanceSheetPage() {
     accountTypes: ["Asset", "Liability", "Equity", "Revenue", "COGS", "Expense"],
   });
 
-  const { collapsedAccounts, toggleAccount, getTopLevelAccounts, collapseAllParentCategories, hasCollapsedCategories } =
-    useAccountOperations({ accounts, journalEntries });
+  const { collapsedAccounts, toggleAccount, getTopLevelAccounts, collapseAllParentCategories } = useAccountOperations({
+    accounts,
+    journalEntries,
+  });
 
   const [viewerModal, setViewerModal] = useState<ViewerModalState>({
     isOpen: false,
@@ -295,7 +297,6 @@ export default function BalanceSheetPage() {
           handlePrimaryDisplayChange={handlePrimaryDisplayChange}
           handleSecondaryDisplayChange={handleSecondaryDisplayChange}
           onCollapseAllCategories={collapseAllParentCategories}
-          hasCollapsedCategories={hasCollapsedCategories}
           exportToXLSX={exportToXLSX}
           loading={loading}
         />

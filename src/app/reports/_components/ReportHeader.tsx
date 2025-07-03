@@ -24,7 +24,6 @@ export interface ReportHeaderProps {
   handleSecondaryDisplayChange?: (display: string) => void;
   onSecondaryDisplayChange?: (display: string) => void;
   onCollapseAllCategories: () => void;
-  hasCollapsedCategories: boolean;
   exportToXLSX?: () => void;
   loading?: boolean;
 }
@@ -45,7 +44,6 @@ export function ReportHeader({
   handleSecondaryDisplayChange,
   onSecondaryDisplayChange,
   onCollapseAllCategories,
-  hasCollapsedCategories,
   exportToXLSX,
   loading,
 }: ReportHeaderProps) {
@@ -70,7 +68,6 @@ export function ReportHeader({
             selectedSecondaryDisplay={selectedSecondaryDisplay}
             onSecondaryDisplayChange={secondaryDisplayChangeHandler!}
             onCollapseAllCategories={onCollapseAllCategories}
-            hasCollapsedCategories={hasCollapsedCategories}
           />
 
           {/* Manual date override option */}

@@ -59,7 +59,6 @@ export default function PnLPage() {
     calculateAccountTotalForMonth,
     calculateAccountTotalForMonthWithSubaccounts,
     collapseAllParentCategories,
-    hasCollapsedCategories,
   } = useAccountOperations({ accounts, journalEntries });
   const [viewerModal, setViewerModal] = useState<ViewerModalState>({
     isOpen: false,
@@ -213,7 +212,6 @@ export default function PnLPage() {
           selectedSecondaryDisplay={selectedSecondaryDisplay}
           onSecondaryDisplayChange={handleSecondaryDisplayChange}
           onCollapseAllCategories={collapseAllParentCategories}
-          hasCollapsedCategories={hasCollapsedCategories}
           exportToXLSX={exportToXLSX}
           loading={loading}
         />

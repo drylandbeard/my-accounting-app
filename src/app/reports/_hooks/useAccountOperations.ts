@@ -18,7 +18,6 @@ interface UseAccountOperationsReturn {
   calculateAccountTotalForMonth: (account: Account, month: string) => number;
   calculateAccountTotalForMonthWithSubaccounts: (account: Account, month: string) => number;
   collapseAllParentCategories: () => void;
-  hasCollapsedCategories: boolean;
 }
 
 export const useAccountOperations = ({
@@ -65,9 +64,6 @@ export const useAccountOperations = ({
 
     setCollapsedAccounts(newCollapsed);
   };
-
-  // Check if any categories are currently collapsed
-  const hasCollapsedCategories = collapsedAccounts.size > 0;
 
   // Calculate direct total for an account (only its own transactions)
   const calculateAccountDirectTotal = (account: Account): number => {
@@ -166,6 +162,5 @@ export const useAccountOperations = ({
     calculateAccountTotalForMonth,
     calculateAccountTotalForMonthWithSubaccounts,
     collapseAllParentCategories,
-    hasCollapsedCategories,
   };
 };

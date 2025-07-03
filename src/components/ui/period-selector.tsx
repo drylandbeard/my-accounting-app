@@ -15,7 +15,6 @@ export interface PeriodSelectorProps {
   selectedSecondaryDisplay: SecondaryDisplayType;
   onSecondaryDisplayChange: (display: string) => void;
   onCollapseAllCategories: () => void;
-  hasCollapsedCategories: boolean;
 }
 
 const PERIOD_OPTIONS = [
@@ -47,7 +46,6 @@ export function PeriodSelector({
   selectedSecondaryDisplay,
   onSecondaryDisplayChange,
   onCollapseAllCategories,
-  hasCollapsedCategories,
 }: PeriodSelectorProps) {
   const [isOpen, setIsOpen] = React.useState(false);
 
@@ -150,19 +148,10 @@ export function PeriodSelector({
               <h3 className="text-sm font-medium text-gray-700 mb-3">Category Actions:</h3>
               <button
                 onClick={onCollapseAllCategories}
-                className={cn(
-                  "w-full px-3 py-2 text-sm rounded border transition-colors",
-                  hasCollapsedCategories
-                    ? "bg-gray-50 border-gray-300 text-gray-600 cursor-default"
-                    : "bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100"
-                )}
-                disabled={hasCollapsedCategories}
+                className="w-full px-3 py-2 text-sm rounded border transition-colors bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100"
               >
-                {hasCollapsedCategories ? "Categories Collapsed" : "Collapse All Categories"}
+                Collapse All Categories
               </button>
-              {hasCollapsedCategories && (
-                <p className="text-xs text-gray-500 mt-2">Click individual chevrons to expand categories</p>
-              )}
             </div>
           </div>
         </PopoverContent>
