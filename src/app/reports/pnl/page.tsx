@@ -213,7 +213,7 @@ export default function PnLPage() {
           <TableCell className="border p-1 text-xs" style={{ paddingLeft: `${level * 24 + 8}px` }}>
             <div className="flex items-center">
               {level > 0 && <span className="text-gray-400 mr-2 text-xs">└</span>}
-              {isParent && (
+              {isParent ? (
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -227,6 +227,8 @@ export default function PnLPage() {
                     <ChevronDown className="w-3 h-3 text-gray-600" />
                   )}
                 </button>
+              ) : (
+                <div className="mr-2 w-5 h-5"></div>
               )}
               <span className="font-semibold">{account.name}</span>
             </div>
@@ -380,7 +382,7 @@ export default function PnLPage() {
                 <TableRow>
                   <TableHead
                     className="border p-1 text-center font-medium text-xs whitespace-nowrap"
-                    style={{ width: "25%" }}
+                    style={{ width: "30%" }}
                   ></TableHead>
                   {periodData.isMonthlyView ? (
                     <>
