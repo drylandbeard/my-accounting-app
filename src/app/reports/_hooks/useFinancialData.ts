@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { Account, Transaction } from "../_types";
 
@@ -27,6 +27,9 @@ export const useFinancialData = ({
   const [journalEntries, setJournalEntries] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
 
+  // Memoize accountTypes to prevent infinite re-renders
+  const stableAccountTypes = useMemo(() => accountTypes, [JSON.stringify(accountTypes)]);
+
   useEffect(() => {
     const fetchData = async () => {
       if (!companyId || !startDate || !endDate) {
@@ -42,7 +45,7 @@ export const useFinancialData = ({
           .from("chart_of_accounts")
           .select("*")
           .eq("company_id", companyId)
-          .in("type", accountTypes);
+          .in("type", stableAccountTypes);
 
         setAccounts(accountsData || []);
 
@@ -170,7 +173,7 @@ export const useFinancialData = ({
     };
 
     fetchData();
-  }, [companyId, startDate, endDate, accountTypes]);
+  }, [companyId, startDate, endDate, stableAccountTypes]);
 
   return { accounts, journalEntries, loading };
 };

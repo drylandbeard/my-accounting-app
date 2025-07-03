@@ -55,7 +55,7 @@ export default function PnLPage() {
   const netIncome = grossProfit - totalExpenses;
 
   // Helper functions
-  const getCategoryName = (tx: Transaction, selectedCategory: Account) => {
+  const getCategoryName = (tx: Transaction) => {
     return accounts.find((a) => a.id === tx.chart_account_id)?.name || "";
   };
 
@@ -83,17 +83,18 @@ export default function PnLPage() {
   const selectedCategoryTransactions = useMemo(() => {
     if (!viewerModal.category) return [];
 
+    const category = viewerModal.category;
     let transactions =
-      viewerModal.category.id === "REVENUE_GROUP"
+      category.id === "REVENUE_GROUP"
         ? journalEntries.filter((tx) => getAllGroupAccountIds(accounts, revenueRows).includes(tx.chart_account_id))
-        : viewerModal.category.id === "COGS_GROUP"
+        : category.id === "COGS_GROUP"
         ? journalEntries.filter((tx) => getAllGroupAccountIds(accounts, cogsRows).includes(tx.chart_account_id))
-        : viewerModal.category.id === "EXPENSE_GROUP"
+        : category.id === "EXPENSE_GROUP"
         ? journalEntries.filter((tx) => getAllGroupAccountIds(accounts, expenseRows).includes(tx.chart_account_id))
-        : journalEntries.filter((tx) => getAllAccountIds(accounts, viewerModal.category).includes(tx.chart_account_id));
+        : journalEntries.filter((tx) => getAllAccountIds(accounts, category).includes(tx.chart_account_id));
 
     if (viewerModal.selectedMonth) {
-      transactions = transactions.filter((tx) => tx.date.startsWith(viewerModal.selectedMonth));
+      transactions = transactions.filter((tx) => tx.date.startsWith(viewerModal.selectedMonth!));
     }
 
     return transactions;

@@ -133,7 +133,7 @@ export default function BalanceSheetPage() {
     }, 0) + retainedEarnings;
 
   // Helper functions
-  const getCategoryName = (tx: Transaction, selectedCategory: Account) => {
+  const getCategoryName = (tx: Transaction) => {
     return accounts.find((a) => a.id === tx.chart_account_id)?.name || "";
   };
 
@@ -145,22 +145,23 @@ export default function BalanceSheetPage() {
   const selectedCategoryTransactions = useMemo(() => {
     if (!viewerModal.category) return [];
 
+    const category = viewerModal.category;
     const transactions =
-      viewerModal.category.id === "ASSETS_GROUP"
+      category.id === "ASSETS_GROUP"
         ? journalEntries.filter((tx) => getAllGroupAccountIds(accounts, assetAccounts).includes(tx.chart_account_id))
-        : viewerModal.category.id === "LIABILITIES_GROUP"
+        : category.id === "LIABILITIES_GROUP"
         ? journalEntries.filter((tx) =>
             getAllGroupAccountIds(accounts, liabilityAccounts).includes(tx.chart_account_id)
           )
-        : viewerModal.category.id === "EQUITY_GROUP"
+        : category.id === "EQUITY_GROUP"
         ? journalEntries.filter((tx) => getAllGroupAccountIds(accounts, equityAccounts).includes(tx.chart_account_id))
-        : viewerModal.category.id === "RETAINED_EARNINGS"
+        : category.id === "RETAINED_EARNINGS"
         ? journalEntries.filter((tx) =>
             getAllGroupAccountIds(accounts, [...revenueAccounts, ...cogsAccounts, ...expenseAccounts]).includes(
               tx.chart_account_id
             )
           )
-        : journalEntries.filter((tx) => getAllAccountIds(accounts, viewerModal.category).includes(tx.chart_account_id));
+        : journalEntries.filter((tx) => getAllAccountIds(accounts, category).includes(tx.chart_account_id));
 
     return transactions;
   }, [
