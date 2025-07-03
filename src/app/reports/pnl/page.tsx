@@ -282,29 +282,26 @@ export default function Page() {
         let page = 0;
         const pageSize = 1000;
         let hasMore = true;
-        
+
         // Base query
-        let baseQuery = supabase
-          .from("journal")
-          .select("*")
-          .eq("company_id", currentCompany!.id);
-          
-        // Add date range if provided  
+        let baseQuery = supabase.from("journal").select("*").eq("company_id", currentCompany!.id);
+
+        // Add date range if provided
         if (startDate && endDate) {
           baseQuery = baseQuery.gte("date", startDate).lte("date", endDate);
         }
-        
+
         // Fetch all pages of data
         while (hasMore) {
           const { data: journalData, error } = await baseQuery
             .range(page * pageSize, (page + 1) * pageSize - 1)
-            .order('date', { ascending: true });
-            
+            .order("date", { ascending: true });
+
           if (error) {
             console.error("Error fetching journal data:", error);
             break;
           }
-          
+
           if (journalData && journalData.length > 0) {
             allJournalData = [...allJournalData, ...journalData];
             page++;
@@ -313,7 +310,7 @@ export default function Page() {
             hasMore = false;
           }
         }
-        
+
         console.log(`Total journal entries fetched: ${allJournalData.length}`);
 
         // Fetch manual journal entries with pagination
@@ -330,29 +327,26 @@ export default function Page() {
         }> = [];
         page = 0;
         hasMore = true;
-        
+
         // Base query for manual entries
-        let baseManualQuery = supabase
-          .from("manual_journal_entries")
-          .select("*")
-          .eq("company_id", currentCompany!.id);
-          
-        // Add date range if provided  
+        let baseManualQuery = supabase.from("manual_journal_entries").select("*").eq("company_id", currentCompany!.id);
+
+        // Add date range if provided
         if (startDate && endDate) {
           baseManualQuery = baseManualQuery.gte("date", startDate).lte("date", endDate);
         }
-        
+
         // Fetch all pages of manual journal data
         while (hasMore) {
           const { data: manualJournalData, error } = await baseManualQuery
             .range(page * pageSize, (page + 1) * pageSize - 1)
-            .order('date', { ascending: true });
-            
+            .order("date", { ascending: true });
+
           if (error) {
             console.error("Error fetching manual journal data:", error);
             break;
           }
-          
+
           if (manualJournalData && manualJournalData.length > 0) {
             allManualJournalData = [...allManualJournalData, ...manualJournalData];
             page++;
@@ -361,7 +355,7 @@ export default function Page() {
             hasMore = false;
           }
         }
-        
+
         console.log(`Total manual journal entries fetched: ${allManualJournalData.length}`);
 
         // Transform and combine both datasets
@@ -400,10 +394,8 @@ export default function Page() {
   }, [startDate, endDate, currentCompany?.id, hasCompanyContext]);
 
   // Helper: get all subaccounts for a parent, sorted alphabetically
-  const getSubaccounts = (parentId: string) => 
-    accounts
-      .filter((acc) => acc.parent_id === parentId)
-      .sort((a, b) => a.name.localeCompare(b.name));
+  const getSubaccounts = (parentId: string) =>
+    accounts.filter((acc) => acc.parent_id === parentId).sort((a, b) => a.name.localeCompare(b.name));
 
   // Helper: calculate direct total for an account (only its own transactions)
   const calculateAccountDirectTotal = (account: Account): number => {
@@ -454,7 +446,7 @@ export default function Page() {
   };
 
   // Top-level accounts (no parent) with transactions, sorted alphabetically
-  const topLevel = (type: string) => 
+  const topLevel = (type: string) =>
     accounts
       .filter((a) => a.type === type && !a.parent_id)
       .filter(hasTransactions)
@@ -685,30 +677,31 @@ export default function Page() {
 
     // Set basic styles
     const companyStyle = { font: { size: 12, bold: true }, alignment: { horizontal: "center" as const } };
-    const headerStyle = { 
-      font: { bold: true, size: 10 }, 
-      alignment: { horizontal: "center" as const }
+    const headerStyle = {
+      font: { bold: true, size: 10 },
+      alignment: { horizontal: "center" as const },
     };
-    const sectionStyle = { 
-      font: { bold: true, size: 10 }
+    const sectionStyle = {
+      font: { bold: true, size: 10 },
     };
-    const numberStyle = { 
+    const numberStyle = {
       font: { size: 10 },
-      numFmt: "#,##0.00;(#,##0.00);\"—\"", // Format to show dash for zero values
-      alignment: { horizontal: "right" as const }
+      numFmt: '#,##0.00;(#,##0.00);"—"', // Format to show dash for zero values
+      alignment: { horizontal: "right" as const },
     };
     // Note: percentStyle is used as the base for other percentage styles
-    const totalStyle = { 
-      font: { bold: true, size: 10 }, 
-      numFmt: "#,##0.00;(#,##0.00);\"—\"", // Format to show dash for zero values
-      alignment: { horizontal: "right" as const }
+    const totalStyle = {
+      font: { bold: true, size: 10 },
+      numFmt: '#,##0.00;(#,##0.00);"—"', // Format to show dash for zero values
     };
-    
+
     let currentRow = 1;
     const months = isMonthlyView ? getMonthsInRange() : [];
-    const totalColumns = isMonthlyView 
+    const totalColumns = isMonthlyView
       ? 1 + months.length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1)
-      : showPercentages ? 3 : 2;
+      : showPercentages
+      ? 3
+      : 2;
 
     if (currentCompany) {
       worksheet.mergeCells(`A${currentRow}:${String.fromCharCode(64 + totalColumns)}${currentRow}`);
@@ -725,9 +718,11 @@ export default function Page() {
       alignment: { horizontal: "center" as const },
     };
     currentRow++;
-    
+
     worksheet.mergeCells(`A${currentRow}:${String.fromCharCode(64 + totalColumns)}${currentRow}`);
-    worksheet.getCell(`A${currentRow}`).value = `${formatDateForDisplay(startDate)} to ${formatDateForDisplay(endDate)}`;
+    worksheet.getCell(`A${currentRow}`).value = `${formatDateForDisplay(startDate)} to ${formatDateForDisplay(
+      endDate
+    )}`;
     worksheet.getCell(`A${currentRow}`).style = { font: { size: 10 }, alignment: { horizontal: "center" as const } };
     currentRow++;
 
@@ -740,21 +735,21 @@ export default function Page() {
       months.forEach((month) => {
         worksheet.getCell(currentRow, colIndex++).value = formatMonth(month);
         worksheet.getCell(currentRow, colIndex - 1).style = headerStyle;
-          if (showPercentages) {
+        if (showPercentages) {
           worksheet.getCell(currentRow, colIndex++).value = "%";
           worksheet.getCell(currentRow, colIndex - 1).style = headerStyle;
         }
       });
       worksheet.getCell(currentRow, colIndex++).value = "Total";
       worksheet.getCell(currentRow, colIndex - 1).style = headerStyle;
-        if (showPercentages) {
+      if (showPercentages) {
         worksheet.getCell(currentRow, colIndex++).value = "%";
         worksheet.getCell(currentRow, colIndex - 1).style = headerStyle;
       }
     } else {
       worksheet.getCell(currentRow, colIndex++).value = "Total";
       worksheet.getCell(currentRow, colIndex - 1).style = headerStyle;
-        if (showPercentages) {
+      if (showPercentages) {
         worksheet.getCell(currentRow, colIndex++).value = "%";
         worksheet.getCell(currentRow, colIndex - 1).style = headerStyle;
       }
@@ -783,43 +778,53 @@ export default function Page() {
           if (Math.abs(isParent && isCollapsed ? accountTotal : directTotal) < 0.01 && !isParent) return;
 
           let colIndex = 1;
-          const indent = "  ".repeat(accountLevel);
+          const indent = "        ".repeat(accountLevel);
           worksheet.getCell(currentRow, colIndex++).value = `${indent}${acc.name}`;
           worksheet.getCell(currentRow, 1).style = { font: { size: 10 } };
 
-      if (isMonthlyView) {
+          if (isMonthlyView) {
             months.forEach((month) => {
-              const monthlyTotal = isParent && isCollapsed 
-                ? calculateAccountTotalForMonthWithSubaccounts(acc, month)
-                : calculateAccountTotalForMonth(acc, month);
-              
+              const monthlyTotal =
+                isParent && isCollapsed
+                  ? calculateAccountTotalForMonthWithSubaccounts(acc, month)
+                  : calculateAccountTotalForMonth(acc, month);
+
               worksheet.getCell(currentRow, colIndex++).value = monthlyTotal;
               worksheet.getCell(currentRow, colIndex - 1).style = numberStyle;
 
-            if (showPercentages) {
+              if (showPercentages) {
                 const percentValue = formatPercentageForAccount(monthlyTotal, acc);
-                worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
-                worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
-            }
-          });
+                worksheet.getCell(currentRow, colIndex++).value =
+                  percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
+                worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
+              }
+            });
 
-          // Total column
+            // Total column
             worksheet.getCell(currentRow, colIndex++).value = isParent && isCollapsed ? accountTotal : directTotal;
             worksheet.getCell(currentRow, colIndex - 1).style = numberStyle;
 
-          if (showPercentages) {
-              const percentValue = formatPercentageForAccount(isParent && isCollapsed ? accountTotal : directTotal, acc);
-              worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
-              worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
+            if (showPercentages) {
+              const percentValue = formatPercentageForAccount(
+                isParent && isCollapsed ? accountTotal : directTotal,
+                acc
+              );
+              worksheet.getCell(currentRow, colIndex++).value =
+                percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
+              worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
             }
           } else {
             worksheet.getCell(currentRow, colIndex++).value = isParent && isCollapsed ? accountTotal : directTotal;
             worksheet.getCell(currentRow, colIndex - 1).style = numberStyle;
-            
-                  if (showPercentages) {
-              const percentValue = formatPercentageForAccount(isParent && isCollapsed ? accountTotal : directTotal, acc);
-              worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
-              worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
+
+            if (showPercentages) {
+              const percentValue = formatPercentageForAccount(
+                isParent && isCollapsed ? accountTotal : directTotal,
+                acc
+              );
+              worksheet.getCell(currentRow, colIndex++).value =
+                percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
+              worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
             }
           }
           currentRow++;
@@ -842,30 +847,33 @@ export default function Page() {
                 worksheet.getCell(currentRow, colIndex++).value = monthlyTotal;
                 worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
 
-          if (showPercentages) {
+                if (showPercentages) {
                   const percentValue = formatPercentageForAccount(monthlyTotal, acc);
-                  worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
-                  worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
+                  worksheet.getCell(currentRow, colIndex++).value =
+                    percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
+                  worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
                 }
               });
-              
+
               // Total column
               worksheet.getCell(currentRow, colIndex++).value = accountTotal;
               worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
 
-          if (showPercentages) {
+              if (showPercentages) {
                 const percentValue = formatPercentageForAccount(accountTotal, acc);
-                worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
-                worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
+                worksheet.getCell(currentRow, colIndex++).value =
+                  percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
+                worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
               }
-      } else {
+            } else {
               worksheet.getCell(currentRow, colIndex++).value = accountTotal;
               worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
 
-          if (showPercentages) {
+              if (showPercentages) {
                 const percentValue = formatPercentageForAccount(accountTotal, acc);
-                worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
-                worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
+                worksheet.getCell(currentRow, colIndex++).value =
+                  percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
+                worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
               }
             }
             currentRow++;
@@ -881,18 +889,21 @@ export default function Page() {
       worksheet.getCell(currentRow, colIndex++).value = `Total ${sectionName}`;
       worksheet.getCell(currentRow, 1).style = totalStyle;
 
-    if (isMonthlyView) {
+      if (isMonthlyView) {
         months.forEach((month) => {
-          const monthlyTotal = accounts.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0);
+          const monthlyTotal = accounts.reduce(
+            (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
+            0
+          );
           worksheet.getCell(currentRow, colIndex++).value = monthlyTotal;
           worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
 
           if (showPercentages) {
-            const percentValue = sectionName === "Revenue" 
-              ? "100.0%" 
-              : calculatePercentageForMonth(monthlyTotal, month);
-            worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
-            worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
+            const percentValue =
+              sectionName === "Revenue" ? "100.0%" : calculatePercentageForMonth(monthlyTotal, month);
+            worksheet.getCell(currentRow, colIndex++).value =
+              percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
+            worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
           }
         });
 
@@ -901,18 +912,22 @@ export default function Page() {
         worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
 
         if (showPercentages) {
-          const percentValue = sectionName === "Revenue" && totalRevenue !== 0 ? "100.0%" : formatPercentage(sectionTotal, totalRevenue);
-          worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
-          worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
+          const percentValue =
+            sectionName === "Revenue" && totalRevenue !== 0 ? "100.0%" : formatPercentage(sectionTotal, totalRevenue);
+          worksheet.getCell(currentRow, colIndex++).value =
+            percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
+          worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
         }
-    } else {
+      } else {
         worksheet.getCell(currentRow, colIndex++).value = sectionTotal;
         worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
 
         if (showPercentages) {
-          const percentValue = sectionName === "Revenue" && totalRevenue !== 0 ? "100.0%" : formatPercentage(sectionTotal, totalRevenue);
-          worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
-          worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
+          const percentValue =
+            sectionName === "Revenue" && totalRevenue !== 0 ? "100.0%" : formatPercentage(sectionTotal, totalRevenue);
+          worksheet.getCell(currentRow, colIndex++).value =
+            percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
+          worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
         }
       }
       currentRow++;
@@ -923,7 +938,7 @@ export default function Page() {
     // Add sections
     const totalRevenue = addAccountRows(revenueRows, "Revenue");
     const totalCOGS = addAccountRows(cogsRows, "Cost of Goods Sold (COGS)");
-    
+
     // Gross Profit
     const grossProfit = totalRevenue - totalCOGS;
     colIndex = 1;
@@ -932,38 +947,41 @@ export default function Page() {
 
     if (isMonthlyView) {
       months.forEach((month) => {
-        const monthlyGrossProfit = 
+        const monthlyGrossProfit =
           revenueRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0) -
           cogsRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0);
         worksheet.getCell(currentRow, colIndex++).value = monthlyGrossProfit;
         worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
 
-                if (showPercentages) {
+        if (showPercentages) {
           const percentValue = calculatePercentageForMonth(monthlyGrossProfit, month);
-          worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
-          worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
+          worksheet.getCell(currentRow, colIndex++).value =
+            percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
+          worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
         }
       });
-      
+
       // Total column
       worksheet.getCell(currentRow, colIndex++).value = grossProfit;
       worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
 
       if (showPercentages) {
         const percentValue = formatPercentage(grossProfit, totalRevenue);
-        worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
-        worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
+        worksheet.getCell(currentRow, colIndex++).value =
+          percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
+        worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
       }
     } else {
       worksheet.getCell(currentRow, colIndex++).value = grossProfit;
       worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
 
-        if (showPercentages) {
+      if (showPercentages) {
         const percentValue = formatPercentage(grossProfit, totalRevenue);
-        worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
-        worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: "0.0%;-0.0%;\"—\"" };
-        }
+        worksheet.getCell(currentRow, colIndex++).value =
+          percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
+        worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
       }
+    }
     currentRow++;
 
     const totalExpenses = addAccountRows(expenseRows, "Expenses");
@@ -972,10 +990,9 @@ export default function Page() {
     const netIncome = totalRevenue - totalCOGS - totalExpenses;
     colIndex = 1;
     worksheet.getCell(currentRow, colIndex++).value = "Net Income";
-    worksheet.getCell(currentRow, 1).style = { 
-      font: { bold: true, color: { argb: netIncome >= 0 ? "FF006100" : "FF9C0006" } }, 
+    worksheet.getCell(currentRow, 1).style = {
+      font: { bold: true },
       alignment: { horizontal: "left" as const },
-      fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: netIncome >= 0 ? "FFF0FFF0" : "FFFEF2F2" } }
     };
 
     if (isMonthlyView) {
@@ -985,61 +1002,58 @@ export default function Page() {
           cogsRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0) -
           expenseRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0);
         worksheet.getCell(currentRow, colIndex++).value = monthlyNetIncome;
-        worksheet.getCell(currentRow, colIndex - 1).style = { 
-          font: { bold: true, color: { argb: monthlyNetIncome >= 0 ? "FF006100" : "FF9C0006" } }, 
-          numFmt: "#,##0.00;(#,##0.00);\"—\"", // Correct number format with dash for zero values
+        worksheet.getCell(currentRow, colIndex - 1).style = {
+          font: { bold: true },
+          numFmt: '#,##0.00;(#,##0.00);"—"', // Correct number format with dash for zero values
           alignment: { horizontal: "right" as const },
-          fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: monthlyNetIncome >= 0 ? "FFF0FFF0" : "FFFEF2F2" } }
         };
 
         if (showPercentages) {
           const percentValue = calculatePercentageForMonth(monthlyNetIncome, month);
-          worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
-          worksheet.getCell(currentRow, colIndex - 1).style = { 
-            font: { bold: true, color: { argb: monthlyNetIncome >= 0 ? "FF006100" : "FF9C0006" } }, 
-            numFmt: "0.0%", 
+          worksheet.getCell(currentRow, colIndex++).value =
+            percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
+          worksheet.getCell(currentRow, colIndex - 1).style = {
+            font: { bold: true },
+            numFmt: "0.0%",
             alignment: { horizontal: "right" as const },
-              fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: monthlyNetIncome >= 0 ? "FFF0FFF0" : "FFFEF2F2" } }
           };
         }
       });
-      
+
       // Total column
       worksheet.getCell(currentRow, colIndex++).value = netIncome;
-      worksheet.getCell(currentRow, colIndex - 1).style = { 
-        font: { bold: true, color: { argb: netIncome >= 0 ? "FF006100" : "FF9C0006" } }, 
-        numFmt: "#,##0.00;(#,##0.00);\"—\"", // Correct number format with dash for zero values
+      worksheet.getCell(currentRow, colIndex - 1).style = {
+        font: { bold: true },
+        numFmt: '#,##0.00;(#,##0.00);"—"', // Correct number format with dash for zero values
         alignment: { horizontal: "right" as const },
-        fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: netIncome >= 0 ? "FFF0FFF0" : "FFFEF2F2" } }
-      };
-      
-      if (showPercentages) {
-        const percentValue = formatPercentage(netIncome, totalRevenue);
-        worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
-        worksheet.getCell(currentRow, colIndex - 1).style = { 
-          font: { bold: true, color: { argb: netIncome >= 0 ? "FF006100" : "FF9C0006" } }, 
-          numFmt: "0.0%", 
-          alignment: { horizontal: "right" as const },
-          fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: netIncome >= 0 ? "FFF0FFF0" : "FFFEF2F2" } }
-        };
-      }
-    } else {
-      worksheet.getCell(currentRow, colIndex++).value = netIncome;
-      worksheet.getCell(currentRow, colIndex - 1).style = { 
-        font: { bold: true, color: { argb: netIncome >= 0 ? "FF006100" : "FF9C0006" } }, 
-        numFmt: "#,##0.00;(#,##0.00);\"—\"", // Correct number format with dash for zero values
-        alignment: { horizontal: "right" as const },
-        fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: netIncome >= 0 ? "FFF0FFF0" : "FFFEF2F2" } }
       };
 
       if (showPercentages) {
         const percentValue = formatPercentage(netIncome, totalRevenue);
-        worksheet.getCell(currentRow, colIndex++).value = percentValue === "—" ? null : parseFloat(percentValue.replace('%', '')) / 100;
-        worksheet.getCell(currentRow, colIndex - 1).style = { 
-          font: { bold: true, color: { argb: netIncome >= 0 ? "FF006100" : "FF9C0006" } }, 
-          numFmt: "0.0%", 
+        worksheet.getCell(currentRow, colIndex++).value =
+          percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
+        worksheet.getCell(currentRow, colIndex - 1).style = {
+          font: { bold: true },
+          numFmt: "0.0%",
           alignment: { horizontal: "right" as const },
-          fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: netIncome >= 0 ? "FFF0FFF0" : "FFFEF2F2" } }
+        };
+      }
+    } else {
+      worksheet.getCell(currentRow, colIndex++).value = netIncome;
+      worksheet.getCell(currentRow, colIndex - 1).style = {
+        font: { bold: true },
+        numFmt: '#,##0.00;(#,##0.00);"—"', // Correct number format with dash for zero values
+        alignment: { horizontal: "right" as const },
+      };
+
+      if (showPercentages) {
+        const percentValue = formatPercentage(netIncome, totalRevenue);
+        worksheet.getCell(currentRow, colIndex++).value =
+          percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
+        worksheet.getCell(currentRow, colIndex - 1).style = {
+          font: { bold: true },
+          numFmt: "0.0%",
+          alignment: { horizontal: "right" as const },
         };
       }
     }
@@ -1049,17 +1063,19 @@ export default function Page() {
     for (let i = 2; i <= totalColumns; i++) {
       worksheet.getColumn(i).width = 15;
     }
-    
+
     // Add footer
     currentRow += 3;
-    
+
     const today = new Date();
     worksheet.mergeCells(`A${currentRow}:${String.fromCharCode(64 + totalColumns)}${currentRow}`);
     worksheet.getCell(`A${currentRow}`).value = `switch | ${currentCompany?.name} | ${formatDateForDisplay(
       today.toISOString().split("T")[0]
     )} ${today.toLocaleTimeString()}`;
-    worksheet.getCell(`A${currentRow}`).style = { font: { size: 9, color: { argb: "FF666666" } },
-      alignment: { horizontal: "center" as const } };
+    worksheet.getCell(`A${currentRow}`).style = {
+      font: { size: 9, color: { argb: "FF666666" } },
+      alignment: { horizontal: "center" as const },
+    };
 
     // Save the file
     const buffer = await workbook.xlsx.writeBuffer();
@@ -1067,7 +1083,7 @@ export default function Page() {
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `profit-loss-${startDate}-to-${endDate}.xlsx`;
+    link.download = `${currentCompany?.name}-Profit & Loss-${startDate}-to-${endDate}.xlsx`;
     link.click();
     window.URL.revokeObjectURL(url);
   };
@@ -1081,19 +1097,22 @@ export default function Page() {
 
     // Set styles
     const headerStyle = { font: { bold: true, size: 10 } };
-    const numberStyle = { 
-      font: { size: 10 }, 
-      numFmt: "#,##0.00;(#,##0.00);\"—\"", // Format to show dash for zero values
-      alignment: { horizontal: "right" as const } 
+    const numberStyle = {
+      font: { size: 10 },
+      numFmt: '#,##0.00;(#,##0.00);"—"', // Format to show dash for zero values
+      alignment: { horizontal: "right" as const },
     };
     const dateStyle = { font: { size: 10 }, alignment: { horizontal: "left" as const } };
-    
+
     let currentRow = 1;
 
     // Title and company info
     worksheet.mergeCells(`A${currentRow}:E${currentRow}`);
     worksheet.getCell(`A${currentRow}`).value = `${viewerModal.category.name} Transactions`;
-    worksheet.getCell(`A${currentRow}`).style = { font: { size: 12, bold: true }, alignment: { horizontal: "center" as const } };
+    worksheet.getCell(`A${currentRow}`).style = {
+      font: { size: 12, bold: true },
+      alignment: { horizontal: "center" as const },
+    };
     currentRow++;
 
     if (currentCompany) {
@@ -1102,10 +1121,10 @@ export default function Page() {
       worksheet.getCell(`A${currentRow}`).style = { font: { size: 10 }, alignment: { horizontal: "center" as const } };
       currentRow++;
     }
-    
+
     worksheet.mergeCells(`A${currentRow}:E${currentRow}`);
-    worksheet.getCell(`A${currentRow}`).value = viewerModal.selectedMonth 
-      ? `for ${formatMonth(viewerModal.selectedMonth)}` 
+    worksheet.getCell(`A${currentRow}`).value = viewerModal.selectedMonth
+      ? `for ${formatMonth(viewerModal.selectedMonth)}`
       : `${formatDateForDisplay(startDate)} to ${formatDateForDisplay(endDate)}`;
     worksheet.getCell(`A${currentRow}`).style = { font: { size: 10 }, alignment: { horizontal: "center" as const } };
     currentRow++; // Empty row
@@ -1152,18 +1171,24 @@ export default function Page() {
     worksheet.getCell(`A${currentRow}`).value = "Total";
     worksheet.getCell(`A${currentRow}`).style = { font: { bold: true, size: 10 } };
     worksheet.getCell(`E${currentRow}`).value = total;
-    worksheet.getCell(`E${currentRow}`).style = { font: { bold: true, size: 10 }, numFmt: "#,##0.00;(#,##0.00);\"—\"", alignment: { horizontal: "right" as const } };
-    
+    worksheet.getCell(`E${currentRow}`).style = {
+      font: { bold: true, size: 10 },
+      numFmt: '#,##0.00;(#,##0.00);"—"',
+      alignment: { horizontal: "right" as const },
+    };
+
     // Add footer
     currentRow += 3;
-    
+
     const today = new Date();
     worksheet.mergeCells(`A${currentRow}:E${currentRow}`);
     worksheet.getCell(`A${currentRow}`).value = `switch | ${currentCompany?.name} | ${formatDateForDisplay(
       today.toISOString().split("T")[0]
     )} ${today.toLocaleTimeString()}`;
-    worksheet.getCell(`A${currentRow}`).style = { font: { size: 9, color: { argb: "FF666666" } }, 
-      alignment: { horizontal: "center" as const } };
+    worksheet.getCell(`A${currentRow}`).style = {
+      font: { size: 9, color: { argb: "FF666666" } },
+      alignment: { horizontal: "center" as const },
+    };
 
     // Set column widths
     worksheet.getColumn("A").width = 12;
@@ -1178,7 +1203,10 @@ export default function Page() {
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `${viewerModal.category.name.replace(/[^a-zA-Z0-9]/g, "-")}-transactions-${startDate}-to-${endDate}.xlsx`;
+    link.download = `${viewerModal.category.name.replace(
+      /[^a-zA-Z0-9]/g,
+      "-"
+    )}-transactions-${startDate}-to-${endDate}.xlsx`;
     link.click();
     window.URL.revokeObjectURL(url);
   };
@@ -1191,13 +1219,13 @@ export default function Page() {
     const months = getMonthsInRange();
 
     // Check if this account has any transactions in the journalEntries (not limited to displayed months)
-    const hasDirectTransactions = journalEntries.some(tx => tx.chart_account_id === account.id);
-    
+    const hasDirectTransactions = journalEntries.some((tx) => tx.chart_account_id === account.id);
+
     // Check if account has any transactions in displayed months
     const hasTransactionsInMonths = months.some(
       (month) => calculateAccountTotalForMonthWithSubaccounts(account, month) !== 0
     );
-    
+
     // Either display if it has transactions in the selected months OR it has direct transactions in journalEntries
     if (!hasTransactionsInMonths && !hasDirectTransactions && !isParent) return null;
 
@@ -1341,9 +1369,9 @@ export default function Page() {
     const variance =
       (isParent && isCollapsed ? currentTotal : directTotal) -
       (isParent && isCollapsed ? previousTotal : directPreviousTotal);
-      
+
     // If this account has no transactions in the current period and no transactions overall, don't render
-    const hasDirectTransactions = journalEntries.some(tx => tx.chart_account_id === account.id);
+    const hasDirectTransactions = journalEntries.some((tx) => tx.chart_account_id === account.id);
     if (currentTotal === 0 && !hasDirectTransactions && !isParent) return null;
 
     return (
@@ -1493,7 +1521,7 @@ export default function Page() {
                     if (date) {
                       const formattedDate = format(date, "yyyy-MM-dd");
                       setStartDate(formattedDate);
-                    // If start date is after end date, update end date
+                      // If start date is after end date, update end date
                       if (endDate && formattedDate > endDate) {
                         setEndDate(formattedDate);
                       }
@@ -1517,8 +1545,8 @@ export default function Page() {
             </div>
 
             <div className="flex justify-center">
-              <Button onClick={exportToXLSX} disabled={loading} className="text-xs font-medium min-w-17">
-                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Export"}
+              <Button variant="outline" onClick={exportToXLSX} disabled={loading} className="text-xs font-medium">
+                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
               </Button>
             </div>
           </div>
@@ -1528,9 +1556,7 @@ export default function Page() {
         <Card className="pt-3 pb-0">
           <CardContent className="p-0">
             <h1 className="text-xl font-bold text-slate-800 mb-1 text-center">{currentCompany.name}</h1>
-            {currentCompany && (
-              <p className="text-lg text-slate-700 mb-1 text-center font-medium">Profit & Loss</p>
-            )}
+            {currentCompany && <p className="text-lg text-slate-700 mb-1 text-center font-medium">Profit & Loss</p>}
             <p className="text-sm text-slate-600 mb-3 text-center">
               {formatDateForDisplay(startDate)} to {formatDateForDisplay(endDate)}
             </p>
@@ -1540,8 +1566,7 @@ export default function Page() {
                   <TableHead
                     className="border p-1 text-center font-medium text-xs whitespace-nowrap"
                     style={{ width: "25%" }}
-                  >
-                  </TableHead>
+                  ></TableHead>
                   {isMonthlyView ? (
                     <>
                       {getMonthsInRange().map((month) => (
@@ -1992,9 +2017,7 @@ export default function Page() {
                             )}
                           </React.Fragment>
                         ))}
-                      <TableCell className="border p-1 text-right text-xs">
-                        {formatNumber(grossProfit)}
-                      </TableCell>
+                      <TableCell className="border p-1 text-right text-xs">{formatNumber(grossProfit)}</TableCell>
                       {showPercentages && isMonthlyView && (
                         <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
                           {totalRevenue !== 0 ? formatPercentage(grossProfit, totalRevenue) : "—"}
@@ -2165,9 +2188,7 @@ export default function Page() {
                               )}
                             </React.Fragment>
                           ))}
-                          <TableCell className="border p-1 text-right text-xs">
-                            {formatNumber(netIncome)}
-                          </TableCell>
+                          <TableCell className="border p-1 text-right text-xs">{formatNumber(netIncome)}</TableCell>
                           {showPercentages && (
                             <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
                               {totalRevenue !== 0 ? formatPercentage(netIncome, totalRevenue) : "—"}
@@ -2244,7 +2265,7 @@ export default function Page() {
               </h2>
               <div className="flex items-center gap-4">
                 {selectedCategoryTransactions.length > 0 && (
-                  <Button onClick={exportModalTransactions} className="text-xs font-medium" size="sm">
+                  <Button variant="outline" onClick={exportModalTransactions} className="text-xs font-medium" size="sm">
                     <Download className="w-4 h-4" />
                   </Button>
                 )}

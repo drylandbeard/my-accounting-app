@@ -198,7 +198,7 @@ export default function BalanceSheetPage() {
         if (asOfDate) {
           baseQuery = baseQuery.lte("date", asOfDate);
         }
-        
+
         // Add start date if provided
         if (startDate) {
           baseQuery = baseQuery.gte("date", startDate);
@@ -248,7 +248,7 @@ export default function BalanceSheetPage() {
         if (asOfDate) {
           baseManualQuery = baseManualQuery.lte("date", asOfDate);
         }
-        
+
         // Add start date if provided
         if (startDate) {
           baseManualQuery = baseManualQuery.gte("date", startDate);
@@ -955,12 +955,10 @@ export default function BalanceSheetPage() {
     const percentStyle = {
       font: { size: 10 },
       numFmt: '0.0%;-0.0%;"—"', // Format to show dash for zero values
-      alignment: { horizontal: "right" as const },
     };
     const totalStyle = {
       font: { bold: true, size: 10 },
       numFmt: '#,##0.00;(#,##0.00);"—"', // Format to show dash for zero values
-      alignment: { horizontal: "right" as const },
     };
 
     let currentRow = 1;
@@ -1041,7 +1039,7 @@ export default function BalanceSheetPage() {
           if (Math.abs(isParent && isCollapsed ? accountTotal : directTotal) < 0.01 && !isParent) return;
 
           let accountColIndex = 1;
-          const indent = "  ".repeat(accountLevel);
+          const indent = "        ".repeat(accountLevel);
           worksheet.getCell(currentRow, accountColIndex++).value = `${indent}${acc.name}`;
           worksheet.getCell(currentRow, 1).style = { font: { size: 10 } };
 
@@ -1518,7 +1516,7 @@ export default function BalanceSheetPage() {
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `balance-sheet-${asOfDate}.xlsx`;
+    link.download = `${currentCompany?.name}-Balance Sheet-${asOfDate}.xlsx`;
     link.click();
     window.URL.revokeObjectURL(url);
   };
@@ -1708,8 +1706,8 @@ export default function BalanceSheetPage() {
             </div>
 
             <div className="flex justify-center">
-              <Button onClick={exportToXLSX} disabled={loading} className="text-xs font-medium min-w-17">
-                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Export"}
+              <Button variant="outline" onClick={exportToXLSX} disabled={loading} className="text-xs font-medium">
+                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
               </Button>
             </div>
           </div>
@@ -2655,7 +2653,7 @@ export default function BalanceSheetPage() {
               </h2>
               <div className="flex items-center gap-4">
                 {selectedAccountTransactions.length > 0 && (
-                  <Button onClick={exportModalTransactions} className="text-xs font-medium" size="sm">
+                  <Button variant="outline" onClick={exportModalTransactions} className="text-xs font-medium" size="sm">
                     <Download className="w-4 h-4" />
                   </Button>
                 )}
