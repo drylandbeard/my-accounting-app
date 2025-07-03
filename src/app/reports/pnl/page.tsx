@@ -54,6 +54,18 @@ export default function PnLPage() {
   const grossProfit = totalRevenue - totalCOGS;
   const netIncome = grossProfit - totalExpenses;
 
+  // Calculate total columns for proper column spanning
+  const getTotalColumns = (): number => {
+    if (periodData.isMonthlyView) {
+      const monthCount = getMonthsInRange(periodData.startDate, periodData.endDate).length;
+      // Account column + month columns + (percentage columns if enabled) + Total column + (Total percentage if enabled)
+      return 1 + monthCount + (periodData.showPercentages ? monthCount : 0) + 1 + (periodData.showPercentages ? 1 : 0);
+    } else {
+      // Account column + Total column + (Percentage column if enabled)
+      return periodData.showPercentages ? 3 : 2;
+    }
+  };
+
   // Helper functions
   const getCategoryName = (tx: Transaction) => {
     return accounts.find((a) => a.id === tx.chart_account_id)?.name || "";
@@ -390,7 +402,7 @@ export default function PnLPage() {
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={10} className="border p-4 text-center">
+                    <TableCell colSpan={getTotalColumns()} className="border p-4 text-center">
                       <div className="flex flex-col items-center space-y-3">
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-black"></div>
                         <span className="text-xs">Loading financial data...</span>
@@ -401,7 +413,7 @@ export default function PnLPage() {
                   <>
                     {/* Revenue Section */}
                     <TableRow className="bg-muted/50">
-                      <TableCell colSpan={10} className="border p-1 font-semibold text-xs">
+                      <TableCell colSpan={getTotalColumns()} className="border p-1 font-semibold text-xs">
                         Revenue
                       </TableCell>
                     </TableRow>
@@ -469,7 +481,7 @@ export default function PnLPage() {
 
                     {/* COGS Section */}
                     <TableRow className="bg-muted/50">
-                      <TableCell colSpan={10} className="border p-1 font-semibold text-xs">
+                      <TableCell colSpan={getTotalColumns()} className="border p-1 font-semibold text-xs">
                         Cost of Goods Sold (COGS)
                       </TableCell>
                     </TableRow>
@@ -597,7 +609,7 @@ export default function PnLPage() {
 
                     {/* Expenses Section */}
                     <TableRow className="bg-muted/50">
-                      <TableCell colSpan={10} className="border p-1 font-semibold text-xs">
+                      <TableCell colSpan={getTotalColumns()} className="border p-1 font-semibold text-xs">
                         Expenses
                       </TableCell>
                     </TableRow>

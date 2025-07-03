@@ -73,8 +73,23 @@ export const usePeriodSelection = (): UsePeriodSelectionReturn => {
   const handleDisplayChange = (display: string) => {
     setSelectedDisplay(display);
     // Map display options to existing view state
-    setIsMonthlyView(display === "byMonth");
-    setShowPercentages(display === "withPercentages");
+    switch (display) {
+      case "byMonth":
+        setIsMonthlyView(true);
+        setShowPercentages(false);
+        break;
+      case "withPercentages":
+        setIsMonthlyView(true); // Keep monthly view and add percentages
+        setShowPercentages(true);
+        break;
+      case "totalsOnly":
+        setIsMonthlyView(false);
+        setShowPercentages(false);
+        break;
+      default:
+        setIsMonthlyView(true);
+        setShowPercentages(false);
+    }
   };
 
   const handleDateRangeSelect = (range: DateRangeType) => {
