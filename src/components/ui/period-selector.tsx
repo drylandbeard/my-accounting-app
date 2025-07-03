@@ -28,6 +28,7 @@ const PERIOD_OPTIONS = [
 
 const DISPLAY_OPTIONS = [
   { value: "byMonth", label: "By month" },
+  { value: "byQuarter", label: "By quarter" },
   { value: "totalOnly", label: "Total only" },
   { value: "withPercentages", label: "With %'s" },
 ];
@@ -76,7 +77,12 @@ PeriodSelectorProps) {
                       onClick={() => onPeriodChange(option.value)}
                       className="w-full flex items-center justify-between px-1 py-1.5 text-xs hover:bg-gray-50 rounded text-left"
                     >
-                      <span className={cn(selectedPeriod === option.value ? "font-medium" : "font-normal", "whitespace-nowrap")}>
+                      <span
+                        className={cn(
+                          selectedPeriod === option.value ? "font-medium" : "font-normal",
+                          "whitespace-nowrap"
+                        )}
+                      >
                         {option.label}
                       </span>
                       {selectedPeriod === option.value && <Check className="h-4 w-4 text-blue-600" />}
