@@ -5,10 +5,11 @@ import { supabase } from "../../../lib/supabase";
 import { useAuthStore } from "@/zustand/authStore";
 import { ChevronDown, ChevronRight, Download, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { PeriodSelector } from "@/components/ui/period-selector";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { DatePicker } from "@/components/ui/date-picker";
+import { format } from "date-fns";
 import ExcelJS from "exceljs";
 
 type Account = {
@@ -1692,22 +1693,16 @@ export default function BalanceSheetPage() {
 
               {/* Manual date override option */}
               <div className="flex items-center justify-center gap-4 text-sm">
-                <Input
-                  type="date"
+                <DatePicker
                   value={asOfDate}
-                  max={today}
-                  onChange={(e) => {
-                    const newDate = e.target.value;
-
-                    // Prevent setting date in the future
-                    if (newDate > today) {
-                      setAsOfDate(today);
-                      return;
+                  max={new Date(today)}
+                  onChange={(date) => {
+                    if (date) {
+                      const formattedDate = format(date, "yyyy-MM-dd");
+                      setAsOfDate(formattedDate);
                     }
-
-                    setAsOfDate(newDate);
                   }}
-                  className="w-auto text-sm h-8 transition-none"
+                  className="text-sm h-8 transition-none w-32"
                 />
               </div>
             </div>

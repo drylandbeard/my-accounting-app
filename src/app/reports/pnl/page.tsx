@@ -5,10 +5,11 @@ import { supabase } from "../../../lib/supabase";
 import { useAuthStore } from "@/zustand/authStore";
 import { ChevronDown, ChevronRight, Download, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { PeriodSelector } from "@/components/ui/period-selector";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { DatePicker } from "@/components/ui/date-picker";
+import { format } from "date-fns";
 import ExcelJS from "exceljs";
 
 type Account = {
@@ -79,7 +80,7 @@ export default function Page() {
 
   // Helper: parse date string and format for display without timezone issues
   const formatDateForDisplay = (dateString: string): string => {
-    const [year, month, day] = dateString.split('-').map(Number);
+    const [year, month, day] = dateString.split("-").map(Number);
     const date = new Date(year, month - 1, day); // month is 0-indexed
     return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   };
@@ -1485,41 +1486,32 @@ export default function Page() {
 
               {/* Manual date override option */}
               <div className="flex items-center justify-center gap-4 text-xs">
-                <Input
-                  type="date"
+                <DatePicker
                   value={startDate}
-                  max={endDate || today}
-                  onChange={(e) => {
-                    const newStartDate = e.target.value;
-                    setStartDate(newStartDate);
+                  max={new Date(endDate || today)}
+                  onChange={(date) => {
+                    if (date) {
+                      const formattedDate = format(date, "yyyy-MM-dd");
+                      setStartDate(formattedDate);
                     // If start date is after end date, update end date
-                    if (endDate && newStartDate > endDate) {
-                      setEndDate(newStartDate);
+                      if (endDate && formattedDate > endDate) {
+                        setEndDate(formattedDate);
+                      }
                     }
                   }}
-                  className="w-auto text-xs h-8 transition-none"
+                  className="text-xs h-8 transition-none w-32"
                 />
                 <span className="text-slate-600">to</span>
-                <Input
-                  type="date"
+                <DatePicker
                   value={endDate}
-                  max={today}
-                  onChange={(e) => {
-                    const newEndDate = e.target.value;
-
-                    // Prevent setting end date in the future
-                    if (newEndDate > today) {
-                      setEndDate(today);
-                      return;
-                    }
-
-                    setEndDate(newEndDate);
-                    // If end date is before start date, update start date
-                    if (startDate && newEndDate < startDate) {
-                      setStartDate(newEndDate);
+                  max={new Date(today)}
+                  onChange={(date) => {
+                    if (date) {
+                      const formattedDate = format(date, "yyyy-MM-dd");
+                      setEndDate(formattedDate);
                     }
                   }}
-                  className="w-auto text-xs h-8 transition-none"
+                  className="text-xs h-8 transition-none w-32"
                 />
               </div>
             </div>
