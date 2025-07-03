@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { PeriodType, DateRangeType } from "../_types";
+import { PeriodType, DateRangeType, PrimaryDisplayType, SecondaryDisplayType } from "../_types";
 import { formatDate, getDateRangeFromType } from "../_utils";
 
 interface UsePeriodSelectionReturn {
   selectedPeriod: PeriodType;
-  selectedDisplay: string;
+  selectedPrimaryDisplay: PrimaryDisplayType;
+  selectedSecondaryDisplay: SecondaryDisplayType;
   startDate: string;
   endDate: string;
   showPercentages: boolean;
@@ -14,13 +15,15 @@ interface UsePeriodSelectionReturn {
   setStartDate: (date: string) => void;
   setEndDate: (date: string) => void;
   handlePeriodChange: (period: string) => void;
-  handleDisplayChange: (display: string) => void;
+  handlePrimaryDisplayChange: (display: string) => void;
+  handleSecondaryDisplayChange: (display: string) => void;
   handleDateRangeSelect: (range: DateRangeType) => void;
 }
 
 export const usePeriodSelection = (): UsePeriodSelectionReturn => {
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodType>("thisYearToLastMonth");
-  const [selectedDisplay, setSelectedDisplay] = useState("byMonth");
+  const [selectedPrimaryDisplay, setSelectedPrimaryDisplay] = useState<PrimaryDisplayType>("byMonth");
+  const [selectedSecondaryDisplay, setSelectedSecondaryDisplay] = useState<SecondaryDisplayType>("withoutPercentages");
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
   const [isMonthlyView, setIsMonthlyView] = useState(true);
@@ -70,26 +73,16 @@ export const usePeriodSelection = (): UsePeriodSelectionReturn => {
     }
   };
 
-  const handleDisplayChange = (display: string) => {
-    setSelectedDisplay(display);
-    // Map display options to existing view state
-    switch (display) {
-      case "byMonth":
-        setIsMonthlyView(true);
-        setShowPercentages(false);
-        break;
-      case "withPercentages":
-        setIsMonthlyView(true); // Keep monthly view and add percentages
-        setShowPercentages(true);
-        break;
-      case "totalsOnly":
-        setIsMonthlyView(false);
-        setShowPercentages(false);
-        break;
-      default:
-        setIsMonthlyView(true);
-        setShowPercentages(false);
-    }
+  const handlePrimaryDisplayChange = (display: string) => {
+    setSelectedPrimaryDisplay(display as PrimaryDisplayType);
+    // Set monthly view based on primary display
+    setIsMonthlyView(display === "byMonth");
+  };
+
+  const handleSecondaryDisplayChange = (display: string) => {
+    setSelectedSecondaryDisplay(display as SecondaryDisplayType);
+    // Set percentages based on secondary display
+    setShowPercentages(display === "withPercentages");
   };
 
   const handleDateRangeSelect = (range: DateRangeType) => {
@@ -105,7 +98,8 @@ export const usePeriodSelection = (): UsePeriodSelectionReturn => {
 
   return {
     selectedPeriod,
-    selectedDisplay,
+    selectedPrimaryDisplay,
+    selectedSecondaryDisplay,
     startDate,
     endDate,
     showPercentages,
@@ -113,7 +107,8 @@ export const usePeriodSelection = (): UsePeriodSelectionReturn => {
     setStartDate,
     setEndDate,
     handlePeriodChange,
-    handleDisplayChange,
+    handlePrimaryDisplayChange,
+    handleSecondaryDisplayChange,
     handleDateRangeSelect,
   };
 };

@@ -4,8 +4,6 @@ import React, { useState, useMemo } from "react";
 import { useAuthStore } from "@/zustand/authStore";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ChevronDown, ChevronRight } from "lucide-react";
-import ExcelJS from "exceljs";
 
 // Shared imports
 import { Account, Transaction, ViewerModalState } from "../_types";
@@ -23,47 +21,72 @@ import { usePeriodSelection } from "../_hooks/usePeriodSelection";
 import { useAccountOperations } from "../_hooks/useAccountOperations";
 import { ReportHeader } from "../_components/ReportHeader";
 import { TransactionViewer } from "../_components/TransactionViewer";
+import { AccountRowRenderer } from "../_components/AccountRowRenderer";
+import { useExportProfitLoss } from "../_hooks/useExportProfitLoss";
 
 export default function PnLPage() {
   const { currentCompany } = useAuthStore();
   const hasCompanyContext = !!currentCompany;
 
-  // Modular hooks
-  const periodData = usePeriodSelection();
+  const {
+    selectedPeriod,
+    selectedPrimaryDisplay,
+    selectedSecondaryDisplay,
+    startDate,
+    endDate,
+    showPercentages,
+    isMonthlyView,
+    setStartDate,
+    setEndDate,
+    handlePeriodChange,
+    handlePrimaryDisplayChange,
+    handleSecondaryDisplayChange,
+  } = usePeriodSelection();
+
   const { accounts, journalEntries, loading } = useFinancialData({
     companyId: currentCompany?.id || null,
-    startDate: periodData.startDate,
-    endDate: periodData.endDate,
+    startDate: startDate,
+    endDate: endDate,
     accountTypes: ["Revenue", "COGS", "Expense"],
   });
 
-  const accountOps = useAccountOperations({ accounts, journalEntries });
+  const {
+    collapsedAccounts,
+    toggleAccount,
+    getTopLevelAccounts,
+    calculateAccountDirectTotal,
+    calculateAccountTotal,
+    calculateAccountTotalForMonth,
+    calculateAccountTotalForMonthWithSubaccounts,
+    collapseAllParentCategories,
+    hasCollapsedCategories,
+  } = useAccountOperations({ accounts, journalEntries });
   const [viewerModal, setViewerModal] = useState<ViewerModalState>({
     isOpen: false,
     category: null,
   });
 
   // Account groups
-  const revenueRows = accountOps.getTopLevelAccounts("Revenue");
-  const cogsRows = accountOps.getTopLevelAccounts("COGS");
-  const expenseRows = accountOps.getTopLevelAccounts("Expense");
+  const revenueRows = getTopLevelAccounts("Revenue");
+  const cogsRows = getTopLevelAccounts("COGS");
+  const expenseRows = getTopLevelAccounts("Expense");
 
   // Totals
-  const totalRevenue = revenueRows.reduce((sum, a) => sum + accountOps.calculateAccountTotal(a), 0);
-  const totalCOGS = cogsRows.reduce((sum, a) => sum + accountOps.calculateAccountTotal(a), 0);
-  const totalExpenses = expenseRows.reduce((sum, a) => sum + accountOps.calculateAccountTotal(a), 0);
+  const totalRevenue = revenueRows.reduce((sum, a) => sum + calculateAccountTotal(a), 0);
+  const totalCOGS = cogsRows.reduce((sum, a) => sum + calculateAccountTotal(a), 0);
+  const totalExpenses = expenseRows.reduce((sum, a) => sum + calculateAccountTotal(a), 0);
   const grossProfit = totalRevenue - totalCOGS;
   const netIncome = grossProfit - totalExpenses;
 
   // Calculate total columns for proper column spanning
   const getTotalColumns = (): number => {
-    if (periodData.isMonthlyView) {
-      const monthCount = getMonthsInRange(periodData.startDate, periodData.endDate).length;
+    if (isMonthlyView) {
+      const monthCount = getMonthsInRange(startDate, endDate).length;
       // Account column + month columns + (percentage columns if enabled) + Total column + (Total percentage if enabled)
-      return 1 + monthCount + (periodData.showPercentages ? monthCount : 0) + 1 + (periodData.showPercentages ? 1 : 0);
+      return 1 + monthCount + (showPercentages ? monthCount : 0) + 1 + (showPercentages ? 1 : 0);
     } else {
       // Account column + Total column + (Percentage column if enabled)
-      return periodData.showPercentages ? 3 : 2;
+      return showPercentages ? 3 : 2;
     }
   };
 
@@ -72,7 +95,9 @@ export default function PnLPage() {
     return accounts.find((a) => a.id === tx.chart_account_id)?.name || "";
   };
 
-  const formatPercentageForAccount = (num: number, account: Account): string => {
+  const formatPercentageForAccount = (num: number, account?: Account): string => {
+    if (!account) return formatPercentage(num, totalRevenue);
+
     const base =
       totalRevenue !== 0
         ? totalRevenue
@@ -86,10 +111,56 @@ export default function PnLPage() {
 
   const calculatePercentageForMonth = (amount: number, month: string): string => {
     const monthRevenue = revenueRows.reduce(
-      (sum, a) => sum + accountOps.calculateAccountTotalForMonthWithSubaccounts(a, month),
+      (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
       0
     );
     return formatPercentage(amount, monthRevenue);
+  };
+
+  // Export hook
+  const { exportToXLSX } = useExportProfitLoss({
+    accounts,
+    journalEntries,
+    revenueRows,
+    cogsRows,
+    expenseRows,
+    currentCompany,
+    isMonthlyView,
+    showPercentages,
+    startDate,
+    endDate,
+    collapsedAccounts,
+    calculateAccountTotal,
+    calculateAccountDirectTotal,
+    calculateAccountTotalForMonth,
+    calculateAccountTotalForMonthWithSubaccounts,
+    formatPercentageForAccount,
+    calculatePercentageForMonth,
+  });
+
+  // Render account row using the reusable component
+  const renderAccountRow = (account: Account, level = 0): React.ReactElement | null => {
+    return (
+      <AccountRowRenderer
+        key={account.id}
+        account={account}
+        level={level}
+        accounts={accounts}
+        journalEntries={journalEntries}
+        isMonthlyView={isMonthlyView}
+        showPercentages={showPercentages}
+        startDate={startDate}
+        endDate={endDate}
+        collapsedAccounts={collapsedAccounts}
+        toggleAccount={toggleAccount}
+        calculateAccountTotal={calculateAccountTotal}
+        calculateAccountDirectTotal={calculateAccountDirectTotal}
+        calculateAccountTotalForMonth={calculateAccountTotalForMonth}
+        calculateAccountTotalForMonthWithSubaccounts={calculateAccountTotalForMonthWithSubaccounts}
+        setViewerModal={setViewerModal}
+        formatPercentageForAccount={formatPercentageForAccount}
+      />
+    );
   };
 
   // Transaction filtering for viewer
@@ -113,233 +184,6 @@ export default function PnLPage() {
     return transactions;
   }, [viewerModal, journalEntries, accounts, revenueRows, cogsRows, expenseRows]);
 
-  // Excel export function
-  const exportToXLSX = async () => {
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet("Profit & Loss");
-
-    const months = periodData.isMonthlyView ? getMonthsInRange(periodData.startDate, periodData.endDate) : [];
-    const totalColumns = periodData.isMonthlyView
-      ? 1 + months.length * (periodData.showPercentages ? 2 : 1) + (periodData.showPercentages ? 2 : 1)
-      : periodData.showPercentages
-      ? 3
-      : 2;
-
-    let currentRow = 1;
-
-    // Title
-    if (currentCompany) {
-      worksheet.mergeCells(`A${currentRow}:${String.fromCharCode(64 + totalColumns)}${currentRow}`);
-      worksheet.getCell(`A${currentRow}`).value = currentCompany.name;
-      worksheet.getCell(`A${currentRow}`).style = {
-        font: { size: 12, bold: true },
-        alignment: { horizontal: "center" as const },
-      };
-      currentRow++;
-    }
-
-    worksheet.mergeCells(`A${currentRow}:${String.fromCharCode(64 + totalColumns)}${currentRow}`);
-    worksheet.getCell(`A${currentRow}`).value = "Profit & Loss";
-    worksheet.getCell(`A${currentRow}`).style = {
-      font: { size: 10 },
-      alignment: { horizontal: "center" as const },
-    };
-    currentRow++;
-
-    worksheet.mergeCells(`A${currentRow}:${String.fromCharCode(64 + totalColumns)}${currentRow}`);
-    worksheet.getCell(`A${currentRow}`).value = `${formatDateForDisplay(
-      periodData.startDate
-    )} to ${formatDateForDisplay(periodData.endDate)}`;
-    worksheet.getCell(`A${currentRow}`).style = {
-      font: { size: 10 },
-      alignment: { horizontal: "center" as const },
-    };
-    currentRow++;
-
-    // Headers
-    let colIndex = 1;
-    worksheet.getCell(currentRow, colIndex++).value = "Account";
-
-    if (periodData.isMonthlyView) {
-      months.forEach((month) => {
-        worksheet.getCell(currentRow, colIndex++).value = formatMonth(month);
-        if (periodData.showPercentages) {
-          worksheet.getCell(currentRow, colIndex++).value = "%";
-        }
-      });
-      worksheet.getCell(currentRow, colIndex++).value = "Total";
-      if (periodData.showPercentages) {
-        worksheet.getCell(currentRow, colIndex++).value = "%";
-      }
-    } else {
-      worksheet.getCell(currentRow, colIndex++).value = "Total";
-      if (periodData.showPercentages) {
-        worksheet.getCell(currentRow, colIndex++).value = "%";
-      }
-    }
-    currentRow++;
-
-    // Save file
-    const buffer = await workbook.xlsx.writeBuffer();
-    const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${currentCompany?.name}-Profit-Loss-${periodData.startDate}-to-${periodData.endDate}.xlsx`;
-    link.click();
-    window.URL.revokeObjectURL(url);
-  };
-
-  // Render account row helper
-  const renderAccountRow = (account: Account, level = 0): React.ReactElement | null => {
-    const subaccounts = accounts.filter(
-      (acc) =>
-        acc.parent_id === account.id &&
-        journalEntries.some((tx) => getAllAccountIds(accounts, acc).includes(tx.chart_account_id))
-    );
-    const isParent = subaccounts.length > 0;
-    const isCollapsed = accountOps.collapsedAccounts.has(account.id);
-    const accountTotal = accountOps.calculateAccountTotal(account);
-    const directTotal = accountOps.calculateAccountDirectTotal(account);
-
-    if (Math.abs(isParent && isCollapsed ? accountTotal : directTotal) < 0.01 && !isParent) return null;
-
-    return (
-      <React.Fragment key={account.id}>
-        <TableRow
-          className="cursor-pointer hover:bg-gray-100"
-          onClick={() => setViewerModal({ isOpen: true, category: account })}
-        >
-          <TableCell className="border p-1 text-xs" style={{ paddingLeft: `${level * 24 + 8}px` }}>
-            <div className="flex items-center">
-              {level > 0 && <span className="text-gray-400 mr-2 text-xs">└</span>}
-              {isParent ? (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    accountOps.toggleAccount(account.id);
-                  }}
-                  className="mr-2 p-1 hover:bg-gray-200 rounded transition-colors"
-                >
-                  {isCollapsed ? (
-                    <ChevronRight className="w-3 h-3 text-gray-600" />
-                  ) : (
-                    <ChevronDown className="w-3 h-3 text-gray-600" />
-                  )}
-                </button>
-              ) : (
-                <div className="mr-2 w-5 h-5"></div>
-              )}
-              <span className="font-semibold">{account.name}</span>
-            </div>
-          </TableCell>
-
-          {periodData.isMonthlyView ? (
-            <>
-              {getMonthsInRange(periodData.startDate, periodData.endDate).map((month) => (
-                <React.Fragment key={month}>
-                  <TableCell
-                    className="border p-1 text-right text-xs cursor-pointer hover:bg-gray-50"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setViewerModal({ isOpen: true, category: account, selectedMonth: month });
-                    }}
-                  >
-                    {formatNumber(
-                      isParent && isCollapsed
-                        ? accountOps.calculateAccountTotalForMonthWithSubaccounts(account, month)
-                        : accountOps.calculateAccountTotalForMonth(account, month)
-                    )}
-                  </TableCell>
-                  {periodData.showPercentages && (
-                    <TableCell className="border p-1 text-right text-xs text-slate-600">
-                      {formatPercentageForAccount(
-                        isParent && isCollapsed
-                          ? accountOps.calculateAccountTotalForMonthWithSubaccounts(account, month)
-                          : accountOps.calculateAccountTotalForMonth(account, month),
-                        account
-                      )}
-                    </TableCell>
-                  )}
-                </React.Fragment>
-              ))}
-              <TableCell className="border p-1 text-right font-semibold text-xs">
-                {formatNumber(isParent && isCollapsed ? accountTotal : directTotal)}
-              </TableCell>
-              {periodData.showPercentages && (
-                <TableCell className="border p-1 text-right text-xs text-slate-600">
-                  {formatPercentageForAccount(isParent && isCollapsed ? accountTotal : directTotal, account)}
-                </TableCell>
-              )}
-            </>
-          ) : (
-            <>
-              <TableCell className="border p-1 text-right text-xs">
-                {formatNumber(isParent && isCollapsed ? accountTotal : directTotal)}
-              </TableCell>
-              {periodData.showPercentages && (
-                <TableCell className="border p-1 text-right text-xs text-slate-600">
-                  {formatPercentageForAccount(isParent && isCollapsed ? accountTotal : directTotal, account)}
-                </TableCell>
-              )}
-            </>
-          )}
-        </TableRow>
-
-        {!isCollapsed && subaccounts.map((sub) => renderAccountRow(sub, level + 1))}
-
-        {isParent && !isCollapsed && (
-          <TableRow
-            className="cursor-pointer hover:bg-blue-50"
-            onClick={() => setViewerModal({ isOpen: true, category: account })}
-          >
-            <TableCell className="border p-1 text-xs bg-gray-50" style={{ paddingLeft: `${(level + 1) * 24 + 8}px` }}>
-              <span className="font-semibold">Total {account.name}</span>
-            </TableCell>
-            {periodData.isMonthlyView ? (
-              <>
-                {getMonthsInRange(periodData.startDate, periodData.endDate).map((month) => (
-                  <React.Fragment key={month}>
-                    <TableCell className="border p-1 text-right font-semibold bg-gray-50 text-xs">
-                      {formatNumber(accountOps.calculateAccountTotalForMonthWithSubaccounts(account, month))}
-                    </TableCell>
-                    {periodData.showPercentages && (
-                      <TableCell className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
-                        {formatPercentageForAccount(
-                          accountOps.calculateAccountTotalForMonthWithSubaccounts(account, month),
-                          account
-                        )}
-                      </TableCell>
-                    )}
-                  </React.Fragment>
-                ))}
-                <TableCell className="border p-1 text-right font-semibold bg-gray-50 text-xs">
-                  {formatNumber(accountTotal)}
-                </TableCell>
-                {periodData.showPercentages && (
-                  <TableCell className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
-                    {formatPercentageForAccount(accountTotal, account)}
-                  </TableCell>
-                )}
-              </>
-            ) : (
-              <>
-                <TableCell className="border p-1 text-right font-semibold bg-gray-50 text-xs">
-                  {formatNumber(accountTotal)}
-                </TableCell>
-                {periodData.showPercentages && (
-                  <TableCell className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
-                    {formatPercentageForAccount(accountTotal, account)}
-                  </TableCell>
-                )}
-              </>
-            )}
-          </TableRow>
-        )}
-      </React.Fragment>
-    );
-  };
-
   if (!hasCompanyContext) {
     return (
       <div className="p-4 bg-white text-gray-900 font-sans text-xs space-y-6">
@@ -357,14 +201,19 @@ export default function PnLPage() {
     <div className="p-6 bg-white min-h-screen">
       <div className="max-w-7xl mx-auto">
         <ReportHeader
-          startDate={periodData.startDate}
-          endDate={periodData.endDate}
-          setStartDate={periodData.setStartDate}
-          setEndDate={periodData.setEndDate}
-          selectedPeriod={periodData.selectedPeriod}
-          selectedDisplay={periodData.selectedDisplay}
-          handlePeriodChange={periodData.handlePeriodChange}
-          handleDisplayChange={periodData.handleDisplayChange}
+          title="Profit & Loss"
+          startDate={startDate}
+          endDate={endDate}
+          setStartDate={setStartDate}
+          setEndDate={setEndDate}
+          selectedPeriod={selectedPeriod}
+          onPeriodChange={handlePeriodChange}
+          selectedPrimaryDisplay={selectedPrimaryDisplay}
+          onPrimaryDisplayChange={handlePrimaryDisplayChange}
+          selectedSecondaryDisplay={selectedSecondaryDisplay}
+          onSecondaryDisplayChange={handleSecondaryDisplayChange}
+          onCollapseAllCategories={collapseAllParentCategories}
+          hasCollapsedCategories={hasCollapsedCategories}
           exportToXLSX={exportToXLSX}
           loading={loading}
         />
@@ -374,7 +223,7 @@ export default function PnLPage() {
             <h1 className="text-xl font-bold text-slate-800 mb-1 text-center">{currentCompany.name}</h1>
             <p className="text-lg text-slate-700 mb-1 text-center font-medium">Profit & Loss</p>
             <p className="text-sm text-slate-600 mb-3 text-center">
-              {formatDateForDisplay(periodData.startDate)} to {formatDateForDisplay(periodData.endDate)}
+              {formatDateForDisplay(startDate)} to {formatDateForDisplay(endDate)}
             </p>
 
             <Table className="border border-gray-300">
@@ -382,23 +231,48 @@ export default function PnLPage() {
                 <TableRow>
                   <TableHead
                     className="border p-1 text-center font-medium text-xs whitespace-nowrap"
-                    style={{ width: "30%" }}
+                    style={{
+                      width:
+                        isMonthlyView && showPercentages
+                          ? "25%"
+                          : isMonthlyView
+                          ? "30%"
+                          : showPercentages
+                          ? "50%"
+                          : "70%",
+                    }}
                   ></TableHead>
-                  {periodData.isMonthlyView ? (
+                  {isMonthlyView ? (
                     <>
-                      {getMonthsInRange(periodData.startDate, periodData.endDate).map((month) => (
-                        <TableHead key={month} className="border p-1 text-center font-medium text-xs whitespace-nowrap">
-                          {formatMonth(month)}
-                        </TableHead>
+                      {getMonthsInRange(startDate, endDate).map((month) => (
+                        <React.Fragment key={month}>
+                          <TableHead
+                            className="border p-1 text-center font-medium text-xs whitespace-nowrap"
+                            style={{ width: showPercentages ? "7%" : "10%" }}
+                          >
+                            {formatMonth(month)}
+                          </TableHead>
+                          {showPercentages && (
+                            <TableHead className="border p-1 text-center font-medium text-xs whitespace-nowrap">
+                              %
+                            </TableHead>
+                          )}
+                        </React.Fragment>
                       ))}
-                      <TableHead className="border p-1 text-center font-medium text-xs whitespace-nowrap">
+                      <TableHead
+                        className="border p-1 text-center font-medium text-xs"
+                        style={{ width: showPercentages ? "7%" : "10%" }}
+                      >
                         Total
                       </TableHead>
+                      {showPercentages && (
+                        <TableHead className="border p-1 text-center font-medium text-xs">%</TableHead>
+                      )}
                     </>
                   ) : (
                     <>
                       <TableHead className="border p-1 text-center font-medium text-xs">Total</TableHead>
-                      {periodData.showPercentages && (
+                      {showPercentages && (
                         <TableHead className="border p-1 text-center font-medium text-xs">%</TableHead>
                       )}
                     </>
@@ -437,24 +311,23 @@ export default function PnLPage() {
                       }
                     >
                       <TableCell className="border p-1 text-xs font-semibold">Total Revenue</TableCell>
-                      {periodData.isMonthlyView ? (
+                      {isMonthlyView ? (
                         <>
-                          {getMonthsInRange(periodData.startDate, periodData.endDate).map((month) => (
+                          {getMonthsInRange(startDate, endDate).map((month) => (
                             <React.Fragment key={month}>
                               <TableCell className="border p-1 text-right font-semibold text-xs">
                                 {formatNumber(
                                   revenueRows.reduce(
-                                    (sum, a) => sum + accountOps.calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                    (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
                                     0
                                   )
                                 )}
                               </TableCell>
-                              {periodData.showPercentages && (
+                              {showPercentages && (
                                 <TableCell className="border p-1 text-right text-xs text-slate-600">
                                   {calculatePercentageForMonth(
                                     revenueRows.reduce(
-                                      (sum, a) =>
-                                        sum + accountOps.calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                      (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
                                       0
                                     ),
                                     month
@@ -466,7 +339,7 @@ export default function PnLPage() {
                           <TableCell className="border p-1 text-right font-semibold text-xs">
                             {formatNumber(totalRevenue)}
                           </TableCell>
-                          {periodData.showPercentages && (
+                          {showPercentages && (
                             <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
                               {totalRevenue !== 0 ? "100.0%" : "—"}
                             </TableCell>
@@ -477,7 +350,7 @@ export default function PnLPage() {
                           <TableCell className="border p-1 text-right font-semibold text-xs">
                             {formatNumber(totalRevenue)}
                           </TableCell>
-                          {periodData.showPercentages && (
+                          {showPercentages && (
                             <TableCell className="border p-1 text-right text-xs text-slate-600">
                               {totalRevenue !== 0 ? "100.0%" : "—"}
                             </TableCell>
@@ -505,24 +378,23 @@ export default function PnLPage() {
                       }
                     >
                       <TableCell className="border p-1 text-xs font-semibold">Total COGS</TableCell>
-                      {periodData.isMonthlyView ? (
+                      {isMonthlyView ? (
                         <>
-                          {getMonthsInRange(periodData.startDate, periodData.endDate).map((month) => (
+                          {getMonthsInRange(startDate, endDate).map((month) => (
                             <React.Fragment key={month}>
                               <TableCell className="border p-1 text-right font-semibold text-xs">
                                 {formatNumber(
                                   cogsRows.reduce(
-                                    (sum, a) => sum + accountOps.calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                    (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
                                     0
                                   )
                                 )}
                               </TableCell>
-                              {periodData.showPercentages && (
+                              {showPercentages && (
                                 <TableCell className="border p-1 text-right text-xs text-slate-600">
                                   {calculatePercentageForMonth(
                                     cogsRows.reduce(
-                                      (sum, a) =>
-                                        sum + accountOps.calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                      (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
                                       0
                                     ),
                                     month
@@ -534,9 +406,13 @@ export default function PnLPage() {
                           <TableCell className="border p-1 text-right font-semibold text-xs">
                             {formatNumber(totalCOGS)}
                           </TableCell>
-                          {periodData.showPercentages && (
+                          {showPercentages && (
                             <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
-                              {formatPercentage(totalCOGS, totalRevenue)}
+                              {totalRevenue !== 0
+                                ? formatPercentage(totalCOGS, totalRevenue)
+                                : totalCOGS !== 0
+                                ? "100.0%"
+                                : "—"}
                             </TableCell>
                           )}
                         </>
@@ -545,9 +421,13 @@ export default function PnLPage() {
                           <TableCell className="border p-1 text-right font-semibold text-xs">
                             {formatNumber(totalCOGS)}
                           </TableCell>
-                          {periodData.showPercentages && (
+                          {showPercentages && (
                             <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
-                              {formatPercentage(totalCOGS, totalRevenue)}
+                              {totalRevenue !== 0
+                                ? formatPercentage(totalCOGS, totalRevenue)
+                                : totalCOGS !== 0
+                                ? "100.0%"
+                                : "—"}
                             </TableCell>
                           )}
                         </>
@@ -557,34 +437,31 @@ export default function PnLPage() {
                     {/* Gross Profit */}
                     <TableRow className="font-semibold">
                       <TableCell className="border p-1 text-xs font-semibold">Gross Profit</TableCell>
-                      {periodData.isMonthlyView ? (
+                      {isMonthlyView ? (
                         <>
-                          {getMonthsInRange(periodData.startDate, periodData.endDate).map((month) => (
+                          {getMonthsInRange(startDate, endDate).map((month) => (
                             <React.Fragment key={month}>
                               <TableCell className="border p-1 text-right font-semibold text-xs">
                                 {formatNumber(
                                   revenueRows.reduce(
-                                    (sum, a) => sum + accountOps.calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                    (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
                                     0
                                   ) -
                                     cogsRows.reduce(
-                                      (sum, a) =>
-                                        sum + accountOps.calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                      (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
                                       0
                                     )
                                 )}
                               </TableCell>
-                              {periodData.showPercentages && (
+                              {showPercentages && (
                                 <TableCell className="border p-1 text-right text-xs text-slate-600">
                                   {calculatePercentageForMonth(
                                     revenueRows.reduce(
-                                      (sum, a) =>
-                                        sum + accountOps.calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                      (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
                                       0
                                     ) -
                                       cogsRows.reduce(
-                                        (sum, a) =>
-                                          sum + accountOps.calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                        (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
                                         0
                                       ),
                                     month
@@ -596,7 +473,7 @@ export default function PnLPage() {
                           <TableCell className="border p-1 text-right font-semibold text-xs">
                             {formatNumber(grossProfit)}
                           </TableCell>
-                          {periodData.showPercentages && (
+                          {showPercentages && (
                             <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
                               {formatPercentage(grossProfit, totalRevenue)}
                             </TableCell>
@@ -605,7 +482,7 @@ export default function PnLPage() {
                       ) : (
                         <>
                           <TableCell className="border p-1 text-right text-xs">{formatNumber(grossProfit)}</TableCell>
-                          {periodData.showPercentages && (
+                          {showPercentages && (
                             <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
                               {formatPercentage(grossProfit, totalRevenue)}
                             </TableCell>
@@ -624,7 +501,7 @@ export default function PnLPage() {
 
                     {/* Total Expenses */}
                     <TableRow
-                      className="cursor-pointer hover:bg-blue-50"
+                      className="cursor-pointer hover:bg-blue-50 bg-muted/50 font-bold"
                       onClick={() =>
                         setViewerModal({
                           isOpen: true,
@@ -633,24 +510,23 @@ export default function PnLPage() {
                       }
                     >
                       <TableCell className="border p-1 text-xs font-semibold">Total Expenses</TableCell>
-                      {periodData.isMonthlyView ? (
+                      {isMonthlyView ? (
                         <>
-                          {getMonthsInRange(periodData.startDate, periodData.endDate).map((month) => (
+                          {getMonthsInRange(startDate, endDate).map((month) => (
                             <React.Fragment key={month}>
                               <TableCell className="border p-1 text-right font-semibold text-xs">
                                 {formatNumber(
                                   expenseRows.reduce(
-                                    (sum, a) => sum + accountOps.calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                    (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
                                     0
                                   )
                                 )}
                               </TableCell>
-                              {periodData.showPercentages && (
+                              {showPercentages && (
                                 <TableCell className="border p-1 text-right text-xs text-slate-600">
                                   {calculatePercentageForMonth(
                                     expenseRows.reduce(
-                                      (sum, a) =>
-                                        sum + accountOps.calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                      (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
                                       0
                                     ),
                                     month
@@ -662,9 +538,13 @@ export default function PnLPage() {
                           <TableCell className="border p-1 text-right font-semibold text-xs">
                             {formatNumber(totalExpenses)}
                           </TableCell>
-                          {periodData.showPercentages && (
+                          {showPercentages && (
                             <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
-                              {formatPercentage(totalExpenses, totalRevenue)}
+                              {totalRevenue !== 0
+                                ? formatPercentage(totalExpenses, totalRevenue)
+                                : totalExpenses !== 0
+                                ? "100.0%"
+                                : "—"}
                             </TableCell>
                           )}
                         </>
@@ -673,9 +553,13 @@ export default function PnLPage() {
                           <TableCell className="border p-1 text-right font-semibold text-xs">
                             {formatNumber(totalExpenses)}
                           </TableCell>
-                          {periodData.showPercentages && (
+                          {showPercentages && (
                             <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
-                              {formatPercentage(totalExpenses, totalRevenue)}
+                              {totalRevenue !== 0
+                                ? formatPercentage(totalExpenses, totalRevenue)
+                                : totalExpenses !== 0
+                                ? "100.0%"
+                                : "—"}
                             </TableCell>
                           )}
                         </>
@@ -685,44 +569,39 @@ export default function PnLPage() {
                     {/* Net Income */}
                     <TableRow className="bg-muted/50 font-bold">
                       <TableCell className="border p-1 text-xs font-semibold">Net Income</TableCell>
-                      {periodData.isMonthlyView ? (
+                      {isMonthlyView ? (
                         <>
-                          {getMonthsInRange(periodData.startDate, periodData.endDate).map((month) => (
+                          {getMonthsInRange(startDate, endDate).map((month) => (
                             <React.Fragment key={month}>
                               <TableCell className="border p-1 text-right font-semibold text-xs">
                                 {formatNumber(
                                   revenueRows.reduce(
-                                    (sum, a) => sum + accountOps.calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                    (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
                                     0
                                   ) -
                                     cogsRows.reduce(
-                                      (sum, a) =>
-                                        sum + accountOps.calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                      (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
                                       0
                                     ) -
                                     expenseRows.reduce(
-                                      (sum, a) =>
-                                        sum + accountOps.calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                      (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
                                       0
                                     )
                                 )}
                               </TableCell>
-                              {periodData.showPercentages && (
+                              {showPercentages && (
                                 <TableCell className="border p-1 text-right text-xs text-slate-600">
                                   {calculatePercentageForMonth(
                                     revenueRows.reduce(
-                                      (sum, a) =>
-                                        sum + accountOps.calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                      (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
                                       0
                                     ) -
                                       cogsRows.reduce(
-                                        (sum, a) =>
-                                          sum + accountOps.calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                        (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
                                         0
                                       ) -
                                       expenseRows.reduce(
-                                        (sum, a) =>
-                                          sum + accountOps.calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                        (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
                                         0
                                       ),
                                     month
@@ -734,7 +613,7 @@ export default function PnLPage() {
                           <TableCell className="border p-1 text-right font-semibold text-xs">
                             {formatNumber(netIncome)}
                           </TableCell>
-                          {periodData.showPercentages && (
+                          {showPercentages && (
                             <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
                               {formatPercentage(netIncome, totalRevenue)}
                             </TableCell>
@@ -743,7 +622,7 @@ export default function PnLPage() {
                       ) : (
                         <>
                           <TableCell className="border p-1 text-right text-xs">{formatNumber(netIncome)}</TableCell>
-                          {periodData.showPercentages && (
+                          {showPercentages && (
                             <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
                               {formatPercentage(netIncome, totalRevenue)}
                             </TableCell>
@@ -765,8 +644,8 @@ export default function PnLPage() {
           viewerModal={viewerModal}
           setViewerModal={setViewerModal}
           selectedCategoryTransactions={selectedCategoryTransactions}
-          startDate={periodData.startDate}
-          endDate={periodData.endDate}
+          startDate={startDate}
+          endDate={endDate}
           companyName={currentCompany.name}
           getCategoryName={getCategoryName}
         />

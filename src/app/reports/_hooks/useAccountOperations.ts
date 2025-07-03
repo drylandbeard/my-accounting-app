@@ -17,6 +17,8 @@ interface UseAccountOperationsReturn {
   calculateAccountTotal: (account: Account) => number;
   calculateAccountTotalForMonth: (account: Account, month: string) => number;
   calculateAccountTotalForMonthWithSubaccounts: (account: Account, month: string) => number;
+  collapseAllParentCategories: () => void;
+  hasCollapsedCategories: boolean;
 }
 
 export const useAccountOperations = ({
@@ -43,6 +45,29 @@ export const useAccountOperations = ({
       .filter((a) => hasTransactions(a, journalEntries, accounts))
       .sort((a, b) => a.name.localeCompare(b.name));
   };
+
+  // Get all parent accounts (accounts that have subaccounts)
+  const getParentAccounts = (): Account[] => {
+    return accounts.filter((account) => {
+      const subaccounts = getSubaccounts(accounts, account.id);
+      return subaccounts.length > 0 && hasTransactions(account, journalEntries, accounts);
+    });
+  };
+
+  // Collapse all parent categories at once
+  const collapseAllParentCategories = () => {
+    const parentAccounts = getParentAccounts();
+    const newCollapsed = new Set<string>();
+
+    parentAccounts.forEach((account) => {
+      newCollapsed.add(account.id);
+    });
+
+    setCollapsedAccounts(newCollapsed);
+  };
+
+  // Check if any categories are currently collapsed
+  const hasCollapsedCategories = collapsedAccounts.size > 0;
 
   // Calculate direct total for an account (only its own transactions)
   const calculateAccountDirectTotal = (account: Account): number => {
@@ -140,5 +165,7 @@ export const useAccountOperations = ({
     calculateAccountTotal,
     calculateAccountTotalForMonth,
     calculateAccountTotalForMonthWithSubaccounts,
+    collapseAllParentCategories,
+    hasCollapsedCategories,
   };
 };

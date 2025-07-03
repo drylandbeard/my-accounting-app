@@ -20,16 +20,26 @@ import { usePeriodSelection } from "../_hooks/usePeriodSelection";
 import { useAccountOperations } from "../_hooks/useAccountOperations";
 import { ReportHeader } from "../_components/ReportHeader";
 import { TransactionViewer } from "../_components/TransactionViewer";
+import { AccountRowRenderer } from "../_components/AccountRowRenderer";
 
 export default function BalanceSheetPage() {
   const { currentCompany } = useAuthStore();
   const hasCompanyContext = !!currentCompany;
 
-  // Use period selection for as-of date
-  const periodData = usePeriodSelection();
+  const {
+    selectedPeriod,
+    selectedPrimaryDisplay,
+    selectedSecondaryDisplay,
+    startDate,
+    endDate,
+    setStartDate,
+    handlePeriodChange,
+    handlePrimaryDisplayChange,
+    handleSecondaryDisplayChange,
+  } = usePeriodSelection();
 
   // For balance sheet, we need all journal entries up to the as-of date
-  const [asOfDate, setAsOfDate] = useState<string>(periodData.endDate);
+  const [asOfDate, setAsOfDate] = useState<string>(endDate);
 
   const { accounts, journalEntries, loading } = useFinancialData({
     companyId: currentCompany?.id || null,
@@ -38,7 +48,9 @@ export default function BalanceSheetPage() {
     accountTypes: ["Asset", "Liability", "Equity", "Revenue", "COGS", "Expense"],
   });
 
-  const accountOps = useAccountOperations({ accounts, journalEntries });
+  const { collapsedAccounts, toggleAccount, getTopLevelAccounts, collapseAllParentCategories, hasCollapsedCategories } =
+    useAccountOperations({ accounts, journalEntries });
+
   const [viewerModal, setViewerModal] = useState<ViewerModalState>({
     isOpen: false,
     category: null,
@@ -77,14 +89,14 @@ export default function BalanceSheetPage() {
   };
 
   // Account groups for balance sheet
-  const assetAccounts = accountOps.getTopLevelAccounts("Asset");
-  const liabilityAccounts = accountOps.getTopLevelAccounts("Liability");
-  const equityAccounts = accountOps.getTopLevelAccounts("Equity");
+  const assetAccounts = getTopLevelAccounts("Asset");
+  const liabilityAccounts = getTopLevelAccounts("Liability");
+  const equityAccounts = getTopLevelAccounts("Equity");
 
   // P&L accounts for retained earnings calculation
-  const revenueAccounts = accountOps.getTopLevelAccounts("Revenue");
-  const cogsAccounts = accountOps.getTopLevelAccounts("COGS");
-  const expenseAccounts = accountOps.getTopLevelAccounts("Expense");
+  const revenueAccounts = getTopLevelAccounts("Revenue");
+  const cogsAccounts = getTopLevelAccounts("COGS");
+  const expenseAccounts = getTopLevelAccounts("Expense");
 
   // Calculate P&L totals for retained earnings
   const totalRevenue = revenueAccounts.reduce((sum, a) => {
@@ -229,71 +241,29 @@ export default function BalanceSheetPage() {
 
   // Update as-of date when period changes
   React.useEffect(() => {
-    setAsOfDate(periodData.endDate);
-  }, [periodData.endDate]);
+    setAsOfDate(endDate);
+  }, [endDate]);
 
   // Render account row helper for balance sheet
   const renderAccountRow = (account: Account, level = 0): React.ReactElement | null => {
-    const subaccounts = accounts.filter(
-      (acc) => acc.parent_id === account.id && Math.abs(calculateBalanceSheetAccountTotalWithSubaccounts(acc)) >= 0.01
-    );
-    const isParent = subaccounts.length > 0;
-    const isCollapsed = accountOps.collapsedAccounts.has(account.id);
-    const accountTotal = calculateBalanceSheetAccountTotalWithSubaccounts(account);
-    const directTotal = calculateBalanceSheetAccountTotal(account);
-
-    if (Math.abs(isParent && isCollapsed ? accountTotal : directTotal) < 0.01 && !isParent) return null;
-
     return (
-      <React.Fragment key={account.id}>
-        <TableRow
-          className="cursor-pointer hover:bg-gray-100"
-          onClick={() => setViewerModal({ isOpen: true, category: account })}
-        >
-          <TableCell className="border p-1 text-xs" style={{ paddingLeft: `${level * 20 + 8}px` }}>
-            <div className="flex items-center">
-              {level > 0 && <span className="text-gray-400 mr-2 text-xs">└</span>}
-              {isParent && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    accountOps.toggleAccount(account.id);
-                  }}
-                  className="mr-2 p-1 hover:bg-gray-200 rounded transition-colors"
-                >
-                  {isCollapsed ? "▶" : "▼"}
-                </button>
-              )}
-              <span className="font-semibold">{account.name}</span>
-            </div>
-          </TableCell>
-          <TableCell className="border p-1 text-right text-xs">
-            {formatNumber(isParent && isCollapsed ? accountTotal : directTotal)}
-          </TableCell>
-          <TableCell className="border p-1 text-right text-xs text-slate-600">
-            {formatPercentageForAccount(isParent && isCollapsed ? accountTotal : directTotal)}
-          </TableCell>
-        </TableRow>
-
-        {!isCollapsed && subaccounts.map((sub) => renderAccountRow(sub, level + 1))}
-
-        {isParent && !isCollapsed && (
-          <TableRow
-            className="cursor-pointer hover:bg-blue-50"
-            onClick={() => setViewerModal({ isOpen: true, category: account })}
-          >
-            <TableCell className="border p-1 text-xs bg-gray-50" style={{ paddingLeft: `${level * 20 + 8}px` }}>
-              <span className="font-semibold">Total {account.name}</span>
-            </TableCell>
-            <TableCell className="border p-1 text-right font-semibold bg-gray-50 text-xs">
-              {formatNumber(accountTotal)}
-            </TableCell>
-            <TableCell className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
-              {formatPercentageForAccount(accountTotal)}
-            </TableCell>
-          </TableRow>
-        )}
-      </React.Fragment>
+      <AccountRowRenderer
+        key={account.id}
+        account={account}
+        level={level}
+        accounts={accounts}
+        journalEntries={journalEntries}
+        isMonthlyView={false}
+        showPercentages={true}
+        startDate={startDate}
+        endDate={asOfDate}
+        collapsedAccounts={collapsedAccounts}
+        toggleAccount={toggleAccount}
+        calculateAccountTotal={calculateBalanceSheetAccountTotalWithSubaccounts}
+        calculateAccountDirectTotal={calculateBalanceSheetAccountTotal}
+        setViewerModal={setViewerModal}
+        formatPercentageForAccount={(num) => formatPercentageForAccount(num)}
+      />
     );
   };
 
@@ -314,14 +284,18 @@ export default function BalanceSheetPage() {
     <div className="p-6 bg-white min-h-screen">
       <div className="max-w-7xl mx-auto">
         <ReportHeader
-          startDate={periodData.startDate}
+          startDate={startDate}
           endDate={asOfDate}
-          setStartDate={periodData.setStartDate}
+          setStartDate={setStartDate}
           setEndDate={setAsOfDate}
-          selectedPeriod={periodData.selectedPeriod}
-          selectedDisplay={periodData.selectedDisplay}
-          handlePeriodChange={periodData.handlePeriodChange}
-          handleDisplayChange={periodData.handleDisplayChange}
+          selectedPeriod={selectedPeriod}
+          selectedPrimaryDisplay={selectedPrimaryDisplay}
+          selectedSecondaryDisplay={selectedSecondaryDisplay}
+          handlePeriodChange={handlePeriodChange}
+          handlePrimaryDisplayChange={handlePrimaryDisplayChange}
+          handleSecondaryDisplayChange={handleSecondaryDisplayChange}
+          onCollapseAllCategories={collapseAllParentCategories}
+          hasCollapsedCategories={hasCollapsedCategories}
           exportToXLSX={exportToXLSX}
           loading={loading}
         />

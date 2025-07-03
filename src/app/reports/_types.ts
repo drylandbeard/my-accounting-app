@@ -39,7 +39,12 @@ export type PeriodType =
   | "thisYearToLastMonth"
   | "thisYearToToday";
 
-export type DisplayType = "byMonth" | "withPercentages";
+export type PrimaryDisplayType = "byMonth" | "totalOnly";
+export type SecondaryDisplayType = "withPercentages" | "withoutPercentages";
+export type CategoryCollapseType = "expanded" | "collapsed";
+
+// New type for the collapse button action
+export type CollapseActionType = "collapse" | "none";
 
 export type DateRangeType =
   | "currentMonth"
