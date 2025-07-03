@@ -4,6 +4,7 @@ import React, { useState, useMemo } from "react";
 import { useAuthStore } from "@/zustand/authStore";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import ExcelJS from "exceljs";
 
 // Shared imports
@@ -209,7 +210,7 @@ export default function PnLPage() {
           className="cursor-pointer hover:bg-gray-100"
           onClick={() => setViewerModal({ isOpen: true, category: account })}
         >
-          <TableCell className="border p-1 text-xs" style={{ paddingLeft: `${level * 20 + 8}px` }}>
+          <TableCell className="border p-1 text-xs" style={{ paddingLeft: `${level * 24 + 8}px` }}>
             <div className="flex items-center">
               {level > 0 && <span className="text-gray-400 mr-2 text-xs">└</span>}
               {isParent && (
@@ -220,7 +221,11 @@ export default function PnLPage() {
                   }}
                   className="mr-2 p-1 hover:bg-gray-200 rounded transition-colors"
                 >
-                  {isCollapsed ? "▶" : "▼"}
+                  {isCollapsed ? (
+                    <ChevronRight className="w-3 h-3 text-gray-600" />
+                  ) : (
+                    <ChevronDown className="w-3 h-3 text-gray-600" />
+                  )}
                 </button>
               )}
               <span className="font-semibold">{account.name}</span>
@@ -286,7 +291,7 @@ export default function PnLPage() {
             className="cursor-pointer hover:bg-blue-50"
             onClick={() => setViewerModal({ isOpen: true, category: account })}
           >
-            <TableCell className="border p-1 text-xs bg-gray-50" style={{ paddingLeft: `${level * 20 + 8}px` }}>
+            <TableCell className="border p-1 text-xs bg-gray-50" style={{ paddingLeft: `${(level + 1) * 24 + 8}px` }}>
               <span className="font-semibold">Total {account.name}</span>
             </TableCell>
             {periodData.isMonthlyView ? (
