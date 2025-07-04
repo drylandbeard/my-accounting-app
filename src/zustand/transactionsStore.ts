@@ -1385,7 +1385,10 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
     try {
       set({ isLoading: true, error: null });
 
-      const response = await api.post('/api/manual-journal', entryData);
+      const response = await api.post('/api/manual-journal', {
+        ...entryData,
+        companyId
+      });
 
       if (!response.ok) {
         const error = await response.json();
