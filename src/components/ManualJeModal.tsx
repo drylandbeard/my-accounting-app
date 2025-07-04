@@ -567,16 +567,10 @@ export default function ManualJeModal({
                 onClick={addEditJournalLine}
                 className="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded border"
               >
-                Add lines
+                Split (Add Line)
               </button>
               
               <div className="flex space-x-3">
-                <button
-                  onClick={() => setEditModal(prev => ({ ...prev, isOpen: false }))}
-                  className="px-4 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
                 <button
                   onClick={handleSaveEditEntry}
                   disabled={editModal.saving || (() => {

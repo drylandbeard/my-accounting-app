@@ -343,7 +343,7 @@ export default function TransactionModal({
                 onClick={onAddLine}
                 className="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded border"
               >
-                Split
+                 Split (Add Line)
               </button>
               
               <button
