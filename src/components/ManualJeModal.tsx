@@ -16,6 +16,7 @@ export type JournalEntryLine = {
 export type NewJournalEntry = {
   date: string;
   description: string;
+  jeName: string;
   lines: JournalEntryLine[];
 };
 
@@ -136,8 +137,8 @@ export default function ManualJeModal({
                 <label className="block text-sm font-medium text-gray-700 mb-2">JE Name</label>
                 <input
                   type="text"
-                  value={newEntry.description}
-                  onChange={(e) => setNewEntry(prev => ({ ...prev, description: e.target.value }))}
+                  value={newEntry.jeName}
+                  onChange={(e) => setNewEntry(prev => ({ ...prev, jeName: e.target.value }))}
                   className="border px-3 py-2 rounded text-sm w-full"
                   placeholder="Enter journal entry name"
                 />
@@ -373,10 +374,10 @@ export default function ManualJeModal({
                 <label className="block text-sm font-medium text-gray-700 mb-2">JE Name</label>
                 <input
                   type="text"
-                  value={editModal.editEntry.description}
+                  value={editModal.editEntry.jeName}
                   onChange={(e) => setEditModal(prev => ({
                     ...prev,
-                    editEntry: { ...prev.editEntry, description: e.target.value }
+                    editEntry: { ...prev.editEntry, jeName: e.target.value }
                   }))}
                   className="border px-3 py-2 rounded text-sm w-full"
                   placeholder="Enter journal entry name"

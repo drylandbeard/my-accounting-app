@@ -61,6 +61,7 @@ export default function JournalTablePage() {
   const [newEntry, setNewEntry] = useState<NewJournalEntry>({
     date: new Date().toISOString().split('T')[0],
     description: '',
+    jeName: '',
     lines: [
       {
         id: '1',
@@ -121,6 +122,7 @@ export default function JournalTablePage() {
     editEntry: {
       date: '',
       description: '',
+      jeName: '',
       lines: []
     },
     saving: false,
@@ -500,6 +502,7 @@ export default function JournalTablePage() {
         editEntry: {
           date: '',
           description: '',
+          jeName: '',
           lines: []
         },
         saving: false,
@@ -656,6 +659,7 @@ export default function JournalTablePage() {
         editEntry: {
           date: firstEntry?.date || new Date().toISOString().split('T')[0],
           description: firstEntry?.description || '',
+          jeName: '',
           lines: editLines
         },
         isLoading: false,
@@ -702,6 +706,7 @@ export default function JournalTablePage() {
       setNewEntry({
         date: new Date().toISOString().split('T')[0],
         description: '',
+        jeName: '',
         lines: [
           {
             id: '1',
@@ -1027,7 +1032,7 @@ export default function JournalTablePage() {
       setManualEditModal({
         isOpen: false,
         referenceNumber: '',
-        editEntry: { date: '', description: '', lines: [] },
+        editEntry: { date: '', description: '', jeName: '', lines: [] },
         saving: false,
         error: null
       });
@@ -1541,7 +1546,7 @@ export default function JournalTablePage() {
         // Add Modal Props (not used for edit mode)
         showAddModal={false}
         setShowAddModal={() => {}}
-        newEntry={{ date: '', description: '', lines: [] }}
+        newEntry={{ date: '', description: '', jeName: '', lines: [] }}
         setNewEntry={() => {}}
         saving={false}
         isBalanced={true}

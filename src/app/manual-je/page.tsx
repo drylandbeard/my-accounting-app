@@ -58,6 +58,7 @@ export default function JournalTablePage() {
   const [newEntry, setNewEntry] = useState<NewJournalEntry>({
     date: new Date().toISOString().split('T')[0],
     description: '',
+    jeName: '',
     lines: [
       {
         id: '1',
@@ -119,6 +120,7 @@ export default function JournalTablePage() {
     editEntry: {
       date: '',
       description: '',
+      jeName: '',
       lines: []
     },
     saving: false,
@@ -499,6 +501,7 @@ export default function JournalTablePage() {
       editEntry: {
         date: entry.date,
         description: entry.description || '',
+        jeName: '',
         lines: editLines
       },
       saving: false,
@@ -598,6 +601,7 @@ export default function JournalTablePage() {
       setNewEntry({
         date: new Date().toISOString().split('T')[0],
         description: '',
+        jeName: '',
         lines: [
           {
             id: '1',
@@ -638,7 +642,7 @@ export default function JournalTablePage() {
       // Use the manual journal entry save function
       const result = await saveManualJournalEntry({
         date: newEntry.date,
-        jeName: newEntry.description,
+        jeName: newEntry.jeName,
         lines: newEntry.lines.map(line => ({
           description: line.description,
           categoryId: line.categoryId,
@@ -711,7 +715,7 @@ export default function JournalTablePage() {
       const success = await updateManualJournalEntry({
         referenceNumber: editModal.referenceNumber,
         date: editModal.editEntry.date,
-        jeName: editModal.editEntry.description,
+        jeName: editModal.editEntry.jeName,
         lines: editModal.editEntry.lines.map(line => ({
           description: line.description,
           categoryId: line.categoryId,
@@ -730,7 +734,7 @@ export default function JournalTablePage() {
       setEditModal({
         isOpen: false,
         referenceNumber: '',
-        editEntry: { date: '', description: '', lines: [] },
+        editEntry: { date: '', description: '', jeName: '', lines: [] },
         saving: false,
         error: null
       });
