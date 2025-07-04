@@ -14,12 +14,13 @@ export async function GET(request: NextRequest) {
   try {
     const url = new URL(request.url);
     const companyId = url.searchParams.get('company_id');
+    const referenceNumber = url.searchParams.get('reference_number');
 
     if (!companyId) {
       return NextResponse.json({ error: 'Company ID is required' }, { status: 400 });
     }
 
-    const { data: entries, error } = await supabase
+    let query = supabase
       .from('manual_journal_entries')
       .select(`
         *,
@@ -30,7 +31,14 @@ export async function GET(request: NextRequest) {
           subtype
         )
       `)
-      .eq('company_id', companyId)
+      .eq('company_id', companyId);
+
+    // If reference number is provided, filter by it
+    if (referenceNumber) {
+      query = query.eq('reference_number', referenceNumber);
+    }
+
+    const { data: entries, error } = await query
       .order('date', { ascending: false })
       .order('created_at', { ascending: false });
 
@@ -50,7 +58,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { companyId, date, lines, referenceNumber } = body;
+    const { companyId, date, jeName, lines, referenceNumber } = body;
 
     if (!companyId || !date || !lines || !Array.isArray(lines)) {
       return NextResponse.json({ 
@@ -88,6 +96,7 @@ export async function POST(request: NextRequest) {
         chart_account_id: line.categoryId,
         payee_id: line.payeeId || null,
         reference_number: finalReferenceNumber,
+        je_name: jeName || null,
       }));
 
     if (journalEntries.length === 0) {

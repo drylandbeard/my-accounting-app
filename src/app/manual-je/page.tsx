@@ -501,7 +501,7 @@ export default function JournalTablePage() {
       editEntry: {
         date: entry.date,
         description: entry.description || '',
-        jeName: '',
+        jeName: entry.je_name || '',
         lines: editLines
       },
       saving: false,

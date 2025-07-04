@@ -659,7 +659,7 @@ export default function JournalTablePage() {
         editEntry: {
           date: firstEntry?.date || new Date().toISOString().split('T')[0],
           description: firstEntry?.description || '',
-          jeName: '',
+          jeName: firstEntry?.je_name || '',
           lines: editLines
         },
         isLoading: false,
