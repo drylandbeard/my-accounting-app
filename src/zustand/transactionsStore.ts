@@ -559,34 +559,13 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
     }
   },
 
-  // Fetch journal entries from both journal and manual_journal_entries tables
+  // Fetch journal entries from both journal and manual_journal_entries tables with pagination
   fetchJournalEntries: async (companyId: string) => {
     try {
       set({ isLoading: true, error: null });
 
-      // Fetch journal entries from the journal table with related data
-      const { data: journalEntries, error: journalError } = await supabase
-        .from('journal')
-        .select(`
-          *,
-          transactions!inner(payee_id, corresponding_category_id)
-        `)
-        .eq('company_id', companyId)
-        .order('date', { ascending: false });
-
-      if (journalError) throw journalError;
-
-      // Fetch manual journal entries
-      const { data: manualJournalEntries, error: manualError } = await supabase
-        .from('manual_journal_entries')
-        .select('*')
-        .eq('company_id', companyId)
-        .order('date', { ascending: false });
-
-      if (manualError) throw manualError;
-
-      // Process regular journal entries
-      const processedJournalEntries: JournalTableEntry[] = (journalEntries || []).map((entry: {
+      // Fetch ALL journal entries with pagination
+      type JournalEntryRow = {
         id: string;
         date: string;
         description: string;
@@ -599,18 +578,43 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
           payee_id?: string;
           corresponding_category_id: string;
         };
-      }) => ({
-        ...entry,
-        is_manual_entry: false,
-        entry_source: 'journal' as const,
-        transactions: {
-          payee_id: entry.transactions?.payee_id,
-          description: entry.description
-        }
-      }));
+      };
+      
+      let allJournalEntries: JournalEntryRow[] = [];
+      let page = 0;
+      const pageSize = 1000;
+      let hasMore = true;
 
-      // Process manual journal entries
-      const processedManualEntries: JournalTableEntry[] = (manualJournalEntries || []).map((entry: {
+      // Fetch all pages of journal entries
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from('journal')
+          .select(`
+            *,
+            transactions!inner(payee_id, corresponding_category_id)
+          `)
+          .eq('company_id', companyId)
+          .range(page * pageSize, (page + 1) * pageSize - 1)
+          .order('date', { ascending: false });
+
+        if (error) throw error;
+
+        if (data && data.length > 0) {
+          allJournalEntries = allJournalEntries.concat(data as JournalEntryRow[]);
+          
+          // If we got less than pageSize, we've reached the end
+          if (data.length < pageSize) {
+            hasMore = false;
+          } else {
+            page++;
+          }
+        } else {
+          hasMore = false;
+        }
+      }
+
+      // Fetch ALL manual journal entries with pagination
+      type ManualJournalEntryRow = {
         id: string;
         date: string;
         description: string;
@@ -622,7 +626,50 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
         reference_number: string;
         created_at: string;
         updated_at: string;
-      }) => ({
+      };
+
+      let allManualJournalEntries: ManualJournalEntryRow[] = [];
+      page = 0;
+      hasMore = true;
+
+      // Fetch all pages of manual journal entries
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from('manual_journal_entries')
+          .select('*')
+          .eq('company_id', companyId)
+          .range(page * pageSize, (page + 1) * pageSize - 1)
+          .order('date', { ascending: false });
+
+        if (error) throw error;
+
+        if (data && data.length > 0) {
+          allManualJournalEntries = allManualJournalEntries.concat(data as ManualJournalEntryRow[]);
+          
+          // If we got less than pageSize, we've reached the end
+          if (data.length < pageSize) {
+            hasMore = false;
+          } else {
+            page++;
+          }
+        } else {
+          hasMore = false;
+        }
+      }
+
+      // Process regular journal entries
+      const processedJournalEntries: JournalTableEntry[] = allJournalEntries.map((entry: JournalEntryRow) => ({
+        ...entry,
+        is_manual_entry: false,
+        entry_source: 'journal' as const,
+        transactions: {
+          payee_id: entry.transactions?.payee_id,
+          description: entry.description
+        }
+      }));
+
+      // Process manual journal entries
+      const processedManualEntries: JournalTableEntry[] = allManualJournalEntries.map((entry: ManualJournalEntryRow) => ({
         ...entry,
         transaction_id: entry.reference_number, // Use reference_number as transaction_id for manual entries
         is_split_item: false,
@@ -655,16 +702,41 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
     ]);
   },
 
-  // Fetch imported transaction splits
+  // Fetch imported transaction splits with pagination
   fetchImportedTransactionSplits: async (companyId: string) => {
     try {
-      const { data } = await supabase
-        .from('imported_transactions_split')
-        .select('*')
-        .eq('company_id', companyId)
-        .order('created_at', { ascending: false });
+      // Fetch ALL imported transaction splits with pagination
+      let allSplits: ImportedTransactionSplit[] = [];
+      let page = 0;
+      const pageSize = 1000;
+      let hasMore = true;
+
+      // Fetch all pages of splits
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from('imported_transactions_split')
+          .select('*')
+          .eq('company_id', companyId)
+          .range(page * pageSize, (page + 1) * pageSize - 1)
+          .order('created_at', { ascending: false });
+
+        if (error) throw error;
+
+        if (data && data.length > 0) {
+          allSplits = allSplits.concat(data as ImportedTransactionSplit[]);
+          
+          // If we got less than pageSize, we've reached the end
+          if (data.length < pageSize) {
+            hasMore = false;
+          } else {
+            page++;
+          }
+        } else {
+          hasMore = false;
+        }
+      }
       
-      set({ importedTransactionSplits: data || [] });
+      set({ importedTransactionSplits: allSplits });
     } catch (error) {
       console.error('Error fetching imported transaction splits:', error);
       set({ error: 'Failed to fetch imported transaction splits' });
