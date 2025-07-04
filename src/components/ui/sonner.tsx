@@ -12,7 +12,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
       className="toaster group"
       position="top-right"
       offset={{
-        top: "72px",
+        top: "90px",
         right: "24px",
       }}
       closeButton
