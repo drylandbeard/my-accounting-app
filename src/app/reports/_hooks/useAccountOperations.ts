@@ -17,6 +17,8 @@ interface UseAccountOperationsReturn {
   calculateAccountTotal: (account: Account) => number;
   calculateAccountTotalForMonth: (account: Account, month: string) => number;
   calculateAccountTotalForMonthWithSubaccounts: (account: Account, month: string) => number;
+  calculateAccountTotalForQuarter: (account: Account, quarter: string) => number;
+  calculateAccountTotalForQuarterWithSubaccounts: (account: Account, quarter: string) => number;
   collapseAllParentCategories: () => void;
 }
 
@@ -153,6 +155,49 @@ export const useAccountOperations = ({
     return total;
   };
 
+  // Calculate account total for a specific quarter
+  const calculateAccountTotalForQuarter = (account: Account, quarter: string): number => {
+    // Parse quarter string like "2024-Q1" to get year and quarter number
+    const [year, quarterNum] = quarter.split("-Q");
+    const startMonth = (parseInt(quarterNum) - 1) * 3 + 1; // Q1=1, Q2=4, Q3=7, Q4=10
+    const endMonth = startMonth + 2;
+
+    const quarterTransactions = journalEntries.filter((tx) => {
+      if (tx.chart_account_id !== account.id) return false;
+      const txDate = new Date(tx.date);
+      const txYear = txDate.getFullYear();
+      const txMonth = txDate.getMonth() + 1; // getMonth() is 0-indexed
+      return txYear === parseInt(year) && txMonth >= startMonth && txMonth <= endMonth;
+    });
+
+    if (account.type === "Revenue") {
+      return quarterTransactions.reduce((sum, tx) => sum + Number(tx.credit), 0);
+    } else if (account.type === "Expense" || account.type === "COGS") {
+      const totalDebits = quarterTransactions.reduce((sum, tx) => sum + Number(tx.debit), 0);
+      const totalCredits = quarterTransactions.reduce((sum, tx) => sum + Number(tx.credit), 0);
+      return totalDebits - totalCredits;
+    } else if (account.type === "Asset") {
+      const totalDebits = quarterTransactions.reduce((sum, tx) => sum + Number(tx.debit), 0);
+      const totalCredits = quarterTransactions.reduce((sum, tx) => sum + Number(tx.credit), 0);
+      return totalDebits - totalCredits;
+    } else if (account.type === "Liability" || account.type === "Equity") {
+      const totalCredits = quarterTransactions.reduce((sum, tx) => sum + Number(tx.credit), 0);
+      const totalDebits = quarterTransactions.reduce((sum, tx) => sum + Number(tx.debit), 0);
+      return totalCredits - totalDebits;
+    }
+    return 0;
+  };
+
+  // Calculate roll-up total for an account for a specific quarter
+  const calculateAccountTotalForQuarterWithSubaccounts = (account: Account, quarter: string): number => {
+    let total = calculateAccountTotalForQuarter(account, quarter);
+    const subaccounts = getSubaccounts(accounts, account.id);
+    for (const sub of subaccounts) {
+      total += calculateAccountTotalForQuarterWithSubaccounts(sub, quarter);
+    }
+    return total;
+  };
+
   return {
     collapsedAccounts,
     toggleAccount,
@@ -161,6 +206,8 @@ export const useAccountOperations = ({
     calculateAccountTotal,
     calculateAccountTotalForMonth,
     calculateAccountTotalForMonthWithSubaccounts,
+    calculateAccountTotalForQuarter,
+    calculateAccountTotalForQuarterWithSubaccounts,
     collapseAllParentCategories,
   };
 };

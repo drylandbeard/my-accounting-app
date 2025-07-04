@@ -12,6 +12,7 @@ interface UsePeriodSelectionReturn {
   endDate: string;
   showPercentages: boolean;
   isMonthlyView: boolean;
+  isQuarterlyView: boolean;
   setStartDate: (date: string) => void;
   setEndDate: (date: string) => void;
   handlePeriodChange: (period: string) => void;
@@ -27,6 +28,7 @@ export const usePeriodSelection = (): UsePeriodSelectionReturn => {
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
   const [isMonthlyView, setIsMonthlyView] = useState(true);
+  const [isQuarterlyView, setIsQuarterlyView] = useState(false);
   const [showPercentages, setShowPercentages] = useState(false);
 
   // Handle period selector changes
@@ -77,6 +79,7 @@ export const usePeriodSelection = (): UsePeriodSelectionReturn => {
     setSelectedPrimaryDisplay(display as PrimaryDisplayType);
     // Set monthly view based on primary display
     setIsMonthlyView(display === "byMonth");
+    setIsQuarterlyView(display === "byQuarter");
   };
 
   const handleSecondaryDisplayChange = (display: string) => {
@@ -104,6 +107,7 @@ export const usePeriodSelection = (): UsePeriodSelectionReturn => {
     endDate,
     showPercentages,
     isMonthlyView,
+    isQuarterlyView,
     setStartDate,
     setEndDate,
     handlePeriodChange,
