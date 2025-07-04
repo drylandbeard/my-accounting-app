@@ -2206,8 +2206,14 @@ export default function TransactionsPage() {
       const isImportedTransaction = editJournalModal.transactionId && imported.some(tx => tx.id === editJournalModal.transactionId);
       
       if (isImportedTransaction) {
-        // Save to imported_transactions_split table
-        const result = await saveImportedTransactionSplit(
+        // For "To Add" table transactions, we need to move them to "Added" table
+        const importedTransaction = imported.find(tx => tx.id === editJournalModal.transactionId);
+        if (!importedTransaction) {
+          throw new Error('Imported transaction not found');
+        }
+
+        // Save split data first
+        const splitResult = await saveImportedTransactionSplit(
           editJournalModal.transactionId,
           {
             date: editJournalModal.editEntry.date,
@@ -2217,16 +2223,39 @@ export default function TransactionsPage() {
           currentCompany!.id
         );
 
-        if (result.success) {
-          setNotification({ type: "success", message: "Split transaction saved successfully!" });
-          setEditJournalModal((prev) => ({ ...prev, isOpen: false }));
-        } else {
+        if (!splitResult.success) {
           setEditJournalModal((prev) => ({
             ...prev,
-            error: result.error || "Failed to save split transaction",
+            error: splitResult.error || "Failed to save split transaction",
             saving: false,
           }));
+          return;
         }
+
+        // Now move the transaction to "Added" table
+        // Find the primary category (first non-account category)
+        const primaryCategoryLine = editJournalModal.editEntry.lines.find(line => 
+          line.categoryId && line.categoryId !== selectedAccountIdInCOA
+        );
+        
+        if (!primaryCategoryLine) {
+          setEditJournalModal((prev) => ({
+            ...prev,
+            error: "Please select a category for at least one line",
+            saving: false,
+          }));
+          return;
+        }
+
+        // Use addTransaction to move it to Added table
+        await addTransaction(
+          importedTransaction,
+          primaryCategoryLine.categoryId,
+          primaryCategoryLine.payeeId
+        );
+
+        setNotification({ type: "success", message: "Transaction added successfully!" });
+        setEditJournalModal((prev) => ({ ...prev, isOpen: false }));
         return;
       }
 
@@ -4496,6 +4525,7 @@ export default function TransactionsPage() {
         accounts={accounts}
         selectedAccountId={selectedAccountId}
         selectedAccountCategoryId={selectedAccountIdInCOA}
+        isToAddTable={!!editJournalModal.transactionId && imported.some(tx => tx.id === editJournalModal.transactionId)}
         isZeroAmount={(amount: string) => !amount || parseFloat(amount) === 0}
         onClose={() => setEditJournalModal(prev => ({ ...prev, isOpen: false }))}
         onUpdateLine={updateEditJournalLine}
