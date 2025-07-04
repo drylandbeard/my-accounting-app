@@ -34,6 +34,7 @@ import {
   compareAmounts,
   isPositiveAmount,
 } from "@/lib/financial";
+import { showSuccessToast, showErrorToast } from '@/lib/utils';
 
 // @dnd-kit imports
 import {
@@ -216,9 +217,7 @@ export default function TransactionsPage() {
     isSyncing,
     isAddingTransactions,
     isUndoingTransactions,
-    notification,
     setSelectedAccountId,
-    setNotification,
     createLinkToken,
     refreshAll,
     addTransactions,
@@ -520,8 +519,7 @@ export default function TransactionsPage() {
 
     await storeSyncTransactions(currentCompany!.id);
 
-    // Clear notification after 4 seconds
-    setTimeout(() => setNotification(null), 4000);
+    // Notification handled by store toast
   };
 
   // 1️⃣ Plaid Link Token - now handled by store
@@ -571,10 +569,7 @@ export default function TransactionsPage() {
         });
       } catch (error) {
         console.error("Error in Plaid success handler:", error);
-        setNotification({
-          type: "error",
-          message: "Failed to connect accounts. Please try again.",
-        });
+        showErrorToast("Failed to connect accounts. Please try again.");
       }
     },
   });
@@ -729,15 +724,9 @@ export default function TransactionsPage() {
                 await addTransactions(transactionRequests, selectedAccountIdInCOA, currentCompany.id);
 
                 // Show success notification for auto-added transactions
-                setNotification({
-                  type: "success",
-                  message: `🤖 ${transactionRequests.length} transaction${
-                    transactionRequests.length === 1 ? "" : "s"
-                  } automatically added!`,
-                });
-
-                // Clear automation notification after 6 seconds (longer than usual)
-                setTimeout(() => setNotification(null), 6000);
+                showSuccessToast(`🤖 ${transactionRequests.length} transaction${
+                  transactionRequests.length === 1 ? "" : "s"
+                } automatically added!`);
 
                 // Clean up state for auto-added transactions
                 setSelectedCategories((prev) => {
@@ -779,13 +768,7 @@ export default function TransactionsPage() {
             messages.push(`${appliedCategoryCount} suggested categor${appliedCategoryCount === 1 ? "y" : "ies"}`);
           }
 
-          setNotification({
-            type: "success",
-            message: `✨ ${messages.join(" and ")} applied!`,
-          });
-
-          // Clear automation notification after 6 seconds (longer than usual)
-          setTimeout(() => setNotification(null), 6000);
+          showSuccessToast(`✨ ${messages.join(" and ")} applied!`);
         }
       }
     } catch (error) {
@@ -1609,10 +1592,10 @@ export default function TransactionsPage() {
       }
 
       setNewPayeeModal({ isOpen: false, name: "", transactionId: null });
-      setNotification({ type: "success", message: "Payee created successfully" });
+      showSuccessToast("Payee created successfully");
     } else {
       console.error("Error creating payee:", result.error);
-      setNotification({ type: "error", message: result.error || "Failed to create payee" });
+      showErrorToast(result.error || "Failed to create payee");
     }
   };
 
@@ -1684,7 +1667,7 @@ export default function TransactionsPage() {
       }
     } catch (error) {
       console.error("Error deleting account:", error);
-      setNotification({ type: "error", message: "Failed to delete account. Please try again." });
+      showErrorToast("Failed to delete account. Please try again.");
     }
   };
 
@@ -1721,7 +1704,7 @@ export default function TransactionsPage() {
       .reduce((sum, tx) => sum + tx.amount, 0);
 
     if (Math.abs(totalDebits - totalCredits) > 0.01) {
-      setNotification({ type: "error", message: "Total debits must equal total credits" });
+      showErrorToast("Total debits must equal total credits");
       return;
     }
 
@@ -1743,7 +1726,7 @@ export default function TransactionsPage() {
       }
     } catch (error) {
       console.error("Error updating journal entry:", error);
-      setNotification({ type: "error", message: "Failed to update journal entry. Please try again." });
+      showErrorToast("Failed to update journal entry. Please try again.");
     }
   };
 
@@ -2253,7 +2236,7 @@ export default function TransactionsPage() {
           primaryCategoryLine.payeeId
         );
 
-        setNotification({ type: "success", message: "Transaction added successfully!" });
+        showSuccessToast("Transaction added successfully!");
         setEditJournalModal((prev) => ({ ...prev, isOpen: false }));
         return;
       }
@@ -2286,7 +2269,7 @@ export default function TransactionsPage() {
       // Refresh all data
       await refreshAll(currentCompany!.id);
 
-      setNotification({ type: "success", message: "Journal entries updated successfully!" });
+      showSuccessToast("Journal entries updated successfully!");
 
       // Close the modal after successful save
       setEditJournalModal((prev) => ({ ...prev, isOpen: false }));
@@ -2436,20 +2419,7 @@ export default function TransactionsPage() {
   return (
     <div className="p-4 bg-white text-gray-900 font-sans text-xs space-y-6">
       <div className="flex justify-end items-center mb-4">
-        {notification && (
-          <div
-            className={`fixed top-6 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3 rounded shadow-lg text-sm font-medium flex items-center space-x-2 ${
-              notification.type === "success"
-                ? "bg-green-100 text-green-800 border border-green-300"
-                : "bg-red-100 text-red-800 border border-red-300"
-            }`}
-          >
-            <span>{notification.message}</span>
-            <button onClick={() => setNotification(null)} className="ml-2 text-xs text-gray-500 hover:text-gray-800">
-              ✕
-            </button>
-          </div>
-        )}
+
         <div className="flex flex-row items-center space-x-2">
           <button
             onClick={syncTransactions}
@@ -2814,12 +2784,9 @@ export default function TransactionsPage() {
                                 }));
 
                                 // Show success message
-                                setNotification({
-                                  type: "success",
-                                  message: `Successfully imported ${
-                                    result.count || selectedTransactions.length
-                                  } transactions!`,
-                                });
+                                showSuccessToast(`Successfully imported ${
+                                  result.count || selectedTransactions.length
+                                } transactions!`);
                               } else {
                                 throw new Error(result.error || "Failed to import transactions");
                               }
@@ -3776,7 +3743,7 @@ export default function TransactionsPage() {
                     }
                   } catch (error) {
                     console.error("Error deleting journal entry:", error);
-                    setNotification({ type: "error", message: "Failed to delete journal entry. Please try again." });
+                    showErrorToast("Failed to delete journal entry. Please try again.");
                   }
                 }}
                 className="px-4 py-2 text-sm bg-red-600 text-white rounded hover:bg-red-700"
@@ -4572,10 +4539,7 @@ export default function TransactionsPage() {
                   // Get the corresponding category ID (the account category)
                   const correspondingCategoryId = selectedAccountIdInCOA;
                   if (!correspondingCategoryId) {
-                    setNotification({
-                      type: "error",
-                      message: "No account category found for selected account",
-                    });
+                    showErrorToast("No account category found for selected account");
                     return;
                   }
 
