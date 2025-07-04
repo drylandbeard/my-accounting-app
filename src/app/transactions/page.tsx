@@ -3777,7 +3777,7 @@ export default function TransactionsPage() {
             To Add
             {importedFiltered.length > 0 && (
               <span className="ml-2 bg-gray-100 text-gray-900 py-0.5 px-2 rounded-full text-xs">
-                {importedFiltered.length}
+                {importedFiltered?.length.toLocaleString()}
               </span>
             )}
           </button>
@@ -3792,7 +3792,7 @@ export default function TransactionsPage() {
             Added
             {confirmedFiltered.length > 0 && (
               <span className="ml-2 bg-gray-100 text-gray-900 py-0.5 px-2 rounded-full text-xs">
-                {confirmedFiltered.length}
+                {confirmedFiltered?.length.toLocaleString()}
               </span>
             )}
           </button>

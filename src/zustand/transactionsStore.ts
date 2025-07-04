@@ -340,37 +340,104 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
     }
   },
   
-  // Fetch imported transactions
+  // Fetch imported transactions with pagination to handle more than 1000 rows
   fetchImportedTransactions: async (companyId: string) => {
     try {
-      const { data } = await supabase
-        .from('imported_transactions')
-        .select('id, date, description, spent, received, plaid_account_id, plaid_account_name, selected_category_id, payee_id, company_id')
-        .eq('company_id', companyId)
-        .neq('plaid_account_name', null);
-      
-      if (data && data.length > 0) {
-        // Get split entry counts for each imported transaction to detect splits
-        const transactionIds = data.map(tx => tx.id);
-        const { data: splitCounts } = await supabase
-          .from('imported_transactions_split')
-          .select('imported_transaction_id')
+      type ImportedTransactionRow = {
+        id: string;
+        date: string;
+        description: string;
+        spent: number | null;
+        received: number | null;
+        plaid_account_id: string | null;
+        plaid_account_name: string | null;
+        selected_category_id: string | null;
+        payee_id: string | null;
+        company_id: string;
+      };
+
+      type SplitCountRow = {
+        imported_transaction_id: string;
+      };
+
+      // Fetch ALL imported transactions with pagination
+      let allTransactionData: ImportedTransactionRow[] = [];
+      let page = 0;
+      const pageSize = 1000;
+      let hasMore = true;
+
+      // Fetch all pages of data
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from('imported_transactions')
+          .select('id, date, description, spent, received, plaid_account_id, plaid_account_name, selected_category_id, payee_id, company_id')
           .eq('company_id', companyId)
-          .in('imported_transaction_id', transactionIds);
+          .neq('plaid_account_name', null)
+          .range(page * pageSize, (page + 1) * pageSize - 1)
+          .order('date', { ascending: false });
+
+        if (error) {
+          console.error('Error fetching imported transactions page:', error);
+          break;
+        }
+
+        if (data && data.length > 0) {
+          allTransactionData = [...allTransactionData, ...data];
+          page++;
+          hasMore = data.length === pageSize;
+        } else {
+          hasMore = false;
+        }
+      }
+
+      console.log(`Total imported transactions fetched: ${allTransactionData.length}`);
+      
+      if (allTransactionData.length > 0) {
+        // Get split entry counts for each imported transaction to detect splits
+        const transactionIds = allTransactionData.map(tx => tx.id);
+        
+        // Fetch split counts with pagination if needed
+        let allSplitCounts: SplitCountRow[] = [];
+        page = 0;
+        hasMore = true;
+
+        while (hasMore) {
+          const { data: splitCounts, error: splitError } = await supabase
+            .from('imported_transactions_split')
+            .select('imported_transaction_id')
+            .eq('company_id', companyId)
+            .in('imported_transaction_id', transactionIds.slice(page * pageSize, (page + 1) * pageSize))
+            .range(0, 9999); // Large range since we're already filtering by transaction IDs
+
+          if (splitError) {
+            console.error('Error fetching split counts:', splitError);
+            break;
+          }
+
+          if (splitCounts && splitCounts.length > 0) {
+            allSplitCounts = [...allSplitCounts, ...splitCounts];
+          }
+
+          page++;
+          hasMore = transactionIds.length > page * pageSize;
+        }
         
         // Count split entries per transaction
         const splitCountMap = new Map<string, number>();
-        (splitCounts || []).forEach(entry => {
+        allSplitCounts.forEach(entry => {
           const count = splitCountMap.get(entry.imported_transaction_id) || 0;
           splitCountMap.set(entry.imported_transaction_id, count + 1);
         });
         
         // Add split detection to transactions
-        const transactionsWithSplitInfo = data.map(tx => ({
+        const transactionsWithSplitInfo = allTransactionData.map(tx => ({
           ...tx,
+          // Convert numeric values to strings as expected by Transaction type
+          spent: tx.spent ? tx.spent.toString() : undefined,
+          received: tx.received ? tx.received.toString() : undefined,
           // A transaction is split if it has more than 2 split entries
           has_split: (splitCountMap.get(tx.id) || 0) > 2
-        }));
+        })) as Transaction[];
         
         set({ importedTransactions: transactionsWithSplitInfo });
       } else {
@@ -382,37 +449,105 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
     }
   },
   
-  // Fetch confirmed transactions
+  // Fetch confirmed transactions with pagination to handle more than 1000 rows
   fetchConfirmedTransactions: async (companyId: string) => {
     try {
-      const { data } = await supabase
-        .from('transactions')
-        .select('id, date, description, spent, received, plaid_account_id, plaid_account_name, selected_category_id, corresponding_category_id, payee_id, company_id')
-        .eq('company_id', companyId)
-        .neq('plaid_account_name', null);
-      
-      if (data && data.length > 0) {
-        // Get journal entry counts for each transaction to detect splits
-        const transactionIds = data.map(tx => tx.id);
-        const { data: journalCounts } = await supabase
-          .from('journal')
-          .select('transaction_id')
+      type ConfirmedTransactionRow = {
+        id: string;
+        date: string;
+        description: string;
+        spent: number | null;
+        received: number | null;
+        plaid_account_id: string | null;
+        plaid_account_name: string | null;
+        selected_category_id: string | null;
+        corresponding_category_id: string | null;
+        payee_id: string | null;
+        company_id: string;
+      };
+
+      type JournalCountRow = {
+        transaction_id: string;
+      };
+
+      // Fetch ALL confirmed transactions with pagination
+      let allTransactionData: ConfirmedTransactionRow[] = [];
+      let page = 0;
+      const pageSize = 1000;
+      let hasMore = true;
+
+      // Fetch all pages of data
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from('transactions')
+          .select('id, date, description, spent, received, plaid_account_id, plaid_account_name, selected_category_id, corresponding_category_id, payee_id, company_id')
           .eq('company_id', companyId)
-          .in('transaction_id', transactionIds);
+          .neq('plaid_account_name', null)
+          .range(page * pageSize, (page + 1) * pageSize - 1)
+          .order('date', { ascending: false });
+
+        if (error) {
+          console.error('Error fetching confirmed transactions page:', error);
+          break;
+        }
+
+        if (data && data.length > 0) {
+          allTransactionData = [...allTransactionData, ...data];
+          page++;
+          hasMore = data.length === pageSize;
+        } else {
+          hasMore = false;
+        }
+      }
+
+      console.log(`Total confirmed transactions fetched: ${allTransactionData.length}`);
+      
+      if (allTransactionData.length > 0) {
+        // Get journal entry counts for each transaction to detect splits
+        const transactionIds = allTransactionData.map(tx => tx.id);
+        
+        // Fetch journal counts with pagination if needed
+        let allJournalCounts: JournalCountRow[] = [];
+        page = 0;
+        hasMore = true;
+
+        while (hasMore) {
+          const { data: journalCounts, error: journalError } = await supabase
+            .from('journal')
+            .select('transaction_id')
+            .eq('company_id', companyId)
+            .in('transaction_id', transactionIds.slice(page * pageSize, (page + 1) * pageSize))
+            .range(0, 9999); // Large range since we're already filtering by transaction IDs
+
+          if (journalError) {
+            console.error('Error fetching journal counts:', journalError);
+            break;
+          }
+
+          if (journalCounts && journalCounts.length > 0) {
+            allJournalCounts = [...allJournalCounts, ...journalCounts];
+          }
+
+          page++;
+          hasMore = transactionIds.length > page * pageSize;
+        }
         
         // Count journal entries per transaction
         const journalCountMap = new Map<string, number>();
-        (journalCounts || []).forEach(entry => {
+        allJournalCounts.forEach(entry => {
           const count = journalCountMap.get(entry.transaction_id) || 0;
           journalCountMap.set(entry.transaction_id, count + 1);
         });
         
         // Add split detection to transactions
-        const transactionsWithSplitInfo = data.map(tx => ({
+        const transactionsWithSplitInfo = allTransactionData.map(tx => ({
           ...tx,
+          // Convert numeric values to strings as expected by Transaction type
+          spent: tx.spent ? tx.spent.toString() : undefined,
+          received: tx.received ? tx.received.toString() : undefined,
           // A transaction is split if it has more than 2 journal entries
           has_split: (journalCountMap.get(tx.id) || 0) > 2
-        }));
+        })) as Transaction[];
         
         set({ transactions: transactionsWithSplitInfo });
       } else {
