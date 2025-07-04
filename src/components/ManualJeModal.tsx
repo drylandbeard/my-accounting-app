@@ -120,7 +120,7 @@ export default function ManualJeModal({
               </button>
             </div>
             
-            {/* Date and Description selectors */}
+            {/* Date and JE Name selectors */}
             <div className="mb-4 grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Date</label>
@@ -133,13 +133,13 @@ export default function ManualJeModal({
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">JE Name</label>
                 <input
                   type="text"
                   value={newEntry.description}
                   onChange={(e) => setNewEntry(prev => ({ ...prev, description: e.target.value }))}
                   className="border px-3 py-2 rounded text-sm w-full"
-                  placeholder="Enter journal entry description"
+                  placeholder="Enter journal entry name"
                 />
               </div>
             </div>
@@ -354,7 +354,7 @@ export default function ManualJeModal({
               </div>
             )}
             
-            {/* Date and Description selectors */}
+            {/* Date and JE Name selectors */}
             <div className="mb-4 grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Date</label>
@@ -370,7 +370,7 @@ export default function ManualJeModal({
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">JE Name</label>
                 <input
                   type="text"
                   value={editModal.editEntry.description}
@@ -379,7 +379,7 @@ export default function ManualJeModal({
                     editEntry: { ...prev.editEntry, description: e.target.value }
                   }))}
                   className="border px-3 py-2 rounded text-sm w-full"
-                  placeholder="Enter journal entry description"
+                  placeholder="Enter journal entry name"
                 />
               </div>
             </div>

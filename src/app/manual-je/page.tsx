@@ -797,12 +797,12 @@ export default function JournalTablePage() {
         <div className="text-red-600">{error}</div>
       ) : !manualJournalEntries.length ? (
         <div className="flex flex-col items-center justify-center py-12">
-          <div className="text-gray-500 mb-4">No manual journal entries found</div>
+          <div className="text-gray-500 mb-4 text-xs">No manual journal entries found</div>
           <button
             onClick={() => setShowAddModal(true)}
-            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
+            className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-xs"
           >
-            Create Manual Journal Entry
+            Add
           </button>
         </div>
       ) : (
