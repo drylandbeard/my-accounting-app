@@ -1857,65 +1857,6 @@ export default function TransactionsPage() {
     );
   };
 
-  // Split management functions - commented out until edit modal component is implemented
-  // const addSplitItem = () => {
-  //   if (!editModal.transaction || editModal.splits.length >= 30) return;
-
-  //   const newSplit: SplitItem = {
-  //     id: uuidv4(),
-  //     date: editModal.transaction.date,
-  //     description: '',
-  //     spent: editModal.transaction.spent && isPositiveAmount(editModal.transaction.spent) ? '0.00' : undefined,
-  //     received: editModal.transaction.received && isPositiveAmount(editModal.transaction.received) ? '0.00' : undefined,
-  //     payee_id: undefined,
-  //     selected_category_id: undefined
-  //   };
-
-  //   setEditModal(prev => ({
-  //     ...prev,
-  //     splits: [...prev.splits, newSplit]
-  //   }));
-  // };
-
-  // const removeSplitItem = (splitId: string) => {
-  //   setEditModal(prev => ({
-  //     ...prev,
-  //     splits: prev.splits.filter(split => split.id !== splitId)
-  //   }));
-  // };
-
-  // const updateSplitItem = (splitId: string, updates: Partial<SplitItem>) => {
-  //   setEditModal(prev => ({
-  //     ...prev,
-  //     splits: prev.splits.map(split =>
-  //       split.id === splitId ? { ...split, ...updates } : split
-  //     )
-  //   }));
-  // };
-
-  // const enterSplitMode = () => {
-  //   if (!editModal.transaction) return;
-
-  //   // Create initial empty split item
-  //   const initialSplits: SplitItem[] = [
-  //     {
-  //       id: uuidv4(),
-  //       date: editModal.transaction.date,
-  //       description: '',
-  //       spent: editModal.transaction.spent && isPositiveAmount(editModal.transaction.spent) ? '0.00' : undefined,
-  //       received: editModal.transaction.received && isPositiveAmount(editModal.transaction.received) ? '0.00' : undefined,
-  //       payee_id: undefined,
-  //       selected_category_id: undefined
-  //     }
-  //   ];
-
-  //   setEditModal(prev => ({
-  //     ...prev,
-  //     isSplitMode: true,
-  //     splits: initialSplits
-  //   }));
-  // };
-
   // Add helper functions for handling Enter key on react-select
   const handlePayeeEnterKey = (inputValue: string, txId: string) => {
     if (!inputValue.trim()) return;
