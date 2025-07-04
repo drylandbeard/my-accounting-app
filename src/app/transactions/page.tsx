@@ -2087,24 +2087,18 @@ export default function TransactionsPage() {
       credit: '0.00'
     };
 
-    setEditJournalModal(prev => {
-      const lines = [...prev.editEntry.lines];
-      
-      // Insert before the last line (which should be the bank account)
-      if (lines.length > 0) {
-        lines.splice(lines.length - 1, 0, newLine);
-      } else {
-        lines.push(newLine);
+    setEditJournalModal(prev => ({
+      ...prev,
+      editEntry: {
+        ...prev.editEntry,
+        lines: [...prev.editEntry.lines, newLine]
       }
+    }));
+  };
 
-      return {
-        ...prev,
-        editEntry: {
-          ...prev.editEntry,
-          lines
-        }
-      };
-    });
+  // Handle account change in edit modal
+  const handleEditAccountChange = (accountId: string) => {
+    setSelectedAccountId(accountId);
   };
 
   // Function to update a journal entry line
@@ -4499,6 +4493,8 @@ export default function TransactionsPage() {
         modalState={editJournalModal}
         categories={categories}
         payees={payees}
+        accounts={accounts}
+        selectedAccountId={selectedAccountId}
         isZeroAmount={(amount: string) => !amount || parseFloat(amount) === 0}
         onClose={() => setEditJournalModal(prev => ({ ...prev, isOpen: false }))}
         onUpdateLine={updateEditJournalLine}
@@ -4509,10 +4505,7 @@ export default function TransactionsPage() {
           ...prev,
           editEntry: { ...prev.editEntry, date }
         }))}
-        onDescriptionChange={(description) => setEditJournalModal(prev => ({
-          ...prev,
-          editEntry: { ...prev.editEntry, description }
-        }))}
+        onAccountChange={handleEditAccountChange}
         onOpenCategoryModal={(lineId, defaultType) => {
           setNewCategoryModal({
             isOpen: true,

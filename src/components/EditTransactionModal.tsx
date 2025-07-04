@@ -37,15 +37,17 @@ interface EditTransactionModalProps {
   modalState: EditJournalModalState;
   categories: Array<{ id: string; name: string; type?: string }>;
   payees: Array<{ id: string; name: string }>;
+  accounts: Array<{ plaid_account_id: string | null; name: string }>;
+  selectedAccountId: string | null;
   isZeroAmount?: (amount: string) => boolean;
   onClose: () => void;
   onUpdateLine: (lineId: string, field: keyof JournalEntryLine, value: string) => void;
   onAmountChange: (lineId: string, field: 'debit' | 'credit', value: string) => void;
-  /** Add a new line BEFORE the last row (second-to-last position). The last row is always disabled. */
+  /** Add a new line at the end of the list */
   onAddLine: () => void;
   onSave: () => void;
   onDateChange: (date: string) => void;
-  onDescriptionChange: (description: string) => void;
+  onAccountChange: (accountId: string) => void;
   onOpenCategoryModal: (lineId: string, defaultType?: string) => void;
   calculateTotals: () => { totalDebits: number; totalCredits: number };
 }
@@ -54,6 +56,8 @@ export default function EditTransactionModal({
   modalState,
   categories,
   payees,
+  accounts,
+  selectedAccountId,
   isZeroAmount = (amount: string) => !amount || parseFloat(amount) === 0,
   onClose,
   onUpdateLine,
@@ -61,7 +65,7 @@ export default function EditTransactionModal({
   onAddLine,
   onSave,
   onDateChange,
-  onDescriptionChange,
+  onAccountChange,
   onOpenCategoryModal,
   calculateTotals
 }: EditTransactionModalProps) {
@@ -71,6 +75,14 @@ export default function EditTransactionModal({
     { value: '', label: 'Select category...' },
     { value: 'add_new', label: '+ Add new category' },
     ...categories.map(c => ({ value: c.id, label: c.name }))
+  ];
+
+  const accountOptions = [
+    { value: '', label: 'Select account...' },
+    ...accounts.map(acc => ({ 
+      value: acc.plaid_account_id || '', 
+      label: acc.name 
+    }))
   ];
 
   const { totalDebits, totalCredits } = calculateTotals();
@@ -108,7 +120,7 @@ export default function EditTransactionModal({
           </div>
         ) : (
           <>
-            {/* Date and Description selectors */}
+            {/* Date and Source/Account selectors */}
             <div className="mb-4 grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Date</label>
@@ -121,13 +133,37 @@ export default function EditTransactionModal({
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
-                <input
-                  type="text"
-                  value={modalState.editEntry.description}
-                  onChange={(e) => onDescriptionChange(e.target.value)}
-                  className="border px-3 py-2 rounded text-sm w-full"
-                  placeholder="Enter journal entry description"
+                <label className="block text-sm font-medium text-gray-700 mb-2">Source/Account</label>
+                <Select
+                  options={accountOptions}
+                  value={accounts.find(acc => acc.plaid_account_id === selectedAccountId) ? 
+                    { 
+                      value: selectedAccountId || '', 
+                      label: accounts.find(acc => acc.plaid_account_id === selectedAccountId)?.name || '' 
+                    } :
+                    { value: '', label: 'Select account...' }
+                  }
+                  onChange={(selectedOption) => {
+                    const option = selectedOption as SelectOption | null;
+                    onAccountChange(option?.value || '');
+                  }}
+                  isSearchable
+                  menuPortalTarget={document.body}
+                  styles={{
+                    control: (base) => ({
+                      ...base,
+                      fontSize: '14px'
+                    }),
+                    menu: (base) => ({ 
+                      ...base, 
+                      zIndex: 9999,
+                      fontSize: '14px'
+                    }),
+                    menuPortal: (base) => ({ 
+                      ...base, 
+                      zIndex: 9999 
+                    })
+                  }}
                 />
               </div>
             </div>
@@ -145,21 +181,15 @@ export default function EditTransactionModal({
                   </tr>
                 </thead>
                 <tbody className="bg-white">
-                  {modalState.editEntry.lines.map((line, index) => {
-                    const isLastRow = index === modalState.editEntry.lines.length - 1;
-                    const isDisabled = isLastRow;
-                    
+                  {modalState.editEntry.lines.map((line) => {
                     return (
-                      <tr key={line.id} className={isLastRow ? 'bg-gray-50' : ''}>
+                      <tr key={line.id}>
                         <td className="border px-4 py-2">
                           <input
                             type="text"
                             value={line.description}
                             onChange={(e) => onUpdateLine(line.id, 'description', e.target.value)}
-                            disabled={isDisabled}
-                            className={`w-full border-0 px-0 py-0 text-xs focus:ring-0 focus:outline-none ${
-                              isDisabled ? 'text-gray-500 cursor-not-allowed' : ''
-                            }`}
+                            className="w-full border-0 px-0 py-0 text-xs focus:ring-0 focus:outline-none"
                             placeholder="Enter description"
                           />
                         </td>
@@ -177,7 +207,6 @@ export default function EditTransactionModal({
                               const option = selectedOption as SelectOption | null;
                               onUpdateLine(line.id, 'payeeId', option?.value || '');
                             }}
-                            isDisabled={isDisabled}
                             isSearchable
                             menuPortalTarget={document.body}
                             styles={{
@@ -187,7 +216,6 @@ export default function EditTransactionModal({
                                 boxShadow: 'none',
                                 minHeight: 'auto',
                                 fontSize: '12px',
-                                backgroundColor: isDisabled ? '#f9fafb' : base.backgroundColor,
                                 '&:hover': {
                                   border: 'none'
                                 }
@@ -219,7 +247,6 @@ export default function EditTransactionModal({
                                 onUpdateLine(line.id, 'categoryId', option?.value || '');
                               }
                             }}
-                            isDisabled={isDisabled}
                             isSearchable
                             menuPortalTarget={document.body}
                             styles={{
@@ -229,7 +256,6 @@ export default function EditTransactionModal({
                                 boxShadow: 'none',
                                 minHeight: 'auto',
                                 fontSize: '12px',
-                                backgroundColor: isDisabled ? '#f9fafb' : base.backgroundColor,
                                 '&:hover': {
                                   border: 'none'
                                 }
@@ -254,10 +280,7 @@ export default function EditTransactionModal({
                               return (debit && !isZeroAmount(debit)) ? debit : '';
                             })()}
                             onChange={(e) => onAmountChange(line.id, 'debit', e.target.value)}
-                            disabled={isDisabled}
-                            className={`w-full border-0 px-0 py-0 text-xs text-right focus:ring-0 focus:outline-none ${
-                              isDisabled ? 'text-gray-500 cursor-not-allowed' : ''
-                            }`}
+                            className="w-full border-0 px-0 py-0 text-xs text-right focus:ring-0 focus:outline-none"
                             placeholder="0.00"
                           />
                         </td>
@@ -269,10 +292,7 @@ export default function EditTransactionModal({
                               return (credit && !isZeroAmount(credit)) ? credit : '';
                             })()}
                             onChange={(e) => onAmountChange(line.id, 'credit', e.target.value)}
-                            disabled={isDisabled}
-                            className={`w-full border-0 px-0 py-0 text-xs text-right focus:ring-0 focus:outline-none ${
-                              isDisabled ? 'text-gray-500 cursor-not-allowed' : ''
-                            }`}
+                            className="w-full border-0 px-0 py-0 text-xs text-right focus:ring-0 focus:outline-none"
                             placeholder="0.00"
                           />
                         </td>
