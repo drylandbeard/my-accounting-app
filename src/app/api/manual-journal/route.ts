@@ -9,7 +9,28 @@ interface JournalEntryLine {
   credit: string;
 }
 
-// GET - Fetch manual journal entries
+interface ManualJournalEntry {
+  id: string;
+  company_id: string;
+  date: string;
+  description: string;
+  debit: number;
+  credit: number;
+  chart_account_id: string;
+  payee_id?: string;
+  reference_number: string;
+  je_name?: string;
+  created_at: string;
+  updated_at: string;
+  chart_of_accounts: {
+    id: string;
+    name: string;
+    type: string;
+    subtype?: string;
+  };
+}
+
+// GET - Fetch manual journal entries with pagination to handle more than 1000 rows
 export async function GET(request: NextRequest) {
   try {
     const url = new URL(request.url);
@@ -20,34 +41,57 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Company ID is required' }, { status: 400 });
     }
 
-    let query = supabase
-      .from('manual_journal_entries')
-      .select(`
-        *,
-        chart_of_accounts:chart_account_id (
-          id,
-          name,
-          type,
-          subtype
-        )
-      `)
-      .eq('company_id', companyId);
+    // Fetch ALL manual journal entries with pagination
+    let allEntries: ManualJournalEntry[] = [];
+    let page = 0;
+    const pageSize = 1000;
+    let hasMore = true;
 
-    // If reference number is provided, filter by it
-    if (referenceNumber) {
-      query = query.eq('reference_number', referenceNumber);
+    // Fetch all pages of data
+    while (hasMore) {
+      let query = supabase
+        .from('manual_journal_entries')
+        .select(`
+          *,
+          chart_of_accounts:chart_account_id (
+            id,
+            name,
+            type,
+            subtype
+          )
+        `)
+        .eq('company_id', companyId)
+        .range(page * pageSize, (page + 1) * pageSize - 1)
+        .order('date', { ascending: false })
+        .order('created_at', { ascending: false });
+
+      // If reference number is provided, filter by it
+      if (referenceNumber) {
+        query = query.eq('reference_number', referenceNumber);
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.error('Error fetching manual journal entries page:', error);
+        return NextResponse.json({ error: 'Failed to fetch manual journal entries' }, { status: 500 });
+      }
+
+      if (data && data.length > 0) {
+        allEntries = allEntries.concat(data);
+        
+        // If we got less than pageSize, we've reached the end
+        if (data.length < pageSize) {
+          hasMore = false;
+        } else {
+          page++;
+        }
+      } else {
+        hasMore = false;
+      }
     }
 
-    const { data: entries, error } = await query
-      .order('date', { ascending: false })
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      console.error('Error fetching manual journal entries:', error);
-      return NextResponse.json({ error: 'Failed to fetch manual journal entries' }, { status: 500 });
-    }
-
-    return NextResponse.json({ entries: entries || [] });
+    return NextResponse.json({ entries: allEntries });
   } catch (error) {
     console.error('Error in GET /api/manual-journal:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
