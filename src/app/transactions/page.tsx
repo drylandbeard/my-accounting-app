@@ -2364,8 +2364,8 @@ export default function TransactionsPage() {
             description: transaction.description || "",
             categoryId: "",
             payeeId: "",
-            debit: hasSpent ? "0.00" : hasReceived ? transaction.received! : "0.00",
-            credit: hasSpent ? transaction.spent! : "0.00",
+            debit: hasSpent ? transaction.spent! : "0.00",
+            credit: hasReceived ? transaction.received! : "0.00",
           });
 
           // Add the bank account line (corresponding account line)
@@ -2374,8 +2374,8 @@ export default function TransactionsPage() {
             description: transaction.description || "",
             categoryId: selectedAccountIdInCOA || "",
             payeeId: "",
-            debit: hasSpent ? transaction.spent! : "0.00",
-            credit: hasReceived ? transaction.received! : "0.00",
+            debit: hasReceived ? transaction.received! : "0.00",
+            credit: hasSpent ? transaction.spent! : "0.00",
           });
         }
 
