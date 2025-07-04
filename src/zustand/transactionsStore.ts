@@ -154,6 +154,7 @@ export interface ManualJournalEntry {
   payee_id?: string;
   company_id: string;
   reference_number: string;
+  je_name?: string; // JE Name field
   created_at: string;
   updated_at: string;
   chart_of_accounts?: {

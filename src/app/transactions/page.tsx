@@ -7,9 +7,9 @@ import Papa from 'papaparse'
 import { v4 as uuidv4 } from 'uuid'
 import { X, Loader2 } from 'lucide-react'
 import Select from 'react-select'
-import EditTransactionModal, { 
+import TransactionModal, { 
   type EditJournalModalState
-} from '@/components/EditTransactionModal'
+} from '@/components/TransactionModal'
 import { useAuthStore } from '@/zustand/authStore'
 import { useTransactionsStore, Transaction as StoreTransaction } from '@/zustand/transactionsStore'
 import { useCategoriesStore } from '@/zustand/categoriesStore'
@@ -1857,65 +1857,6 @@ export default function TransactionsPage() {
     );
   };
 
-  // Split management functions - commented out until edit modal component is implemented
-  // const addSplitItem = () => {
-  //   if (!editModal.transaction || editModal.splits.length >= 30) return;
-
-  //   const newSplit: SplitItem = {
-  //     id: uuidv4(),
-  //     date: editModal.transaction.date,
-  //     description: '',
-  //     spent: editModal.transaction.spent && isPositiveAmount(editModal.transaction.spent) ? '0.00' : undefined,
-  //     received: editModal.transaction.received && isPositiveAmount(editModal.transaction.received) ? '0.00' : undefined,
-  //     payee_id: undefined,
-  //     selected_category_id: undefined
-  //   };
-
-  //   setEditModal(prev => ({
-  //     ...prev,
-  //     splits: [...prev.splits, newSplit]
-  //   }));
-  // };
-
-  // const removeSplitItem = (splitId: string) => {
-  //   setEditModal(prev => ({
-  //     ...prev,
-  //     splits: prev.splits.filter(split => split.id !== splitId)
-  //   }));
-  // };
-
-  // const updateSplitItem = (splitId: string, updates: Partial<SplitItem>) => {
-  //   setEditModal(prev => ({
-  //     ...prev,
-  //     splits: prev.splits.map(split =>
-  //       split.id === splitId ? { ...split, ...updates } : split
-  //     )
-  //   }));
-  // };
-
-  // const enterSplitMode = () => {
-  //   if (!editModal.transaction) return;
-
-  //   // Create initial empty split item
-  //   const initialSplits: SplitItem[] = [
-  //     {
-  //       id: uuidv4(),
-  //       date: editModal.transaction.date,
-  //       description: '',
-  //       spent: editModal.transaction.spent && isPositiveAmount(editModal.transaction.spent) ? '0.00' : undefined,
-  //       received: editModal.transaction.received && isPositiveAmount(editModal.transaction.received) ? '0.00' : undefined,
-  //       payee_id: undefined,
-  //       selected_category_id: undefined
-  //     }
-  //   ];
-
-  //   setEditModal(prev => ({
-  //     ...prev,
-  //     isSplitMode: true,
-  //     splits: initialSplits
-  //   }));
-  // };
-
   // Add helper functions for handling Enter key on react-select
   const handlePayeeEnterKey = (inputValue: string, txId: string) => {
     if (!inputValue.trim()) return;
@@ -2146,24 +2087,18 @@ export default function TransactionsPage() {
       credit: '0.00'
     };
 
-    setEditJournalModal(prev => {
-      const lines = [...prev.editEntry.lines];
-      
-      // Insert before the last line (which should be the bank account)
-      if (lines.length > 0) {
-        lines.splice(lines.length - 1, 0, newLine);
-      } else {
-        lines.push(newLine);
+    setEditJournalModal(prev => ({
+      ...prev,
+      editEntry: {
+        ...prev.editEntry,
+        lines: [...prev.editEntry.lines, newLine]
       }
+    }));
+  };
 
-      return {
-        ...prev,
-        editEntry: {
-          ...prev.editEntry,
-          lines
-        }
-      };
-    });
+  // Handle account change in edit modal
+  const handleEditAccountChange = (accountId: string) => {
+    setSelectedAccountId(accountId);
   };
 
   // Function to update a journal entry line
@@ -2271,8 +2206,14 @@ export default function TransactionsPage() {
       const isImportedTransaction = editJournalModal.transactionId && imported.some(tx => tx.id === editJournalModal.transactionId);
       
       if (isImportedTransaction) {
-        // Save to imported_transactions_split table
-        const result = await saveImportedTransactionSplit(
+        // For "To Add" table transactions, we need to move them to "Added" table
+        const importedTransaction = imported.find(tx => tx.id === editJournalModal.transactionId);
+        if (!importedTransaction) {
+          throw new Error('Imported transaction not found');
+        }
+
+        // Save split data first
+        const splitResult = await saveImportedTransactionSplit(
           editJournalModal.transactionId,
           {
             date: editJournalModal.editEntry.date,
@@ -2282,16 +2223,39 @@ export default function TransactionsPage() {
           currentCompany!.id
         );
 
-        if (result.success) {
-          setNotification({ type: "success", message: "Split transaction saved successfully!" });
-          setEditJournalModal((prev) => ({ ...prev, isOpen: false }));
-        } else {
+        if (!splitResult.success) {
           setEditJournalModal((prev) => ({
             ...prev,
-            error: result.error || "Failed to save split transaction",
+            error: splitResult.error || "Failed to save split transaction",
             saving: false,
           }));
+          return;
         }
+
+        // Now move the transaction to "Added" table
+        // Find the primary category (first non-account category)
+        const primaryCategoryLine = editJournalModal.editEntry.lines.find(line => 
+          line.categoryId && line.categoryId !== selectedAccountIdInCOA
+        );
+        
+        if (!primaryCategoryLine) {
+          setEditJournalModal((prev) => ({
+            ...prev,
+            error: "Please select a category for at least one line",
+            saving: false,
+          }));
+          return;
+        }
+
+        // Use addTransaction to move it to Added table
+        await addTransaction(
+          importedTransaction,
+          primaryCategoryLine.categoryId,
+          primaryCategoryLine.payeeId
+        );
+
+        setNotification({ type: "success", message: "Transaction added successfully!" });
+        setEditJournalModal((prev) => ({ ...prev, isOpen: false }));
         return;
       }
 
@@ -2938,7 +2902,7 @@ export default function TransactionsPage() {
       {/* New Category Modal */}
       {newCategoryModal.isOpen && (
         <div
-          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-100"
+          className="fixed inset-0 bg-black/50 flex items-center justify-center h-full z-100"
           onClick={() =>
             setNewCategoryModal({ isOpen: false, name: "", type: "Expense", parent_id: null, transactionId: null })
           }
@@ -4553,11 +4517,15 @@ export default function TransactionsPage() {
         </div>
       )}
 
-      {/* Edit Transaction Modal - Updated to match manual-je format */}
-      <EditTransactionModal
+      {/* Transaction Modal - Updated to match manual-je format */}
+      <TransactionModal
         modalState={editJournalModal}
         categories={categories}
         payees={payees}
+        accounts={accounts}
+        selectedAccountId={selectedAccountId}
+        selectedAccountCategoryId={selectedAccountIdInCOA}
+        isToAddTable={!!editJournalModal.transactionId && imported.some(tx => tx.id === editJournalModal.transactionId)}
         isZeroAmount={(amount: string) => !amount || parseFloat(amount) === 0}
         onClose={() => setEditJournalModal(prev => ({ ...prev, isOpen: false }))}
         onUpdateLine={updateEditJournalLine}
@@ -4568,10 +4536,7 @@ export default function TransactionsPage() {
           ...prev,
           editEntry: { ...prev.editEntry, date }
         }))}
-        onDescriptionChange={(description) => setEditJournalModal(prev => ({
-          ...prev,
-          editEntry: { ...prev.editEntry, description }
-        }))}
+        onAccountChange={handleEditAccountChange}
         onOpenCategoryModal={(lineId, defaultType) => {
           setNewCategoryModal({
             isOpen: true,
