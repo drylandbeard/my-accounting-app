@@ -511,6 +511,24 @@ export default function JournalTablePage() {
 
       const data = await response.json();
       
+      // Find the corresponding account from corresponding_category_id and get first entry data
+      const firstEntry = data.entries[0];
+      if (firstEntry?.transactions?.corresponding_category_id) {
+        const correspondingCategoryId = firstEntry.transactions.corresponding_category_id;
+        
+        // Find the chart of accounts entry (category) with this ID
+        const chartAccount = categories.find(cat => cat.id === correspondingCategoryId);
+        
+        if (chartAccount?.plaid_account_id) {
+          // Find the account that has this plaid_account_id
+          const account = accounts.find(acc => acc.plaid_account_id === chartAccount.plaid_account_id);
+          
+          if (account) {
+            setSelectedAccountId(account.plaid_account_id);
+          }
+        }
+      }
+      
       // Convert journal entries to the edit format
       const editLines: JournalEntryLine[] = data.entries.map((entry: {
         id: string;
@@ -533,9 +551,6 @@ export default function JournalTablePage() {
         debit: entry.debit > 0 ? entry.debit.toString() : '0.00',
         credit: entry.credit > 0 ? entry.credit.toString() : '0.00'
       }));
-
-      // Get the first entry to extract date and description
-      const firstEntry = data.entries[0];
       
       setEditJournalModal((prev: EditJournalModalState) => ({
         ...prev,
@@ -574,6 +589,19 @@ export default function JournalTablePage() {
         reference_number: string;
         [key: string]: unknown;
       }) => entry.reference_number === referenceNumber);
+
+      // For manual journal entries, try to find an account based on chart_account_ids used
+      // Look for a chart_account_id that corresponds to an account (has plaid_account_id)
+      for (const entry of entriesForReference) {
+        const chartAccount = categories.find(cat => cat.id === entry.chart_account_id);
+        if (chartAccount?.plaid_account_id) {
+          const account = accounts.find(acc => acc.plaid_account_id === chartAccount.plaid_account_id);
+          if (account) {
+            setSelectedAccountId(account.plaid_account_id);
+            break; // Use the first account we find
+          }
+        }
+      }
 
       const editLines: JournalEntryLine[] = entriesForReference.map((entry: {
         id: string;
@@ -1309,6 +1337,17 @@ export default function JournalTablePage() {
         modalState={editJournalModal}
         categories={categories}
         payees={payees}
+        accounts={accounts}
+        selectedAccountId={selectedAccountId}
+        selectedAccountCategoryId={(() => {
+          // Find the chart of accounts ID for the selected account
+          if (selectedAccountId) {
+            const chartAccount = categories.find(cat => cat.plaid_account_id === selectedAccountId);
+            return chartAccount?.id || null;
+          }
+          return null;
+        })()}
+        isToAddTable={false}
         isZeroAmount={isZeroAmount}
         onClose={() => setEditJournalModal((prev: EditJournalModalState) => ({ ...prev, isOpen: false }))}
         onUpdateLine={updateEditJournalLine}
@@ -1319,10 +1358,7 @@ export default function JournalTablePage() {
           ...prev,
           editEntry: { ...prev.editEntry, date }
         }))}
-        onDescriptionChange={(description) => setEditJournalModal((prev: EditJournalModalState) => ({
-          ...prev,
-          editEntry: { ...prev.editEntry, description }
-        }))}
+        onAccountChange={(accountId) => setSelectedAccountId(accountId === '' ? null : accountId)}
         onOpenCategoryModal={(lineId, defaultType) => {
           setNewCategoryModal({
             isOpen: true,
