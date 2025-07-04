@@ -1,9 +1,11 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { useAuthStore } from "@/zustand/authStore";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+
+import { useSearchParams } from "next/navigation";
 
 // Shared imports
 import { Account, Transaction, ViewerModalState } from "../_types";
@@ -24,7 +26,9 @@ import { useAccountOperations } from "../_hooks/useAccountOperations";
 import { ReportHeader } from "../_components/ReportHeader";
 import { TransactionViewer } from "../_components/TransactionViewer";
 import { AccountRowRenderer } from "../_components/AccountRowRenderer";
+import { SaveReportModal } from "../_components/SaveReportModal";
 import { useExportProfitLoss } from "../_hooks/useExportProfitLoss";
+import { api } from "@/lib/api";
 
 export default function PnLPage() {
   const { currentCompany } = useAuthStore();
@@ -69,6 +73,46 @@ export default function PnLPage() {
     isOpen: false,
     category: null,
   });
+
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [loadingSavedReport, setLoadingSavedReport] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const searchParams = useSearchParams();
+  const reportId = searchParams.get("reportId");
+
+  // Load saved report if reportId is provided
+  useEffect(() => {
+    const loadSavedReport = async () => {
+      console.log("reportId", reportId);
+      if (!reportId || !currentCompany?.id) return;
+
+      setLoadingSavedReport(true);
+      try {
+        const response = await api.get(`/api/reports/saved/${reportId}`);
+
+        if (response.ok) {
+          const savedReport = await response.json();
+          if (savedReport.type === "pnl") {
+            // Apply saved parameters
+            setStartDate(savedReport.parameters.startDate);
+            setEndDate(savedReport.parameters.endDate);
+            handlePrimaryDisplayChange(savedReport.parameters.primaryDisplay);
+            handleSecondaryDisplayChange(savedReport.parameters.secondaryDisplay);
+            if (savedReport.parameters.period) {
+              handlePeriodChange(savedReport.parameters.period);
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Failed to load saved report:", error);
+      } finally {
+        setLoadingSavedReport(false);
+      }
+    };
+
+    loadSavedReport();
+  }, [reportId, currentCompany?.id]);
 
   // Account groups
   const revenueRows = getTopLevelAccounts("Revenue");
@@ -131,6 +175,35 @@ export default function PnLPage() {
       0
     );
     return formatPercentage(amount, quarterRevenue);
+  };
+
+  // Save report function
+  const saveReport = async (name: string) => {
+    if (!name.trim() || !currentCompany?.id) return;
+
+    setSaving(true);
+    try {
+      const response = await api.post("/api/reports/saved", {
+        name: name.trim(),
+        type: "pnl",
+        description: `Profit & Loss from ${formatDateForDisplay(startDate)} to ${formatDateForDisplay(endDate)}`,
+        parameters: {
+          startDate,
+          endDate,
+          primaryDisplay: selectedPrimaryDisplay,
+          secondaryDisplay: selectedSecondaryDisplay,
+          period: selectedPeriod,
+        },
+      });
+
+      if (response.ok) {
+        setShowSaveDialog(false);
+      }
+    } catch (error) {
+      console.error("Failed to save report:", error);
+    } finally {
+      setSaving(false);
+    }
   };
 
   // Export hook
@@ -236,6 +309,7 @@ export default function PnLPage() {
           onSecondaryDisplayChange={handleSecondaryDisplayChange}
           onCollapseAllCategories={collapseAllParentCategories}
           exportToXLSX={exportToXLSX}
+          onSaveReport={() => setShowSaveDialog(true)}
           loading={loading}
         />
 
@@ -339,7 +413,7 @@ export default function PnLPage() {
               </TableHeader>
 
               <TableBody>
-                {loading ? (
+                {loading || loadingSavedReport ? (
                   <TableRow>
                     <TableCell colSpan={getTotalColumns()} className="border p-4 text-center">
                       <div className="flex flex-col items-center space-y-3">
@@ -902,6 +976,15 @@ export default function PnLPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Save Dialog */}
+      <SaveReportModal
+        isOpen={showSaveDialog}
+        onClose={() => setShowSaveDialog(false)}
+        onSave={saveReport}
+        reportType="pnl"
+        isLoading={saving}
+      />
 
       {/* Transaction Viewer Modal */}
       {viewerModal.isOpen && viewerModal.category && (

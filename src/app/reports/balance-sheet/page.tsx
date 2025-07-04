@@ -1,9 +1,11 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { useAuthStore } from "@/zustand/authStore";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+
+import { useSearchParams } from "next/navigation";
 
 // Shared imports
 import { Account, Transaction, ViewerModalState } from "../_types";
@@ -25,6 +27,8 @@ import { useExportBalanceSheet } from "../_hooks/useExportBalanceSheet";
 import { ReportHeader } from "../_components/ReportHeader";
 import { TransactionViewer } from "../_components/TransactionViewer";
 import { AccountRowRenderer } from "../_components/AccountRowRenderer";
+import { SaveReportModal } from "../_components/SaveReportModal";
+import { api } from "@/lib/api";
 
 export default function BalanceSheetPage() {
   const { currentCompany } = useAuthStore();
@@ -70,6 +74,74 @@ export default function BalanceSheetPage() {
     isOpen: false,
     category: null,
   });
+
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [loadingSavedReport, setLoadingSavedReport] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const searchParams = useSearchParams();
+  const reportId = searchParams.get("reportId");
+
+  // Load saved report if reportId is provided
+  useEffect(() => {
+    const loadSavedReport = async () => {
+      if (!reportId || !currentCompany?.id) return;
+
+      setLoadingSavedReport(true);
+      try {
+        const response = await api.get(`/api/reports/saved/${reportId}`);
+
+        if (response.ok) {
+          const savedReport = await response.json();
+          console.log("savedReport", savedReport);
+          if (savedReport.type === "balance-sheet") {
+            // Apply saved parameters
+            setAsOfDate(savedReport.parameters.endDate);
+            handlePrimaryDisplayChange(savedReport.parameters.primaryDisplay);
+            handleSecondaryDisplayChange(savedReport.parameters.secondaryDisplay);
+            if (savedReport.parameters.period) {
+              handlePeriodChange(savedReport.parameters.period);
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Failed to load saved report:", error);
+      } finally {
+        setLoadingSavedReport(false);
+      }
+    };
+
+    loadSavedReport();
+  }, [reportId, currentCompany?.id]);
+
+  // Save report function
+  const saveReport = async (name: string) => {
+    if (!name.trim() || !currentCompany?.id) return;
+
+    setSaving(true);
+    try {
+      const response = await api.post("/api/reports/saved", {
+        name: name.trim(),
+        type: "balance-sheet",
+        description: `Balance Sheet as of ${formatDateForDisplay(asOfDate)}`,
+        parameters: {
+          startDate,
+          endDate: asOfDate,
+          primaryDisplay: selectedPrimaryDisplay,
+          secondaryDisplay: selectedSecondaryDisplay,
+          period: selectedPeriod,
+        },
+      });
+
+      if (response.ok) {
+        setShowSaveDialog(false);
+      }
+    } catch (error) {
+      console.error("Failed to save report:", error);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   // Balance sheet specific account calculation (override the default P&L calculation)
   const calculateBalanceSheetAccountTotal = (account: Account): number => {
@@ -381,6 +453,7 @@ export default function BalanceSheetPage() {
           onSecondaryDisplayChange={handleSecondaryDisplayChange}
           onCollapseAllCategories={collapseAllParentCategories}
           exportToXLSX={exportToXLSX}
+          onSaveReport={() => setShowSaveDialog(true)}
           loading={loading}
           isBalanceSheet={true}
         />
@@ -479,7 +552,7 @@ export default function BalanceSheetPage() {
               </TableHeader>
 
               <TableBody>
-                {loading ? (
+                {loading || loadingSavedReport ? (
                   <TableRow>
                     <TableCell colSpan={getTotalColumns()} className="border p-4 text-center">
                       <div className="flex flex-col items-center space-y-3">
@@ -991,6 +1064,15 @@ export default function BalanceSheetPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Save Dialog */}
+      <SaveReportModal
+        isOpen={showSaveDialog}
+        onClose={() => setShowSaveDialog(false)}
+        onSave={saveReport}
+        reportType="balance-sheet"
+        isLoading={saving}
+      />
 
       {/* Transaction Viewer Modal */}
       {viewerModal.isOpen && viewerModal.category && (
