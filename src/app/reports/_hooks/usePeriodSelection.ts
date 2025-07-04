@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { PeriodType, DateRangeType, PrimaryDisplayType, SecondaryDisplayType } from "../_types";
 import { formatDate, getDateRangeFromType } from "../_utils";
 
@@ -75,18 +75,18 @@ export const usePeriodSelection = (): UsePeriodSelectionReturn => {
     }
   };
 
-  const handlePrimaryDisplayChange = (display: string) => {
+  const handlePrimaryDisplayChange = useCallback((display: string) => {
     setSelectedPrimaryDisplay(display as PrimaryDisplayType);
     // Set monthly view based on primary display
     setIsMonthlyView(display === "byMonth");
     setIsQuarterlyView(display === "byQuarter");
-  };
+  }, []);
 
-  const handleSecondaryDisplayChange = (display: string) => {
+  const handleSecondaryDisplayChange = useCallback((display: string) => {
     setSelectedSecondaryDisplay(display as SecondaryDisplayType);
     // Set percentages based on secondary display
     setShowPercentages(display === "withPercentages");
-  };
+  }, []);
 
   const handleDateRangeSelect = (range: DateRangeType) => {
     const { start, end } = getDateRangeFromType(range);

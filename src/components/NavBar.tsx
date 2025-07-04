@@ -47,26 +47,19 @@ function CompanyModal({ isOpen, onClose, onCreateCompany }: CompanyModalProps) {
       <div className="bg-white rounded-lg shadow-xl w-80 mx-4">
         <div className="flex justify-between items-center px-4 py-3 border-b border-gray-200">
           <h2 className="text-sm font-semibold text-gray-900">Add New Company</h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
-          >
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
             <X className="w-4 h-4" />
           </button>
         </div>
-        
+
         <form onSubmit={handleSubmit} className="px-4 py-4">
           <div className="space-y-3">
             {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-md text-sm">
-                {error}
-              </div>
+              <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-md text-sm">{error}</div>
             )}
-            
+
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">
-                Company Name *
-              </label>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Company Name *</label>
               <input
                 type="text"
                 value={name}
@@ -76,11 +69,9 @@ function CompanyModal({ isOpen, onClose, onCreateCompany }: CompanyModalProps) {
                 required
               />
             </div>
-            
+
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">
-                Description (Optional)
-              </label>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Description (Optional)</label>
               <input
                 type="text"
                 value={description}
@@ -90,13 +81,9 @@ function CompanyModal({ isOpen, onClose, onCreateCompany }: CompanyModalProps) {
               />
             </div>
           </div>
-          
+
           <div className="flex justify-end gap-2 mt-4">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-3 py-1 text-sm text-gray-600 hover:text-gray-800"
-            >
+            <button type="button" onClick={onClose} className="px-3 py-1 text-sm text-gray-600 hover:text-gray-800">
               Cancel
             </button>
             <button
@@ -113,16 +100,14 @@ function CompanyModal({ isOpen, onClose, onCreateCompany }: CompanyModalProps) {
   );
 }
 
-function NavLink({ href, label }: { href: string, label: string }) {
+function NavLink({ href, label }: { href: string; label: string }) {
   const pathname = usePathname();
   const isActive = pathname === href;
 
   return (
     <Link
       href={href}
-      className={`px-2 py-1 rounded ${
-        isActive ? "font-semibold text-black" : "text-gray-700 hover:text-black"
-      }`}
+      className={`px-2 py-1 rounded ${isActive ? "font-semibold text-black" : "text-gray-700 hover:text-black"}`}
     >
       {label}
     </Link>
@@ -136,7 +121,12 @@ interface NavBarProps {
   onToggleAI?: () => void;
 }
 
-export default function NavBar({ showAccountAction, showAccountSection, isGatewayPage = false, onToggleAI }: NavBarProps) {
+export default function NavBar({
+  showAccountAction,
+  showAccountSection,
+  isGatewayPage = false,
+  onToggleAI,
+}: NavBarProps) {
   const { user, companies, currentCompany, logout } = useAuthStore();
   const [isAccountDropdownOpen, setIsAccountDropdownOpen] = useState(false);
   const router = useRouter();
@@ -172,7 +162,7 @@ export default function NavBar({ showAccountAction, showAccountSection, isGatewa
     const response = await api.post("/api/company/create", { name, description });
 
     const result = await response.json();
-    
+
     if (!response.ok) {
       throw new Error(result.error || "Failed to create company");
     }
@@ -182,20 +172,20 @@ export default function NavBar({ showAccountAction, showAccountSection, isGatewa
       const newUserCompany = {
         company_id: result.company.id,
         role: "Owner" as const,
-        companies: result.company
+        companies: result.company,
       };
-      
+
       // Update the global state through Zustand
-      useAuthStore.setState(state => ({
+      useAuthStore.setState((state) => ({
         ...state,
         companies: [...state.companies, newUserCompany],
-        currentCompany: result.company
+        currentCompany: result.company,
       }));
     }
   };
 
   const handleSwitchCompany = () => {
-    router.push('/');
+    router.push("/");
   };
 
   if (!user) {
@@ -216,6 +206,8 @@ export default function NavBar({ showAccountAction, showAccountSection, isGatewa
               <NavLink href="/table" label="Table" />
               <NavLink href="/reports/pnl" label="Profit & Loss" />
               <NavLink href="/reports/balance-sheet" label="Balance Sheet" />
+              <NavLink href="/reports/cash-flow" label="Cash Flow" />
+              <NavLink href="/reports" label="Reports" />
             </>
           )}
         </div>
@@ -229,9 +221,7 @@ export default function NavBar({ showAccountAction, showAccountSection, isGatewa
               className="flex items-center space-x-2 text-gray-700 hover:text-black px-3 py-1 rounded border border-gray-300 hover:border-gray-400 transition-colors"
             >
               <User className="w-4 h-4" />
-              <span className="text-xs">
-                {showAccountSection ? "Back to Companies" : "Account"}
-              </span>
+              <span className="text-xs">{showAccountSection ? "Back to Companies" : "Account"}</span>
             </button>
           )}
 
@@ -241,14 +231,8 @@ export default function NavBar({ showAccountAction, showAccountSection, isGatewa
               onClick={handleSwitchCompany}
               className="flex items-center space-x-2 text-gray-700 hover:text-black px-3 py-1 rounded border border-gray-300 hover:border-gray-400 transition-colors"
             >
-              <span className="text-xs">
-                Switch Company
-              </span>
-              {currentCompany && (
-                <span className="text-xs font-medium text-blue-600">
-                  ({currentCompany.name})
-                </span>
-              )}
+              <span className="text-xs">Switch Company</span>
+              {currentCompany && <span className="text-xs font-medium text-blue-600">({currentCompany.name})</span>}
             </button>
           )}
 
@@ -259,9 +243,7 @@ export default function NavBar({ showAccountAction, showAccountSection, isGatewa
               className="flex items-center space-x-2 text-gray-700 hover:text-black px-3 py-1 rounded border border-gray-300 hover:border-gray-400 transition-colors"
             >
               <LogOut className="w-4 h-4" />
-              <span className="text-xs">
-                Logout
-              </span>
+              <span className="text-xs">Logout</span>
             </button>
           )}
 
@@ -298,7 +280,7 @@ export default function NavBar({ showAccountAction, showAccountSection, isGatewa
                       >
                         Settings
                       </Link>
-                      
+
                       {/* Logout */}
                       <button
                         onClick={() => {
@@ -340,7 +322,7 @@ export default function NavBar({ showAccountAction, showAccountSection, isGatewa
                 .from("companies")
                 .update({
                   name: updatedData.name,
-                  description: updatedData.description
+                  description: updatedData.description,
                 })
                 .eq("id", editingCompany.id);
 
@@ -349,20 +331,22 @@ export default function NavBar({ showAccountAction, showAccountSection, isGatewa
               }
 
               // Update the companies list in Zustand state
-              const updatedCompanies = companies.map(userCompany => ({
+              const updatedCompanies = companies.map((userCompany) => ({
                 ...userCompany,
-                companies: userCompany.companies.id === editingCompany.id
-                  ? { ...userCompany.companies, ...updatedData }
-                  : userCompany.companies
+                companies:
+                  userCompany.companies.id === editingCompany.id
+                    ? { ...userCompany.companies, ...updatedData }
+                    : userCompany.companies,
               }));
-              
+
               // Update Zustand state
-              useAuthStore.setState(state => ({
+              useAuthStore.setState((state) => ({
                 ...state,
                 companies: updatedCompanies,
-                currentCompany: currentCompany?.id === editingCompany.id 
-                  ? { ...currentCompany, ...updatedData }
-                  : state.currentCompany
+                currentCompany:
+                  currentCompany?.id === editingCompany.id
+                    ? { ...currentCompany, ...updatedData }
+                    : state.currentCompany,
               }));
 
               setIsEditCompanyModalOpen(false);
@@ -404,7 +388,7 @@ function EditCompanyModal({ isOpen, onClose, company, onUpdateCompany }: EditCom
     try {
       await onUpdateCompany({
         name: name.trim(),
-        description: description.trim()
+        description: description.trim(),
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update company");
@@ -420,26 +404,19 @@ function EditCompanyModal({ isOpen, onClose, company, onUpdateCompany }: EditCom
       <div className="bg-white rounded-lg shadow-xl w-80 mx-4">
         <div className="flex justify-between items-center px-4 py-3 border-b border-gray-200">
           <h2 className="text-sm font-semibold text-gray-900">Edit Company</h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
-          >
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
             <X className="w-4 h-4" />
           </button>
         </div>
-        
+
         <form onSubmit={handleSubmit} className="px-4 py-4">
           <div className="space-y-3">
             {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-md text-sm">
-                {error}
-              </div>
+              <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-md text-sm">{error}</div>
             )}
-            
+
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">
-                Company Name *
-              </label>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Company Name *</label>
               <input
                 type="text"
                 value={name}
@@ -449,11 +426,9 @@ function EditCompanyModal({ isOpen, onClose, company, onUpdateCompany }: EditCom
                 required
               />
             </div>
-            
+
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">
-                Description (Optional)
-              </label>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Description (Optional)</label>
               <input
                 type="text"
                 value={description}
@@ -463,13 +438,9 @@ function EditCompanyModal({ isOpen, onClose, company, onUpdateCompany }: EditCom
               />
             </div>
           </div>
-          
+
           <div className="flex justify-end gap-2 mt-4">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-3 py-1 text-sm text-gray-600 hover:text-gray-800"
-            >
+            <button type="button" onClick={onClose} className="px-3 py-1 text-sm text-gray-600 hover:text-gray-800">
               Cancel
             </button>
             <button
@@ -484,4 +455,4 @@ function EditCompanyModal({ isOpen, onClose, company, onUpdateCompany }: EditCom
       </div>
     </div>
   );
-} 
+}

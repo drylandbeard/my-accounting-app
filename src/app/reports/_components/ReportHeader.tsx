@@ -2,7 +2,7 @@
 
 import React from "react";
 import { Button } from "@/components/ui/button";
-import { Download, Loader2 } from "lucide-react";
+import { Download, Loader2, Save } from "lucide-react";
 import { PeriodSelector } from "@/components/ui/period-selector";
 import { DatePicker } from "@/components/ui/date-picker";
 import { format } from "date-fns";
@@ -25,6 +25,7 @@ export interface ReportHeaderProps {
   onSecondaryDisplayChange?: (display: string) => void;
   onCollapseAllCategories: () => void;
   exportToXLSX?: () => void;
+  onSaveReport?: () => void;
   loading?: boolean;
   isBalanceSheet?: boolean;
 }
@@ -45,6 +46,7 @@ export function ReportHeader({
   onSecondaryDisplayChange,
   onCollapseAllCategories,
   exportToXLSX,
+  onSaveReport,
   loading,
   isBalanceSheet,
 }: ReportHeaderProps) {
@@ -121,7 +123,13 @@ export function ReportHeader({
           </div>
         </div>
 
-        <div className="flex justify-center">
+        <div className="flex justify-center gap-2">
+          {onSaveReport && (
+            <Button variant="outline" onClick={onSaveReport} className="text-xs font-medium flex items-center gap-2">
+              <Save className="w-4 h-4" />
+              Save Report
+            </Button>
+          )}
           <Button variant="outline" onClick={exportToXLSX} disabled={loading} className="text-xs font-medium">
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
           </Button>
