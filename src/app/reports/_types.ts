@@ -39,7 +39,7 @@ export type PeriodType =
   | "thisYearToLastMonth"
   | "thisYearToToday";
 
-export type PrimaryDisplayType = "byMonth" | "totalOnly";
+export type PrimaryDisplayType = "byMonth" | "byQuarter" | "totalOnly";
 export type SecondaryDisplayType = "withPercentages" | "withoutPercentages";
 export type CategoryCollapseType = "expanded" | "collapsed";
 

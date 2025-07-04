@@ -123,6 +123,7 @@ export const formatNumber = (num: number): string => {
 export const formatPercentage = (num: number, base: number): string => {
   if (base === 0) return "—";
   const percentage = (num / Math.abs(base)) * 100;
+  if (percentage === 0) return "—";
   return `${percentage.toFixed(1)}%`;
 };
 
@@ -149,6 +150,49 @@ export const hasTransactions = (account: Account, journalEntries: Transaction[],
   // Check subaccounts recursively
   const subaccounts = getSubaccounts(accounts, account.id);
   return subaccounts.some((sub) => hasTransactions(sub, journalEntries, accounts));
+};
+
+// Quarter range helpers
+export const getQuartersInRange = (startDate: string, endDate: string): string[] => {
+  const quarters: string[] = [];
+
+  // Parse dates as local dates to avoid timezone issues
+  const [startYear, startMonth, startDay] = startDate.split("-").map(Number);
+  const [endYear, endMonth, endDay] = endDate.split("-").map(Number);
+
+  const start = new Date(startYear, startMonth - 1, startDay); // Month is 0-indexed
+  const end = new Date(endYear, endMonth - 1, endDay);
+
+  // Start from the first quarter that contains the start date
+  let currentYear = start.getFullYear();
+  let currentQuarter = Math.floor(start.getMonth() / 3) + 1; // 1-indexed quarter
+
+  while (true) {
+    const quarterStart = new Date(currentYear, (currentQuarter - 1) * 3, 1);
+    const quarterEnd = new Date(currentYear, currentQuarter * 3, 0); // Last day of quarter
+
+    // If the quarter start is after the end date, we're done
+    if (quarterStart > end) break;
+
+    // If the quarter overlaps with our date range, include it
+    if (quarterEnd >= start) {
+      quarters.push(`${currentYear}-Q${currentQuarter}`);
+    }
+
+    // Move to next quarter
+    currentQuarter++;
+    if (currentQuarter > 4) {
+      currentQuarter = 1;
+      currentYear++;
+    }
+  }
+
+  return quarters;
+};
+
+export const formatQuarter = (quarterStr: string): string => {
+  const [year, quarter] = quarterStr.split("-");
+  return `${quarter} ${year}`;
 };
 
 // Month range helpers
