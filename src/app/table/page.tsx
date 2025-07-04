@@ -11,6 +11,10 @@ import TransactionModal, {
   type EditJournalModalState, 
   type JournalEntryLine 
 } from '@/components/TransactionModal';
+import ManualJeModal, {
+  type NewJournalEntry,
+  type EditJournalModalState as ManualEditJournalModalState
+} from '@/components/ManualJeModal';
 import { 
   isZeroAmount
 } from '@/lib/financial';
@@ -37,11 +41,6 @@ type SelectOption = {
   label: string;
 };
 
-type NewJournalEntry = {
-  date: string;
-  lines: JournalEntryLine[];
-};
-
 export default function JournalTablePage() {
   const { currentCompany } = useAuthStore();
   const hasCompanyContext = !!(currentCompany);
@@ -61,6 +60,7 @@ export default function JournalTablePage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [newEntry, setNewEntry] = useState<NewJournalEntry>({
     date: new Date().toISOString().split('T')[0],
+    description: '',
     lines: [
       {
         id: '1',
@@ -111,6 +111,19 @@ export default function JournalTablePage() {
     },
     saving: false,
     isLoading: false,
+    error: null
+  });
+
+  // Manual journal entry modal state
+  const [manualEditModal, setManualEditModal] = useState<ManualEditJournalModalState>({
+    isOpen: false,
+    referenceNumber: '',
+    editEntry: {
+      date: '',
+      description: '',
+      lines: []
+    },
+    saving: false,
     error: null
   });
   
@@ -478,23 +491,38 @@ export default function JournalTablePage() {
   };
 
   const handleEditJournalEntry = (entry: JournalTableEntry) => {
-    setEditJournalModal({
-      isOpen: true,
-      transactionId: entry.transaction_id,
-      isManualEntry: entry.is_manual_entry || false,
-      editEntry: {
-        date: '',
-        description: '',
-        lines: []
-      },
-      saving: false,
-      isLoading: true,
-      error: null
-    });
-    
-    if (entry.is_manual_entry) {
-      fetchManualJournalEntriesForEdit(entry.reference_number || entry.transaction_id);
+    // Check if this is a manual journal entry
+    if (entry.entry_source === 'manual_journal' || entry.is_manual_entry) {
+      // Use ManualJeModal for manual journal entries
+      setManualEditModal({
+        isOpen: true,
+        referenceNumber: entry.reference_number || entry.transaction_id,
+        editEntry: {
+          date: '',
+          description: '',
+          lines: []
+        },
+        saving: false,
+        error: null
+      });
+      
+      fetchManualJournalEntriesForManualModal(entry.reference_number || entry.transaction_id);
     } else {
+      // Use TransactionModal for regular journal entries
+      setEditJournalModal({
+        isOpen: true,
+        transactionId: entry.transaction_id,
+        isManualEntry: entry.is_manual_entry || false,
+        editEntry: {
+          date: '',
+          description: '',
+          lines: []
+        },
+        saving: false,
+        isLoading: true,
+        error: null
+      });
+      
       fetchJournalEntriesForEdit(entry.transaction_id);
     }
   };
@@ -572,7 +600,7 @@ export default function JournalTablePage() {
     }
   };
 
-  const fetchManualJournalEntriesForEdit = async (referenceNumber: string) => {
+  const fetchManualJournalEntriesForManualModal = async (referenceNumber: string) => {
     if (!hasCompanyContext) return;
 
     try {
@@ -623,7 +651,7 @@ export default function JournalTablePage() {
       // Get the first entry to extract date and JE name
       const firstEntry = entriesForReference[0];
       
-      setEditJournalModal((prev: EditJournalModalState) => ({
+      setManualEditModal((prev: ManualEditJournalModalState) => ({
         ...prev,
         editEntry: {
           date: firstEntry?.date || new Date().toISOString().split('T')[0],
@@ -635,7 +663,7 @@ export default function JournalTablePage() {
       }));
     } catch (error) {
       console.error('Error fetching manual journal entries:', error);
-      setEditJournalModal((prev: EditJournalModalState) => ({
+      setManualEditModal((prev: ManualEditJournalModalState) => ({
         ...prev,
         error: 'Failed to fetch manual journal entries',
         isLoading: false
@@ -673,6 +701,7 @@ export default function JournalTablePage() {
       // Reset form and close modal
       setNewEntry({
         date: new Date().toISOString().split('T')[0],
+        description: '',
         lines: [
           {
             id: '1',
@@ -869,6 +898,142 @@ export default function JournalTablePage() {
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
       setEditJournalModal((prev: EditJournalModalState) => ({ ...prev, error: `Failed to update journal entries: ${errorMessage}`, saving: false }));
+    }
+  };
+
+  // Manual Journal Modal Functions
+  const updateManualEditJournalLine = (lineId: string, field: keyof JournalEntryLine, value: string) => {
+    setManualEditModal(prev => ({
+      ...prev,
+      editEntry: {
+        ...prev.editEntry,
+        lines: prev.editEntry.lines.map(line => 
+          line.id === lineId ? { ...line, [field]: value } : line
+        )
+      }
+    }));
+  };
+
+  const handleManualEditAmountChange = (lineId: string, field: 'debit' | 'credit', value: string) => {
+    setManualEditModal(prev => ({
+      ...prev,
+      editEntry: {
+        ...prev.editEntry,
+        lines: prev.editEntry.lines.map(line => {
+          if (line.id === lineId) {
+            const oppositeField = field === 'debit' ? 'credit' : 'debit';
+            return { ...line, [field]: value, [oppositeField]: '0.00' };
+          }
+          return line;
+        })
+      }
+    }));
+  };
+
+  const addManualEditJournalLine = () => {
+    const newLineId = (manualEditModal.editEntry.lines.length + 1).toString();
+    setManualEditModal(prev => ({
+      ...prev,
+      editEntry: {
+        ...prev.editEntry,
+        lines: [
+          ...prev.editEntry.lines,
+          {
+            id: newLineId,
+            description: '',
+            categoryId: '',
+            payeeId: '',
+            debit: '0.00',
+            credit: '0.00'
+          }
+        ]
+      }
+    }));
+  };
+
+  const calculateManualEditTotals = () => {
+    const totalDebits = manualEditModal.editEntry.lines.reduce((sum, line) => {
+      const debit = parseFloat(line.debit) || 0;
+      return sum + debit;
+    }, 0);
+
+    const totalCredits = manualEditModal.editEntry.lines.reduce((sum, line) => {
+      const credit = parseFloat(line.credit) || 0;
+      return sum + credit;
+    }, 0);
+
+    return { totalDebits, totalCredits };
+  };
+
+  const handleSaveManualEditEntry = async () => {
+    if (!manualEditModal.referenceNumber || !hasCompanyContext) return;
+
+    // Validation
+    if (!manualEditModal.editEntry.date) {
+      setManualEditModal(prev => ({ ...prev, error: 'Please select a date' }));
+      return;
+    }
+
+    try {
+      setManualEditModal(prev => ({ ...prev, saving: true, error: null }));
+      
+      // Basic validation - at least one debit and one credit line
+      const hasValidLines = manualEditModal.editEntry.lines.some(line => 
+        (line.debit && !isZeroAmount(line.debit)) || (line.credit && !isZeroAmount(line.credit))
+      );
+      
+      if (!hasValidLines) {
+        setManualEditModal(prev => ({ ...prev, error: 'Please enter at least one debit or credit amount', saving: false }));
+        return;
+      }
+
+      // Validation - debits must equal credits
+      const { totalDebits, totalCredits } = calculateManualEditTotals();
+      const isBalanced = Math.abs(totalDebits - totalCredits) < 0.01;
+      
+      if (!isBalanced) {
+        setManualEditModal(prev => ({ ...prev, error: 'Total debits must equal total credits', saving: false }));
+        return;
+      }
+
+      const lines = manualEditModal.editEntry.lines
+        .filter(line => (parseFloat(line.debit) > 0) || (parseFloat(line.credit) > 0))
+        .map(line => ({
+          description: line.description,
+          categoryId: line.categoryId,
+          payeeId: line.payeeId,
+          debit: line.debit,
+          credit: line.credit
+        }));
+
+      const response = await api.put('/api/manual-journal/update', {
+        companyId: currentCompany!.id,
+        referenceNumber: manualEditModal.referenceNumber,
+        date: manualEditModal.editEntry.date,
+        jeName: manualEditModal.editEntry.description,
+        lines: lines
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update manual journal entry');
+      }
+      
+      // Refresh all data
+      await fetchJournalEntries(currentCompany!.id);
+      
+      setNotification({ type: 'success', message: 'Manual journal entry updated successfully!' });
+      
+      // Close the modal after successful save
+      setManualEditModal({
+        isOpen: false,
+        referenceNumber: '',
+        editEntry: { date: '', description: '', lines: [] },
+        saving: false,
+        error: null
+      });
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
+      setManualEditModal(prev => ({ ...prev, error: `Failed to update manual journal entry: ${errorMessage}`, saving: false }));
     }
   };
 
@@ -1369,6 +1534,37 @@ export default function JournalTablePage() {
           });
         }}
         calculateTotals={calculateEditJournalTotals}
+      />
+      
+      {/* Manual Journal Entry Modal */}
+      <ManualJeModal
+        // Add Modal Props (not used for edit mode)
+        showAddModal={false}
+        setShowAddModal={() => {}}
+        newEntry={{ date: '', description: '', lines: [] }}
+        setNewEntry={() => {}}
+        saving={false}
+        isBalanced={true}
+        totalDebits={0}
+        totalCredits={0}
+        addJournalLine={() => {}}
+        updateJournalLine={() => {}}
+        handleAmountChange={() => {}}
+        handleAddEntry={async () => {}}
+        
+        // Edit Modal Props
+        editModal={manualEditModal}
+        setEditModal={setManualEditModal}
+        updateEditJournalLine={updateManualEditJournalLine}
+        handleEditAmountChange={handleManualEditAmountChange}
+        addEditJournalLine={addManualEditJournalLine}
+        calculateEditTotals={calculateManualEditTotals}
+        handleSaveEditEntry={handleSaveManualEditEntry}
+        
+        // Shared Props
+        categoryOptions={categoryOptions}
+        payees={payees}
+        setNewCategoryModal={setNewCategoryModal}
       />
     </div>
   );
