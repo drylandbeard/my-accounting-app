@@ -103,7 +103,7 @@ export default function TransactionModal({
       onClick={onClose}
     >
       <div 
-        className="bg-white rounded-lg p-6 w-[800px] overflow-y-auto shadow-xl"
+        className="bg-white rounded-lg p-6 w-[80%] overflow-y-auto shadow-xl"
         onClick={e => e.stopPropagation()}
       >
         <div className="flex justify-between items-center mb-4">
