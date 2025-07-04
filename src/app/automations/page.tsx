@@ -6,7 +6,8 @@ import { supabase } from "../../lib/supabase";
 import { Select } from "@/components/ui/select";
 import Papa from "papaparse";
 import { v4 as uuidv4 } from "uuid";
-import { X } from "lucide-react";
+import { X, FileDown, Plus } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 type PayeeAutomation = {
   id: string;
@@ -1084,34 +1085,38 @@ export default function AutomationsPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-8">
+      <div className="flex gap-8">
         {/* Payee Automations Section - Left Side */}
-        <div className="w-full">
+        <div className="w-2/5">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-semibold">Payee Automations</h2>
             <div className="flex gap-2">
-              <button
+              <Button
+                variant="outline"
                 onClick={() =>
                   setPayeeAutomationModal({
                     ...payeeAutomationModal,
                     isOpen: true,
                   })
                 }
-                className="px-3 py-1 text-xs border border-gray-300 rounded bg-gray-100 hover:bg-gray-200"
+                className="text-xs font-medium"
+                title="New Payee Automation"
               >
-                + New Payee Automation
-              </button>
-              <button
+                <Plus className="w-4 h-4" />
+              </Button>
+              <Button
+                variant="outline"
                 onClick={() =>
                   setAutomationImportModal((prev) => ({
                     ...prev,
                     isOpen: true,
                   }))
                 }
-                className="px-3 py-1 text-xs border border-gray-300 rounded bg-gray-100 hover:bg-gray-200"
+                className="text-xs font-medium"
+                title="Import"
               >
-                Import
-              </button>
+                <FileDown className="w-4 h-4" />
+              </Button>
             </div>
           </div>
 
@@ -1171,32 +1176,36 @@ export default function AutomationsPage() {
         </div>
 
         {/* Category Automations Section - Right Side */}
-        <div className="w-full">
+        <div className="flex-1">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-semibold">Category Automations</h2>
             <div className="flex gap-2">
-              <button
+              <Button
+                variant="outline"
                 onClick={() =>
                   setCategoryAutomationModal({
                     ...categoryAutomationModal,
                     isOpen: true,
                   })
                 }
-                className="px-3 py-1 text-xs border border-gray-300 rounded bg-gray-100 hover:bg-gray-200"
+                className="text-xs font-medium"
+                title="New Category Automation"
               >
-                + New Category Automation
-              </button>
-              <button
+                <Plus className="w-4 h-4" />
+              </Button>
+              <Button
+                variant="outline"
                 onClick={() =>
                   setAutomationImportModal((prev) => ({
                     ...prev,
                     isOpen: true,
                   }))
                 }
-                className="px-3 py-1 text-xs border border-gray-300 rounded bg-gray-100 hover:bg-gray-200"
+                className="text-xs font-medium"
+                title="Import"
               >
-                Import
-              </button>
+                <FileDown className="w-4 h-4" />
+              </Button>
             </div>
           </div>
 

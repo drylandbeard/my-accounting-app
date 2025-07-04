@@ -1,440 +1,78 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { supabase } from "../../../lib/supabase";
+import React, { useState, useMemo } from "react";
 import { useAuthStore } from "@/zustand/authStore";
-import { ChevronDown, ChevronRight, Download, Loader2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
-import { PeriodSelector } from "@/components/ui/period-selector";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import ExcelJS from "exceljs";
 
-type Account = {
-  id: string;
-  name: string;
-  type: string;
-  subtype?: string;
-  parent_id?: string | null;
-  _viewerType?: string;
-};
-
-type Transaction = {
-  id: string;
-  date: string;
-  description: string;
-  chart_account_id: string;
-  debit: number;
-  credit: number;
-  transaction_id: string;
-  source: "journal" | "manual";
-};
+// Shared imports
+import { Account, Transaction, ViewerModalState } from "../_types";
+import {
+  formatDateForDisplay,
+  formatNumber,
+  formatPercentage,
+  getMonthsInRange,
+  getQuartersInRange,
+  formatMonth,
+  formatQuarter,
+  getAllAccountIds,
+  getAllGroupAccountIds,
+} from "../_utils";
+import { useFinancialData } from "../_hooks/useFinancialData";
+import { usePeriodSelection } from "../_hooks/usePeriodSelection";
+import { useAccountOperations } from "../_hooks/useAccountOperations";
+import { useExportBalanceSheet } from "../_hooks/useExportBalanceSheet";
+import { ReportHeader } from "../_components/ReportHeader";
+import { TransactionViewer } from "../_components/TransactionViewer";
+import { AccountRowRenderer } from "../_components/AccountRowRenderer";
 
 export default function BalanceSheetPage() {
   const { currentCompany } = useAuthStore();
   const hasCompanyContext = !!currentCompany;
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [journalEntries, setJournalEntries] = useState<Transaction[]>([]);
-  const [asOfDate, setAsOfDate] = useState<string>("");
-  const [startDate, setStartDate] = useState<string>("");
-  const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
-  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
-  const [collapsedAccounts, setCollapsedAccounts] = useState<Set<string>>(new Set());
-  const [loading, setLoading] = useState<boolean>(true);
-  const [viewerModal, setViewerModal] = useState<{
-    isOpen: boolean;
-    category: Account | null;
-    selectedMonth?: string;
-  }>({
+
+  const {
+    selectedPeriod,
+    selectedPrimaryDisplay,
+    selectedSecondaryDisplay,
+    startDate,
+    endDate,
+    showPercentages,
+    isMonthlyView,
+    isQuarterlyView,
+    setStartDate,
+    handlePeriodChange,
+    handlePrimaryDisplayChange,
+    handleSecondaryDisplayChange,
+  } = usePeriodSelection();
+
+  // For balance sheet, we use endDate as the "as of" date, but also manage it separately
+  const [asOfDate, setAsOfDate] = useState<string>(endDate);
+
+  // Sync asOfDate with endDate when period selection changes
+  React.useEffect(() => {
+    setAsOfDate(endDate);
+  }, [endDate]);
+
+  // For balance sheet, we need all journal entries up to the as-of date
+  const { accounts, journalEntries, loading } = useFinancialData({
+    companyId: currentCompany?.id || null,
+    startDate: "1900-01-01", // Get all historical data
+    endDate: asOfDate,
+    accountTypes: ["Asset", "Liability", "Equity", "Revenue", "COGS", "Expense"],
+  });
+
+  const { collapsedAccounts, toggleAccount, getTopLevelAccounts, collapseAllParentCategories } = useAccountOperations({
+    accounts,
+    journalEntries,
+  });
+
+  const [viewerModal, setViewerModal] = useState<ViewerModalState>({
     isOpen: false,
     category: null,
   });
-  const [isMonthlyView, setIsMonthlyView] = useState(false);
-  const [showPercentages, setShowPercentages] = useState(false);
-  // eslint-disable-next-line
-  const [showPreviousPeriod, setShowPreviousPeriod] = useState(false);
 
-  // Period Selector state
-  const [selectedPeriod, setSelectedPeriod] = useState("lastMonth");
-  const [selectedDisplay, setSelectedDisplay] = useState("totalOnly");
-  // const [selectedComparison, setSelectedComparison] = useState("none");
-
-  // Helper: format date as YYYY-MM-DD
-  const formatDate = (date: Date): string => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const day = String(date.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-  };
-
-  // Helper: parse date string and format for display without timezone issues
-  const formatDateForDisplay = (dateString: string): string => {
-    const [year, month, day] = dateString.split("-").map(Number);
-    const date = new Date(year, month - 1, day); // month is 0-indexed
-    return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-  };
-
-  // Helper: get last day of month
-  const getMonthEnd = (date: Date): Date => {
-    return new Date(date.getFullYear(), date.getMonth() + 1, 0);
-  };
-
-  // Helper: get last day of quarter
-  const getQuarterEnd = (date: Date): Date => {
-    const quarter = Math.floor(date.getMonth() / 3);
-    return new Date(date.getFullYear(), (quarter + 1) * 3, 0);
-  };
-
-  // Handle period selector changes
-  const handlePeriodChange = (period: string) => {
-    setSelectedPeriod(period);
-
-    const today = new Date();
-    let endDate: Date;
-    let startDate: Date | null = null;
-
-    switch (period) {
-      case "thisMonth":
-        endDate = getMonthEnd(today);
-        break;
-      case "lastMonth":
-        const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-        endDate = getMonthEnd(lastMonth);
-        break;
-      case "last4Months":
-        endDate = getMonthEnd(new Date(today.getFullYear(), today.getMonth() - 1, 1));
-        // Set start date to 4 months ago from today
-        startDate = new Date(today.getFullYear(), today.getMonth() - 4, 1);
-        break;
-      case "last12Months":
-        endDate = getMonthEnd(today);
-        // Set start date to 12 months ago
-        startDate = new Date(today.getFullYear() - 1, today.getMonth(), 1);
-        break;
-      case "thisQuarter":
-        endDate = getQuarterEnd(today);
-        break;
-      case "lastQuarter":
-        const lastQuarter = new Date(today.getFullYear(), today.getMonth() - 3, 1);
-        endDate = getQuarterEnd(lastQuarter);
-        break;
-      case "thisYearToLastMonth":
-        endDate = getMonthEnd(new Date(today.getFullYear(), today.getMonth() - 1, 1));
-        startDate = new Date(today.getFullYear(), 0, 1); // January 1st of current year
-        break;
-      case "thisYearToToday":
-      default:
-        endDate = today;
-        break;
-    }
-
-    setAsOfDate(formatDate(endDate));
-    if (startDate) {
-      setStartDate(formatDate(startDate));
-    } else {
-      setStartDate(""); // Clear start date if not needed
-    }
-  };
-
-  const handleDisplayChange = (display: string) => {
-    setSelectedDisplay(display);
-    // Map display options to existing view state
-    setIsMonthlyView(display === "byMonth");
-    setShowPercentages(display === "withPercentages");
-  };
-
-  // const handleComparisonChange = (comparison: string) => {
-  //   setSelectedComparison(comparison);
-  //   // Map comparison options to existing state
-  //   setShowPreviousPeriod(comparison === "previousPeriod" || comparison === "previousYear");
-  // };
-
-  // Calculate today's date once
-  const today = React.useMemo(() => new Date().toISOString().split("T")[0], []);
-
-  useEffect(() => {
-    // Initialize with the default period setting instead of hardcoded dates
-    handlePeriodChange("lastMonth");
-  }, []); // Empty dependency array so it only runs once on mount
-
-  useEffect(() => {
-    const fetchData = async () => {
-      if (!hasCompanyContext) {
-        setLoading(false);
-        return;
-      }
-
-      setLoading(true);
-
-      try {
-        const { data: accountsData } = await supabase
-          .from("chart_of_accounts")
-          .select("*")
-          .eq("company_id", currentCompany!.id)
-          .in("type", ["Asset", "Liability", "Equity", "Revenue", "COGS", "Expense"]);
-        setAccounts(accountsData || []);
-
-        // Fetch ALL journal entries with pagination to handle more than 1000 rows
-        let allJournalData: Array<{
-          id: string;
-          date: string;
-          description: string;
-          chart_account_id: string;
-          debit: number;
-          credit: number;
-          transaction_id: string;
-          company_id: string;
-        }> = [];
-        let page = 0;
-        const pageSize = 1000;
-        let hasMore = true;
-
-        // Base query
-        let baseQuery = supabase.from("journal").select("*").eq("company_id", currentCompany!.id);
-
-        // Add date range if provided
-        if (asOfDate) {
-          baseQuery = baseQuery.lte("date", asOfDate);
-        }
-        
-        // Add start date if provided
-        if (startDate) {
-          baseQuery = baseQuery.gte("date", startDate);
-        }
-
-        // Fetch all pages of data
-        while (hasMore) {
-          const { data: journalData, error } = await baseQuery
-            .range(page * pageSize, (page + 1) * pageSize - 1)
-            .order("date", { ascending: true });
-
-          if (error) {
-            console.error("Error fetching journal data:", error);
-            break;
-          }
-
-          if (journalData && journalData.length > 0) {
-            allJournalData = [...allJournalData, ...journalData];
-            page++;
-            hasMore = journalData.length === pageSize;
-          } else {
-            hasMore = false;
-          }
-        }
-
-        console.log(`Total journal entries fetched: ${allJournalData.length}`);
-
-        // Fetch manual journal entries with pagination
-        let allManualJournalData: Array<{
-          id: string;
-          date: string;
-          description?: string;
-          je_name?: string;
-          chart_account_id: string;
-          debit: number;
-          credit: number;
-          reference_number?: string;
-          company_id: string;
-        }> = [];
-        page = 0;
-        hasMore = true;
-
-        // Base query for manual entries
-        let baseManualQuery = supabase.from("manual_journal_entries").select("*").eq("company_id", currentCompany!.id);
-
-        // Add date range if provided
-        if (asOfDate) {
-          baseManualQuery = baseManualQuery.lte("date", asOfDate);
-        }
-        
-        // Add start date if provided
-        if (startDate) {
-          baseManualQuery = baseManualQuery.gte("date", startDate);
-        }
-
-        // Fetch all pages of manual journal data
-        while (hasMore) {
-          const { data: manualJournalData, error } = await baseManualQuery
-            .range(page * pageSize, (page + 1) * pageSize - 1)
-            .order("date", { ascending: true });
-
-          if (error) {
-            console.error("Error fetching manual journal data:", error);
-            break;
-          }
-
-          if (manualJournalData && manualJournalData.length > 0) {
-            allManualJournalData = [...allManualJournalData, ...manualJournalData];
-            page++;
-            hasMore = manualJournalData.length === pageSize;
-          } else {
-            hasMore = false;
-          }
-        }
-
-        console.log(`Total manual journal entries fetched: ${allManualJournalData.length}`);
-
-        // Transform and combine both datasets
-        const regularEntries: Transaction[] = allJournalData.map((entry) => ({
-          id: entry.id,
-          date: entry.date,
-          description: entry.description,
-          chart_account_id: entry.chart_account_id,
-          debit: entry.debit,
-          credit: entry.credit,
-          transaction_id: entry.transaction_id,
-          source: "journal" as const,
-        }));
-
-        const manualEntries: Transaction[] = allManualJournalData.map((entry) => ({
-          id: entry.id,
-          date: entry.date,
-          description: entry.description || entry.je_name || "Manual Entry",
-          chart_account_id: entry.chart_account_id,
-          debit: entry.debit,
-          credit: entry.credit,
-          transaction_id: entry.reference_number || entry.id,
-          source: "manual" as const,
-        }));
-
-        // Combine all entries
-        const allEntries = [...regularEntries, ...manualEntries];
-        setJournalEntries(allEntries);
-      } catch (error) {
-        console.error("Error fetching balance sheet data:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-    if (asOfDate) fetchData();
-  }, [asOfDate, startDate, currentCompany?.id, hasCompanyContext]);
-
-  // Helper: get months from start date (or January) to asOfDate
-  const getMonthsInRange = () => {
-    const months: string[] = [];
-
-    // Parse asOfDate
-    const [endYear, endMonth, endDay] = asOfDate.split("-").map(Number);
-    const endDate = new Date(endYear, endMonth - 1, endDay);
-
-    // Use startDate if available, otherwise start from January of the same year
-    let current;
-    if (startDate) {
-      const [startYear, startMonth] = startDate.split("-").map(Number);
-      current = new Date(startYear, startMonth - 1, 1); // First day of the start month
-    } else {
-      current = new Date(endYear, 0, 1); // January 1st
-    }
-
-    while (current <= endDate) {
-      const year = current.getFullYear();
-      const month = String(current.getMonth() + 1).padStart(2, "0");
-      months.push(`${year}-${month}`);
-
-      // Move to next month
-      current = new Date(current.getFullYear(), current.getMonth() + 1, 1);
-    }
-    return months;
-  };
-
-  // Helper: format month for display
-  const formatMonth = (monthStr: string) => {
-    const [year, month] = monthStr.split("-");
-    return new Date(parseInt(year), parseInt(month) - 1).toLocaleDateString("en-US", {
-      month: "short",
-      year: "numeric",
-    });
-  };
-
-  // Helper: calculate account total for a specific month (as of end of month)
-  const calculateAccountTotalForMonth = (account: Account, month: string): number => {
-    // Get the last day of the specified month
-    const [year, monthNum] = month.split("-").map(Number);
-    const monthEndDate = new Date(year, monthNum, 0); // Last day of the month
-    const monthEndDateStr = formatDate(monthEndDate);
-
-    let total = 0;
-    if (account.type === "Asset") {
-      const totalDebits = journalEntries
-        .filter((tx) => tx.chart_account_id === account.id && tx.date <= monthEndDateStr)
-        .reduce((sum, tx) => sum + Number(tx.debit), 0);
-      const totalCredits = journalEntries
-        .filter((tx) => tx.chart_account_id === account.id && tx.date <= monthEndDateStr)
-        .reduce((sum, tx) => sum + Number(tx.credit), 0);
-      total = totalDebits - totalCredits;
-    } else if (account.type === "Liability" || account.type === "Equity") {
-      const totalCredits = journalEntries
-        .filter((tx) => tx.chart_account_id === account.id && tx.date <= monthEndDateStr)
-        .reduce((sum, tx) => sum + Number(tx.credit), 0);
-      const totalDebits = journalEntries
-        .filter((tx) => tx.chart_account_id === account.id && tx.date <= monthEndDateStr)
-        .reduce((sum, tx) => sum + Number(tx.debit), 0);
-      total = totalCredits - totalDebits;
-    }
-    return total;
-  };
-
-  // Helper: calculate roll-up total for an account for a specific month
-  const calculateAccountTotalForMonthWithSubaccounts = (account: Account, month: string): number => {
-    let total = calculateAccountTotalForMonth(account, month);
-    const subaccounts = getSubaccounts(account.id);
-    for (const sub of subaccounts) {
-      total += calculateAccountTotalForMonthWithSubaccounts(sub, month);
-    }
-    return total;
-  };
-
-  // Percentage calculation helpers
-  const formatPercentage = (num: number, base: number): string => {
-    if (base === 0) return "—";
-    const percentage = (num / Math.abs(base)) * 100;
-    return `${percentage.toFixed(1)}%`;
-  };
-
-  const formatPercentageForAccount = (num: number, accountType: string): string => {
-    let base = 0;
-    if (accountType === "Asset") {
-      base = totalAssets;
-    } else if (accountType === "Liability") {
-      base = totalLiabilities;
-    } else if (accountType === "Equity") {
-      base = totalEquityWithNetIncome;
-    }
-    return formatPercentage(num, base);
-  };
-
-  // Helpers for subaccounts and totals
-  const getSubaccounts = (parentId: string) => accounts.filter((acc) => acc.parent_id === parentId);
-
-  const calculateAccountTotal = (account: Account): number => {
-    let total = 0;
-    if (account.type === "Asset") {
-      const totalDebits = journalEntries
-        .filter((tx) => tx.chart_account_id === account.id)
-        .reduce((sum, tx) => sum + Number(tx.debit), 0);
-      const totalCredits = journalEntries
-        .filter((tx) => tx.chart_account_id === account.id)
-        .reduce((sum, tx) => sum + Number(tx.credit), 0);
-      total = totalDebits - totalCredits;
-    } else if (account.type === "Liability" || account.type === "Equity") {
-      const totalCredits = journalEntries
-        .filter((tx) => tx.chart_account_id === account.id)
-        .reduce((sum, tx) => sum + Number(tx.credit), 0);
-      const totalDebits = journalEntries
-        .filter((tx) => tx.chart_account_id === account.id)
-        .reduce((sum, tx) => sum + Number(tx.debit), 0);
-      total = totalCredits - totalDebits;
-    }
-    // Add subaccounts' totals
-    const subaccounts = getSubaccounts(account.id);
-    for (const sub of subaccounts) {
-      total += calculateAccountTotal(sub);
-    }
-    return total;
-  };
-
-  const calculateAccountDirectTotal = (account: Account): number => {
+  // Balance sheet specific account calculation (override the default P&L calculation)
+  const calculateBalanceSheetAccountTotal = (account: Account): number => {
     if (account.type === "Asset") {
       const totalDebits = journalEntries
         .filter((tx) => tx.chart_account_id === account.id)
@@ -455,1216 +93,271 @@ export default function BalanceSheetPage() {
     return 0;
   };
 
-  const getAllAccountIds = (account: Account): string[] => {
-    const subaccounts = getSubaccounts(account.id);
-    return [account.id, ...subaccounts.flatMap(getAllAccountIds)];
-  };
-
-  const getAllGroupAccountIds = (accounts: Account[]): string[] => accounts.flatMap((acc) => getAllAccountIds(acc));
-
-  // Check if an account should be shown (has transactions or children with transactions)
-  const shouldShowAccount = (account: Account): boolean => {
-    // Check if account has direct transactions
-    const directTotal = calculateAccountDirectTotal(account);
-    if (directTotal !== 0) {
-      return true;
-    }
-
-    // Check if any child accounts should be shown (recursive)
-    const subaccounts = getSubaccounts(account.id);
-    return subaccounts.some(shouldShowAccount);
-  };
-
-  // Filter accounts to only show those with transactions or children with transactions
-  const getVisibleAccounts = (accountsList: Account[]): Account[] => {
-    return accountsList.filter(shouldShowAccount);
-  };
-
-  // Toggle functions for collapse/expand
-  const toggleSection = (sectionName: string) => {
-    const newCollapsed = new Set(collapsedSections);
-    if (newCollapsed.has(sectionName)) {
-      newCollapsed.delete(sectionName);
-    } else {
-      newCollapsed.add(sectionName);
-    }
-    setCollapsedSections(newCollapsed);
-  };
-
-  const toggleAccount = (accountId: string) => {
-    const newCollapsed = new Set(collapsedAccounts);
-    if (newCollapsed.has(accountId)) {
-      newCollapsed.delete(accountId);
-    } else {
-      newCollapsed.add(accountId);
-    }
-    setCollapsedAccounts(newCollapsed);
-  };
-
-  // Render account row for monthly view
-  const renderAccountRowWithMonthlyTotals = (account: Account, level = 0) => {
-    const subaccounts = getSubaccounts(account.id).filter(shouldShowAccount);
-    const isParent = subaccounts.length > 0;
-    const isCollapsed = collapsedAccounts.has(account.id);
-    const months = getMonthsInRange();
-
-    // If this account and all its subaccounts have no transactions in any month, do not render
-    const hasAnyTransactions = months.some(
-      (month) => calculateAccountTotalForMonthWithSubaccounts(account, month) !== 0
+  // Balance sheet calculation for specific month (cumulative up to end of month)
+  const calculateBalanceSheetAccountTotalForMonth = (account: Account, month: string): number => {
+    const endOfMonth = new Date(month + "-31").toISOString().split("T")[0];
+    const monthTransactions = journalEntries.filter(
+      (tx) => tx.chart_account_id === account.id && tx.date <= endOfMonth
     );
-    if (!hasAnyTransactions) return null;
 
-    return (
-      <React.Fragment key={account.id}>
-        <TableRow
-          className={`cursor-pointer hover:bg-slate-50 transition-colors ${level > 0 ? "bg-slate-25" : ""}`}
-          onClick={() => {
-            setSelectedAccount({
-              ...account,
-              _viewerType: isParent && isCollapsed ? "rollup" : "direct",
-            });
-            setViewerModal({ isOpen: true, category: account });
-          }}
-        >
-          <TableCell className="border p-1 text-xs" style={{ paddingLeft: `${level * 20 + 8}px` }}>
-            <div className="flex items-center">
-              {level > 0 && <span className="text-gray-400 mr-2 text-xs">└</span>}
-              {isParent ? (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    toggleAccount(account.id);
-                  }}
-                  className="mr-2 p-1 hover:bg-gray-200 rounded transition-colors"
-                >
-                  {isCollapsed ? (
-                    <ChevronRight className="w-3 h-3 text-gray-600" />
-                  ) : (
-                    <ChevronDown className="w-3 h-3 text-gray-600" />
-                  )}
-                </button>
-              ) : (
-                !level && <div className="mr-2 w-5"></div>
-              )}
-              <span className="font-semibold">{account.name}</span>
-            </div>
-          </TableCell>
-          {months.map((month) => (
-            <React.Fragment key={month}>
-              <TableCell
-                className="border p-1 text-right text-xs cursor-pointer hover:bg-gray-50"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedAccount(account);
-                  setViewerModal({ isOpen: true, category: account, selectedMonth: month });
-                }}
-              >
-                {formatNumber(
-                  isParent && isCollapsed
-                    ? calculateAccountTotalForMonthWithSubaccounts(account, month)
-                    : calculateAccountTotalForMonth(account, month)
-                )}
-              </TableCell>
-              {showPercentages && (
-                <TableCell className="border p-1 text-right text-xs text-slate-600">
-                  {formatPercentageForAccount(
-                    isParent && isCollapsed
-                      ? calculateAccountTotalForMonthWithSubaccounts(account, month)
-                      : calculateAccountTotalForMonth(account, month),
-                    account.type
-                  )}
-                </TableCell>
-              )}
-            </React.Fragment>
-          ))}
-          <TableCell className="border p-1 text-right font-semibold text-xs">
-            {formatNumber(
-              isParent && isCollapsed ? calculateAccountTotal(account) : calculateAccountDirectTotal(account)
-            )}
-          </TableCell>
-          {showPercentages && (
-            <TableCell className="border p-1 text-right text-xs text-slate-600">
-              {formatPercentageForAccount(
-                isParent && isCollapsed ? calculateAccountTotal(account) : calculateAccountDirectTotal(account),
-                account.type
-              )}
-            </TableCell>
-          )}
-        </TableRow>
-        {!isCollapsed && subaccounts.map((sub) => renderAccountRowWithMonthlyTotals(sub, level + 1))}
-        {isParent && !isCollapsed && (
-          <TableRow
-            key={`${account.id}-total`}
-            className="cursor-pointer hover:bg-blue-50 transition-colors"
-            onClick={() => {
-              setSelectedAccount({ ...account, _viewerType: "rollup" });
-              setViewerModal({ isOpen: true, category: account });
-            }}
-          >
-            <TableCell className="border p-1 text-xs bg-gray-50" style={{ paddingLeft: `${level * 20 + 8}px` }}>
-              <div className="flex items-center">
-                <div className="mr-2 w-5"></div>
-                <span className="font-semibold">Total {account.name}</span>
-              </div>
-            </TableCell>
-            {months.map((month) => (
-              <React.Fragment key={month}>
-                <TableCell className="border p-1 text-right font-semibold bg-gray-50 text-xs">
-                  {formatNumber(calculateAccountTotalForMonthWithSubaccounts(account, month))}
-                </TableCell>
-                {showPercentages && (
-                  <TableCell className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
-                    {formatPercentageForAccount(
-                      calculateAccountTotalForMonthWithSubaccounts(account, month),
-                      account.type
-                    )}
-                  </TableCell>
-                )}
-              </React.Fragment>
-            ))}
-            <TableCell className="border p-1 text-right font-semibold bg-gray-50 text-xs">
-              {formatNumber(calculateAccountTotal(account))}
-            </TableCell>
-            {showPercentages && (
-              <TableCell className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
-                {formatPercentageForAccount(calculateAccountTotal(account), account.type)}
-              </TableCell>
-            )}
-          </TableRow>
-        )}
-      </React.Fragment>
-    );
-  };
-
-  // Render account row and its subaccounts, with a total line for each parent
-  const renderAccountRowWithTotal = (account: Account, level = 0): React.ReactElement => {
-    const subaccounts = getSubaccounts(account.id).filter(shouldShowAccount);
-    const directTotal = calculateAccountDirectTotal(account);
-    const rollupTotal = calculateAccountTotal(account);
-    const isParent = subaccounts.length > 0;
-    const isCollapsed = collapsedAccounts.has(account.id);
-    const isChild = level > 0;
-
-    // if (rollupTotal === 0) return null
-
-    return (
-      <>
-        <TableRow
-          key={account.id}
-          className={`cursor-pointer hover:bg-slate-50 transition-colors ${isChild ? "bg-slate-25" : ""}`}
-          onClick={() => {
-            setSelectedAccount({
-              ...account,
-              _viewerType: isParent && isCollapsed ? "rollup" : "direct",
-            });
-            setViewerModal({ isOpen: true, category: account });
-          }}
-        >
-          <TableCell className="border p-1 text-xs" style={{ paddingLeft: `${level * 20 + 8}px`, width: "30%" }}>
-            <div className="flex items-center">
-              {level > 0 && <span className="text-gray-400 mr-2 text-xs">└</span>}
-              {isParent ? (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    toggleAccount(account.id);
-                  }}
-                  className="mr-2 p-1 hover:bg-gray-200 rounded transition-colors"
-                >
-                  {isCollapsed ? (
-                    <ChevronRight className="w-3 h-3 text-gray-600" />
-                  ) : (
-                    <ChevronDown className="w-3 h-3 text-gray-600" />
-                  )}
-                </button>
-              ) : (
-                !isChild && <div className="mr-2 w-5"></div>
-              )}
-              <span className="font-semibold">{account.name}</span>
-            </div>
-          </TableCell>
-          <TableCell className="border p-1 text-right text-xs" style={{ width: "20%" }}>
-            {formatNumber(isParent && isCollapsed ? rollupTotal : directTotal)}
-          </TableCell>
-          {showPercentages && (
-            <TableCell className="border p-1 text-right text-xs text-slate-600">
-              {formatPercentageForAccount(isParent && isCollapsed ? rollupTotal : directTotal, account.type)}
-            </TableCell>
-          )}
-          {showPreviousPeriod && (
-            <>
-              <TableCell className="border p-1 text-right text-xs" style={{ width: "20%" }}>
-                {/* Previous period would need additional data fetching */}—
-              </TableCell>
-              {showPercentages && <TableCell className="border p-1 text-right text-xs text-slate-600">—</TableCell>}
-              <TableHead
-                className="border p-1 text-center font-medium text-xs whitespace-nowrap"
-                style={{ width: showPercentages ? "20%" : "25%" }}
-              >
-                Difference
-              </TableHead>
-            </>
-          )}
-        </TableRow>
-        {!isCollapsed &&
-          subaccounts.map((sub) => (
-            <React.Fragment key={sub.id}>{renderAccountRowWithTotal(sub, level + 1)}</React.Fragment>
-          ))}
-        {isParent && !isCollapsed && (
-          <TableRow
-            className="cursor-pointer hover:bg-blue-50 transition-colors"
-            onClick={() => {
-              setSelectedAccount({ ...account, _viewerType: "rollup" });
-              setViewerModal({ isOpen: true, category: account });
-            }}
-          >
-            <TableCell
-              className="border p-1 text-xs bg-gray-50"
-              style={{ paddingLeft: `${level * 20 + 8}px`, width: "30%" }}
-            >
-              <div className="flex items-center">
-                <div className="mr-2 w-5"></div>
-                <span className="font-semibold">Total {account.name}</span>
-              </div>
-            </TableCell>
-            <TableCell className="border p-1 text-right font-semibold bg-gray-50 text-xs" style={{ width: "20%" }}>
-              {formatNumber(rollupTotal)}
-            </TableCell>
-            {showPercentages && (
-              <TableCell className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
-                {formatPercentageForAccount(rollupTotal, account.type)}
-              </TableCell>
-            )}
-            {showPreviousPeriod && (
-              <>
-                <TableCell className="border p-1 text-right font-semibold bg-gray-50 text-xs" style={{ width: "20%" }}>
-                  —
-                </TableCell>
-                {showPercentages && (
-                  <TableCell className="border p-1 text-right text-xs text-slate-600 bg-gray-50">—</TableCell>
-                )}
-                <TableCell className="border p-1 text-right font-semibold bg-gray-50 text-xs" style={{ width: "20%" }}>
-                  —
-                </TableCell>
-              </>
-            )}
-          </TableRow>
-        )}
-      </>
-    );
-  };
-
-  // Top-level accounts (no parent) - filtered to only show accounts with transactions
-  const assetRows = getVisibleAccounts(accounts.filter((a) => a.type === "Asset" && !a.parent_id));
-  const liabilityRows = getVisibleAccounts(accounts.filter((a) => a.type === "Liability" && !a.parent_id));
-
-  // For equity accounts, show them even if they have zero balances (important for balance sheet)
-  const allEquityAccounts = accounts.filter((a) => a.type === "Equity" && !a.parent_id);
-  const equityRows = allEquityAccounts; // Show all equity accounts, not just those with transactions
-  const revenueAccounts = accounts.filter((a) => a.type === "Revenue");
-  const cogsAccounts = accounts.filter((a) => a.type === "COGS");
-  const expenseAccounts = accounts.filter((a) => a.type === "Expense");
-
-  // Net Income calculation (proper P&L logic with subaccounts)
-  const calculatePLAccountTotal = (account: Account): number => {
-    let total = 0;
-
-    if (account.type === "Revenue") {
-      // Revenue: credits minus debits
-      const totalCredits = journalEntries
-        .filter((tx) => tx.chart_account_id === account.id)
-        .reduce((sum, tx) => sum + Number(tx.credit), 0);
-      const totalDebits = journalEntries
-        .filter((tx) => tx.chart_account_id === account.id)
-        .reduce((sum, tx) => sum + Number(tx.debit), 0);
-      total = totalCredits - totalDebits;
-    } else if (account.type === "Expense" || account.type === "COGS") {
-      // Expenses/COGS: debits minus credits
-      const totalDebits = journalEntries
-        .filter((tx) => tx.chart_account_id === account.id)
-        .reduce((sum, tx) => sum + Number(tx.debit), 0);
-      const totalCredits = journalEntries
-        .filter((tx) => tx.chart_account_id === account.id)
-        .reduce((sum, tx) => sum + Number(tx.credit), 0);
-      total = totalDebits - totalCredits;
+    if (account.type === "Asset") {
+      const totalDebits = monthTransactions.reduce((sum, tx) => sum + Number(tx.debit), 0);
+      const totalCredits = monthTransactions.reduce((sum, tx) => sum + Number(tx.credit), 0);
+      return totalDebits - totalCredits;
+    } else if (account.type === "Liability" || account.type === "Equity") {
+      const totalCredits = monthTransactions.reduce((sum, tx) => sum + Number(tx.credit), 0);
+      const totalDebits = monthTransactions.reduce((sum, tx) => sum + Number(tx.debit), 0);
+      return totalCredits - totalDebits;
     }
+    return 0;
+  };
 
-    // Add subaccounts' totals recursively
-    const subaccounts = getSubaccounts(account.id);
+  // Balance sheet calculation for specific quarter (cumulative up to end of quarter)
+  const calculateBalanceSheetAccountTotalForQuarter = (account: Account, quarter: string): number => {
+    const [year, q] = quarter.split("-Q");
+    const endMonth = parseInt(q) * 3;
+    const endOfQuarter = new Date(parseInt(year), endMonth - 1, 31).toISOString().split("T")[0];
+    const quarterTransactions = journalEntries.filter(
+      (tx) => tx.chart_account_id === account.id && tx.date <= endOfQuarter
+    );
+
+    if (account.type === "Asset") {
+      const totalDebits = quarterTransactions.reduce((sum, tx) => sum + Number(tx.debit), 0);
+      const totalCredits = quarterTransactions.reduce((sum, tx) => sum + Number(tx.credit), 0);
+      return totalDebits - totalCredits;
+    } else if (account.type === "Liability" || account.type === "Equity") {
+      const totalCredits = quarterTransactions.reduce((sum, tx) => sum + Number(tx.credit), 0);
+      const totalDebits = quarterTransactions.reduce((sum, tx) => sum + Number(tx.debit), 0);
+      return totalCredits - totalDebits;
+    }
+    return 0;
+  };
+
+  // Recursive function to calculate account total including subaccounts for balance sheet
+  const calculateBalanceSheetAccountTotalWithSubaccounts = (account: Account): number => {
+    let total = calculateBalanceSheetAccountTotal(account);
+    const subaccounts = accounts.filter((acc) => acc.parent_id === account.id);
     for (const sub of subaccounts) {
-      total += calculatePLAccountTotal(sub);
+      total += calculateBalanceSheetAccountTotalWithSubaccounts(sub);
     }
-
     return total;
   };
 
-  const calculatePLGroupTotal = (accounts: Account[]): number => {
-    return accounts
-      .filter((acc) => !acc.parent_id) // Only top-level accounts
-      .reduce((sum, acc) => sum + calculatePLAccountTotal(acc), 0);
-  };
-
-  // Helper: calculate P&L account total for a specific month (cumulative from year start)
-  const calculatePLAccountTotalForMonth = (account: Account, month: string): number => {
-    // Get the last day of the specified month
-    const [year, monthNum] = month.split("-").map(Number);
-    const monthEndDate = new Date(year, monthNum, 0); // Last day of the month
-    const monthEndDateStr = formatDate(monthEndDate);
-
-    // Start from beginning of the year
-    const yearStartDate = `${year}-01-01`;
-
-    let total = 0;
-
-    if (account.type === "Revenue") {
-      // Revenue: credits minus debits
-      const totalCredits = journalEntries
-        .filter((tx) => tx.chart_account_id === account.id && tx.date >= yearStartDate && tx.date <= monthEndDateStr)
-        .reduce((sum, tx) => sum + Number(tx.credit), 0);
-      const totalDebits = journalEntries
-        .filter((tx) => tx.chart_account_id === account.id && tx.date >= yearStartDate && tx.date <= monthEndDateStr)
-        .reduce((sum, tx) => sum + Number(tx.debit), 0);
-      total = totalCredits - totalDebits;
-    } else if (account.type === "Expense" || account.type === "COGS") {
-      // Expenses/COGS: debits minus credits
-      const totalDebits = journalEntries
-        .filter((tx) => tx.chart_account_id === account.id && tx.date >= yearStartDate && tx.date <= monthEndDateStr)
-        .reduce((sum, tx) => sum + Number(tx.debit), 0);
-      const totalCredits = journalEntries
-        .filter((tx) => tx.chart_account_id === account.id && tx.date >= yearStartDate && tx.date <= monthEndDateStr)
-        .reduce((sum, tx) => sum + Number(tx.credit), 0);
-      total = totalDebits - totalCredits;
-    }
-
-    // Add subaccounts' totals recursively
-    const subaccounts = getSubaccounts(account.id);
+  // Recursive function for month with subaccounts
+  const calculateBalanceSheetAccountTotalForMonthWithSubaccounts = (account: Account, month: string): number => {
+    let total = calculateBalanceSheetAccountTotalForMonth(account, month);
+    const subaccounts = accounts.filter((acc) => acc.parent_id === account.id);
     for (const sub of subaccounts) {
-      total += calculatePLAccountTotalForMonth(sub, month);
+      total += calculateBalanceSheetAccountTotalForMonthWithSubaccounts(sub, month);
     }
-
     return total;
   };
 
-  // Helper: calculate P&L group total for a specific month (cumulative from year start)
-  const calculatePLGroupTotalForMonth = (accounts: Account[], month: string): number => {
-    return accounts
-      .filter((acc) => !acc.parent_id) // Only top-level accounts
-      .reduce((sum, acc) => sum + calculatePLAccountTotalForMonth(acc, month), 0);
-  };
-
-  const totalRevenue = calculatePLGroupTotal(revenueAccounts);
-  const totalCOGS = calculatePLGroupTotal(cogsAccounts);
-  const totalExpenses = calculatePLGroupTotal(expenseAccounts);
-  const netIncome = totalRevenue - totalCOGS - totalExpenses;
-
-  // Totals
-  const totalAssets = assetRows.reduce((sum, a) => sum + calculateAccountTotal(a), 0);
-  const totalLiabilities = liabilityRows.reduce((sum, a) => sum + calculateAccountTotal(a), 0);
-  const totalEquity = equityRows.reduce((sum, a) => sum + calculateAccountTotal(a), 0);
-
-  // Total equity with net income (proper accounting approach)
-  const totalEquityWithNetIncome = totalEquity + netIncome;
-  const liabilitiesAndEquity = totalLiabilities + totalEquityWithNetIncome;
-
-  // Calculate the actual balance sheet discrepancy
-  const balanceDifference = totalAssets - liabilitiesAndEquity;
-
-  // Quick view: transactions for selected account or group
-  const selectedAccountTransactions = selectedAccount
-    ? (() => {
-        let transactions =
-          selectedAccount._viewerType === "rollup"
-            ? journalEntries.filter((tx) => getAllAccountIds(selectedAccount).includes(tx.chart_account_id))
-            : selectedAccount.id === "ASSET_GROUP"
-            ? journalEntries.filter((tx) => getAllGroupAccountIds(assetRows).includes(tx.chart_account_id))
-            : selectedAccount.id === "LIABILITY_GROUP"
-            ? journalEntries.filter((tx) => getAllGroupAccountIds(liabilityRows).includes(tx.chart_account_id))
-            : selectedAccount.id === "EQUITY_GROUP"
-            ? journalEntries.filter(
-                (tx) =>
-                  getAllGroupAccountIds(equityRows).includes(tx.chart_account_id) ||
-                  ["Revenue", "COGS", "Expense"].includes(
-                    accounts.find((a) => a.id === tx.chart_account_id)?.type || ""
-                  )
-              )
-            : selectedAccount.id === "NET_INCOME"
-            ? journalEntries.filter((tx) =>
-                ["Revenue", "COGS", "Expense"].includes(accounts.find((a) => a.id === tx.chart_account_id)?.type || "")
-              )
-            : selectedAccount.id === "TOTAL_LIAB_EQUITY_GROUP"
-            ? journalEntries.filter(
-                (tx) =>
-                  getAllGroupAccountIds(liabilityRows).includes(tx.chart_account_id) ||
-                  getAllGroupAccountIds(equityRows).includes(tx.chart_account_id) ||
-                  ["Revenue", "COGS", "Expense"].includes(
-                    accounts.find((a) => a.id === tx.chart_account_id)?.type || ""
-                  )
-              )
-            : journalEntries.filter((tx) => tx.chart_account_id === selectedAccount.id);
-
-        // If a specific month is selected, filter transactions appropriately
-        const selectedMonth = viewerModal.selectedMonth;
-        if (selectedMonth && typeof selectedMonth === "string") {
-          if (selectedAccount.id === "NET_INCOME") {
-            // For Net Income, show cumulative transactions from year start to end of selected month
-            const [year, monthNum] = selectedMonth.split("-").map(Number);
-            const monthEndDate = new Date(year, monthNum, 0); // Last day of the month
-            const monthEndDateStr = formatDate(monthEndDate);
-            const yearStartDate = `${year}-01-01`;
-
-            transactions = transactions.filter((tx) => tx.date >= yearStartDate && tx.date <= monthEndDateStr);
-          } else {
-            // For other accounts, show transactions for that month only
-            transactions = transactions.filter((tx) => tx.date.startsWith(selectedMonth));
-          }
-        }
-
-        return transactions;
-      })()
-    : [];
-
-  const formatNumber = (num: number): string => {
-    if (Math.abs(num) < 0.01) return "—"; // Em dash for zero values
-    const formatted = Math.abs(num).toLocaleString("en-US", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
-    return num < 0 ? `(${formatted})` : formatted;
-  };
-
-  // Export function
-  const exportToXLSX = async () => {
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet("Balance Sheet");
-
-    // Set basic styles
-    const companyStyle = { font: { size: 12, bold: true }, alignment: { horizontal: "center" as const } };
-    const headerStyle = {
-      font: { bold: true, size: 10 },
-      alignment: { horizontal: "center" as const },
-    };
-    const sectionStyle = {
-      font: { bold: true, size: 10 },
-    };
-    const numberStyle = {
-      font: { size: 10 },
-      numFmt: '#,##0.00;(#,##0.00);"—"', // Format to show dash for zero values
-      alignment: { horizontal: "right" as const },
-    };
-    const percentStyle = {
-      font: { size: 10 },
-      numFmt: '0.0%;-0.0%;"—"', // Format to show dash for zero values
-      alignment: { horizontal: "right" as const },
-    };
-    const totalStyle = {
-      font: { bold: true, size: 10 },
-      numFmt: '#,##0.00;(#,##0.00);"—"', // Format to show dash for zero values
-      alignment: { horizontal: "right" as const },
-    };
-
-    let currentRow = 1;
-    const months = isMonthlyView ? getMonthsInRange() : [];
-    const totalColumns = isMonthlyView
-      ? 1 + months.length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1)
-      : showPercentages
-      ? 3
-      : 2;
-
-    if (currentCompany) {
-      worksheet.mergeCells(`A${currentRow}:${String.fromCharCode(64 + totalColumns)}${currentRow}`);
-      worksheet.getCell(`A${currentRow}`).value = currentCompany.name;
-      worksheet.getCell(`A${currentRow}`).style = companyStyle;
-      currentRow++;
+  // Recursive function for quarter with subaccounts
+  const calculateBalanceSheetAccountTotalForQuarterWithSubaccounts = (account: Account, quarter: string): number => {
+    let total = calculateBalanceSheetAccountTotalForQuarter(account, quarter);
+    const subaccounts = accounts.filter((acc) => acc.parent_id === account.id);
+    for (const sub of subaccounts) {
+      total += calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(sub, quarter);
     }
+    return total;
+  };
 
-    // Title and company info at top
-    worksheet.mergeCells(`A${currentRow}:${String.fromCharCode(64 + totalColumns)}${currentRow}`);
-    worksheet.getCell(`A${currentRow}`).value = "Balance Sheet";
-    worksheet.getCell(`A${currentRow}`).style = { font: { size: 10 }, alignment: { horizontal: "center" as const } };
-    currentRow++;
+  // Account groups for balance sheet
+  const assetAccounts = getTopLevelAccounts("Asset");
+  const liabilityAccounts = getTopLevelAccounts("Liability");
+  const equityAccounts = getTopLevelAccounts("Equity");
 
-    worksheet.mergeCells(`A${currentRow}:${String.fromCharCode(64 + totalColumns)}${currentRow}`);
-    worksheet.getCell(`A${currentRow}`).value = `As of ${formatDateForDisplay(asOfDate)}`;
-    worksheet.getCell(`A${currentRow}`).style = { font: { size: 10 }, alignment: { horizontal: "center" as const } };
-    currentRow++;
+  // P&L accounts for retained earnings calculation
+  const revenueAccounts = getTopLevelAccounts("Revenue");
+  const cogsAccounts = getTopLevelAccounts("COGS");
+  const expenseAccounts = getTopLevelAccounts("Expense");
 
-    // Table headers
-    let colIndex = 1;
-    worksheet.getCell(currentRow, colIndex++).value = "Account";
-    worksheet.getCell(currentRow, colIndex - 1).style = headerStyle;
+  // Calculate P&L totals for retained earnings
+  const totalRevenue = revenueAccounts.reduce((sum, a) => {
+    return (
+      sum +
+      journalEntries
+        .filter((tx) => getAllAccountIds(accounts, a).includes(tx.chart_account_id))
+        .reduce((txSum, tx) => txSum + Number(tx.credit) - Number(tx.debit), 0)
+    );
+  }, 0);
 
+  const totalCOGS = cogsAccounts.reduce((sum, a) => {
+    const totalDebits = journalEntries
+      .filter((tx) => getAllAccountIds(accounts, a).includes(tx.chart_account_id))
+      .reduce((txSum, tx) => txSum + Number(tx.debit), 0);
+    const totalCredits = journalEntries
+      .filter((tx) => getAllAccountIds(accounts, a).includes(tx.chart_account_id))
+      .reduce((txSum, tx) => txSum + Number(tx.credit), 0);
+    return sum + (totalDebits - totalCredits);
+  }, 0);
+
+  const totalExpenses = expenseAccounts.reduce((sum, a) => {
+    const totalDebits = journalEntries
+      .filter((tx) => getAllAccountIds(accounts, a).includes(tx.chart_account_id))
+      .reduce((txSum, tx) => txSum + Number(tx.debit), 0);
+    const totalCredits = journalEntries
+      .filter((tx) => getAllAccountIds(accounts, a).includes(tx.chart_account_id))
+      .reduce((txSum, tx) => txSum + Number(tx.credit), 0);
+    return sum + (totalDebits - totalCredits);
+  }, 0);
+
+  const retainedEarnings = totalRevenue - totalCOGS - totalExpenses;
+
+  // Balance sheet totals
+  const totalAssets = assetAccounts.reduce((sum, a) => {
+    return sum + calculateBalanceSheetAccountTotalWithSubaccounts(a);
+  }, 0);
+
+  const totalLiabilities = liabilityAccounts.reduce((sum, a) => {
+    return sum + calculateBalanceSheetAccountTotalWithSubaccounts(a);
+  }, 0);
+
+  const totalEquity =
+    equityAccounts.reduce((sum, a) => {
+      return sum + calculateBalanceSheetAccountTotalWithSubaccounts(a);
+    }, 0) + retainedEarnings;
+
+  // Helper functions
+  const getCategoryName = (tx: Transaction) => {
+    return accounts.find((a) => a.id === tx.chart_account_id)?.name || "";
+  };
+
+  // Calculate total columns for proper column spanning
+  const getTotalColumns = (): number => {
     if (isMonthlyView) {
-      months.forEach((month) => {
-        worksheet.getCell(currentRow, colIndex++).value = formatMonth(month);
-        worksheet.getCell(currentRow, colIndex - 1).style = headerStyle;
-        if (showPercentages) {
-          worksheet.getCell(currentRow, colIndex++).value = "%";
-          worksheet.getCell(currentRow, colIndex - 1).style = headerStyle;
-        }
-      });
-      worksheet.getCell(currentRow, colIndex++).value = "Total";
-      worksheet.getCell(currentRow, colIndex - 1).style = headerStyle;
-      if (showPercentages) {
-        worksheet.getCell(currentRow, colIndex++).value = "%";
-        worksheet.getCell(currentRow, colIndex - 1).style = headerStyle;
-      }
+      const monthCount = getMonthsInRange(startDate, asOfDate).length;
+      // Account column + month columns + (percentage columns if enabled) + Total column + (Total percentage if enabled)
+      return 1 + monthCount + (showPercentages ? monthCount : 0) + 1 + (showPercentages ? 1 : 0);
+    } else if (isQuarterlyView) {
+      const quarterCount = getQuartersInRange(startDate, asOfDate).length;
+      // Account column + quarter columns + (percentage columns if enabled) + Total column + (Total percentage if enabled)
+      return 1 + quarterCount + (showPercentages ? quarterCount : 0) + 1 + (showPercentages ? 1 : 0);
     } else {
-      worksheet.getCell(currentRow, colIndex++).value = "Amount";
-      worksheet.getCell(currentRow, colIndex - 1).style = headerStyle;
-      if (showPercentages) {
-        worksheet.getCell(currentRow, colIndex++).value = "%";
-        worksheet.getCell(currentRow, colIndex - 1).style = headerStyle;
-      }
+      // Account column + Total column + (Percentage column if enabled)
+      return showPercentages ? 3 : 2;
     }
-    currentRow++;
-
-    // Helper function to add account rows
-    const addAccountRows = (accounts: Account[], sectionName: string, level = 0) => {
-      if (accounts.length === 0) return;
-
-      // Section header
-      worksheet.mergeCells(`A${currentRow}:${String.fromCharCode(64 + totalColumns)}${currentRow}`);
-      worksheet.getCell(`A${currentRow}`).value = sectionName;
-      worksheet.getCell(`A${currentRow}`).style = sectionStyle;
-      currentRow++;
-
-      // Account rows
-      accounts.forEach((account) => {
-        const addAccountRow = (acc: Account, accountLevel: number) => {
-          const subaccounts = getSubaccounts(acc.id).filter(shouldShowAccount);
-          const isParent = subaccounts.length > 0;
-          const isCollapsed = collapsedAccounts.has(acc.id);
-          const accountTotal = calculateAccountTotal(acc);
-          const directTotal = calculateAccountDirectTotal(acc);
-
-          if (Math.abs(isParent && isCollapsed ? accountTotal : directTotal) < 0.01 && !isParent) return;
-
-          let accountColIndex = 1;
-          const indent = "  ".repeat(accountLevel);
-          worksheet.getCell(currentRow, accountColIndex++).value = `${indent}${acc.name}`;
-          worksheet.getCell(currentRow, 1).style = { font: { size: 10 } };
-
-          if (isMonthlyView) {
-            months.forEach((month) => {
-              const monthlyTotal =
-                isParent && isCollapsed
-                  ? calculateAccountTotalForMonthWithSubaccounts(acc, month)
-                  : calculateAccountTotalForMonth(acc, month);
-
-              worksheet.getCell(currentRow, accountColIndex++).value = monthlyTotal;
-              worksheet.getCell(currentRow, accountColIndex - 1).style = numberStyle;
-
-              if (showPercentages) {
-                const percentValue = formatPercentageForAccount(monthlyTotal, acc.type);
-                worksheet.getCell(currentRow, accountColIndex++).value =
-                  percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
-                worksheet.getCell(currentRow, accountColIndex - 1).style = percentStyle;
-              }
-            });
-
-            // Total column
-            worksheet.getCell(currentRow, accountColIndex++).value =
-              isParent && isCollapsed ? accountTotal : directTotal;
-            worksheet.getCell(currentRow, accountColIndex - 1).style = numberStyle;
-
-            if (showPercentages) {
-              const percentValue = formatPercentageForAccount(
-                isParent && isCollapsed ? accountTotal : directTotal,
-                acc.type
-              );
-              worksheet.getCell(currentRow, accountColIndex++).value =
-                percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
-              worksheet.getCell(currentRow, accountColIndex - 1).style = percentStyle;
-            }
-          } else {
-            worksheet.getCell(currentRow, accountColIndex++).value =
-              isParent && isCollapsed ? accountTotal : directTotal;
-            worksheet.getCell(currentRow, accountColIndex - 1).style = numberStyle;
-
-            if (showPercentages) {
-              const percentValue = formatPercentageForAccount(
-                isParent && isCollapsed ? accountTotal : directTotal,
-                acc.type
-              );
-              worksheet.getCell(currentRow, accountColIndex++).value =
-                percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
-              worksheet.getCell(currentRow, accountColIndex - 1).style = percentStyle;
-            }
-          }
-          currentRow++;
-
-          // Add subaccounts if not collapsed
-          if (isParent && !isCollapsed) {
-            subaccounts.forEach((sub) => {
-              addAccountRow(sub, accountLevel + 1);
-            });
-
-            // Add total row for parent
-            let totalColIndex = 1;
-            const indentTotal = "  ".repeat(accountLevel);
-            worksheet.getCell(currentRow, totalColIndex++).value = `${indentTotal}Total ${acc.name}`;
-            worksheet.getCell(currentRow, 1).style = totalStyle;
-
-            if (isMonthlyView) {
-              months.forEach((month) => {
-                const monthlyTotal = calculateAccountTotalForMonthWithSubaccounts(acc, month);
-                worksheet.getCell(currentRow, totalColIndex++).value = monthlyTotal;
-                worksheet.getCell(currentRow, totalColIndex - 1).style = totalStyle;
-
-                if (showPercentages) {
-                  const percentValue = formatPercentageForAccount(monthlyTotal, acc.type);
-                  worksheet.getCell(currentRow, totalColIndex++).value =
-                    percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
-                  worksheet.getCell(currentRow, totalColIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
-                }
-              });
-
-              // Total column
-              worksheet.getCell(currentRow, totalColIndex++).value = accountTotal;
-              worksheet.getCell(currentRow, totalColIndex - 1).style = totalStyle;
-
-              if (showPercentages) {
-                const percentValue = formatPercentageForAccount(accountTotal, acc.type);
-                worksheet.getCell(currentRow, totalColIndex++).value =
-                  percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
-                worksheet.getCell(currentRow, totalColIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
-              }
-            } else {
-              worksheet.getCell(currentRow, totalColIndex++).value = accountTotal;
-              worksheet.getCell(currentRow, totalColIndex - 1).style = totalStyle;
-
-              if (showPercentages) {
-                const percentValue = formatPercentageForAccount(accountTotal, acc.type);
-                worksheet.getCell(currentRow, totalColIndex++).value =
-                  percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
-                worksheet.getCell(currentRow, totalColIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
-              }
-            }
-            currentRow++;
-          }
-        };
-
-        addAccountRow(account, level);
-      });
-
-      // Section total
-      const sectionTotal = accounts.reduce((sum, a) => sum + calculateAccountTotal(a), 0);
-      colIndex = 1;
-      worksheet.getCell(currentRow, colIndex++).value = `TOTAL ${sectionName}`;
-      worksheet.getCell(currentRow, 1).style = totalStyle;
-
-      if (isMonthlyView) {
-        months.forEach((month) => {
-          const monthlyTotal = accounts.reduce(
-            (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
-            0
-          );
-          worksheet.getCell(currentRow, colIndex++).value = monthlyTotal;
-          worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
-
-          if (showPercentages) {
-            worksheet.getCell(currentRow, colIndex++).value = sectionName === "ASSETS" ? 1.0 : null;
-            worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
-          }
-        });
-
-        // Total column
-        worksheet.getCell(currentRow, colIndex++).value = sectionTotal;
-        worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
-
-        if (showPercentages) {
-          worksheet.getCell(currentRow, colIndex++).value = sectionName === "ASSETS" ? 1.0 : null;
-          worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
-        }
-      } else {
-        worksheet.getCell(currentRow, colIndex++).value = sectionTotal;
-        worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
-
-        if (showPercentages) {
-          worksheet.getCell(currentRow, colIndex++).value = sectionName === "ASSETS" ? 1.0 : null;
-          worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
-        }
-      }
-      currentRow++;
-    };
-
-    // Add sections
-    addAccountRows(assetRows, "ASSETS");
-    currentRow++; // Spacing
-
-    // Liabilities & Equity header
-    worksheet.mergeCells(`A${currentRow}:${String.fromCharCode(64 + totalColumns)}${currentRow}`);
-    worksheet.getCell(`A${currentRow}`).value = "LIABILITIES & EQUITY";
-    worksheet.getCell(`A${currentRow}`).style = sectionStyle;
-    currentRow++;
-
-    addAccountRows(liabilityRows, "Liabilities");
-
-    // Equity section
-    if (equityRows.length > 0 || netIncome !== 0) {
-      worksheet.mergeCells(`A${currentRow}:${String.fromCharCode(64 + totalColumns)}${currentRow}`);
-      worksheet.getCell(`A${currentRow}`).value = "Equity";
-      worksheet.getCell(`A${currentRow}`).style = sectionStyle;
-      currentRow++;
-
-      // Equity accounts
-      equityRows.forEach((account) => {
-        const total = calculateAccountTotal(account);
-        let equityColIndex = 1;
-        worksheet.getCell(currentRow, equityColIndex++).value = account.name;
-        worksheet.getCell(currentRow, 1);
-
-        if (isMonthlyView) {
-          months.forEach((month) => {
-            const monthlyTotal = calculateAccountTotalForMonthWithSubaccounts(account, month);
-            worksheet.getCell(currentRow, equityColIndex++).value = monthlyTotal;
-            worksheet.getCell(currentRow, equityColIndex - 1).style = numberStyle;
-
-            if (showPercentages) {
-              const percentValue = formatPercentageForAccount(monthlyTotal, account.type);
-              worksheet.getCell(currentRow, equityColIndex++).value =
-                percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
-              worksheet.getCell(currentRow, equityColIndex - 1).style = percentStyle;
-            }
-          });
-
-          // Total column
-          worksheet.getCell(currentRow, equityColIndex++).value = total;
-          worksheet.getCell(currentRow, equityColIndex - 1).style = numberStyle;
-
-          if (showPercentages) {
-            const percentValue = formatPercentageForAccount(total, account.type);
-            worksheet.getCell(currentRow, equityColIndex++).value =
-              percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
-            worksheet.getCell(currentRow, equityColIndex - 1).style = percentStyle;
-          }
-        } else {
-          worksheet.getCell(currentRow, equityColIndex++).value = total;
-          worksheet.getCell(currentRow, equityColIndex - 1).style = numberStyle;
-
-          if (showPercentages) {
-            const percentValue = formatPercentageForAccount(total, account.type);
-            worksheet.getCell(currentRow, equityColIndex++).value =
-              percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
-            worksheet.getCell(currentRow, equityColIndex - 1).style = percentStyle;
-          }
-        }
-        currentRow++;
-      });
-
-      // Net Income
-      if (netIncome !== 0) {
-        let netIncomeColIndex = 1;
-        worksheet.getCell(currentRow, netIncomeColIndex++).value = "Net Income";
-        worksheet.getCell(currentRow, 1).style = totalStyle;
-
-        if (isMonthlyView) {
-          months.forEach((month) => {
-            const monthlyNetIncome =
-              calculatePLGroupTotalForMonth(revenueAccounts, month) -
-              calculatePLGroupTotalForMonth(cogsAccounts, month) -
-              calculatePLGroupTotalForMonth(expenseAccounts, month);
-            worksheet.getCell(currentRow, netIncomeColIndex++).value = monthlyNetIncome;
-            worksheet.getCell(currentRow, netIncomeColIndex - 1).style = totalStyle;
-
-            if (showPercentages) {
-              const percentValue = formatPercentageForAccount(monthlyNetIncome, "Equity");
-              worksheet.getCell(currentRow, netIncomeColIndex++).value =
-                percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
-              worksheet.getCell(currentRow, netIncomeColIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
-            }
-          });
-
-          // Total column
-          worksheet.getCell(currentRow, netIncomeColIndex++).value = netIncome;
-          worksheet.getCell(currentRow, netIncomeColIndex - 1).style = totalStyle;
-
-          if (showPercentages) {
-            const percentValue = formatPercentageForAccount(netIncome, "Equity");
-            worksheet.getCell(currentRow, netIncomeColIndex++).value =
-              percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
-            worksheet.getCell(currentRow, netIncomeColIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
-          }
-        } else {
-          worksheet.getCell(currentRow, netIncomeColIndex++).value = netIncome;
-          worksheet.getCell(currentRow, netIncomeColIndex - 1).style = totalStyle;
-
-          if (showPercentages) {
-            const percentValue = formatPercentageForAccount(netIncome, "Equity");
-            worksheet.getCell(currentRow, netIncomeColIndex++).value =
-              percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
-            worksheet.getCell(currentRow, netIncomeColIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
-          }
-        }
-        currentRow++;
-      }
-
-      // Total Equity
-      let colIndex = 1;
-      worksheet.getCell(currentRow, colIndex++).value = "Total Equity";
-      worksheet.getCell(currentRow, 1).style = totalStyle;
-
-      if (isMonthlyView) {
-        months.forEach((month) => {
-          const monthlyEquity =
-            equityRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0) +
-            (calculatePLGroupTotalForMonth(revenueAccounts, month) -
-              calculatePLGroupTotalForMonth(cogsAccounts, month) -
-              calculatePLGroupTotalForMonth(expenseAccounts, month));
-          worksheet.getCell(currentRow, colIndex++).value = monthlyEquity;
-          worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
-
-          if (showPercentages) {
-            const percentValue = formatPercentageForAccount(monthlyEquity, "Equity");
-            worksheet.getCell(currentRow, colIndex++).value =
-              percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
-            worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
-          }
-        });
-
-        // Total column
-        worksheet.getCell(currentRow, colIndex++).value = totalEquityWithNetIncome;
-        worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
-
-        if (showPercentages) {
-          const percentValue = formatPercentageForAccount(totalEquityWithNetIncome, "Equity");
-          worksheet.getCell(currentRow, colIndex++).value =
-            percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
-          worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
-        }
-      } else {
-        worksheet.getCell(currentRow, colIndex++).value = totalEquityWithNetIncome;
-        worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
-
-        if (showPercentages) {
-          const percentValue = formatPercentageForAccount(totalEquityWithNetIncome, "Equity");
-          worksheet.getCell(currentRow, colIndex++).value =
-            percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
-          worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
-        }
-      }
-      currentRow++;
-    }
-
-    // Total Liabilities + Equity
-    let totalLiabEquityColIndex = 1;
-    worksheet.getCell(currentRow, totalLiabEquityColIndex++).value = "TOTAL LIABILITIES + EQUITY";
-    worksheet.getCell(currentRow, 1).style = totalStyle;
-
-    if (isMonthlyView) {
-      months.forEach((month) => {
-        const monthlyLiabEquity =
-          liabilityRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0) +
-          equityRows.reduce((sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month), 0) +
-          (calculatePLGroupTotalForMonth(revenueAccounts, month) -
-            calculatePLGroupTotalForMonth(cogsAccounts, month) -
-            calculatePLGroupTotalForMonth(expenseAccounts, month));
-        worksheet.getCell(currentRow, totalLiabEquityColIndex++).value = monthlyLiabEquity;
-        worksheet.getCell(currentRow, totalLiabEquityColIndex - 1).style = totalStyle;
-
-        if (showPercentages) {
-          worksheet.getCell(currentRow, totalLiabEquityColIndex++).value = 1.0;
-          worksheet.getCell(currentRow, totalLiabEquityColIndex - 1).style = {
-            ...totalStyle,
-            numFmt: '0.0%;-0.0%;"—"',
-          };
-        }
-      });
-
-      // Total column
-      worksheet.getCell(currentRow, totalLiabEquityColIndex++).value = liabilitiesAndEquity;
-      worksheet.getCell(currentRow, totalLiabEquityColIndex - 1).style = totalStyle;
-
-      if (showPercentages) {
-        worksheet.getCell(currentRow, totalLiabEquityColIndex++).value = 1.0;
-        worksheet.getCell(currentRow, totalLiabEquityColIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
-      }
-    } else {
-      worksheet.getCell(currentRow, totalLiabEquityColIndex++).value = liabilitiesAndEquity;
-      worksheet.getCell(currentRow, totalLiabEquityColIndex - 1).style = totalStyle;
-
-      if (showPercentages) {
-        worksheet.getCell(currentRow, totalLiabEquityColIndex++).value = 1.0;
-        worksheet.getCell(currentRow, totalLiabEquityColIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
-      }
-    }
-    currentRow++;
-
-    // Out of balance warning
-    if (Math.abs(balanceDifference) > 0.01) {
-      let colIndex = 1;
-      worksheet.getCell(currentRow, colIndex++).value = "OUT OF BALANCE";
-      worksheet.getCell(currentRow, 1).style = {
-        font: { bold: true, color: { argb: "FF991B1B" } },
-        fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFFEF2F2" } },
-        border: {
-          top: { style: "thin" as const },
-          left: { style: "thin" as const },
-          bottom: { style: "thin" as const },
-          right: { style: "thin" as const },
-        },
-      };
-
-      if (isMonthlyView) {
-        months.forEach(() => {
-          worksheet.getCell(currentRow, colIndex++).value = balanceDifference;
-          worksheet.getCell(currentRow, colIndex - 1).style = {
-            numFmt: "#,##0.00",
-            alignment: { horizontal: "right" as const },
-            font: { bold: true, color: { argb: "FF991B1B" } },
-            fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFFEF2F2" } },
-            border: {
-              top: { style: "thin" as const },
-              left: { style: "thin" as const },
-              bottom: { style: "thin" as const },
-              right: { style: "thin" as const },
-            },
-          };
-
-          if (showPercentages) {
-            worksheet.getCell(currentRow, colIndex++).value = null;
-            worksheet.getCell(currentRow, colIndex - 1).style = {
-              fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFFEF2F2" } },
-              border: {
-                top: { style: "thin" as const },
-                left: { style: "thin" as const },
-                bottom: { style: "thin" as const },
-                right: { style: "thin" as const },
-              },
-            };
-          }
-        });
-
-        // Total column
-        worksheet.getCell(currentRow, colIndex++).value = balanceDifference;
-        worksheet.getCell(currentRow, colIndex - 1).style = {
-          numFmt: "#,##0.00",
-          alignment: { horizontal: "right" as const },
-          font: { bold: true, color: { argb: "FF991B1B" } },
-          fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFFEF2F2" } },
-          border: {
-            top: { style: "thin" as const },
-            left: { style: "thin" as const },
-            bottom: { style: "thin" as const },
-            right: { style: "thin" as const },
-          },
-        };
-
-        if (showPercentages) {
-          worksheet.getCell(currentRow, colIndex++).value = null;
-          worksheet.getCell(currentRow, colIndex - 1).style = {
-            fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFFEF2F2" } },
-            border: {
-              top: { style: "thin" as const },
-              left: { style: "thin" as const },
-              bottom: { style: "thin" as const },
-              right: { style: "thin" as const },
-            },
-          };
-        }
-      } else {
-        worksheet.getCell(currentRow, colIndex++).value = balanceDifference;
-        worksheet.getCell(currentRow, colIndex - 1).style = {
-          numFmt: "#,##0.00",
-          alignment: { horizontal: "right" as const },
-          font: { bold: true, color: { argb: "FF991B1B" } },
-          fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFFEF2F2" } },
-          border: {
-            top: { style: "thin" as const },
-            left: { style: "thin" as const },
-            bottom: { style: "thin" as const },
-            right: { style: "thin" as const },
-          },
-        };
-
-        if (showPercentages) {
-          worksheet.getCell(currentRow, colIndex++).value = null;
-          worksheet.getCell(currentRow, colIndex - 1).style = {
-            fill: { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFFEF2F2" } },
-            border: {
-              top: { style: "thin" as const },
-              left: { style: "thin" as const },
-              bottom: { style: "thin" as const },
-              right: { style: "thin" as const },
-            },
-          };
-        }
-      }
-    }
-
-    // Set column widths
-    worksheet.getColumn("A").width = 35;
-    for (let i = 2; i <= totalColumns; i++) {
-      worksheet.getColumn(i).width = 15;
-    }
-
-    // Add footer
-    currentRow += 3;
-
-    const today = new Date();
-    worksheet.mergeCells(`A${currentRow}:${String.fromCharCode(64 + totalColumns)}${currentRow}`);
-    worksheet.getCell(`A${currentRow}`).value = `switch | ${currentCompany?.name} | ${formatDateForDisplay(
-      today.toISOString().split("T")[0]
-    )} ${today.toLocaleTimeString()}`;
-    worksheet.getCell(`A${currentRow}`).style = {
-      font: { size: 9, color: { argb: "FF666666" } },
-      alignment: { horizontal: "center" as const },
-    };
-
-    // Save the file
-    const buffer = await workbook.xlsx.writeBuffer();
-    const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `balance-sheet-${asOfDate}.xlsx`;
-    link.click();
-    window.URL.revokeObjectURL(url);
   };
 
-  // Export modal transactions function
-  const exportModalTransactions = async () => {
-    if (!viewerModal.category || selectedAccountTransactions.length === 0) return;
-
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet("Transactions");
-
-    // Set styles
-    const headerStyle = { font: { bold: true, size: 10 } };
-    const numberStyle = {
-      font: { size: 10 },
-      numFmt: '#,##0.00;(#,##0.00);"—"', // Format to show dash for zero values
-      alignment: { horizontal: "right" as const },
-    };
-    const dateStyle = { font: { size: 10 }, alignment: { horizontal: "left" as const } };
-
-    let currentRow = 1;
-
-    // Title and company info
-    worksheet.mergeCells(`A${currentRow}:D${currentRow}`);
-    worksheet.getCell(`A${currentRow}`).value = `${viewerModal.category.name} Transactions`;
-    worksheet.getCell(`A${currentRow}`).style = {
-      font: { size: 12, bold: true },
-      alignment: { horizontal: "center" as const },
-    };
-    currentRow++;
-
-    if (currentCompany) {
-      worksheet.mergeCells(`A${currentRow}:D${currentRow}`);
-      worksheet.getCell(`A${currentRow}`).value = currentCompany.name;
-      worksheet.getCell(`A${currentRow}`).style = { font: { size: 10 }, alignment: { horizontal: "center" as const } };
-      currentRow++;
-    }
-
-    worksheet.mergeCells(`A${currentRow}:D${currentRow}`);
-    worksheet.getCell(`A${currentRow}`).value = viewerModal.selectedMonth
-      ? viewerModal.category.id === "NET_INCOME"
-        ? `through ${formatMonth(viewerModal.selectedMonth)}`
-        : `for ${formatMonth(viewerModal.selectedMonth)}`
-      : `As of ${formatDateForDisplay(asOfDate)}`;
-    worksheet.getCell(`A${currentRow}`).style = { font: { size: 10 }, alignment: { horizontal: "center" as const } };
-    currentRow++; // Empty row
-
-    // Headers
-    worksheet.getCell(`A${currentRow}`).value = "Date";
-    worksheet.getCell(`A${currentRow}`).style = headerStyle;
-    worksheet.getCell(`B${currentRow}`).value = "Description";
-    worksheet.getCell(`B${currentRow}`).style = headerStyle;
-    worksheet.getCell(`C${currentRow}`).value = "Source";
-    worksheet.getCell(`C${currentRow}`).style = headerStyle;
-    worksheet.getCell(`D${currentRow}`).value = "Amount";
-    worksheet.getCell(`D${currentRow}`).style = headerStyle;
-    currentRow++;
-
-    // Transaction rows
-    selectedAccountTransactions.forEach((tx) => {
-      const debit = Number(tx.debit) || 0;
-      const credit = Number(tx.credit) || 0;
-      const amount = debit - credit;
-      const source = tx.source === "manual" ? "Manual" : "Journal";
-
-      let displayAmount;
-      if (viewerModal.category?.type === "Asset") {
-        displayAmount = amount;
-      } else if (viewerModal.category?.type === "Liability" || viewerModal.category?.type === "Equity") {
-        displayAmount = -amount;
-      } else {
-        displayAmount = amount;
-      }
-
-      worksheet.getCell(`A${currentRow}`).value = tx.date;
-      worksheet.getCell(`A${currentRow}`).style = dateStyle;
-      worksheet.getCell(`B${currentRow}`).value = tx.description;
-      worksheet.getCell(`B${currentRow}`).style = dateStyle;
-      worksheet.getCell(`C${currentRow}`).value = source;
-      worksheet.getCell(`C${currentRow}`).style = dateStyle;
-      worksheet.getCell(`D${currentRow}`).value = displayAmount;
-      worksheet.getCell(`D${currentRow}`).style = numberStyle;
-      currentRow++;
-    });
-
-    // Total row
-    const total = selectedAccountTransactions.reduce((sum, tx) => {
-      const debit = Number(tx.debit) || 0;
-      const credit = Number(tx.credit) || 0;
-      const amount = debit - credit;
-
-      if (viewerModal.category?.type === "Asset") {
-        return sum + amount;
-      } else if (viewerModal.category?.type === "Liability" || viewerModal.category?.type === "Equity") {
-        return sum - amount;
-      } else {
-        return sum + amount;
-      }
-    }, 0);
-
-    currentRow++; // Empty row
-    worksheet.getCell(`A${currentRow}`).value = "Total";
-    worksheet.getCell(`A${currentRow}`).style = { font: { bold: true, size: 10 } };
-    worksheet.getCell(`D${currentRow}`).value = total;
-    worksheet.getCell(`D${currentRow}`).style = {
-      font: { bold: true, size: 10 },
-      numFmt: '#,##0.00;(#,##0.00);"—"',
-      alignment: { horizontal: "right" as const },
-    };
-
-    // Add footer
-    currentRow += 3;
-
-    const today = new Date();
-    worksheet.mergeCells(`A${currentRow}:D${currentRow}`);
-    worksheet.getCell(`A${currentRow}`).value = `switch | ${currentCompany?.name} | ${formatDateForDisplay(
-      today.toISOString().split("T")[0]
-    )} ${today.toLocaleTimeString()}`;
-    worksheet.getCell(`A${currentRow}`).style = {
-      font: { size: 9, color: { argb: "FF666666" } },
-      alignment: { horizontal: "center" as const },
-    };
-
-    // Set column widths
-    worksheet.getColumn("A").width = 12;
-    worksheet.getColumn("B").width = 30;
-    worksheet.getColumn("C").width = 10;
-    worksheet.getColumn("D").width = 15;
-
-    // Save the file
-    const buffer = await workbook.xlsx.writeBuffer();
-    const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${viewerModal.category.name.replace(/[^a-zA-Z0-9]/g, "-")}-transactions-${asOfDate}.xlsx`;
-    link.click();
-    window.URL.revokeObjectURL(url);
+  const formatPercentageForAccount = (num: number): string => {
+    return formatPercentage(num, Math.abs(totalAssets));
   };
 
-  // Check if user has company context
+  const calculatePercentageForMonth = (amount: number, month: string): string => {
+    const monthAssets = assetAccounts.reduce(
+      (sum, a) => sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month),
+      0
+    );
+    return formatPercentage(amount, Math.abs(monthAssets));
+  };
+
+  const calculatePercentageForQuarter = (amount: number, quarter: string): string => {
+    const quarterAssets = assetAccounts.reduce(
+      (sum, a) => sum + calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter),
+      0
+    );
+    return formatPercentage(amount, Math.abs(quarterAssets));
+  };
+
+  // Transaction filtering for viewer
+  const selectedCategoryTransactions = useMemo(() => {
+    if (!viewerModal.category) return [];
+
+    const category = viewerModal.category;
+    const transactions =
+      category.id === "ASSETS_GROUP"
+        ? journalEntries.filter((tx) => getAllGroupAccountIds(accounts, assetAccounts).includes(tx.chart_account_id))
+        : category.id === "LIABILITIES_GROUP"
+        ? journalEntries.filter((tx) =>
+            getAllGroupAccountIds(accounts, liabilityAccounts).includes(tx.chart_account_id)
+          )
+        : category.id === "EQUITY_GROUP"
+        ? journalEntries.filter((tx) => getAllGroupAccountIds(accounts, equityAccounts).includes(tx.chart_account_id))
+        : category.id === "RETAINED_EARNINGS"
+        ? journalEntries.filter((tx) =>
+            getAllGroupAccountIds(accounts, [...revenueAccounts, ...cogsAccounts, ...expenseAccounts]).includes(
+              tx.chart_account_id
+            )
+          )
+        : journalEntries.filter((tx) => getAllAccountIds(accounts, category).includes(tx.chart_account_id));
+
+    return transactions;
+  }, [
+    viewerModal,
+    journalEntries,
+    accounts,
+    assetAccounts,
+    liabilityAccounts,
+    equityAccounts,
+    revenueAccounts,
+    cogsAccounts,
+    expenseAccounts,
+  ]);
+
+  // Export hook
+  const { exportToXLSX } = useExportBalanceSheet({
+    accounts,
+    journalEntries,
+    assetAccounts,
+    liabilityAccounts,
+    equityAccounts,
+    currentCompany,
+    isMonthlyView,
+    isQuarterlyView,
+    showPercentages,
+    startDate,
+    asOfDate,
+    collapsedAccounts,
+    calculateBalanceSheetAccountTotal,
+    calculateBalanceSheetAccountTotalWithSubaccounts,
+    calculateBalanceSheetAccountTotalForMonth,
+    calculateBalanceSheetAccountTotalForMonthWithSubaccounts,
+    calculateBalanceSheetAccountTotalForQuarter,
+    calculateBalanceSheetAccountTotalForQuarterWithSubaccounts,
+    totalAssets,
+    totalLiabilities,
+    totalEquity,
+    retainedEarnings,
+    formatPercentageForAccount,
+    calculatePercentageForMonth,
+    calculatePercentageForQuarter,
+  });
+
+  // Render account row helper for balance sheet
+  const renderAccountRow = (account: Account, level = 0): React.ReactElement | null => {
+    return (
+      <AccountRowRenderer
+        key={account.id}
+        account={account}
+        level={level}
+        accounts={accounts}
+        journalEntries={journalEntries}
+        isMonthlyView={isMonthlyView}
+        isQuarterlyView={isQuarterlyView}
+        showPercentages={showPercentages}
+        startDate={startDate}
+        endDate={asOfDate}
+        collapsedAccounts={collapsedAccounts}
+        toggleAccount={toggleAccount}
+        calculateAccountTotal={calculateBalanceSheetAccountTotalWithSubaccounts}
+        calculateAccountDirectTotal={calculateBalanceSheetAccountTotal}
+        calculateAccountTotalForMonth={calculateBalanceSheetAccountTotalForMonth}
+        calculateAccountTotalForMonthWithSubaccounts={calculateBalanceSheetAccountTotalForMonthWithSubaccounts}
+        calculateAccountTotalForQuarter={calculateBalanceSheetAccountTotalForQuarter}
+        calculateAccountTotalForQuarterWithSubaccounts={calculateBalanceSheetAccountTotalForQuarterWithSubaccounts}
+        setViewerModal={setViewerModal}
+        formatPercentageForAccount={(num) => formatPercentageForAccount(num)}
+      />
+    );
+  };
+
   if (!hasCompanyContext) {
     return (
       <div className="p-4 bg-white text-gray-900 font-sans text-xs space-y-6">
         <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-          <h3 className="text-sm font-semibold text-yellow-800 mb-2">Company Selection Required</h3>
-          <p className="text-sm text-yellow-700">
+          <h3 className="text-xs font-semibold text-yellow-800 mb-2">Company Selection Required</h3>
+          <p className="text-xs text-yellow-700">
             Please select a company from the dropdown in the navigation bar to view balance sheet reports.
           </p>
         </div>
@@ -1675,332 +368,185 @@ export default function BalanceSheetPage() {
   return (
     <div className="p-6 bg-white min-h-screen">
       <div className="max-w-7xl mx-auto">
-        <div className="text-center mb-6">
-          {/* Period Selector */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="flex justify-center">
-                <PeriodSelector
-                  selectedPeriod={selectedPeriod}
-                  onPeriodChange={handlePeriodChange}
-                  selectedDisplay={selectedDisplay}
-                  onDisplayChange={handleDisplayChange}
-                  // selectedComparison={selectedComparison}
-                  // onComparisonChange={handleComparisonChange}
-                />
-              </div>
+        <ReportHeader
+          startDate={startDate}
+          endDate={asOfDate}
+          setStartDate={setStartDate}
+          setEndDate={setAsOfDate} // Update the as of date when changed
+          selectedPeriod={selectedPeriod}
+          onPeriodChange={handlePeriodChange}
+          selectedPrimaryDisplay={selectedPrimaryDisplay}
+          onPrimaryDisplayChange={handlePrimaryDisplayChange}
+          selectedSecondaryDisplay={selectedSecondaryDisplay}
+          onSecondaryDisplayChange={handleSecondaryDisplayChange}
+          onCollapseAllCategories={collapseAllParentCategories}
+          exportToXLSX={exportToXLSX}
+          loading={loading}
+          isBalanceSheet={true}
+        />
 
-              {/* Manual date override option */}
-              <div className="flex items-center justify-center gap-4 text-sm">
-                <Input
-                  type="date"
-                  value={asOfDate}
-                  max={today}
-                  onChange={(e) => {
-                    const newDate = e.target.value;
-
-                    // Prevent setting date in the future
-                    if (newDate > today) {
-                      setAsOfDate(today);
-                      return;
-                    }
-
-                    setAsOfDate(newDate);
-                  }}
-                  className="w-auto text-sm h-8 transition-none"
-                />
-              </div>
-            </div>
-
-            <div className="flex justify-center">
-              <Button onClick={exportToXLSX} disabled={loading} className="text-xs font-medium min-w-17">
-                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Export"}
-              </Button>
-            </div>
-          </div>
-        </div>
-        {/* Balance Sheet Warning */}
-        {Math.abs(balanceDifference) > 0.01 && (
-          <div className="p-4 bg-red-50 border border-red-200 rounded-lg mb-4">
-            <h3 className="text-sm font-semibold text-red-800 mb-2">Balance Sheet Out of Balance</h3>
-            <p className="text-sm text-red-700">
-              Assets ({formatNumber(totalAssets)}) do not equal Liabilities + Equity (
-              {formatNumber(liabilitiesAndEquity)}). Difference: {formatNumber(balanceDifference)}
-            </p>
-            <p className="text-xs text-red-600 mt-2">
-              Possible causes: Missing journal entries, incorrect account classifications, unrecorded transactions, or
-              data entry errors. Review your transactions and ensure all entries are properly categorized.
-            </p>
-          </div>
-        )}
-
-        {/* Balance Sheet Table */}
         <Card className="pt-3 pb-0">
           <CardContent className="p-0">
             <h1 className="text-xl font-bold text-slate-800 mb-1 text-center">{currentCompany.name}</h1>
-            {currentCompany && <p className="text-lg text-slate-700 mb-1 text-center font-medium">Balance Sheet</p>}
-            <p className="text-sm text-slate-600 mb-3 text-center">As of {formatDateForDisplay(asOfDate)}</p>
+            <p className="text-lg text-slate-700 mb-1 text-center font-medium">Balance Sheet</p>
+            <p className="text-sm text-slate-600 mb-3 text-center">
+              {isMonthlyView || isQuarterlyView
+                ? `${formatDateForDisplay(startDate)} to ${formatDateForDisplay(asOfDate)}`
+                : `As of ${formatDateForDisplay(asOfDate)}`}
+            </p>
+
             <Table className="border border-gray-300">
               <TableHeader className="bg-gray-100">
                 <TableRow>
                   <TableHead
                     className="border p-1 text-center font-medium text-xs whitespace-nowrap"
-                    style={{ width: "25%" }}
+                    style={{
+                      width:
+                        (isMonthlyView || isQuarterlyView) && showPercentages
+                          ? "25%"
+                          : isMonthlyView || isQuarterlyView
+                          ? "30%"
+                          : showPercentages
+                          ? "50%"
+                          : "70%",
+                    }}
                   ></TableHead>
                   {isMonthlyView ? (
                     <>
-                      {getMonthsInRange().map((month) => (
+                      {getMonthsInRange(startDate, asOfDate).map((month) => (
                         <React.Fragment key={month}>
-                          <TableHead className="border p-1 text-center font-medium text-xs whitespace-nowrap">
+                          <TableHead
+                            className="border p-1 text-center font-medium text-xs whitespace-nowrap"
+                            style={{ width: showPercentages ? "7%" : "10%" }}
+                          >
                             {formatMonth(month)}
                           </TableHead>
-                        </React.Fragment>
-                      ))}
-                      <TableHead
-                        className="border p-1 text-center font-medium text-xs whitespace-nowrap"
-                        style={{
-                          width: showPercentages
-                            ? `${35 / ((getMonthsInRange().length + 1) * 2)}%`
-                            : `${75 / (getMonthsInRange().length + 1)}%`,
-                        }}
-                      >
-                        Total
-                      </TableHead>
-                    </>
-                  ) : (
-                    <>
-                      <TableHead
-                        className="border p-1 text-center font-medium text-xs"
-                        style={{ width: showPercentages ? "20%" : "25%" }}
-                      >
-                        Amount
-                      </TableHead>
-                      {showPercentages && (
-                        <TableHead className="border p-1 text-center font-medium text-xs" style={{ width: "15%" }}>
-                          %
-                        </TableHead>
-                      )}
-                      {showPreviousPeriod && (
-                        <>
-                          <TableHead
-                            className="border p-1 text-center font-medium text-xs"
-                            style={{ width: showPercentages ? "20%" : "25%" }}
-                          >
-                            Previous Year
-                          </TableHead>
                           {showPercentages && (
-                            <TableHead className="border p-1 text-center font-medium text-xs" style={{ width: "15%" }}>
+                            <TableHead className="border p-1 text-center font-medium text-xs whitespace-nowrap">
                               %
                             </TableHead>
                           )}
+                        </React.Fragment>
+                      ))}
+                      <TableHead
+                        className="border p-1 text-center font-medium text-xs"
+                        style={{ width: showPercentages ? "7%" : "10%" }}
+                      >
+                        Total
+                      </TableHead>
+                      {showPercentages && (
+                        <TableHead className="border p-1 text-center font-medium text-xs">%</TableHead>
+                      )}
+                    </>
+                  ) : isQuarterlyView ? (
+                    <>
+                      {getQuartersInRange(startDate, asOfDate).map((quarter) => (
+                        <React.Fragment key={quarter}>
                           <TableHead
-                            className="border p-1 text-center font-medium text-xs"
-                            style={{ width: showPercentages ? "20%" : "25%" }}
+                            className="border p-1 text-center font-medium text-xs whitespace-nowrap"
+                            style={{ width: showPercentages ? "7%" : "10%" }}
                           >
-                            Difference
+                            {formatQuarter(quarter)}
                           </TableHead>
-                        </>
+                          {showPercentages && (
+                            <TableHead className="border p-1 text-center font-medium text-xs whitespace-nowrap">
+                              %
+                            </TableHead>
+                          )}
+                        </React.Fragment>
+                      ))}
+                      <TableHead
+                        className="border p-1 text-center font-medium text-xs"
+                        style={{ width: showPercentages ? "7%" : "10%" }}
+                      >
+                        Total
+                      </TableHead>
+                      {showPercentages && (
+                        <TableHead className="border p-1 text-center font-medium text-xs">%</TableHead>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <TableHead className="border p-1 text-center font-medium text-xs">
+                        {showPercentages ? "Amount" : "Total"}
+                      </TableHead>
+                      {showPercentages && (
+                        <TableHead className="border p-1 text-center font-medium text-xs">%</TableHead>
                       )}
                     </>
                   )}
                 </TableRow>
               </TableHeader>
+
               <TableBody>
                 {loading ? (
-                  /* Loading State */
-                  <>
-                    {/* ASSETS SECTION */}
-                    <TableRow className="bg-muted/50 hover:bg-gray-100">
-                      <TableCell
-                        colSpan={
-                          isMonthlyView
-                            ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
-                            : showPreviousPeriod
-                            ? showPercentages
-                              ? 6
-                              : 4
-                            : showPercentages
-                            ? 3
-                            : 2
-                        }
-                        className="border p-1 font-semibold text-xs"
-                      >
-                        ASSETS
-                      </TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell
-                        colSpan={
-                          isMonthlyView
-                            ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
-                            : showPreviousPeriod
-                            ? showPercentages
-                              ? 6
-                              : 4
-                            : showPercentages
-                            ? 3
-                            : 2
-                        }
-                        className="border p-1 text-center"
-                      >
-                        <div className="flex flex-col items-center space-y-3">
-                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-black"></div>
-                          <span className="text-sm text-slate-500">Loading assets...</span>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-
-                    {/* SPACING ROW */}
-                    <TableRow>
-                      <TableCell
-                        colSpan={
-                          isMonthlyView
-                            ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
-                            : showPreviousPeriod
-                            ? showPercentages
-                              ? 6
-                              : 4
-                            : showPercentages
-                            ? 3
-                            : 2
-                        }
-                        className="py-3"
-                      ></TableCell>
-                    </TableRow>
-
-                    {/* LIABILITIES & EQUITY SECTION */}
-                    <TableRow className="bg-muted/50 hover:bg-gray-100">
-                      <TableCell
-                        colSpan={
-                          isMonthlyView
-                            ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
-                            : showPreviousPeriod
-                            ? showPercentages
-                              ? 6
-                              : 4
-                            : showPercentages
-                            ? 3
-                            : 2
-                        }
-                        className="border p-1 font-bold text-xs"
-                      >
-                        LIABILITIES & EQUITY
-                      </TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell
-                        colSpan={
-                          isMonthlyView
-                            ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
-                            : showPreviousPeriod
-                            ? showPercentages
-                              ? 6
-                              : 4
-                            : showPercentages
-                            ? 3
-                            : 2
-                        }
-                        className="border p-1 text-center"
-                      >
-                        <div className="flex flex-col items-center space-y-3">
-                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-black"></div>
-                          <span className="text-sm text-slate-500">Loading liabilities & equity...</span>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  </>
+                  <TableRow>
+                    <TableCell colSpan={getTotalColumns()} className="border p-4 text-center">
+                      <div className="flex flex-col items-center space-y-3">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-black"></div>
+                        <span className="text-xs">Loading balance sheet data...</span>
+                      </div>
+                    </TableCell>
+                  </TableRow>
                 ) : (
-                  /* Normal Content */
                   <>
-                    {/* ASSETS SECTION */}
-                    <TableRow className="bg-muted/50 hover:bg-gray-100">
-                      <TableCell
-                        colSpan={
-                          isMonthlyView
-                            ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
-                            : showPreviousPeriod
-                            ? showPercentages
-                              ? 6
-                              : 4
-                            : showPercentages
-                            ? 3
-                            : 2
-                        }
-                        className="border p-1 text-xs font-semibold"
-                      >
+                    {/* Assets Section */}
+                    <TableRow className="bg-muted/50">
+                      <TableCell colSpan={getTotalColumns()} className="border p-1 font-semibold text-xs">
                         ASSETS
                       </TableCell>
                     </TableRow>
-                    {assetRows.length > 0 && (
-                      <>
-                        <TableRow className="cursor-pointer bg-muted/50 hover:bg-gray-100 transition-colors">
-                          <TableCell
-                            colSpan={
-                              isMonthlyView
-                                ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
-                                : showPreviousPeriod
-                                ? showPercentages
-                                  ? 6
-                                  : 4
-                                : showPercentages
-                                ? 3
-                                : 2
-                            }
-                            className="border p-1 text-xs"
-                          >
-                            <div className="flex items-center">
-                              <button
-                                onClick={() => toggleSection("assets")}
-                                className="mr-2 p-1 hover:bg-gray-200 rounded transition-colors"
-                              >
-                                {collapsedSections.has("assets") ? (
-                                  <ChevronRight className="w-3 h-3 text-gray-600" />
-                                ) : (
-                                  <ChevronDown className="w-3 h-3 text-gray-600" />
-                                )}
-                              </button>
-                              <span className="font-semibold">Current Assets</span>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                        {!collapsedSections.has("assets") && (
-                          <>
-                            {assetRows.map((row) => (
-                              <React.Fragment key={row.id}>
-                                {isMonthlyView
-                                  ? renderAccountRowWithMonthlyTotals(row)
-                                  : renderAccountRowWithTotal(row)}
-                              </React.Fragment>
-                            ))}
-                          </>
-                        )}
-                      </>
-                    )}
+                    {assetAccounts.map((account) => renderAccountRow(account))}
+
                     {/* Total Assets */}
                     <TableRow
-                      className="cursor-pointer hover:bg-blue-50"
-                      onClick={() => {
-                        const assetGroup = {
-                          id: "ASSET_GROUP",
-                          name: "Total Assets",
-                          type: "Asset",
-                          parent_id: null,
-                        };
-                        setSelectedAccount(assetGroup);
-                        setViewerModal({ isOpen: true, category: assetGroup });
-                      }}
+                      className="cursor-pointer hover:bg-blue-50 font-semibold"
+                      onClick={() =>
+                        setViewerModal({
+                          isOpen: true,
+                          category: { id: "ASSETS_GROUP", name: "Total Assets", type: "Asset", parent_id: null },
+                        })
+                      }
                     >
-                      <TableCell className="border p-1 text-xs font-semibold" style={{ width: "30%" }}>
-                        TOTAL ASSETS
-                      </TableCell>
+                      <TableCell className="border p-1 text-xs font-semibold">TOTAL ASSETS</TableCell>
                       {isMonthlyView ? (
                         <>
-                          {getMonthsInRange().map((month) => (
+                          {getMonthsInRange(startDate, asOfDate).map((month) => (
                             <React.Fragment key={month}>
                               <TableCell className="border p-1 text-right font-semibold text-xs">
                                 {formatNumber(
-                                  assetRows.reduce(
-                                    (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                  assetAccounts.reduce(
+                                    (sum, a) =>
+                                      sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month),
+                                    0
+                                  )
+                                )}
+                              </TableCell>
+                              {showPercentages && (
+                                <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                                  100.0%
+                                </TableCell>
+                              )}
+                            </React.Fragment>
+                          ))}
+                          <TableCell className="border p-1 text-right font-semibold text-xs">
+                            {formatNumber(totalAssets)}
+                          </TableCell>
+                          {showPercentages && (
+                            <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                              100.0%
+                            </TableCell>
+                          )}
+                        </>
+                      ) : isQuarterlyView ? (
+                        <>
+                          {getQuartersInRange(startDate, asOfDate).map((quarter) => (
+                            <React.Fragment key={quarter}>
+                              <TableCell className="border p-1 text-right font-semibold text-xs">
+                                {formatNumber(
+                                  assetAccounts.reduce(
+                                    (sum, a) =>
+                                      sum + calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter),
                                     0
                                   )
                                 )}
@@ -2023,7 +569,7 @@ export default function BalanceSheetPage() {
                         </>
                       ) : (
                         <>
-                          <TableCell className="border p-1 text-right font-semibold text-xs" style={{ width: "20%" }}>
+                          <TableCell className="border p-1 text-right font-semibold text-xs">
                             {formatNumber(totalAssets)}
                           </TableCell>
                           {showPercentages && (
@@ -2031,613 +577,413 @@ export default function BalanceSheetPage() {
                               100.0%
                             </TableCell>
                           )}
-                          {showPreviousPeriod && (
-                            <>
-                              <TableCell
-                                className="border p-1 text-right font-semibold text-xs"
-                                style={{ width: "20%" }}
-                              >
-                                —
-                              </TableCell>
-                              {showPercentages && (
-                                <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
-                                  —
-                                </TableCell>
-                              )}
-                              <TableCell
-                                className="border p-1 text-right font-semibold text-xs"
-                                style={{ width: "20%" }}
-                              >
-                                —
-                              </TableCell>
-                            </>
-                          )}
                         </>
                       )}
                     </TableRow>
 
-                    {/* SPACING ROW */}
-                    <TableRow>
-                      <TableCell
-                        colSpan={
-                          isMonthlyView
-                            ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
-                            : showPreviousPeriod
-                            ? showPercentages
-                              ? 6
-                              : 4
-                            : showPercentages
-                            ? 3
-                            : 2
-                        }
-                        className="py-3"
-                      ></TableCell>
-                    </TableRow>
-
-                    {/* LIABILITIES & EQUITY SECTION */}
-                    <TableRow className="bg-muted/50 hover:bg-gray-100">
-                      <TableCell
-                        colSpan={
-                          isMonthlyView
-                            ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
-                            : showPreviousPeriod
-                            ? showPercentages
-                              ? 6
-                              : 4
-                            : showPercentages
-                            ? 3
-                            : 2
-                        }
-                        className="border p-1 font-bold text-xs"
-                      >
-                        LIABILITIES & EQUITY
+                    {/* Liabilities Section */}
+                    <TableRow className="bg-muted/50">
+                      <TableCell colSpan={getTotalColumns()} className="border p-1 font-semibold text-xs">
+                        LIABILITIES
                       </TableCell>
                     </TableRow>
+                    {liabilityAccounts.map((account) => renderAccountRow(account))}
 
-                    {/* Liabilities */}
-                    {liabilityRows.length > 0 && (
-                      <>
-                        <TableRow className="cursor-pointer bg-muted/50 hover:bg-gray-100 transition-colors">
-                          <TableCell
-                            colSpan={
-                              isMonthlyView
-                                ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
-                                : showPreviousPeriod
-                                ? showPercentages
-                                  ? 6
-                                  : 4
-                                : showPercentages
-                                ? 3
-                                : 2
-                            }
-                            className="border p-1 text-xs"
-                          >
-                            <div className="flex items-center">
-                              <button
-                                onClick={() => toggleSection("liabilities")}
-                                className="mr-2 p-1 hover:bg-gray-200 rounded transition-colors"
-                              >
-                                {collapsedSections.has("liabilities") ? (
-                                  <ChevronRight className="w-3 h-3 text-gray-600" />
-                                ) : (
-                                  <ChevronDown className="w-3 h-3 text-gray-600" />
-                                )}
-                              </button>
-                              <span className="font-semibold">Liabilities</span>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                        {!collapsedSections.has("liabilities") && (
-                          <>
-                            {liabilityRows.map((row) => (
-                              <React.Fragment key={row.id}>
-                                {isMonthlyView
-                                  ? renderAccountRowWithMonthlyTotals(row)
-                                  : renderAccountRowWithTotal(row)}
-                              </React.Fragment>
-                            ))}
-                            <TableRow
-                              className="cursor-pointer bg-muted/50 hover:bg-gray-100 transition-colors"
-                              onClick={() => {
-                                const liabilityGroup = {
-                                  id: "LIABILITY_GROUP",
-                                  name: "Total Liabilities",
-                                  type: "Liability",
-                                  parent_id: null,
-                                };
-                                setSelectedAccount(liabilityGroup);
-                                setViewerModal({ isOpen: true, category: liabilityGroup });
-                              }}
-                            >
-                              <TableCell className="border p-1 text-xs font-semibold">Total Liabilities</TableCell>
-                              {isMonthlyView ? (
-                                <>
-                                  {getMonthsInRange().map((month) => (
-                                    <React.Fragment key={month}>
-                                      <TableCell className="border p-1 text-right font-semibold text-xs">
-                                        {formatNumber(
-                                          liabilityRows.reduce(
-                                            (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
-                                            0
-                                          )
-                                        )}
-                                      </TableCell>
-                                      {showPercentages && (
-                                        <TableCell className="border p-1 text-right text-xs text-slate-600">
-                                          {formatPercentageForAccount(
-                                            liabilityRows.reduce(
-                                              (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
-                                              0
-                                            ),
-                                            "Liability"
-                                          )}
-                                        </TableCell>
-                                      )}
-                                    </React.Fragment>
-                                  ))}
-                                  <TableCell className="border p-1 text-right font-semibold text-xs">
-                                    {formatNumber(totalLiabilities)}
-                                  </TableCell>
-                                  {showPercentages && (
-                                    <TableCell className="border p-1 text-right text-xs text-slate-600">
-                                      {formatPercentageForAccount(totalLiabilities, "Liability")}
-                                    </TableCell>
-                                  )}
-                                </>
-                              ) : (
-                                <>
-                                  <TableCell
-                                    className="border p-1 text-right font-semibold text-xs"
-                                    style={{ width: "20%" }}
-                                  >
-                                    {formatNumber(totalLiabilities)}
-                                  </TableCell>
-                                  {showPercentages && (
-                                    <TableCell className="border p-1 text-right text-xs text-slate-600">
-                                      {formatPercentageForAccount(totalLiabilities, "Liability")}
-                                    </TableCell>
-                                  )}
-                                  {showPreviousPeriod && (
-                                    <>
-                                      <TableCell
-                                        className="border p-1 text-right font-semibold text-xs"
-                                        style={{ width: "20%" }}
-                                      >
-                                        —
-                                      </TableCell>
-                                      {showPercentages && (
-                                        <TableCell className="border p-1 text-right text-xs text-slate-600">
-                                          —
-                                        </TableCell>
-                                      )}
-                                      <TableCell
-                                        className="border p-1 text-right font-semibold text-xs"
-                                        style={{ width: "20%" }}
-                                      >
-                                        —
-                                      </TableCell>
-                                    </>
-                                  )}
-                                </>
-                              )}
-                            </TableRow>
-                          </>
-                        )}
-                      </>
-                    )}
-
-                    {/* Equity */}
-                    {(equityRows.length > 0 || netIncome !== 0) && (
-                      <>
-                        <TableRow className="cursor-pointer bg-muted/50 hover:bg-gray-100 transition-colors">
-                          <TableCell
-                            colSpan={
-                              isMonthlyView
-                                ? getMonthsInRange().length * (showPercentages ? 2 : 1) + (showPercentages ? 2 : 1) + 1
-                                : showPreviousPeriod
-                                ? showPercentages
-                                  ? 6
-                                  : 4
-                                : showPercentages
-                                ? 3
-                                : 2
-                            }
-                            className="border p-1 text-xs"
-                          >
-                            <div className="flex items-center">
-                              <button
-                                onClick={() => toggleSection("equity")}
-                                className="mr-2 p-1 hover:bg-gray-200 rounded transition-colors"
-                              >
-                                {collapsedSections.has("equity") ? (
-                                  <ChevronRight className="w-3 h-3 text-gray-600" />
-                                ) : (
-                                  <ChevronDown className="w-3 h-3 text-gray-600" />
-                                )}
-                              </button>
-                              <span className="font-semibold">Equity</span>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                        {!collapsedSections.has("equity") && (
-                          <>
-                            {equityRows.map((row) => (
-                              <React.Fragment key={row.id}>
-                                {isMonthlyView
-                                  ? renderAccountRowWithMonthlyTotals(row)
-                                  : renderAccountRowWithTotal(row)}
-                              </React.Fragment>
-                            ))}
-                            {netIncome !== 0 && (
-                              <TableRow
-                                className="cursor-pointer bg-muted/50 hover:bg-gray-100 transition-colors"
-                                onClick={() => {
-                                  const netIncomeAccount = {
-                                    id: "NET_INCOME",
-                                    name: "Net Income",
-                                    type: "Equity",
-                                    parent_id: null,
-                                  };
-                                  setSelectedAccount(netIncomeAccount);
-                                  setViewerModal({ isOpen: true, category: netIncomeAccount });
-                                }}
-                              >
-                                <TableCell className="border p-1 text-xs">
-                                  <div className="flex items-center">
-                                    <div className="mr-2 w-5"></div>
-                                    <span className="font-semibold">Net Income</span>
-                                  </div>
-                                </TableCell>
-                                {isMonthlyView ? (
-                                  <>
-                                    {getMonthsInRange().map((month) => (
-                                      <React.Fragment key={month}>
-                                        <TableCell
-                                          className="border p-1 text-right font-semibold text-xs cursor-pointer hover:bg-gray-100"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            const netIncomeAccount = {
-                                              id: "NET_INCOME",
-                                              name: "Net Income",
-                                              type: "Equity",
-                                              parent_id: null,
-                                            };
-                                            setSelectedAccount(netIncomeAccount);
-                                            setViewerModal({
-                                              isOpen: true,
-                                              category: netIncomeAccount,
-                                              selectedMonth: month,
-                                            });
-                                          }}
-                                        >
-                                          {formatNumber(
-                                            calculatePLGroupTotalForMonth(revenueAccounts, month) -
-                                              calculatePLGroupTotalForMonth(cogsAccounts, month) -
-                                              calculatePLGroupTotalForMonth(expenseAccounts, month)
-                                          )}
-                                        </TableCell>
-                                        {showPercentages && (
-                                          <TableCell
-                                            className="border p-1 text-right text-xs text-slate-600 cursor-pointer"
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              const netIncomeAccount = {
-                                                id: "NET_INCOME",
-                                                name: "Net Income",
-                                                type: "Equity",
-                                                parent_id: null,
-                                              };
-                                              setSelectedAccount(netIncomeAccount);
-                                              setViewerModal({
-                                                isOpen: true,
-                                                category: netIncomeAccount,
-                                                selectedMonth: month,
-                                              });
-                                            }}
-                                          >
-                                            {formatPercentageForAccount(
-                                              calculatePLGroupTotalForMonth(revenueAccounts, month) -
-                                                calculatePLGroupTotalForMonth(cogsAccounts, month) -
-                                                calculatePLGroupTotalForMonth(expenseAccounts, month),
-                                              "Equity"
-                                            )}
-                                          </TableCell>
-                                        )}
-                                      </React.Fragment>
-                                    ))}
-                                    <TableCell className="border p-1 text-right font-semibold text-xs">
-                                      {formatNumber(netIncome)}
-                                    </TableCell>
-                                    {showPercentages && (
-                                      <TableCell className="border p-1 text-right text-xs text-slate-600">
-                                        {formatPercentageForAccount(netIncome, "Equity")}
-                                      </TableCell>
-                                    )}
-                                  </>
-                                ) : (
-                                  <>
-                                    <TableCell
-                                      className="border p-1 text-right font-semibold text-xs"
-                                      style={{ width: "20%" }}
-                                    >
-                                      {formatNumber(netIncome)}
-                                    </TableCell>
-                                    {showPercentages && (
-                                      <TableCell className="border p-1 text-right text-xs text-slate-600">
-                                        {formatPercentageForAccount(netIncome, "Equity")}
-                                      </TableCell>
-                                    )}
-                                    {showPreviousPeriod && (
-                                      <>
-                                        <TableCell
-                                          className="border p-1 text-right font-semibold text-xs"
-                                          style={{ width: "20%" }}
-                                        >
-                                          —
-                                        </TableCell>
-                                        {showPercentages && (
-                                          <TableCell className="border p-1 text-right text-xs text-slate-600">
-                                            —
-                                          </TableCell>
-                                        )}
-                                        <TableCell
-                                          className="border p-1 text-right font-semibold text-xs"
-                                          style={{ width: "20%" }}
-                                        >
-                                          —
-                                        </TableCell>
-                                      </>
-                                    )}
-                                  </>
-                                )}
-                              </TableRow>
-                            )}
-                            <TableRow
-                              className="cursor-pointer bg-muted/50 hover:bg-gray-100 transition-colors"
-                              onClick={() => {
-                                const equityGroup = {
-                                  id: "EQUITY_GROUP",
-                                  name: "Total Equity",
-                                  type: "Equity",
-                                  parent_id: null,
-                                };
-                                setSelectedAccount(equityGroup);
-                                setViewerModal({ isOpen: true, category: equityGroup });
-                              }}
-                            >
-                              <TableCell className="border p-1 text-xs font-semibold">Total Equity</TableCell>
-                              {isMonthlyView ? (
-                                <>
-                                  {getMonthsInRange().map((month) => (
-                                    <React.Fragment key={month}>
-                                      <TableCell className="border p-1 text-right font-semibold text-xs">
-                                        {formatNumber(
-                                          equityRows.reduce(
-                                            (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
-                                            0
-                                          ) +
-                                            (calculatePLGroupTotalForMonth(revenueAccounts, month) -
-                                              calculatePLGroupTotalForMonth(cogsAccounts, month) -
-                                              calculatePLGroupTotalForMonth(expenseAccounts, month))
-                                        )}
-                                      </TableCell>
-                                      {showPercentages && (
-                                        <TableCell className="border p-1 text-right text-xs text-slate-600">
-                                          {formatPercentageForAccount(
-                                            equityRows.reduce(
-                                              (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
-                                              0
-                                            ) +
-                                              (calculatePLGroupTotalForMonth(revenueAccounts, month) -
-                                                calculatePLGroupTotalForMonth(cogsAccounts, month) -
-                                                calculatePLGroupTotalForMonth(expenseAccounts, month)),
-                                            "Equity"
-                                          )}
-                                        </TableCell>
-                                      )}
-                                    </React.Fragment>
-                                  ))}
-                                  <TableCell className="border p-1 text-right font-semibold text-xs">
-                                    {formatNumber(totalEquityWithNetIncome)}
-                                  </TableCell>
-                                  {showPercentages && (
-                                    <TableCell className="border p-1 text-right text-xs text-slate-600">
-                                      {formatPercentageForAccount(totalEquityWithNetIncome, "Equity")}
-                                    </TableCell>
-                                  )}
-                                </>
-                              ) : (
-                                <>
-                                  <TableCell
-                                    className="border p-1 text-right font-semibold text-xs"
-                                    style={{ width: "20%" }}
-                                  >
-                                    {formatNumber(totalEquityWithNetIncome)}
-                                  </TableCell>
-                                  {showPercentages && (
-                                    <TableCell className="border p-1 text-right text-xs text-slate-600">
-                                      {formatPercentageForAccount(totalEquityWithNetIncome, "Equity")}
-                                    </TableCell>
-                                  )}
-                                  {showPreviousPeriod && (
-                                    <>
-                                      <TableCell
-                                        className="border p-1 text-right font-semibold text-xs"
-                                        style={{ width: "20%" }}
-                                      >
-                                        —
-                                      </TableCell>
-                                      {showPercentages && (
-                                        <TableCell className="border p-1 text-right text-xs text-slate-600">
-                                          —
-                                        </TableCell>
-                                      )}
-                                      <TableCell
-                                        className="border p-1 text-right font-semibold text-xs"
-                                        style={{ width: "20%" }}
-                                      >
-                                        —
-                                      </TableCell>
-                                    </>
-                                  )}
-                                </>
-                              )}
-                            </TableRow>
-                          </>
-                        )}
-                      </>
-                    )}
-
-                    {/* Total Liabilities + Equity */}
+                    {/* Total Liabilities */}
                     <TableRow
-                      className={`cursor-pointer bg-muted/50 hover:bg-gray-100 ${
-                        Math.abs(balanceDifference) > 0.01 ? "bg-red-50" : "bg-gray-50"
-                      }`}
-                      onClick={() => {
-                        const totalLiabEquityGroup = {
-                          id: "TOTAL_LIAB_EQUITY_GROUP",
-                          name: "Total Liabilities + Equity",
-                          type: "Mixed",
-                          parent_id: null,
-                        };
-                        setSelectedAccount(totalLiabEquityGroup);
-                        setViewerModal({ isOpen: true, category: totalLiabEquityGroup });
-                      }}
+                      className="cursor-pointer hover:bg-blue-50 font-semibold"
+                      onClick={() =>
+                        setViewerModal({
+                          isOpen: true,
+                          category: {
+                            id: "LIABILITIES_GROUP",
+                            name: "Total Liabilities",
+                            type: "Liability",
+                            parent_id: null,
+                          },
+                        })
+                      }
                     >
-                      <TableCell className="border p-1 text-xs font-semibold" style={{ width: "30%" }}>
-                        TOTAL LIABILITIES + EQUITY
-                      </TableCell>
+                      <TableCell className="border p-1 text-xs font-semibold">TOTAL LIABILITIES</TableCell>
                       {isMonthlyView ? (
                         <>
-                          {getMonthsInRange().map((month) => (
+                          {getMonthsInRange(startDate, asOfDate).map((month) => (
                             <React.Fragment key={month}>
                               <TableCell className="border p-1 text-right font-semibold text-xs">
                                 {formatNumber(
-                                  liabilityRows.reduce(
-                                    (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
+                                  liabilityAccounts.reduce(
+                                    (sum, a) =>
+                                      sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month),
                                     0
-                                  ) +
-                                    equityRows.reduce(
-                                      (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
-                                      0
-                                    ) +
-                                    (calculatePLGroupTotalForMonth(revenueAccounts, month) -
-                                      calculatePLGroupTotalForMonth(cogsAccounts, month) -
-                                      calculatePLGroupTotalForMonth(expenseAccounts, month))
+                                  )
                                 )}
                               </TableCell>
                               {showPercentages && (
                                 <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
-                                  100.0%
+                                  {calculatePercentageForMonth(
+                                    liabilityAccounts.reduce(
+                                      (sum, a) =>
+                                        sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month),
+                                      0
+                                    ),
+                                    month
+                                  )}
                                 </TableCell>
                               )}
                             </React.Fragment>
                           ))}
                           <TableCell className="border p-1 text-right font-semibold text-xs">
-                            {formatNumber(liabilitiesAndEquity)}
+                            {formatNumber(totalLiabilities)}
                           </TableCell>
                           {showPercentages && (
                             <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
-                              100.0%
+                              {formatPercentageForAccount(totalLiabilities)}
+                            </TableCell>
+                          )}
+                        </>
+                      ) : isQuarterlyView ? (
+                        <>
+                          {getQuartersInRange(startDate, asOfDate).map((quarter) => (
+                            <React.Fragment key={quarter}>
+                              <TableCell className="border p-1 text-right font-semibold text-xs">
+                                {formatNumber(
+                                  liabilityAccounts.reduce(
+                                    (sum, a) =>
+                                      sum + calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter),
+                                    0
+                                  )
+                                )}
+                              </TableCell>
+                              {showPercentages && (
+                                <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                                  {calculatePercentageForQuarter(
+                                    liabilityAccounts.reduce(
+                                      (sum, a) =>
+                                        sum + calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter),
+                                      0
+                                    ),
+                                    quarter
+                                  )}
+                                </TableCell>
+                              )}
+                            </React.Fragment>
+                          ))}
+                          <TableCell className="border p-1 text-right font-semibold text-xs">
+                            {formatNumber(totalLiabilities)}
+                          </TableCell>
+                          {showPercentages && (
+                            <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                              {formatPercentageForAccount(totalLiabilities)}
                             </TableCell>
                           )}
                         </>
                       ) : (
                         <>
-                          <TableCell className="border p-1 text-right font-semibold text-xs" style={{ width: "20%" }}>
-                            {formatNumber(liabilitiesAndEquity)}
+                          <TableCell className="border p-1 text-right font-semibold text-xs">
+                            {formatNumber(totalLiabilities)}
                           </TableCell>
                           {showPercentages && (
                             <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
-                              100.0%
+                              {formatPercentageForAccount(totalLiabilities)}
                             </TableCell>
-                          )}
-                          {showPreviousPeriod && (
-                            <>
-                              <TableCell
-                                className="border p-1 text-right font-semibold text-xs"
-                                style={{ width: "20%" }}
-                              >
-                                —
-                              </TableCell>
-                              {showPercentages && (
-                                <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
-                                  —
-                                </TableCell>
-                              )}
-                              <TableCell
-                                className="border p-1 text-right font-semibold text-xs"
-                                style={{ width: "20%" }}
-                              >
-                                —
-                              </TableCell>
-                            </>
                           )}
                         </>
                       )}
                     </TableRow>
 
-                    {/* Show discrepancy if balance sheet doesn't balance */}
-                    {Math.abs(balanceDifference) > 0.01 && (
-                      <TableRow className="bg-red-100">
-                        <TableCell className="border p-1 text-xs font-bold text-red-800">OUT OF BALANCE</TableCell>
-                        {isMonthlyView ? (
-                          <>
-                            {getMonthsInRange().map((month) => (
-                              <React.Fragment key={month}>
-                                <TableCell className="border p-1 text-right font-bold text-red-800 text-xs">
-                                  {formatNumber(balanceDifference)}
+                    {/* Equity Section */}
+                    <TableRow className="bg-muted/50">
+                      <TableCell colSpan={getTotalColumns()} className="border p-1 font-semibold text-xs">
+                        EQUITY
+                      </TableCell>
+                    </TableRow>
+                    {equityAccounts.map((account) => renderAccountRow(account))}
+
+                    {/* Retained Earnings */}
+                    <TableRow
+                      className="cursor-pointer hover:bg-gray-100"
+                      onClick={() =>
+                        setViewerModal({
+                          isOpen: true,
+                          category: {
+                            id: "RETAINED_EARNINGS",
+                            name: "Retained Earnings",
+                            type: "Equity",
+                            parent_id: null,
+                          },
+                        })
+                      }
+                    >
+                      <TableCell className="border p-1 text-xs font-semibold">Retained Earnings</TableCell>
+                      {isMonthlyView ? (
+                        <>
+                          {getMonthsInRange(startDate, asOfDate).map((month) => (
+                            <React.Fragment key={month}>
+                              <TableCell className="border p-1 text-right text-xs">
+                                {formatNumber(retainedEarnings)}
+                              </TableCell>
+                              {showPercentages && (
+                                <TableCell className="border p-1 text-right text-xs text-slate-600">
+                                  {calculatePercentageForMonth(retainedEarnings, month)}
                                 </TableCell>
-                                {showPercentages && (
-                                  <TableCell className="border p-1 text-right text-xs font-bold text-red-600">
-                                    —
-                                  </TableCell>
-                                )}
-                              </React.Fragment>
-                            ))}
-                            <TableCell className="border p-1 text-right font-bold text-red-800 text-xs">
-                              {formatNumber(balanceDifference)}
+                              )}
+                            </React.Fragment>
+                          ))}
+                          <TableCell className="border p-1 text-right text-xs">
+                            {formatNumber(retainedEarnings)}
+                          </TableCell>
+                          {showPercentages && (
+                            <TableCell className="border p-1 text-right text-xs text-slate-600">
+                              {formatPercentageForAccount(retainedEarnings)}
                             </TableCell>
-                            {showPercentages && (
-                              <TableCell className="border p-1 text-right text-xs font-bold text-red-600">—</TableCell>
-                            )}
-                          </>
-                        ) : (
-                          <>
-                            <TableCell
-                              className="border p-1 text-right font-bold text-red-800 text-xs"
-                              style={{ width: "20%" }}
-                            >
-                              {formatNumber(balanceDifference)}
+                          )}
+                        </>
+                      ) : isQuarterlyView ? (
+                        <>
+                          {getQuartersInRange(startDate, asOfDate).map((quarter) => (
+                            <React.Fragment key={quarter}>
+                              <TableCell className="border p-1 text-right text-xs">
+                                {formatNumber(retainedEarnings)}
+                              </TableCell>
+                              {showPercentages && (
+                                <TableCell className="border p-1 text-right text-xs text-slate-600">
+                                  {calculatePercentageForQuarter(retainedEarnings, quarter)}
+                                </TableCell>
+                              )}
+                            </React.Fragment>
+                          ))}
+                          <TableCell className="border p-1 text-right text-xs">
+                            {formatNumber(retainedEarnings)}
+                          </TableCell>
+                          {showPercentages && (
+                            <TableCell className="border p-1 text-right text-xs text-slate-600">
+                              {formatPercentageForAccount(retainedEarnings)}
                             </TableCell>
-                            {showPercentages && (
-                              <TableCell className="border p-1 text-right text-xs font-bold text-red-600">—</TableCell>
-                            )}
-                            {showPreviousPeriod && (
-                              <>
-                                <TableCell
-                                  className="border p-1 text-right font-bold text-red-800 text-xs"
-                                  style={{ width: "20%" }}
-                                >
-                                  —
-                                </TableCell>
-                                {showPercentages && (
-                                  <TableCell className="border p-1 text-right text-xs font-bold text-red-600">
-                                    —
-                                  </TableCell>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <TableCell className="border p-1 text-right text-xs">
+                            {formatNumber(retainedEarnings)}
+                          </TableCell>
+                          {showPercentages && (
+                            <TableCell className="border p-1 text-right text-xs text-slate-600">
+                              {formatPercentageForAccount(retainedEarnings)}
+                            </TableCell>
+                          )}
+                        </>
+                      )}
+                    </TableRow>
+
+                    {/* Total Equity */}
+                    <TableRow
+                      className="cursor-pointer hover:bg-blue-50 font-semibold"
+                      onClick={() =>
+                        setViewerModal({
+                          isOpen: true,
+                          category: { id: "EQUITY_GROUP", name: "Total Equity", type: "Equity", parent_id: null },
+                        })
+                      }
+                    >
+                      <TableCell className="border p-1 text-xs font-semibold">TOTAL EQUITY</TableCell>
+                      {isMonthlyView ? (
+                        <>
+                          {getMonthsInRange(startDate, asOfDate).map((month) => (
+                            <React.Fragment key={month}>
+                              <TableCell className="border p-1 text-right font-semibold text-xs">
+                                {formatNumber(
+                                  equityAccounts.reduce(
+                                    (sum, a) =>
+                                      sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month),
+                                    0
+                                  ) + retainedEarnings
                                 )}
-                                <TableCell
-                                  className="border p-1 text-right font-bold text-red-800 text-xs"
-                                  style={{ width: "20%" }}
-                                >
-                                  —
+                              </TableCell>
+                              {showPercentages && (
+                                <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                                  {calculatePercentageForMonth(
+                                    equityAccounts.reduce(
+                                      (sum, a) =>
+                                        sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month),
+                                      0
+                                    ) + retainedEarnings,
+                                    month
+                                  )}
                                 </TableCell>
-                              </>
-                            )}
-                          </>
-                        )}
-                      </TableRow>
-                    )}
+                              )}
+                            </React.Fragment>
+                          ))}
+                          <TableCell className="border p-1 text-right font-semibold text-xs">
+                            {formatNumber(totalEquity)}
+                          </TableCell>
+                          {showPercentages && (
+                            <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                              {formatPercentageForAccount(totalEquity)}
+                            </TableCell>
+                          )}
+                        </>
+                      ) : isQuarterlyView ? (
+                        <>
+                          {getQuartersInRange(startDate, asOfDate).map((quarter) => (
+                            <React.Fragment key={quarter}>
+                              <TableCell className="border p-1 text-right font-semibold text-xs">
+                                {formatNumber(
+                                  equityAccounts.reduce(
+                                    (sum, a) =>
+                                      sum + calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter),
+                                    0
+                                  ) + retainedEarnings
+                                )}
+                              </TableCell>
+                              {showPercentages && (
+                                <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                                  {calculatePercentageForQuarter(
+                                    equityAccounts.reduce(
+                                      (sum, a) =>
+                                        sum + calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter),
+                                      0
+                                    ) + retainedEarnings,
+                                    quarter
+                                  )}
+                                </TableCell>
+                              )}
+                            </React.Fragment>
+                          ))}
+                          <TableCell className="border p-1 text-right font-semibold text-xs">
+                            {formatNumber(totalEquity)}
+                          </TableCell>
+                          {showPercentages && (
+                            <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                              {formatPercentageForAccount(totalEquity)}
+                            </TableCell>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <TableCell className="border p-1 text-right font-semibold text-xs">
+                            {formatNumber(totalEquity)}
+                          </TableCell>
+                          {showPercentages && (
+                            <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                              {formatPercentageForAccount(totalEquity)}
+                            </TableCell>
+                          )}
+                        </>
+                      )}
+                    </TableRow>
+
+                    {/* Total Liabilities & Equity */}
+                    <TableRow className="bg-muted/50 font-bold">
+                      <TableCell className="border p-1 text-xs font-semibold">TOTAL LIABILITIES & EQUITY</TableCell>
+                      {isMonthlyView ? (
+                        <>
+                          {getMonthsInRange(startDate, asOfDate).map((month) => (
+                            <React.Fragment key={month}>
+                              <TableCell className="border p-1 text-right text-xs">
+                                {formatNumber(
+                                  liabilityAccounts.reduce(
+                                    (sum, a) =>
+                                      sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month),
+                                    0
+                                  ) +
+                                    equityAccounts.reduce(
+                                      (sum, a) =>
+                                        sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month),
+                                      0
+                                    ) +
+                                    retainedEarnings
+                                )}
+                              </TableCell>
+                              {showPercentages && (
+                                <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                                  {calculatePercentageForMonth(
+                                    liabilityAccounts.reduce(
+                                      (sum, a) =>
+                                        sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month),
+                                      0
+                                    ) +
+                                      equityAccounts.reduce(
+                                        (sum, a) =>
+                                          sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month),
+                                        0
+                                      ) +
+                                      retainedEarnings,
+                                    month
+                                  )}
+                                </TableCell>
+                              )}
+                            </React.Fragment>
+                          ))}
+                          <TableCell className="border p-1 text-right text-xs">
+                            {formatNumber(totalLiabilities + totalEquity)}
+                          </TableCell>
+                          {showPercentages && (
+                            <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                              {formatPercentageForAccount(totalLiabilities + totalEquity)}
+                            </TableCell>
+                          )}
+                        </>
+                      ) : isQuarterlyView ? (
+                        <>
+                          {getQuartersInRange(startDate, asOfDate).map((quarter) => (
+                            <React.Fragment key={quarter}>
+                              <TableCell className="border p-1 text-right text-xs">
+                                {formatNumber(
+                                  liabilityAccounts.reduce(
+                                    (sum, a) =>
+                                      sum + calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter),
+                                    0
+                                  ) +
+                                    equityAccounts.reduce(
+                                      (sum, a) =>
+                                        sum + calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter),
+                                      0
+                                    ) +
+                                    retainedEarnings
+                                )}
+                              </TableCell>
+                              {showPercentages && (
+                                <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                                  {calculatePercentageForQuarter(
+                                    liabilityAccounts.reduce(
+                                      (sum, a) =>
+                                        sum + calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter),
+                                      0
+                                    ) +
+                                      equityAccounts.reduce(
+                                        (sum, a) =>
+                                          sum + calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter),
+                                        0
+                                      ) +
+                                      retainedEarnings,
+                                    quarter
+                                  )}
+                                </TableCell>
+                              )}
+                            </React.Fragment>
+                          ))}
+                          <TableCell className="border p-1 text-right text-xs">
+                            {formatNumber(totalLiabilities + totalEquity)}
+                          </TableCell>
+                          {showPercentages && (
+                            <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                              {formatPercentageForAccount(totalLiabilities + totalEquity)}
+                            </TableCell>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <TableCell className="border p-1 text-right text-xs">
+                            {formatNumber(totalLiabilities + totalEquity)}
+                          </TableCell>
+                          {showPercentages && (
+                            <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                              {formatPercentageForAccount(totalLiabilities + totalEquity)}
+                            </TableCell>
+                          )}
+                        </>
+                      )}
+                    </TableRow>
                   </>
                 )}
               </TableBody>
@@ -2648,109 +994,15 @@ export default function BalanceSheetPage() {
 
       {/* Transaction Viewer Modal */}
       {viewerModal.isOpen && viewerModal.category && (
-        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg w-[800px] max-h-[80vh] flex flex-col">
-            <div className="p-4 border-b flex justify-between items-center">
-              <h2 className="text-lg font-semibold">
-                {viewerModal.category.name} Transactions
-                {viewerModal.selectedMonth &&
-                  (viewerModal.category.id === "NET_INCOME"
-                    ? ` through ${formatMonth(viewerModal.selectedMonth)}`
-                    : ` for ${formatMonth(viewerModal.selectedMonth)}`)}
-              </h2>
-              <div className="flex items-center gap-4">
-                {selectedAccountTransactions.length > 0 && (
-                  <Button onClick={exportModalTransactions} className="text-xs font-medium" size="sm">
-                    <Download className="w-4 h-4" />
-                  </Button>
-                )}
-                <button
-                  onClick={() => setViewerModal({ isOpen: false, category: null })}
-                  className="text-gray-500 hover:text-gray-700"
-                >
-                  ×
-                </button>
-              </div>
-            </div>
-            <div className="p-4 overflow-auto">
-              <Table className="w-full text-xs">
-                <TableHeader className="bg-gray-50">
-                  <TableRow>
-                    <TableHead className="text-left p-2">Date</TableHead>
-                    <TableHead className="text-left p-2">Description</TableHead>
-                    <TableHead className="text-left p-2">Source</TableHead>
-                    <TableHead className="text-right p-2">Amount</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {selectedAccountTransactions.map((tx) => (
-                    <TableRow key={tx.id} className="hover:bg-gray-50">
-                      <TableCell className="p-2">{tx.date}</TableCell>
-                      <TableCell className="p-2">{tx.description}</TableCell>
-                      <TableCell className="p-2">
-                        <span
-                          className={`px-2 py-1 rounded-full text-xs ${
-                            tx.source === "manual" ? "bg-blue-100 text-blue-800" : "bg-gray-100 text-gray-800"
-                          }`}
-                        >
-                          {tx.source === "manual" ? "Manual" : "Journal"}
-                        </span>
-                      </TableCell>
-                      <TableCell className="p-2 text-right font-mono">
-                        {(() => {
-                          const debit = Number(tx.debit) || 0;
-                          const credit = Number(tx.credit) || 0;
-                          const amount = debit - credit;
-
-                          if (viewerModal.category?.type === "Asset") {
-                            return formatNumber(amount);
-                          } else if (
-                            viewerModal.category?.type === "Liability" ||
-                            viewerModal.category?.type === "Equity"
-                          ) {
-                            return formatNumber(-amount);
-                          } else {
-                            return formatNumber(amount);
-                          }
-                        })()}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {selectedAccountTransactions.length > 0 && (
-                    <TableRow className="bg-gray-50 font-semibold">
-                      <TableCell colSpan={3} className="p-2 text-right">
-                        Total
-                      </TableCell>
-                      <TableCell className="p-2 text-right">
-                        {formatNumber(
-                          selectedAccountTransactions.reduce((sum, tx) => {
-                            const debit = Number(tx.debit) || 0;
-                            const credit = Number(tx.credit) || 0;
-                            const amount = debit - credit;
-
-                            if (viewerModal.category?.type === "Asset") {
-                              return sum + amount;
-                            } else if (
-                              viewerModal.category?.type === "Liability" ||
-                              viewerModal.category?.type === "Equity"
-                            ) {
-                              return sum - amount;
-                            } else {
-                              return sum + amount;
-                            }
-                          }, 0)
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-              {selectedAccountTransactions.length === 0 && (
-                <div className="text-gray-500 text-center py-4">No transactions in this account.</div>
-              )}
-            </div>
-          </div>
-        </div>
+        <TransactionViewer
+          viewerModal={viewerModal}
+          setViewerModal={setViewerModal}
+          selectedCategoryTransactions={selectedCategoryTransactions}
+          startDate="1900-01-01"
+          endDate={asOfDate}
+          companyName={currentCompany.name}
+          getCategoryName={getCategoryName}
+        />
       )}
     </div>
   );
