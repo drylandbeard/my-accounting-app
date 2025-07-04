@@ -244,9 +244,8 @@ export default function TransactionsPage() {
 
   const { payees, refreshPayees, createPayeeForTransaction, subscribeToPayees } = usePayeesStore();
 
-  // Removed unused searchQuery state
-  const [toAddSearchQuery, setToAddSearchQuery] = useState("");
-  const [addedSearchQuery, setAddedSearchQuery] = useState("");
+  // Shared search query between tabs
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Add selected categories state
   const [selectedCategories, setSelectedCategories] = useState<{ [txId: string]: string }>({});
@@ -844,14 +843,14 @@ export default function TransactionsPage() {
     }
   }, [selectedAccountId, importedTransactions, categories, payees, hasCompanyContext]);
 
-  // Reset pagination when search queries change
+  // Reset pagination when search query changes
   useEffect(() => {
     setToAddCurrentPage(1);
-  }, [toAddSearchQuery, selectedAccountId, toAddSortConfig]);
+  }, [searchQuery, selectedAccountId, toAddSortConfig]);
 
   useEffect(() => {
     setAddedCurrentPage(1);
-  }, [addedSearchQuery, selectedAccountId, addedSortConfig]);
+  }, [searchQuery, selectedAccountId, addedSortConfig]);
 
   // 3️⃣ Actions - now use store functions
   const addTransaction = async (tx: Transaction, selectedCategoryId: string, selectedPayeeId?: string) => {
@@ -1052,8 +1051,8 @@ export default function TransactionsPage() {
     importedTransactions
       .filter((tx) => tx.plaid_account_id === selectedAccountId)
       .filter((tx) => {
-        if (!toAddSearchQuery) return true;
-        const q = toAddSearchQuery.toLowerCase();
+        if (!searchQuery) return true;
+        const q = searchQuery.toLowerCase();
         const desc = tx.description?.toLowerCase() || "";
         const date = formatDate(tx.date).toLowerCase();
         // Search formatted amounts (what user sees in display)
@@ -1092,8 +1091,8 @@ export default function TransactionsPage() {
         return false;
       })
       .filter((tx) => {
-        if (!addedSearchQuery) return true;
-        const q = addedSearchQuery.toLowerCase();
+        if (!searchQuery) return true;
+        const q = searchQuery.toLowerCase();
         const desc = tx.description?.toLowerCase() || "";
         const date = formatDate(tx.date).toLowerCase();
         // Search formatted amounts (what user sees in display)
@@ -3856,8 +3855,8 @@ export default function TransactionsPage() {
             <input
               type="text"
               placeholder="Search transactions..."
-              value={toAddSearchQuery}
-              onChange={(e) => setToAddSearchQuery(e.target.value)}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
               className="border px-2 py-1 w-full text-xs mb-2"
             />
             <table className="w-full border-collapse border border-gray-300">
@@ -4223,8 +4222,8 @@ export default function TransactionsPage() {
             <input
               type="text"
               placeholder="Search transactions..."
-              value={addedSearchQuery}
-              onChange={(e) => setAddedSearchQuery(e.target.value)}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
               className="border px-2 py-1 w-full text-xs mb-2"
             />
             <table className="w-full border-collapse border border-gray-300">
