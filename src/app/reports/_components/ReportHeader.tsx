@@ -26,10 +26,10 @@ export interface ReportHeaderProps {
   onCollapseAllCategories: () => void;
   exportToXLSX?: () => void;
   loading?: boolean;
+  isBalanceSheet?: boolean;
 }
 
 export function ReportHeader({
-  title,
   startDate,
   endDate,
   setStartDate,
@@ -46,6 +46,7 @@ export function ReportHeader({
   onCollapseAllCategories,
   exportToXLSX,
   loading,
+  isBalanceSheet,
 }: ReportHeaderProps) {
   // Calculate today's date once
   const today = React.useMemo(() => new Date().toISOString().split("T")[0], []);
@@ -57,7 +58,6 @@ export function ReportHeader({
 
   return (
     <div className="flex flex-col space-y-4 mb-6">
-      {title && <h1 className="text-2xl font-bold">{title}</h1>}
       <div className="flex justify-between items-center">
         <div className="flex items-center gap-4">
           <PeriodSelector
@@ -72,33 +72,52 @@ export function ReportHeader({
 
           {/* Manual date override option */}
           <div className="flex items-center justify-center gap-4 text-xs">
-            <DatePicker
-              value={startDate}
-              max={new Date(endDate || today)}
-              onChange={(date) => {
-                if (date) {
-                  const formattedDate = format(date, "yyyy-MM-dd");
-                  setStartDate(formattedDate);
-                  // If start date is after end date, update end date
-                  if (endDate && formattedDate > endDate) {
-                    setEndDate(formattedDate);
-                  }
-                }
-              }}
-              className="text-xs h-8 transition-none w-32"
-            />
-            <span className="text-slate-600">to</span>
-            <DatePicker
-              value={endDate}
-              max={new Date(today)}
-              onChange={(date) => {
-                if (date) {
-                  const formattedDate = format(date, "yyyy-MM-dd");
-                  setEndDate(formattedDate);
-                }
-              }}
-              className="text-xs h-8 transition-none w-32"
-            />
+            {isBalanceSheet ? (
+              <>
+                <span className="text-slate-600">As of</span>
+                <DatePicker
+                  value={endDate}
+                  max={new Date(today)}
+                  onChange={(date) => {
+                    if (date) {
+                      const formattedDate = format(date, "yyyy-MM-dd");
+                      setEndDate(formattedDate);
+                    }
+                  }}
+                  className="text-xs h-8 transition-none w-32"
+                />
+              </>
+            ) : (
+              <>
+                <DatePicker
+                  value={startDate}
+                  max={new Date(endDate || today)}
+                  onChange={(date) => {
+                    if (date) {
+                      const formattedDate = format(date, "yyyy-MM-dd");
+                      setStartDate(formattedDate);
+                      // If start date is after end date, update end date
+                      if (endDate && formattedDate > endDate) {
+                        setEndDate(formattedDate);
+                      }
+                    }
+                  }}
+                  className="text-xs h-8 transition-none w-32"
+                />
+                <span className="text-slate-600">to</span>
+                <DatePicker
+                  value={endDate}
+                  max={new Date(today)}
+                  onChange={(date) => {
+                    if (date) {
+                      const formattedDate = format(date, "yyyy-MM-dd");
+                      setEndDate(formattedDate);
+                    }
+                  }}
+                  className="text-xs h-8 transition-none w-32"
+                />
+              </>
+            )}
           </div>
         </div>
 

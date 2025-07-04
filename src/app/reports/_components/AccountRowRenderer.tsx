@@ -4,7 +4,7 @@ import React from "react";
 import { TableRow, TableCell } from "@/components/ui/table";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { Account, ViewerModalState, Transaction } from "../_types";
-import { formatNumber, getMonthsInRange, getAllAccountIds } from "../_utils";
+import { formatNumber, getMonthsInRange, getQuartersInRange, getAllAccountIds } from "../_utils";
 
 interface AccountRowRendererProps {
   account: Account;
@@ -16,6 +16,7 @@ interface AccountRowRendererProps {
 
   // Display configuration
   isMonthlyView: boolean;
+  isQuarterlyView: boolean;
   showPercentages: boolean;
   startDate: string;
   endDate: string;
@@ -27,6 +28,8 @@ interface AccountRowRendererProps {
   calculateAccountDirectTotal: (account: Account) => number;
   calculateAccountTotalForMonth?: (account: Account, month: string) => number;
   calculateAccountTotalForMonthWithSubaccounts?: (account: Account, month: string) => number;
+  calculateAccountTotalForQuarter?: (account: Account, quarter: string) => number;
+  calculateAccountTotalForQuarterWithSubaccounts?: (account: Account, quarter: string) => number;
 
   // UI handlers
   setViewerModal: (state: ViewerModalState) => void;
@@ -41,6 +44,7 @@ export const AccountRowRenderer: React.FC<AccountRowRendererProps> = ({
   accounts,
   journalEntries,
   isMonthlyView,
+  isQuarterlyView,
   showPercentages,
   startDate,
   endDate,
@@ -50,6 +54,8 @@ export const AccountRowRenderer: React.FC<AccountRowRendererProps> = ({
   calculateAccountDirectTotal,
   calculateAccountTotalForMonth,
   calculateAccountTotalForMonthWithSubaccounts,
+  calculateAccountTotalForQuarter,
+  calculateAccountTotalForQuarterWithSubaccounts,
   setViewerModal,
   formatPercentageForAccount,
 }) => {
@@ -146,6 +152,44 @@ export const AccountRowRenderer: React.FC<AccountRowRendererProps> = ({
                 </TableCell>
               )}
             </>
+          ) : isQuarterlyView ? (
+            <>
+              {getQuartersInRange(startDate, endDate).map((quarter) => (
+                <React.Fragment key={quarter}>
+                  <TableCell
+                    className="border p-1 text-right text-xs cursor-pointer hover:bg-gray-50"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setViewerModal({ isOpen: true, category: acc, selectedMonth: quarter });
+                    }}
+                  >
+                    {formatNumber(
+                      accIsParent && accIsCollapsed
+                        ? calculateAccountTotalForQuarterWithSubaccounts?.(acc, quarter) || 0
+                        : calculateAccountTotalForQuarter?.(acc, quarter) || 0
+                    )}
+                  </TableCell>
+                  {showPercentages && (
+                    <TableCell className="border p-1 text-right text-xs text-slate-600">
+                      {formatPercentageForAccount(
+                        accIsParent && accIsCollapsed
+                          ? calculateAccountTotalForQuarterWithSubaccounts?.(acc, quarter) || 0
+                          : calculateAccountTotalForQuarter?.(acc, quarter) || 0,
+                        acc
+                      )}
+                    </TableCell>
+                  )}
+                </React.Fragment>
+              ))}
+              <TableCell className="border p-1 text-right font-semibold text-xs">
+                {formatNumber(accIsParent && accIsCollapsed ? accAccountTotal : accDirectTotal)}
+              </TableCell>
+              {showPercentages && (
+                <TableCell className="border p-1 text-right text-xs text-slate-600">
+                  {formatPercentageForAccount(accIsParent && accIsCollapsed ? accAccountTotal : accDirectTotal, acc)}
+                </TableCell>
+              )}
+            </>
           ) : (
             <>
               <TableCell className="border p-1 text-right text-xs">
@@ -184,6 +228,32 @@ export const AccountRowRenderer: React.FC<AccountRowRendererProps> = ({
                       <TableCell className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
                         {formatPercentageForAccount(
                           calculateAccountTotalForMonthWithSubaccounts?.(acc, month) || 0,
+                          acc
+                        )}
+                      </TableCell>
+                    )}
+                  </React.Fragment>
+                ))}
+                <TableCell className="border p-1 text-right font-semibold bg-gray-50 text-xs">
+                  {formatNumber(accAccountTotal)}
+                </TableCell>
+                {showPercentages && (
+                  <TableCell className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
+                    {formatPercentageForAccount(accAccountTotal, acc)}
+                  </TableCell>
+                )}
+              </>
+            ) : isQuarterlyView ? (
+              <>
+                {getQuartersInRange(startDate, endDate).map((quarter) => (
+                  <React.Fragment key={quarter}>
+                    <TableCell className="border p-1 text-right font-semibold bg-gray-50 text-xs">
+                      {formatNumber(calculateAccountTotalForQuarterWithSubaccounts?.(acc, quarter) || 0)}
+                    </TableCell>
+                    {showPercentages && (
+                      <TableCell className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
+                        {formatPercentageForAccount(
+                          calculateAccountTotalForQuarterWithSubaccounts?.(acc, quarter) || 0,
                           acc
                         )}
                       </TableCell>
