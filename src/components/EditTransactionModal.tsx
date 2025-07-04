@@ -180,8 +180,8 @@ export default function EditTransactionModal({
               <table className="w-full border-collapse">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="border px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
                     <th className="border px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Payee</th>
+                    <th className="border px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
                     <th className="border px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
                     <th className="border px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Debit</th>
                     <th className="border px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Credit</th>
@@ -191,15 +191,6 @@ export default function EditTransactionModal({
                   {categoryLines.map((line) => {
                     return (
                       <tr key={line.id}>
-                        <td className="border px-4 py-2">
-                          <input
-                            type="text"
-                            value={line.description}
-                            onChange={(e) => onUpdateLine(line.id, 'description', e.target.value)}
-                            className="w-full border-0 px-0 py-0 text-xs focus:ring-0 focus:outline-none"
-                            placeholder="Enter description"
-                          />
-                        </td>
                         <td className="border px-4 py-2">
                           <Select
                             options={[
@@ -237,6 +228,15 @@ export default function EditTransactionModal({
                                 zIndex: 9999 
                               })
                             }}
+                          />
+                        </td>
+                        <td className="border px-4 py-2">
+                          <input
+                            type="text"
+                            value={line.description}
+                            onChange={(e) => onUpdateLine(line.id, 'description', e.target.value)}
+                            className="w-full border-0 px-0 py-0 text-xs focus:ring-0 focus:outline-none"
+                            placeholder="Enter description"
                           />
                         </td>
                         <td className="border px-4 py-2">
