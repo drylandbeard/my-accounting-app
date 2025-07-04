@@ -1,4 +1,5 @@
 import './globals.css'
+import { Toaster } from "@/components/ui/sonner"
 import { AuthProvider } from "@/components/AuthProvider";
 import AuthenticatedApp from "@/components/AuthenticatedApp";
 
@@ -18,6 +19,7 @@ export default function RootLayout({
         <AuthProvider>
           <AuthenticatedApp>{children}</AuthenticatedApp>
         </AuthProvider>
+        <Toaster />
       </body>
     </html>
   )

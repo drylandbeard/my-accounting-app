@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { api } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 import { FinancialAmount } from '@/lib/financial';
+import { showSuccessToast, showErrorToast } from '@/lib/utils';
 
 // Enhanced error handling types
 export interface StoreError {
@@ -199,7 +200,6 @@ interface TransactionsState {
   
   // Error handling
   error: string | null;
-  notification: { type: 'success' | 'error'; message: string } | null;
   
   // Real-time subscriptions state
   subscriptions: ReturnType<typeof supabase.channel>[];
@@ -207,7 +207,6 @@ interface TransactionsState {
   // Actions
   setLinkToken: (token: string | null) => void;
   setSelectedAccountId: (accountId: string | null) => void;
-  setNotification: (notification: { type: 'success' | 'error'; message: string } | null) => void;
   clearError: () => void;
   
   // Data fetching
@@ -289,13 +288,11 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
   isAddingTransactions: false,
   isUndoingTransactions: false,
   error: null,
-  notification: null,
   subscriptions: [],
   
   // Basic setters
   setLinkToken: (token) => set({ linkToken: token }),
   setSelectedAccountId: (accountId) => set({ selectedAccountId: accountId }),
-  setNotification: (notification) => set({ notification }),
   clearError: () => set({ error: null }),
   
   // Create Plaid link token
@@ -570,12 +567,12 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
       // Refresh splits data
       await get().fetchImportedTransactionSplits(companyId);
       
-      set({ notification: { type: 'success', message: 'Split transaction saved successfully!' } });
+      showSuccessToast('Split transaction saved successfully!');
       return { success: true };
     } catch (error) {
       console.error('Error saving imported transaction split:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to save split transaction';
-      set({ notification: { type: 'error', message: errorMessage } });
+      showErrorToast(errorMessage);
       return { success: false, error: errorMessage };
     }
   },
@@ -605,11 +602,11 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
       // Refresh splits data
       await get().fetchImportedTransactionSplits(companyId);
       
-      set({ notification: { type: 'success', message: 'Split transaction deleted successfully!' } });
+      showSuccessToast('Split transaction deleted successfully!');
       return true;
     } catch (error) {
       console.error('Error deleting imported transaction split:', error);
-      set({ notification: { type: 'error', message: 'Failed to delete split transaction' } });
+      showErrorToast('Failed to delete split transaction');
       return false;
     }
   },
@@ -647,12 +644,7 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
       // Refresh data after successful operation
       await get().refreshAll(companyId);
       
-      set({ 
-        notification: { 
-          type: 'success', 
-          message: `Successfully added ${transactionRequests.length} transactions!` 
-        } 
-      });
+      showSuccessToast(`Successfully added ${transactionRequests.length} transactions!`);
       
       return true;
     } catch (error) {
@@ -685,12 +677,7 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
       // Refresh data after successful operation
       await get().refreshAll(companyId);
       
-      set({ 
-        notification: { 
-          type: 'success', 
-          message: `Successfully undid ${transactionIds.length} transactions!` 
-        } 
-      });
+      showSuccessToast(`Successfully undid ${transactionIds.length} transactions!`);
       
       return true;
     } catch (error) {
@@ -732,12 +719,7 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
       // Refresh data
       await get().refreshAll(companyId);
       
-      set({ 
-        notification: { 
-          type: 'success', 
-          message: 'Transaction updated successfully!' 
-        } 
-      });
+      showSuccessToast('Transaction updated successfully!');
       
       return true;
     } catch (error) {
@@ -769,9 +751,7 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
 
       // Skip sync for manual accounts (they don't have Plaid connections)
       if (selectedAccount.is_manual) {
-        set({ 
-          notification: { type: 'success', message: 'Manual accounts do not require syncing.' }
-        });
+        showSuccessToast('Manual accounts do not require syncing.');
         return { success: true, newTransactions: 0 };
       }
 
@@ -819,9 +799,7 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
         ? `Sync complete! Found ${totalNewTransactions} new transactions.`
         : 'Sync complete! No new transactions found.';
         
-      set({ 
-        notification: { type: 'success', message } 
-      });
+      showSuccessToast(message);
       
       return { success: true, newTransactions: totalNewTransactions };
     } catch (error) {
@@ -942,12 +920,7 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
       const totalAccounts = accountsResult.count || 0;
       const totalTransactions = transactionsResult.count || 0;
       
-      set({ 
-        notification: { 
-          type: 'success', 
-          message: `Successfully linked ${totalAccounts} accounts and imported ${totalTransactions} transactions!` 
-        } 
-      });
+      showSuccessToast(`Successfully linked ${totalAccounts} accounts and imported ${totalTransactions} transactions!`);
       
       return true;
     } catch (error) {
@@ -980,9 +953,7 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
       // Refresh accounts data
       await get().fetchAccounts(companyId);
       
-      set({ 
-        notification: { type: 'success', message: 'Account name updated successfully!' } 
-      });
+      showSuccessToast('Account name updated successfully!');
 
       return true;
     } catch (error) {
@@ -1018,12 +989,7 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
       // Set as selected account
       set({ selectedAccountId: data.accountId });
 
-      set({ 
-        notification: { 
-          type: 'success', 
-          message: data.message || 'Manual account created successfully!' 
-        } 
-      });
+      showSuccessToast(data.message || 'Manual account created successfully!');
 
       return { success: true, accountId: data.accountId };
     } catch (error) {
@@ -1056,9 +1022,7 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
       // Refresh accounts data
       await get().fetchAccounts(companyId);
       
-      set({ 
-        notification: { type: 'success', message: 'Account names updated successfully!' } 
-      });
+      showSuccessToast('Account names updated successfully!');
 
       return true;
     } catch (error) {
@@ -1093,9 +1057,7 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
         set({ selectedAccountId: accounts[0].plaid_account_id });
       }
 
-      set({ 
-        notification: { type: 'success', message: 'Account deleted successfully!' } 
-      });
+      showSuccessToast('Account deleted successfully!');
 
       return true;
     } catch (error) {
@@ -1154,9 +1116,7 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
       // Refresh data
       await get().refreshAll(companyId);
 
-      set({ 
-        notification: { type: 'success', message: 'Journal entry saved successfully!' } 
-      });
+      showSuccessToast('Journal entry saved successfully!');
 
       return true;
     } catch (error) {
@@ -1171,18 +1131,53 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
 
   fetchPastJournalEntries: async (companyId: string) => {
     try {
-      const response = await api.get(`/api/journal/entries?companyId=${companyId}`);
+      // Fetch journal entries grouped by transaction_id with account names
+      const { data } = await supabase
+        .from('journal')
+        .select(`
+          transaction_id,
+          date,
+          description,
+          debit,
+          credit,
+          chart_account_id,
+          chart_of_accounts:chart_account_id (
+            name
+          )
+        `)
+        .eq('company_id', companyId)
+        .order('date', { ascending: false });
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to fetch journal entries');
-      }
+      if (!data) return [];
 
-      const data = await response.json();
-      return data.entries || [];
+      // Group by transaction_id
+      const transactionGroups = new Map<string, typeof data>();
+      data.forEach((entry) => {
+        if (!transactionGroups.has(entry.transaction_id)) {
+          transactionGroups.set(entry.transaction_id, []);
+        }
+        transactionGroups.get(entry.transaction_id)!.push(entry);
+      });
+
+      // Convert to JournalEntry format
+      const journalEntries: JournalEntry[] = Array.from(transactionGroups.entries()).map(([transactionId, entries]) => {
+        const firstEntry = entries[0];
+        return {
+          id: transactionId,
+          date: firstEntry.date,
+          description: firstEntry.description,
+          transactions: entries.map(entry => ({
+            account_id: entry.chart_account_id,
+            account_name: (entry.chart_of_accounts as unknown as { name: string } | null)?.name || 'Unknown Account',
+            amount: entry.debit || entry.credit,
+            type: entry.debit > 0 ? 'debit' as const : 'credit' as const
+          }))
+        };
+      });
+
+      return journalEntries;
     } catch (error) {
       console.error('Error fetching past journal entries:', error);
-      set({ error: 'Failed to fetch journal entries' });
       return [];
     }
   },
@@ -1193,35 +1188,27 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
 
       // Validate that debits equal credits
       const totalDebits = entryData.transactions
-        .filter(tx => tx.type === 'debit')
-        .reduce((sum, tx) => sum + tx.amount, 0);
+        .filter(t => t.type === 'debit')
+        .reduce((sum, t) => sum + t.amount, 0);
       const totalCredits = entryData.transactions
-        .filter(tx => tx.type === 'credit')
-        .reduce((sum, tx) => sum + tx.amount, 0);
+        .filter(t => t.type === 'credit')
+        .reduce((sum, t) => sum + t.amount, 0);
 
       if (Math.abs(totalDebits - totalCredits) > 0.01) {
         throw new Error('Total debits must equal total credits');
       }
 
-      // Update journal entry via API
-      const response = await api.put('/api/journal/update', {
-        id: entryData.id,
-        date: entryData.date,
-        description: entryData.description,
-        transactions: entryData.transactions
-      });
+      const response = await api.put('/api/journal/update', entryData);
 
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.error || 'Failed to update journal entry');
       }
 
-      // Refresh data
-      await get().refreshAll(companyId);
-
-      set({ 
-        notification: { type: 'success', message: 'Journal entry updated successfully!' } 
-      });
+      // Refresh journal entries
+      await get().fetchJournalEntries(companyId);
+      
+      showSuccessToast('Journal entry updated successfully!');
 
       return true;
     } catch (error) {
@@ -1234,16 +1221,12 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
     }
   },
 
-  deleteJournalEntry: async (entryData: { id?: string; date: string; description: string }, companyId: string) => {
+  deleteJournalEntry: async (entryData, companyId: string) => {
     try {
       set({ isLoading: true, error: null });
 
       const response = await api.delete('/api/journal/delete', {
-        body: JSON.stringify({
-          id: entryData.id,
-          date: entryData.date,
-          description: entryData.description
-        })
+        body: JSON.stringify(entryData)
       });
 
       if (!response.ok) {
@@ -1251,12 +1234,10 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
         throw new Error(error.error || 'Failed to delete journal entry');
       }
 
-      // Refresh data
-      await get().refreshAll(companyId);
-
-      set({ 
-        notification: { type: 'success', message: 'Journal entry deleted successfully!' } 
-      });
+      // Refresh journal entries
+      await get().fetchJournalEntries(companyId);
+      
+      showSuccessToast('Journal entry deleted successfully!');
 
       return true;
     } catch (error) {
@@ -1308,12 +1289,7 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
       // Refresh the transactions list
       await get().refreshAll(companyId);
 
-      set({ 
-        notification: { 
-          type: 'success', 
-          message: `Successfully imported ${transactions.length} transactions!` 
-        } 
-      });
+      showSuccessToast(`Successfully imported ${transactions.length} transactions!`);
 
       return { success: true, count: transactions.length };
     } catch (error) {
@@ -1384,53 +1360,52 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
   // Manual Journal operations
   fetchManualJournalEntries: async (companyId: string) => {
     try {
-      set({ isLoading: true, error: null });
-      
-      const response = await api.get(`/api/manual-journal?company_id=${companyId}`);
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch manual journal entries');
-      }
-      
-      const data = await response.json();
-      set({ manualJournalEntries: data.entries || [], isLoading: false });
+      const { data } = await supabase
+        .from('manual_journal_entries')
+        .select(`
+          *,
+          chart_of_accounts:chart_account_id (
+            id,
+            name,
+            type,
+            subtype
+          )
+        `)
+        .eq('company_id', companyId)
+        .order('date', { ascending: false });
+
+      set({ manualJournalEntries: data || [] });
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      set({ error: errorMessage, isLoading: false });
       console.error('Error fetching manual journal entries:', error);
+      set({ error: 'Failed to fetch manual journal entries' });
     }
   },
 
   saveManualJournalEntry: async (entryData, companyId: string) => {
     try {
-      const response = await api.post('/api/manual-journal', {
-        companyId,
-        date: entryData.date,
-        jeName: entryData.jeName,
-        lines: entryData.lines,
-        referenceNumber: entryData.referenceNumber
-      });
+      set({ isLoading: true, error: null });
+
+      const response = await api.post('/api/manual-journal', entryData);
 
       if (!response.ok) {
-        const errorData = await response.json();
-        return { 
-          success: false, 
-          error: errorData.error || 'Failed to save manual journal entry' 
-        };
+        const error = await response.json();
+        return { success: false, error: error.error || 'Failed to save manual journal entry' };
       }
 
       const data = await response.json();
-      
+
       // Refresh manual journal entries
       await get().fetchManualJournalEntries(companyId);
       
-      return { 
-        success: true, 
-        referenceNumber: data.referenceNumber 
-      };
+      showSuccessToast(data.message || 'Manual journal entry saved successfully!');
+
+      return { success: true, referenceNumber: data.referenceNumber };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      console.error('Error saving manual journal entry:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to save manual journal entry';
       return { success: false, error: errorMessage };
+    } finally {
+      set({ isLoading: false });
     }
   },
 
