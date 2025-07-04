@@ -33,7 +33,7 @@ type SelectOption = {
   label: string;
 };
 
-interface EditTransactionModalProps {
+interface TransactionModalProps {
   modalState: EditJournalModalState;
   categories: Array<{ id: string; name: string; type?: string }>;
   payees: Array<{ id: string; name: string }>;
@@ -54,7 +54,7 @@ interface EditTransactionModalProps {
   calculateTotals: () => { totalDebits: number; totalCredits: number };
 }
 
-export default function EditTransactionModal({
+export default function TransactionModal({
   modalState,
   categories,
   payees,
@@ -72,7 +72,7 @@ export default function EditTransactionModal({
   onAccountChange,
   onOpenCategoryModal,
   calculateTotals
-}: EditTransactionModalProps) {
+}: TransactionModalProps) {
   if (!modalState.isOpen) return null;
 
   const categoryOptions = [

@@ -7,9 +7,9 @@ import Papa from 'papaparse'
 import { v4 as uuidv4 } from 'uuid'
 import { X, Loader2 } from 'lucide-react'
 import Select from 'react-select'
-import EditTransactionModal, { 
+import TransactionModal, { 
   type EditJournalModalState
-} from '@/components/EditTransactionModal'
+} from '@/components/TransactionModal'
 import { useAuthStore } from '@/zustand/authStore'
 import { useTransactionsStore, Transaction as StoreTransaction } from '@/zustand/transactionsStore'
 import { useCategoriesStore } from '@/zustand/categoriesStore'
@@ -2902,7 +2902,7 @@ export default function TransactionsPage() {
       {/* New Category Modal */}
       {newCategoryModal.isOpen && (
         <div
-          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-100"
+          className="fixed inset-0 bg-black/50 flex items-center justify-center h-full z-100"
           onClick={() =>
             setNewCategoryModal({ isOpen: false, name: "", type: "Expense", parent_id: null, transactionId: null })
           }
@@ -4517,8 +4517,8 @@ export default function TransactionsPage() {
         </div>
       )}
 
-      {/* Edit Transaction Modal - Updated to match manual-je format */}
-      <EditTransactionModal
+      {/* Transaction Modal - Updated to match manual-je format */}
+      <TransactionModal
         modalState={editJournalModal}
         categories={categories}
         payees={payees}

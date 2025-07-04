@@ -7,10 +7,10 @@ import { useCategoriesStore, type Category } from '@/zustand/categoriesStore';
 import { usePayeesStore } from '@/zustand/payeesStore';
 import { X } from 'lucide-react';
 import Select from 'react-select';
-import EditTransactionModal, { 
+import TransactionModal, { 
   type EditJournalModalState, 
   type JournalEntryLine 
-} from '@/components/EditTransactionModal';
+} from '@/components/TransactionModal';
 import { 
   isZeroAmount
 } from '@/lib/financial';
@@ -1239,7 +1239,7 @@ export default function JournalTablePage() {
       {/* New Category Modal */}
       {newCategoryModal.isOpen && (
         <div 
-          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
+          className="fixed inset-0 bg-black/50 flex items-center justify-center h-full z-100"
           onClick={() => setNewCategoryModal({ isOpen: false, name: '', type: 'Expense', parent_id: null, lineId: null })}
         >
           <div 
@@ -1332,8 +1332,8 @@ export default function JournalTablePage() {
         </div>
       )}
 
-      {/* Edit Transaction Modal */}
-      <EditTransactionModal
+      {/* Transaction Modal */}
+      <TransactionModal
         modalState={editJournalModal}
         categories={categories}
         payees={payees}
