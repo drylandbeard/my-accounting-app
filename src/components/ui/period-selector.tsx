@@ -30,6 +30,7 @@ const PERIOD_OPTIONS = [
 
 const PRIMARY_DISPLAY_OPTIONS = [
   { value: "byMonth", label: "By month" },
+  { value: "byQuarter", label: "By quarter" },
   { value: "totalOnly", label: "Total only" },
 ];
 
@@ -146,12 +147,13 @@ export function PeriodSelector({
             {/* Category Collapse Button - New Section */}
             <div className="mt-6 pt-4 border-t border-gray-200">
               <h3 className="text-sm font-medium text-gray-700 mb-3">Category Actions:</h3>
-              <button
+              <Button
+                variant="outline"
                 onClick={onCollapseAllCategories}
-                className="w-full px-3 py-2 text-sm rounded border transition-colors bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100"
+                className="w-full text-sm rounded border transition-colors"
               >
                 Collapse All Categories
-              </button>
+              </Button>
             </div>
           </div>
         </PopoverContent>
