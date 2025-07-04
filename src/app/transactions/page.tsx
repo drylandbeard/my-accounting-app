@@ -4495,6 +4495,7 @@ export default function TransactionsPage() {
         payees={payees}
         accounts={accounts}
         selectedAccountId={selectedAccountId}
+        selectedAccountCategoryId={selectedAccountIdInCOA}
         isZeroAmount={(amount: string) => !amount || parseFloat(amount) === 0}
         onClose={() => setEditJournalModal(prev => ({ ...prev, isOpen: false }))}
         onUpdateLine={updateEditJournalLine}

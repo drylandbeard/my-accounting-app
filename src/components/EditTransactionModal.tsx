@@ -39,6 +39,7 @@ interface EditTransactionModalProps {
   payees: Array<{ id: string; name: string }>;
   accounts: Array<{ plaid_account_id: string | null; name: string }>;
   selectedAccountId: string | null;
+  selectedAccountCategoryId?: string | null; // Chart of accounts ID for the selected account
   isZeroAmount?: (amount: string) => boolean;
   onClose: () => void;
   onUpdateLine: (lineId: string, field: keyof JournalEntryLine, value: string) => void;
@@ -58,6 +59,7 @@ export default function EditTransactionModal({
   payees,
   accounts,
   selectedAccountId,
+  selectedAccountCategoryId,
   isZeroAmount = (amount: string) => !amount || parseFloat(amount) === 0,
   onClose,
   onUpdateLine,
@@ -84,6 +86,11 @@ export default function EditTransactionModal({
       label: acc.name 
     }))
   ];
+
+  // Filter out lines that represent the account itself (show only category lines)
+  const categoryLines = modalState.editEntry.lines.filter(line => 
+    line.categoryId !== selectedAccountCategoryId
+  );
 
   const { totalDebits, totalCredits } = calculateTotals();
   const isBalanced = Math.abs(totalDebits - totalCredits) < 0.01;
@@ -181,7 +188,7 @@ export default function EditTransactionModal({
                   </tr>
                 </thead>
                 <tbody className="bg-white">
-                  {modalState.editEntry.lines.map((line) => {
+                  {categoryLines.map((line) => {
                     return (
                       <tr key={line.id}>
                         <td className="border px-4 py-2">
@@ -332,7 +339,7 @@ export default function EditTransactionModal({
                 onClick={onAddLine}
                 className="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded border"
               >
-                Add Line
+                Split
               </button>
               
               <div className="flex space-x-3">
