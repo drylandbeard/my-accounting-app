@@ -614,7 +614,7 @@ export default function SettingsPage() {
     if (!currentCompany || !user) return;
 
     try {
-      const response = await api.post("/api/member/invite-member", { email, role });
+      const response = await api.post("/api/member/invite", { email, role });
 
       if (!response.ok) {
         const errorData = await response.json();
