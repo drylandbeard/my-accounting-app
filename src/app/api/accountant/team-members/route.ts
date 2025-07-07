@@ -30,18 +30,8 @@ export async function GET(request: NextRequest) {
 
     // Get team members for this accountant
     const { data: teamMembers, error: teamMembersError } = await supabase
-      .from("accountant_members")
-      .select(`
-        id,
-        is_active,
-        created_at,
-        member:users!accountant_members_member_id_fkey(
-          id,
-          email,
-          name,
-          is_access_enabled
-        )
-      `)
+      .from("accountant_members_list")
+      .select("*")
       .eq("accountant_id", userId)
       .eq("is_active", true);
 
@@ -56,26 +46,17 @@ export async function GET(request: NextRequest) {
     // Transform the data to match the expected format
     const transformedTeamMembers = (teamMembers || []).map((tm: { 
       id: string; 
+      name: string;
+      email: string;
       is_active: boolean; 
+      is_access_enabled: boolean;
       created_at: string; 
-      member: { 
-        id: string; 
-        email: string; 
-        name: string; 
-        is_access_enabled: boolean 
-      } | { 
-        id: string; 
-        email: string; 
-        name: string; 
-        is_access_enabled: boolean 
-      }[] 
     }) => {
-      const member = Array.isArray(tm.member) ? tm.member[0] : tm.member;
       return {
-        id: member.id,
-        email: member.email,
-        name: member.name || member.email.split('@')[0], // Fallback to email prefix if no name
-        is_access_enabled: member.is_access_enabled,
+        id: tm.id,
+        email: tm.email,
+        name: tm.name,
+        is_access_enabled: tm.is_access_enabled,
         created_at: tm.created_at
       };
     });

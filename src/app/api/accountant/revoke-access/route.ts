@@ -41,10 +41,10 @@ export async function DELETE(request: NextRequest) {
 
     // Verify that the member is actually part of this accountant's team
     const { data: existingMember, error: memberError } = await supabase
-      .from("accountant_members")
-      .select("id, member_id")
+      .from("accountant_members_list")
+      .select("id")
       .eq("accountant_id", userId)
-      .eq("member_id", memberId)
+      .eq("id", memberId)
       .eq("is_active", true)
       .single();
 
@@ -57,7 +57,7 @@ export async function DELETE(request: NextRequest) {
 
     // Deactivate the team member relationship
     const { error: revokeError } = await supabase
-      .from("accountant_members")
+      .from("accountant_members_list")
       .update({ 
         is_active: false,
         updated_at: new Date().toISOString()

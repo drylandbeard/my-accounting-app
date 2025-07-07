@@ -816,72 +816,34 @@ export async function sendAccountantTeamInvitation(
   try {
     console.log("🔍 sendAccountantTeamInvitation - Starting process:", { name, email, accountantId });
     
-    // Check if user already exists
-    const { data: existingUser } = await supabase
-      .from("users")
+    // Check if team member already exists for this accountant
+    const { data: existingMember } = await supabase
+      .from("accountant_members_list")
       .select("id")
+      .eq("accountant_id", accountantId)
       .eq("email", email)
+      .eq("is_active", true)
       .single();
 
-    console.log("👤 Existing user check:", existingUser ? "User exists" : "New user");
-    let userId;
-    
-    if (existingUser) {
-      // User exists, check if they're already a team member of this accountant
-      const { data: existingMember } = await supabase
-        .from("accountant_members")
-        .select("id")
-        .eq("member_id", existingUser.id)
-        .eq("accountant_id", accountantId)
-        .eq("is_active", true)
-        .single();
-
-      if (existingMember) {
-        return { error: "User is already a member of your team" };
-      }
-      
-      // Update the existing user's name if not already set
-      await supabase
-        .from("users")
-        .update({ name })
-        .eq("id", existingUser.id);
-      
-      userId = existingUser.id;
-    } else {
-      // Create new user immediately with access disabled
-      const { data: newUser, error: userError } = await supabase
-        .from("users")
-        .insert({
-          email,
-          name,
-          password_hash: "", // Will be set when they accept the invitation
-          role: "Member", // Team members are not Accountants themselves
-          is_access_enabled: false // Disabled until they accept invitation
-        })
-        .select()
-        .single();
-
-      if (userError || !newUser) {
-        return { error: "Failed to create user" };
-      }
-      
-      userId = newUser.id;
+    if (existingMember) {
+      return { error: "Team member with this email already exists" };
     }
 
-    // Add user to accountant team immediately (they'll be visible in team list)
-    const { error: teamMemberError } = await supabase
-      .from("accountant_members")
+    // Create team member record
+    const { data: teamMember, error: memberError } = await supabase
+      .from("accountant_members_list")
       .insert({
         accountant_id: accountantId,
-        member_id: userId
-      });
+        name,
+        email,
+        is_active: true,
+        is_access_enabled: false // Will be set to true when they accept invitation
+      })
+      .select()
+      .single();
 
-    if (teamMemberError) {
-      // If user was newly created and team association fails, clean up
-      if (!existingUser) {
-        await supabase.from("users").delete().eq("id", userId);
-      }
-      return { error: "Failed to add user to team" };
+    if (memberError || !teamMember) {
+      return { error: "Failed to create team member record" };
     }
 
     // Get accountant details
@@ -901,22 +863,27 @@ export async function sendAccountantTeamInvitation(
     expiresAt.setHours(expiresAt.getHours() + 24); // Expire in 24 hours
 
     // Store invitation token
-    console.log("🎫 Creating accountant invitation token:", { userId, token: token.substring(0, 10) + "...", tokenType: "accountant_invitation" });
+    console.log("🎫 Creating accountant invitation token:", { teamMemberId: teamMember.id, token: token.substring(0, 10) + "...", tokenType: "acct_invite" });
     const { error: tokenError } = await supabase
       .from("email_verification_tokens")
       .insert({
-        user_id: userId,
         token,
-        token_type: "accountant_invitation",
+        token_type: "acct_invite",
         invited_email: email,
         invited_role: "Member", // Default role for team members
         accountant_id: accountantId,
+        accountant_member_id: teamMember.id,
         invited_by_user_id: accountantId,
         expires_at: expiresAt.toISOString()
       });
 
     if (tokenError) {
       console.error("❌ Token creation error:", tokenError);
+      // Clean up team member record if token creation fails
+      await supabase
+        .from("accountant_members_list")
+        .delete()
+        .eq("id", teamMember.id);
       return { error: "Failed to create invitation token" };
     }
     
@@ -934,15 +901,19 @@ export async function sendAccountantTeamInvitation(
     });
 
     if (!emailResult.success) {
-      // Clean up token if email fails
+      // Clean up token and team member record if email fails
       await supabase
         .from("email_verification_tokens")
         .delete()
         .eq("token", token);
+      await supabase
+        .from("accountant_members_list")
+        .delete()
+        .eq("id", teamMember.id);
       return { error: "Failed to send invitation email. Please try again." };
     }
 
-    return { success: true, memberId: userId };
+    return { success: true, memberId: teamMember.id };
   } catch (error) {
     console.error("Accountant team invitation error:", error);
     return { error: "Failed to send invitation" };

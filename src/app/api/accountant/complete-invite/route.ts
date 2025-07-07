@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
       .from("email_verification_tokens")
       .select("*")
       .eq("token", token)
-      .eq("token_type", "accountant_invitation")
+      .eq("token_type", "acct_invite")
       .single();
 
     console.log("🎫 Complete invitation token lookup:", { 
@@ -55,22 +55,58 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const email = invitationToken.invited_email;
-    const userId = invitationToken.user_id;
+    // Get the team member details
+    const { data: teamMember, error: teamMemberError } = await supabase
+      .from("accountant_members_list")
+      .select("id, name, email, accountant_id")
+      .eq("id", invitationToken.accountant_member_id)
+      .single();
 
-    // User should already exist (created during invitation), just update password and enable access
+    if (teamMemberError || !teamMember) {
+      return NextResponse.json(
+        { error: "Team member record not found" },
+        { status: 400 }
+      );
+    }
+
+    const email = teamMember.email;
+    const name = teamMember.name;
+
+    // Create user account
     const passwordHash = await hashPassword(password);
-    const { error: updateError } = await supabase
+    const { data: newUser, error: userError } = await supabase
       .from("users")
-      .update({ 
+      .insert({
+        email,
+        name,
         password_hash: passwordHash,
+        role: "Member", // Team members are "Member" role
+        is_access_enabled: true
+      })
+      .select()
+      .single();
+
+    if (userError || !newUser) {
+      return NextResponse.json(
+        { error: "Failed to create user account" },
+        { status: 500 }
+      );
+    }
+
+    // Update team member record to link to user account and enable access
+    const { error: updateMemberError } = await supabase
+      .from("accountant_members_list")
+      .update({ 
+        user_id: newUser.id,
         is_access_enabled: true 
       })
-      .eq("id", userId);
+      .eq("id", teamMember.id);
 
-    if (updateError) {
+    if (updateMemberError) {
+      // Clean up user account if team member update fails
+      await supabase.from("users").delete().eq("id", newUser.id);
       return NextResponse.json(
-        { error: "Failed to update user" },
+        { error: "Failed to complete team member setup" },
         { status: 500 }
       );
     }
@@ -89,7 +125,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ 
       success: true, 
       user: {
-        id: userId,
+        id: newUser.id,
         email,
         role: "Member" // Team members are "Member" role, not the accountant team role
       }

@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
       .from("email_verification_tokens")
       .select("*")
       .eq("token", token)
-      .eq("token_type", "accountant_invitation")
+      .eq("token_type", "acct_invite")
       .single();
 
     console.log("🎫 Token lookup result:", { 
@@ -62,11 +62,27 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Get the team member details
+    const { data: teamMember, error: teamMemberError } = await supabase
+      .from("accountant_members_list")
+      .select("id, name, email")
+      .eq("id", invitationToken.accountant_member_id)
+      .single();
+
+    if (teamMemberError || !teamMember) {
+      return NextResponse.json(
+        { error: "Team member record not found" },
+        { status: 400 }
+      );
+    }
+
     return NextResponse.json({ 
       success: true, 
       invitation: {
-        email: invitationToken.invited_email,
+        email: teamMember.email,
+        name: teamMember.name,
         accountantId: invitationToken.accountant_id,
+        accountantMemberId: teamMember.id,
         token
       }
     });
