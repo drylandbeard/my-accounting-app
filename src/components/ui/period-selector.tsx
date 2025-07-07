@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { PrimaryDisplayType, SecondaryDisplayType } from "@/app/reports/_types";
+import { Separator } from "@/components/ui/separator";
 
 export interface PeriodSelectorProps {
   selectedPeriod: string;
@@ -15,6 +16,9 @@ export interface PeriodSelectorProps {
   selectedSecondaryDisplay: SecondaryDisplayType;
   onSecondaryDisplayChange: (display: string) => void;
   onCollapseAllCategories: () => void;
+  onExpandAllCategories?: () => void;
+  collapsedAccounts?: Set<string>;
+  parentAccounts?: Array<{ id: string }>;
 }
 
 const PERIOD_OPTIONS = [
@@ -47,6 +51,9 @@ export function PeriodSelector({
   selectedSecondaryDisplay,
   onSecondaryDisplayChange,
   onCollapseAllCategories,
+  onExpandAllCategories,
+  collapsedAccounts,
+  parentAccounts,
 }: PeriodSelectorProps) {
   const [isOpen, setIsOpen] = React.useState(false);
 
@@ -55,12 +62,38 @@ export function PeriodSelector({
     return period?.label.replace("", "") || "Select period...";
   };
 
+  // Determine collapse/expand state
+  const getCollapseExpandState = () => {
+    if (!collapsedAccounts || !parentAccounts || parentAccounts.length === 0) {
+      return "none"; // No parent accounts or no collapse data
+    }
+
+    const parentAccountIds = parentAccounts.map((acc) => acc.id);
+    const collapsedParentIds = parentAccountIds.filter((id) => collapsedAccounts.has(id));
+
+    if (collapsedParentIds.length === 0) {
+      return "expanded"; // All parent accounts are expanded
+    } else if (collapsedParentIds.length === parentAccountIds.length) {
+      return "collapsed"; // All parent accounts are collapsed
+    } else {
+      return "mixed"; // Some collapsed, some expanded
+    }
+  };
+
+  const collapseExpandState = getCollapseExpandState();
+
+  const handleExpandAllCategories = () => {
+    if (onExpandAllCategories) {
+      onExpandAllCategories();
+    }
+  };
+
   return (
     <div className="flex items-center gap-4">
       {/* Period Selector Popover */}
       <Popover open={isOpen} onOpenChange={setIsOpen}>
         <PopoverTrigger asChild>
-          <Button variant="outline" className="h-8 px-3 text-sm min-w-[200px] justify-between">
+          <Button variant="outline" className="h-8 px-3 text-xs min-w-[200px] justify-between">
             {getSelectedPeriodLabel()}
             <ChevronDown className="h-4 w-4" />
           </Button>
@@ -70,7 +103,7 @@ export function PeriodSelector({
             <div className="grid grid-cols-2 gap-3">
               {/* Left Column - Period Options */}
               <div>
-                <h3 className="text-sm font-medium text-gray-700 mb-3">Period</h3>
+                <h3 className="text-sm font-medium text-gray-700 mb-1">Period</h3>
                 <div className="space-y-1">
                   {PERIOD_OPTIONS.map((option) => (
                     <button
@@ -96,7 +129,7 @@ export function PeriodSelector({
               <div className="space-y-6">
                 {/* Primary Display Options */}
                 <div>
-                  <h3 className="text-sm font-medium text-gray-700 mb-3">Primary Display:</h3>
+                  <h3 className="text-sm font-medium text-gray-700 mb-1">Primary Display:</h3>
                   <div className="space-y-1">
                     {PRIMARY_DISPLAY_OPTIONS.map((option) => (
                       <button
@@ -120,7 +153,7 @@ export function PeriodSelector({
 
                 {/* Secondary Display Options */}
                 <div>
-                  <h3 className="text-sm font-medium text-gray-700 mb-3">Secondary Display:</h3>
+                  <h3 className="text-sm font-medium text-gray-700 mb-1">Secondary Display:</h3>
                   <div className="space-y-1">
                     {SECONDARY_DISPLAY_OPTIONS.map((option) => (
                       <button
@@ -139,21 +172,24 @@ export function PeriodSelector({
                         {selectedSecondaryDisplay === option.value && <Check className="h-4 w-4 text-blue-600" />}
                       </button>
                     ))}
+                    <Separator />
+                    <button
+                      onClick={onCollapseAllCategories}
+                      className="w-full flex items-center justify-between px-1 py-1.5 text-xs hover:bg-gray-50 rounded"
+                    >
+                      <span className={cn("font-medium", "whitespace-nowrap")}>Collapsed</span>
+                      {collapseExpandState === "collapsed" && <Check className="h-4 w-4 text-blue-600" />}
+                    </button>
+                    <button
+                      onClick={handleExpandAllCategories}
+                      className="w-full flex items-center justify-between px-1 py-1.5 text-xs hover:bg-gray-50 rounded"
+                    >
+                      <span className="font-medium">Expanded</span>
+                      {collapseExpandState === "expanded" && <Check className="h-4 w-4 text-blue-600" />}
+                    </button>
                   </div>
                 </div>
               </div>
-            </div>
-
-            {/* Category Collapse Button - New Section */}
-            <div className="mt-6 pt-4 border-t border-gray-200">
-              <h3 className="text-sm font-medium text-gray-700 mb-3">Category Actions:</h3>
-              <Button
-                variant="outline"
-                onClick={onCollapseAllCategories}
-                className="w-full text-sm rounded border transition-colors"
-              >
-                Collapse All Categories
-              </Button>
             </div>
           </div>
         </PopoverContent>

@@ -1,8 +1,7 @@
 "use client";
 
 import React from "react";
-import { Button } from "@/components/ui/button";
-import { Download, Loader2 } from "lucide-react";
+import { Download, Loader2, Save } from "lucide-react";
 import { PeriodSelector } from "@/components/ui/period-selector";
 import { DatePicker } from "@/components/ui/date-picker";
 import { format } from "date-fns";
@@ -24,7 +23,11 @@ export interface ReportHeaderProps {
   handleSecondaryDisplayChange?: (display: string) => void;
   onSecondaryDisplayChange?: (display: string) => void;
   onCollapseAllCategories: () => void;
+  onExpandAllCategories?: () => void;
+  collapsedAccounts?: Set<string>;
+  parentAccounts?: Array<{ id: string }>;
   exportToXLSX?: () => void;
+  onSaveReport?: () => void;
   loading?: boolean;
   isBalanceSheet?: boolean;
 }
@@ -44,7 +47,11 @@ export function ReportHeader({
   handleSecondaryDisplayChange,
   onSecondaryDisplayChange,
   onCollapseAllCategories,
+  onExpandAllCategories,
+  collapsedAccounts,
+  parentAccounts,
   exportToXLSX,
+  onSaveReport,
   loading,
   isBalanceSheet,
 }: ReportHeaderProps) {
@@ -68,6 +75,9 @@ export function ReportHeader({
             selectedSecondaryDisplay={selectedSecondaryDisplay}
             onSecondaryDisplayChange={secondaryDisplayChangeHandler!}
             onCollapseAllCategories={onCollapseAllCategories}
+            onExpandAllCategories={onExpandAllCategories}
+            collapsedAccounts={collapsedAccounts}
+            parentAccounts={parentAccounts}
           />
 
           {/* Manual date override option */}
@@ -121,10 +131,24 @@ export function ReportHeader({
           </div>
         </div>
 
-        <div className="flex justify-center">
-          <Button variant="outline" onClick={exportToXLSX} disabled={loading} className="text-xs font-medium">
+        <div className="flex justify-center gap-2">
+          {onSaveReport && (
+            <button
+              onClick={onSaveReport}
+              title="Save Report"
+              className="border px-3 py-1 rounded text-xs flex items-center space-x-1 bg-gray-100 hover:bg-gray-200"
+            >
+              <Save className="w-4 h-4" />
+            </button>
+          )}
+          <button
+            onClick={exportToXLSX}
+            disabled={loading}
+            title="Export to XLSX"
+            className="border px-3 py-1 rounded text-xs flex items-center space-x-1 bg-gray-100 hover:bg-gray-200"
+          >
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-          </Button>
+          </button>
         </div>
       </div>
     </div>

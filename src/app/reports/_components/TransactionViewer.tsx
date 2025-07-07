@@ -1,7 +1,6 @@
 "use client";
 
 import React from "react";
-import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Account, Transaction, ViewerModalState } from "../_types";
@@ -150,6 +149,10 @@ export const TransactionViewer: React.FC<TransactionViewerProps> = ({
     window.URL.revokeObjectURL(url);
   };
 
+  if (!viewerModal.isOpen) {
+    return null;
+  }
+
   return (
     <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50">
       <div className="bg-white rounded-lg w-[800px] max-h-[80vh] flex flex-col">
@@ -160,9 +163,12 @@ export const TransactionViewer: React.FC<TransactionViewerProps> = ({
           </h2>
           <div className="flex items-center gap-4">
             {selectedCategoryTransactions.length > 0 && (
-              <Button variant="outline" onClick={exportModalTransactions} className="text-xs font-medium" size="sm">
+              <button
+                onClick={exportModalTransactions}
+                className="border px-3 py-1 rounded text-xs flex items-center space-x-1 bg-gray-100 hover:bg-gray-200"
+              >
                 <Download className="w-4 h-4" />
-              </Button>
+              </button>
             )}
             <button
               onClick={() => setViewerModal({ isOpen: false, category: null })}
