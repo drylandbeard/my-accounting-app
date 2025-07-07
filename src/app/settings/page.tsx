@@ -535,7 +535,7 @@ export default function SettingsPage() {
   });
 
   // Get current user's role in the company
-  const currentUserRole = user?.role || "Member";
+  const currentUserRole = user?.role;
   const isOwner = currentUserRole === "Owner";
 
   // Fetch company members when component mounts or current company changes
@@ -723,7 +723,7 @@ export default function SettingsPage() {
         userId: user.id,
       });
 
-      const response = await api.delete("/api/delete-company");
+      const response = await api.delete("/api/company/delete");
 
       console.log("Delete response status:", response.status);
 
