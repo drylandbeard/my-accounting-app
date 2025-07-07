@@ -149,6 +149,10 @@ export const TransactionViewer: React.FC<TransactionViewerProps> = ({
     window.URL.revokeObjectURL(url);
   };
 
+  if (!viewerModal.isOpen) {
+    return null;
+  }
+
   return (
     <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50">
       <div className="bg-white rounded-lg w-[800px] max-h-[80vh] flex flex-col">

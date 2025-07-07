@@ -23,6 +23,9 @@ export interface ReportHeaderProps {
   handleSecondaryDisplayChange?: (display: string) => void;
   onSecondaryDisplayChange?: (display: string) => void;
   onCollapseAllCategories: () => void;
+  onExpandAllCategories?: () => void;
+  collapsedAccounts?: Set<string>;
+  parentAccounts?: Array<{ id: string }>;
   exportToXLSX?: () => void;
   onSaveReport?: () => void;
   loading?: boolean;
@@ -44,6 +47,9 @@ export function ReportHeader({
   handleSecondaryDisplayChange,
   onSecondaryDisplayChange,
   onCollapseAllCategories,
+  onExpandAllCategories,
+  collapsedAccounts,
+  parentAccounts,
   exportToXLSX,
   onSaveReport,
   loading,
@@ -69,6 +75,9 @@ export function ReportHeader({
             selectedSecondaryDisplay={selectedSecondaryDisplay}
             onSecondaryDisplayChange={secondaryDisplayChangeHandler!}
             onCollapseAllCategories={onCollapseAllCategories}
+            onExpandAllCategories={onExpandAllCategories}
+            collapsedAccounts={collapsedAccounts}
+            parentAccounts={parentAccounts}
           />
 
           {/* Manual date override option */}
