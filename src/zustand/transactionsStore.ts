@@ -273,10 +273,35 @@ interface TransactionsState {
   applyAutomationsToTransactions: (companyId: string, selectedAccountId: string | null, categories: { id: string; name: string }[], payees: { id: string; name: string }[]) => Promise<StoreResult<AutomationResult>>;
 }
 
+// Helper functions for localStorage persistence
+const SELECTED_ACCOUNT_KEY = 'selected-account-id';
+
+const getPersistedSelectedAccountId = (): string | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    return localStorage.getItem(SELECTED_ACCOUNT_KEY);
+  } catch {
+    return null;
+  }
+};
+
+const setPersistedSelectedAccountId = (accountId: string | null): void => {
+  if (typeof window === 'undefined') return;
+  try {
+    if (accountId) {
+      localStorage.setItem(SELECTED_ACCOUNT_KEY, accountId);
+    } else {
+      localStorage.removeItem(SELECTED_ACCOUNT_KEY);
+    }
+  } catch {
+    // Silently fail if localStorage is not available
+  }
+};
+
 export const useTransactionsStore = create<TransactionsState>((set, get) => ({
   // Initial state
   linkToken: null,
-  selectedAccountId: null,
+  selectedAccountId: getPersistedSelectedAccountId(),
   accounts: [],
   importedTransactions: [],
   transactions: [],
@@ -292,7 +317,10 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
   
   // Basic setters
   setLinkToken: (token) => set({ linkToken: token }),
-  setSelectedAccountId: (accountId) => set({ selectedAccountId: accountId }),
+  setSelectedAccountId: (accountId) => {
+    setPersistedSelectedAccountId(accountId);
+    set({ selectedAccountId: accountId });
+  },
   clearError: () => set({ error: null }),
   
   // Create Plaid link token
@@ -329,10 +357,21 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
       const accounts = data || [];
       set({ accounts });
       
-      // Auto-select first account if none selected
-      const { selectedAccountId } = get();
-      if (accounts.length > 0 && !selectedAccountId) {
-        set({ selectedAccountId: accounts[0].plaid_account_id });
+      // Handle account selection with persistence
+      const { selectedAccountId, setSelectedAccountId } = get();
+      if (accounts.length > 0) {
+        // Check if the currently selected account still exists
+        const selectedAccountExists = selectedAccountId && 
+          accounts.some(acc => acc.plaid_account_id === selectedAccountId);
+        
+        if (!selectedAccountExists) {
+          // If no valid selected account, auto-select the first one
+          setSelectedAccountId(accounts[0].plaid_account_id);
+        }
+        // If selectedAccountExists is true, keep the current selection
+      } else if (selectedAccountId) {
+        // Clear selection if no accounts available
+        setSelectedAccountId(null);
       }
     } catch (error) {
       console.error('Error fetching accounts:', error);
