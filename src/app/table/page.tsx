@@ -989,6 +989,19 @@ export default function JournalTablePage() {
     }));
   };
 
+  const removeManualEditJournalLine = (lineId: string) => {
+    // Only allow removal if there are more than 1 lines
+    if (manualEditModal.editEntry.lines.length <= 1) return;
+    
+    setManualEditModal(prev => ({
+      ...prev,
+      editEntry: {
+        ...prev.editEntry,
+        lines: prev.editEntry.lines.filter(line => line.id !== lineId)
+      }
+    }));
+  };
+
   const calculateManualEditTotals = () => {
     const totalDebits = manualEditModal.editEntry.lines.reduce((sum, line) => {
       const debit = parseFloat(line.debit) || 0;
@@ -1576,6 +1589,7 @@ export default function JournalTablePage() {
         totalDebits={0}
         totalCredits={0}
         addJournalLine={() => {}}
+        removeJournalLine={() => {}}
         updateJournalLine={() => {}}
         handleAmountChange={() => {}}
         handleAddEntry={async () => {}}
@@ -1586,6 +1600,7 @@ export default function JournalTablePage() {
         updateEditJournalLine={updateManualEditJournalLine}
         handleEditAmountChange={handleManualEditAmountChange}
         addEditJournalLine={addManualEditJournalLine}
+        removeEditJournalLine={removeManualEditJournalLine}
         calculateEditTotals={calculateManualEditTotals}
         handleSaveEditEntry={handleSaveManualEditEntry}
         

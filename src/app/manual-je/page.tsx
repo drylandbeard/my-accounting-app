@@ -459,6 +459,16 @@ export default function JournalTablePage() {
     }));
   };
 
+  const removeJournalLine = (lineId: string) => {
+    // Only allow removal if there are more than 1 lines
+    if (newEntry.lines.length <= 1) return;
+    
+    setNewEntry(prev => ({
+      ...prev,
+      lines: prev.lines.filter(line => line.id !== lineId)
+    }));
+  };
+
 
 
   const updateJournalLine = (lineId: string, field: keyof JournalEntryLine, value: string) => {
@@ -547,6 +557,19 @@ export default function JournalTablePage() {
           debit: '0.00',
           credit: '0.00'
         }]
+      }
+    }));
+  };
+
+  const removeEditJournalLine = (lineId: string) => {
+    // Only allow removal if there are more than 1 lines
+    if (editModal.editEntry.lines.length <= 1) return;
+    
+    setEditModal(prev => ({
+      ...prev,
+      editEntry: {
+        ...prev.editEntry,
+        lines: prev.editEntry.lines.filter(line => line.id !== lineId)
       }
     }));
   };
@@ -931,6 +954,7 @@ export default function JournalTablePage() {
         totalDebits={totalDebits}
         totalCredits={totalCredits}
         addJournalLine={addJournalLine}
+        removeJournalLine={removeJournalLine}
         updateJournalLine={updateJournalLine}
         handleAmountChange={handleAmountChange}
         handleAddEntry={handleAddEntry}
@@ -941,6 +965,7 @@ export default function JournalTablePage() {
         updateEditJournalLine={updateEditJournalLine}
         handleEditAmountChange={handleEditAmountChange}
         addEditJournalLine={addEditJournalLine}
+        removeEditJournalLine={removeEditJournalLine}
         calculateEditTotals={calculateEditTotals}
         handleSaveEditEntry={handleSaveEditEntry}
         

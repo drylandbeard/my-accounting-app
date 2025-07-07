@@ -44,6 +44,7 @@ interface ManualJeModalProps {
   totalDebits: number;
   totalCredits: number;
   addJournalLine: () => void;
+  removeJournalLine: (lineId: string) => void;
   updateJournalLine: (lineId: string, field: keyof JournalEntryLine, value: string) => void;
   handleAmountChange: (lineId: string, field: 'debit' | 'credit', value: string) => void;
   handleAddEntry: () => Promise<void>;
@@ -54,6 +55,7 @@ interface ManualJeModalProps {
   updateEditJournalLine: (lineId: string, field: keyof JournalEntryLine, value: string) => void;
   handleEditAmountChange: (lineId: string, field: 'debit' | 'credit', value: string) => void;
   addEditJournalLine: () => void;
+  removeEditJournalLine: (lineId: string) => void;
   calculateEditTotals: () => { totalDebits: number; totalCredits: number };
   handleSaveEditEntry: () => Promise<void>;
   
@@ -80,6 +82,7 @@ export default function ManualJeModal({
   totalDebits,
   totalCredits,
   addJournalLine,
+  removeJournalLine,
   updateJournalLine,
   handleAmountChange,
   handleAddEntry,
@@ -90,6 +93,7 @@ export default function ManualJeModal({
   updateEditJournalLine,
   handleEditAmountChange,
   addEditJournalLine,
+  removeEditJournalLine,
   calculateEditTotals,
   handleSaveEditEntry,
   
@@ -146,7 +150,7 @@ export default function ManualJeModal({
             </div>
             
             {/* Journal Entry Table */}
-            <div className="border rounded-lg overflow-hidden">
+            <div className="border rounded-lg overflow-visible relative">
               <table className="w-full border-collapse">
                 <thead className="bg-gray-50">
                   <tr>
@@ -158,125 +162,139 @@ export default function ManualJeModal({
                   </tr>
                 </thead>
                 <tbody className="bg-white">
-                  {newEntry.lines.map((line) => (
-                    <tr key={line.id}>
-                      <td className="border px-4 py-2">
-                        <Select
-                          options={[
-                            { value: '', label: 'Select payee...' },
-                            ...payees.map(payee => ({ value: payee.id, label: payee.name }))
-                          ]}
-                          value={payees.find(p => p.id === line.payeeId) ? 
-                            { value: line.payeeId, label: payees.find(p => p.id === line.payeeId)?.name || '' } :
-                            { value: '', label: 'Select payee...' }
-                          }
-                          onChange={(selectedOption) => {
-                            const option = selectedOption as SelectOption | null;
-                            updateJournalLine(line.id, 'payeeId', option?.value || '');
-                          }}
-                          isSearchable
-                          menuPortalTarget={document.body}
-                          styles={{
-                            control: (base) => ({
-                              ...base,
-                              border: 'none',
-                              boxShadow: 'none',
-                              minHeight: 'auto',
-                              fontSize: '12px',
-                              '&:hover': {
-                                border: 'none'
-                              }
-                            }),
-                            menu: (base) => ({ 
-                              ...base, 
-                              zIndex: 9999,
-                              fontSize: '12px'
-                            }),
-                            menuPortal: (base) => ({ 
-                              ...base, 
-                              zIndex: 9999 
-                            })
-                          }}
-                        />
-                      </td>
-                      <td className="border px-4 py-2">
-                        <input
-                          type="text"
-                          value={line.description}
-                          onChange={(e) => updateJournalLine(line.id, 'description', e.target.value)}
-                          className="w-full border-0 px-0 py-0 text-xs focus:ring-0 focus:outline-none"
-                          placeholder="Enter description"
-                        />
-                      </td>
-                      <td className="border px-4 py-2">
-                        <Select
-                          options={categoryOptions}
-                          value={categoryOptions.find(opt => opt.value === line.categoryId) || categoryOptions[0]}
-                          onChange={(selectedOption) => {
-                            const option = selectedOption as SelectOption | null;
-                            if (option?.value === 'add_new') {
-                              setNewCategoryModal({
-                                isOpen: true,
-                                name: '',
-                                type: 'Expense',
-                                parent_id: null,
-                                lineId: line.id
-                              });
-                            } else {
-                              updateJournalLine(line.id, 'categoryId', option?.value || '');
+                  {newEntry.lines.map((line) => {
+                    // Determine if we can remove lines (only if there are more than 1 line)
+                    const canRemoveLines = newEntry.lines.length > 1;
+                    
+                    return (
+                      <tr key={line.id} className="relative">
+                        <td className="border px-4 py-2">
+                          <Select
+                            options={[
+                              { value: '', label: 'Select payee...' },
+                              ...payees.map(payee => ({ value: payee.id, label: payee.name }))
+                            ]}
+                            value={payees.find(p => p.id === line.payeeId) ? 
+                              { value: line.payeeId, label: payees.find(p => p.id === line.payeeId)?.name || '' } :
+                              { value: '', label: 'Select payee...' }
                             }
-                          }}
-                          isSearchable
-                          menuPortalTarget={document.body}
-                          styles={{
-                            control: (base) => ({
-                              ...base,
-                              border: 'none',
-                              boxShadow: 'none',
-                              minHeight: 'auto',
-                              fontSize: '12px',
-                              '&:hover': {
-                                border: 'none'
+                            onChange={(selectedOption) => {
+                              const option = selectedOption as SelectOption | null;
+                              updateJournalLine(line.id, 'payeeId', option?.value || '');
+                            }}
+                            isSearchable
+                            menuPortalTarget={document.body}
+                            styles={{
+                              control: (base) => ({
+                                ...base,
+                                border: 'none',
+                                boxShadow: 'none',
+                                minHeight: 'auto',
+                                fontSize: '12px',
+                                '&:hover': {
+                                  border: 'none'
+                                }
+                              }),
+                              menu: (base) => ({ 
+                                ...base, 
+                                zIndex: 9999,
+                                fontSize: '12px'
+                              }),
+                              menuPortal: (base) => ({ 
+                                ...base, 
+                                zIndex: 9999 
+                              })
+                            }}
+                          />
+                        </td>
+                        <td className="border px-4 py-2">
+                          <input
+                            type="text"
+                            value={line.description}
+                            onChange={(e) => updateJournalLine(line.id, 'description', e.target.value)}
+                            className="w-full border-0 px-0 py-0 text-xs focus:ring-0 focus:outline-none"
+                            placeholder="Enter description"
+                          />
+                        </td>
+                        <td className="border px-4 py-2">
+                          <Select
+                            options={categoryOptions}
+                            value={categoryOptions.find(opt => opt.value === line.categoryId) || categoryOptions[0]}
+                            onChange={(selectedOption) => {
+                              const option = selectedOption as SelectOption | null;
+                              if (option?.value === 'add_new') {
+                                setNewCategoryModal({
+                                  isOpen: true,
+                                  name: '',
+                                  type: 'Expense',
+                                  parent_id: null,
+                                  lineId: line.id
+                                });
+                              } else {
+                                updateJournalLine(line.id, 'categoryId', option?.value || '');
                               }
-                            }),
-                            menu: (base) => ({ 
-                              ...base, 
-                              zIndex: 9999,
-                              fontSize: '12px'
-                            }),
-                            menuPortal: (base) => ({ 
-                              ...base, 
-                              zIndex: 9999 
-                            })
-                          }}
-                        />
-                      </td>
-                      <td className="border px-4 py-2">
-                        <input
-                          type="text"
-                          value={(() => {
-                            const debit = line.debit;
-                            return (debit && !isZeroAmount(debit)) ? debit : '';
-                          })()}
-                          onChange={(e) => handleAmountChange(line.id, 'debit', e.target.value)}
-                          className="w-full border-0 px-0 py-0 text-xs text-right focus:ring-0 focus:outline-none"
-                          placeholder="0.00"
-                        />
-                      </td>
-                      <td className="border px-4 py-2">
-                        <input
-                          type="text"
-                          value={(() => {
-                            const credit = line.credit;
-                            return (credit && !isZeroAmount(credit)) ? credit : '';
-                          })()}
-                          onChange={(e) => handleAmountChange(line.id, 'credit', e.target.value)}
-                          className="w-full border-0 px-0 py-0 text-xs text-right focus:ring-0 focus:outline-none"
-                          placeholder="0.00"
-                        />
-                      </td>
-                    </tr>
-                  ))}
+                            }}
+                            isSearchable
+                            menuPortalTarget={document.body}
+                            styles={{
+                              control: (base) => ({
+                                ...base,
+                                border: 'none',
+                                boxShadow: 'none',
+                                minHeight: 'auto',
+                                fontSize: '12px',
+                                '&:hover': {
+                                  border: 'none'
+                                }
+                              }),
+                              menu: (base) => ({ 
+                                ...base, 
+                                zIndex: 9999,
+                                fontSize: '12px'
+                              }),
+                              menuPortal: (base) => ({ 
+                                ...base, 
+                                zIndex: 9999 
+                              })
+                            }}
+                          />
+                        </td>
+                        <td className="border px-4 py-2">
+                          <input
+                            type="text"
+                            value={(() => {
+                              const debit = line.debit;
+                              return (debit && !isZeroAmount(debit)) ? debit : '';
+                            })()}
+                            onChange={(e) => handleAmountChange(line.id, 'debit', e.target.value)}
+                            className="w-full border-0 px-0 py-0 text-xs text-right focus:ring-0 focus:outline-none"
+                            placeholder="0.00"
+                          />
+                        </td>
+                        <td className="border px-4 py-2">
+                          <input
+                            type="text"
+                            value={(() => {
+                              const credit = line.credit;
+                              return (credit && !isZeroAmount(credit)) ? credit : '';
+                            })()}
+                            onChange={(e) => handleAmountChange(line.id, 'credit', e.target.value)}
+                            className="w-full border-0 px-0 py-0 text-xs text-right focus:ring-0 focus:outline-none"
+                            placeholder="0.00"
+                          />
+                        </td>
+                        {canRemoveLines && (
+                          <button
+                            onClick={() => removeJournalLine(line.id)}
+                            className="absolute -left-4 top-1/2 transform -translate-y-1/2 w-6 h-6 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-full flex items-center justify-center shadow-lg border-2 border-gray-300 z-20"
+                            title="Remove this line"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
+                      </tr>
+                    );
+                  })}
                 </tbody>
                 <tfoot className="bg-gray-50">
                   <tr>
@@ -386,7 +404,7 @@ export default function ManualJeModal({
             </div>
             
             {/* Journal Entry Table */}
-            <div className="border rounded-lg overflow-hidden">
+            <div className="border rounded-lg overflow-visible relative">
               <table className="w-full border-collapse">
                 <thead className="bg-gray-50">
                   <tr>
@@ -398,125 +416,139 @@ export default function ManualJeModal({
                   </tr>
                 </thead>
                 <tbody className="bg-white">
-                  {editModal.editEntry.lines.map((line) => (
-                    <tr key={line.id}>
-                      <td className="border px-4 py-2">
-                        <Select
-                          options={[
-                            { value: '', label: 'Select payee...' },
-                            ...payees.map(payee => ({ value: payee.id, label: payee.name }))
-                          ]}
-                          value={payees.find(p => p.id === line.payeeId) ? 
-                            { value: line.payeeId, label: payees.find(p => p.id === line.payeeId)?.name || '' } :
-                            { value: '', label: 'Select payee...' }
-                          }
-                          onChange={(selectedOption) => {
-                            const option = selectedOption as SelectOption | null;
-                            updateEditJournalLine(line.id, 'payeeId', option?.value || '');
-                          }}
-                          isSearchable
-                          menuPortalTarget={document.body}
-                          styles={{
-                            control: (base) => ({
-                              ...base,
-                              border: 'none',
-                              boxShadow: 'none',
-                              minHeight: 'auto',
-                              fontSize: '12px',
-                              '&:hover': {
-                                border: 'none'
-                              }
-                            }),
-                            menu: (base) => ({ 
-                              ...base, 
-                              zIndex: 9999,
-                              fontSize: '12px'
-                            }),
-                            menuPortal: (base) => ({ 
-                              ...base, 
-                              zIndex: 9999 
-                            })
-                          }}
-                        />
-                      </td>
-                      <td className="border px-4 py-2">
-                        <input
-                          type="text"
-                          value={line.description}
-                          onChange={(e) => updateEditJournalLine(line.id, 'description', e.target.value)}
-                          className="w-full border-0 px-0 py-0 text-xs focus:ring-0 focus:outline-none"
-                          placeholder="Enter description"
-                        />
-                      </td>
-                      <td className="border px-4 py-2">
-                        <Select
-                          options={categoryOptions}
-                          value={categoryOptions.find(opt => opt.value === line.categoryId) || categoryOptions[0]}
-                          onChange={(selectedOption) => {
-                            const option = selectedOption as SelectOption | null;
-                            if (option?.value === 'add_new') {
-                              setNewCategoryModal({
-                                isOpen: true,
-                                name: '',
-                                type: 'Expense',
-                                parent_id: null,
-                                lineId: line.id
-                              });
-                            } else {
-                              updateEditJournalLine(line.id, 'categoryId', option?.value || '');
+                  {editModal.editEntry.lines.map((line) => {
+                    // Determine if we can remove lines (only if there are more than 1 line)
+                    const canRemoveLines = editModal.editEntry.lines.length > 1;
+                    
+                    return (
+                      <tr key={line.id} className="relative">
+                        <td className="border px-4 py-2">
+                          <Select
+                            options={[
+                              { value: '', label: 'Select payee...' },
+                              ...payees.map(payee => ({ value: payee.id, label: payee.name }))
+                            ]}
+                            value={payees.find(p => p.id === line.payeeId) ? 
+                              { value: line.payeeId, label: payees.find(p => p.id === line.payeeId)?.name || '' } :
+                              { value: '', label: 'Select payee...' }
                             }
-                          }}
-                          isSearchable
-                          menuPortalTarget={document.body}
-                          styles={{
-                            control: (base) => ({
-                              ...base,
-                              border: 'none',
-                              boxShadow: 'none',
-                              minHeight: 'auto',
-                              fontSize: '12px',
-                              '&:hover': {
-                                border: 'none'
+                            onChange={(selectedOption) => {
+                              const option = selectedOption as SelectOption | null;
+                              updateEditJournalLine(line.id, 'payeeId', option?.value || '');
+                            }}
+                            isSearchable
+                            menuPortalTarget={document.body}
+                            styles={{
+                              control: (base) => ({
+                                ...base,
+                                border: 'none',
+                                boxShadow: 'none',
+                                minHeight: 'auto',
+                                fontSize: '12px',
+                                '&:hover': {
+                                  border: 'none'
+                                }
+                              }),
+                              menu: (base) => ({ 
+                                ...base, 
+                                zIndex: 9999,
+                                fontSize: '12px'
+                              }),
+                              menuPortal: (base) => ({ 
+                                ...base, 
+                                zIndex: 9999 
+                              })
+                            }}
+                          />
+                        </td>
+                        <td className="border px-4 py-2">
+                          <input
+                            type="text"
+                            value={line.description}
+                            onChange={(e) => updateEditJournalLine(line.id, 'description', e.target.value)}
+                            className="w-full border-0 px-0 py-0 text-xs focus:ring-0 focus:outline-none"
+                            placeholder="Enter description"
+                          />
+                        </td>
+                        <td className="border px-4 py-2">
+                          <Select
+                            options={categoryOptions}
+                            value={categoryOptions.find(opt => opt.value === line.categoryId) || categoryOptions[0]}
+                            onChange={(selectedOption) => {
+                              const option = selectedOption as SelectOption | null;
+                              if (option?.value === 'add_new') {
+                                setNewCategoryModal({
+                                  isOpen: true,
+                                  name: '',
+                                  type: 'Expense',
+                                  parent_id: null,
+                                  lineId: line.id
+                                });
+                              } else {
+                                updateEditJournalLine(line.id, 'categoryId', option?.value || '');
                               }
-                            }),
-                            menu: (base) => ({ 
-                              ...base, 
-                              zIndex: 9999,
-                              fontSize: '12px'
-                            }),
-                            menuPortal: (base) => ({ 
-                              ...base, 
-                              zIndex: 9999 
-                            })
-                          }}
-                        />
-                      </td>
-                      <td className="border px-4 py-2">
-                        <input
-                          type="text"
-                          value={(() => {
-                            const debit = line.debit;
-                            return (debit && !isZeroAmount(debit)) ? debit : '';
-                          })()}
-                          onChange={(e) => handleEditAmountChange(line.id, 'debit', e.target.value)}
-                          className="w-full border-0 px-0 py-0 text-xs text-right focus:ring-0 focus:outline-none"
-                          placeholder="0.00"
-                        />
-                      </td>
-                      <td className="border px-4 py-2">
-                        <input
-                          type="text"
-                          value={(() => {
-                            const credit = line.credit;
-                            return (credit && !isZeroAmount(credit)) ? credit : '';
-                          })()}
-                          onChange={(e) => handleEditAmountChange(line.id, 'credit', e.target.value)}
-                          className="w-full border-0 px-0 py-0 text-xs text-right focus:ring-0 focus:outline-none"
-                          placeholder="0.00"
-                        />
-                      </td>
-                    </tr>
-                  ))}
+                            }}
+                            isSearchable
+                            menuPortalTarget={document.body}
+                            styles={{
+                              control: (base) => ({
+                                ...base,
+                                border: 'none',
+                                boxShadow: 'none',
+                                minHeight: 'auto',
+                                fontSize: '12px',
+                                '&:hover': {
+                                  border: 'none'
+                                }
+                              }),
+                              menu: (base) => ({ 
+                                ...base, 
+                                zIndex: 9999,
+                                fontSize: '12px'
+                              }),
+                              menuPortal: (base) => ({ 
+                                ...base, 
+                                zIndex: 9999 
+                              })
+                            }}
+                          />
+                        </td>
+                        <td className="border px-4 py-2">
+                          <input
+                            type="text"
+                            value={(() => {
+                              const debit = line.debit;
+                              return (debit && !isZeroAmount(debit)) ? debit : '';
+                            })()}
+                            onChange={(e) => handleEditAmountChange(line.id, 'debit', e.target.value)}
+                            className="w-full border-0 px-0 py-0 text-xs text-right focus:ring-0 focus:outline-none"
+                            placeholder="0.00"
+                          />
+                        </td>
+                        <td className="border px-4 py-2">
+                          <input
+                            type="text"
+                            value={(() => {
+                              const credit = line.credit;
+                              return (credit && !isZeroAmount(credit)) ? credit : '';
+                            })()}
+                            onChange={(e) => handleEditAmountChange(line.id, 'credit', e.target.value)}
+                            className="w-full border-0 px-0 py-0 text-xs text-right focus:ring-0 focus:outline-none"
+                            placeholder="0.00"
+                          />
+                        </td>
+                        {canRemoveLines && (
+                          <button
+                            onClick={() => removeEditJournalLine(line.id)}
+                            className="absolute -left-4 top-1/2 transform -translate-y-1/2 w-6 h-6 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-full flex items-center justify-center shadow-lg border-2 border-gray-300 z-20"
+                            title="Remove this line"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
+                      </tr>
+                    );
+                  })}
                 </tbody>
                 <tfoot className="bg-gray-50">
                   <tr>
