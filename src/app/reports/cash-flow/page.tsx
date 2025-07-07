@@ -54,7 +54,7 @@ export default function CashFlowPage() {
     companyId: currentCompany?.id || null,
     startDate: startDate,
     endDate: endDate,
-    accountTypes: ["Asset", "Liability", "Equity", "Revenue", "COGS", "Expense"],
+    accountTypes: ["Asset", "Liability", "Equity", "Revenue", "COGS", "Expense", "Bank Account", "Credit Card"],
   });
 
   // const { collapsedAccounts, toggleAccount, getTopLevelAccounts, collapseAllParentCategories } = useAccountOperations({

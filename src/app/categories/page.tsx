@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/pagination";
 import { Button } from "@/components/ui/button";
 
-const ACCOUNT_TYPES = ["Asset", "Liability", "Equity", "Revenue", "COGS", "Expense"];
+const ACCOUNT_TYPES = ["Asset", "Liability", "Equity", "Revenue", "COGS", "Expense", "Bank Account", "Credit Card"];
 
 type Category = {
   id: string;
