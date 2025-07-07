@@ -68,6 +68,8 @@ export default function PnLPage() {
     calculateAccountTotalForQuarter,
     calculateAccountTotalForQuarterWithSubaccounts,
     collapseAllParentCategories,
+    expandAllParentCategories,
+    getParentAccounts,
   } = useAccountOperations({ accounts, journalEntries });
   const [viewerModal, setViewerModal] = useState<ViewerModalState>({
     isOpen: false,
@@ -308,6 +310,9 @@ export default function PnLPage() {
           selectedSecondaryDisplay={selectedSecondaryDisplay}
           onSecondaryDisplayChange={handleSecondaryDisplayChange}
           onCollapseAllCategories={collapseAllParentCategories}
+          onExpandAllCategories={expandAllParentCategories}
+          collapsedAccounts={collapsedAccounts}
+          parentAccounts={getParentAccounts()}
           exportToXLSX={exportToXLSX}
           onSaveReport={() => setShowSaveDialog(true)}
           loading={loading}
@@ -322,10 +327,10 @@ export default function PnLPage() {
             </p>
 
             <Table className="border border-gray-300">
-              <TableHeader className="bg-gray-100">
+              <TableHeader className="bg-gray-100 h-3">
                 <TableRow>
                   <TableHead
-                    className="border p-1 text-center font-medium text-xs whitespace-nowrap"
+                    className="border p-1 text-center text-xs whitespace-nowrap"
                     style={{
                       width:
                         (isMonthlyView || isQuarterlyView) && showPercentages
@@ -342,27 +347,27 @@ export default function PnLPage() {
                       {getMonthsInRange(startDate, endDate).map((month) => (
                         <React.Fragment key={month}>
                           <TableHead
-                            className="border p-1 text-center font-medium text-xs whitespace-nowrap"
+                            className="border p-1 text-center text-xs whitespace-nowrap"
                             style={{ width: `${65 / (getMonthsInRange(startDate, endDate).length + 1)}%` }}
                           >
                             {formatMonth(month)}
                           </TableHead>
                           {showPercentages && (
-                            <TableHead className="border p-1 text-center font-medium text-xs whitespace-nowrap min-w-11">
+                            <TableHead className="border p-1 text-center text-xs whitespace-nowrap min-w-11">
                               %
                             </TableHead>
                           )}
                         </React.Fragment>
                       ))}
                       <TableHead
-                        className="border p-1 text-center font-medium text-xs"
+                        className="border p-1 text-center text-xs"
                         style={{ width: `${65 / (getMonthsInRange(startDate, endDate).length + 1)}%` }}
                       >
                         Total
                       </TableHead>
                       {showPercentages && (
                         <TableHead
-                          className="border p-1 text-center font-medium text-xs"
+                          className="border p-1 text-center text-xs"
                           style={{ width: `${65 / (getMonthsInRange(startDate, endDate).length + 1)}%` }}
                         >
                           %
@@ -374,14 +379,14 @@ export default function PnLPage() {
                       {getQuartersInRange(startDate, endDate).map((quarter) => (
                         <React.Fragment key={quarter}>
                           <TableHead
-                            className="border p-1 text-center font-medium text-xs whitespace-nowrap"
+                            className="border p-1 text-center text-xs whitespace-nowrap"
                             style={{ width: showPercentages ? "7%" : "10%" }}
                           >
                             {formatQuarter(quarter)}
                           </TableHead>
                           {showPercentages && (
                             <TableHead
-                              className="border p-1 text-center font-medium text-xs whitespace-nowrap"
+                              className="border p-1 text-center text-xs whitespace-nowrap"
                               style={{ width: "6%" }}
                             >
                               %
@@ -390,23 +395,21 @@ export default function PnLPage() {
                         </React.Fragment>
                       ))}
                       <TableHead
-                        className="border p-1 text-center font-medium text-xs"
+                        className="border p-1 text-center text-xs"
                         style={{ width: showPercentages ? "7%" : "10%" }}
                       >
                         Total
                       </TableHead>
                       {showPercentages && (
-                        <TableHead className="border p-1 text-center font-medium text-xs" style={{ width: "6%" }}>
+                        <TableHead className="border p-1 text-center text-xs" style={{ width: "6%" }}>
                           %
                         </TableHead>
                       )}
                     </>
                   ) : (
                     <>
-                      <TableHead className="border p-1 text-center font-medium text-xs">Total</TableHead>
-                      {showPercentages && (
-                        <TableHead className="border p-1 text-center font-medium text-xs">%</TableHead>
-                      )}
+                      <TableHead className="border p-1 text-center text-xs">Total</TableHead>
+                      {showPercentages && <TableHead className="border p-1 text-center text-xs">%</TableHead>}
                     </>
                   )}
                 </TableRow>

@@ -133,8 +133,8 @@ export default function ReportsPage() {
     <div className="p-6 bg-gray-50 min-h-screen">
       <div className="max-w-6xl mx-auto">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Reports</h1>
-          <p className="text-gray-600">Generate financial reports and manage your saved custom reports</p>
+          <h1 className="text-lg font-semibold mb-2">Reports</h1>
+          <p className="text-gray-600 text-sm">Generate financial reports and manage your saved custom reports</p>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -142,7 +142,7 @@ export default function ReportsPage() {
           <div className="lg:col-span-2">
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
+                <CardTitle className="flex items-center gap-2 text-sm">
                   <FileText className="w-5 h-5" />
                   Quick Reports
                 </CardTitle>
@@ -156,7 +156,7 @@ export default function ReportsPage() {
                         <TrendingUp className="w-5 h-5" />
                       </div>
                       <div>
-                        <h3 className="font-medium text-gray-900">P&L</h3>
+                        <h3 className="font-medium text-gray-900 text-sm">P&L</h3>
                       </div>
                     </div>
                     <span className="px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded-md">Quick</span>
@@ -171,7 +171,7 @@ export default function ReportsPage() {
                         <BarChart3 className="w-5 h-5" />
                       </div>
                       <div>
-                        <h3 className="font-medium text-gray-900">Balance Sheet</h3>
+                        <h3 className="font-medium text-gray-900 text-sm">Balance Sheet</h3>
                       </div>
                     </div>
                     <span className="px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded-md">Quick</span>
@@ -179,14 +179,14 @@ export default function ReportsPage() {
                 </Link>
 
                 {/* Cash Flow */}
-                <Link href="/reports" onClick={() => alert("Cash Flow report coming soon!")}>
+                <Link href="/reports/cash-flow">
                   <div className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 transition-colors cursor-pointer">
                     <div className="flex items-center gap-3">
                       <div className="p-2 bg-muted rounded-lg">
                         <DollarSign className="w-5 h-5" />
                       </div>
                       <div>
-                        <h3 className="font-medium text-gray-900">Cash Flow</h3>
+                        <h3 className="font-medium text-gray-900 text-sm">Cash Flow</h3>
                       </div>
                     </div>
                     <span className="px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded-md">Quick</span>
@@ -200,7 +200,7 @@ export default function ReportsPage() {
           <div>
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
+                <CardTitle className="flex items-center gap-2 text-sm">
                   <Plus className="w-5 h-5" />
                   Created Reports
                 </CardTitle>
@@ -217,7 +217,7 @@ export default function ReportsPage() {
                 ) : savedReports.length === 0 ? (
                   <div className="text-center py-8">
                     <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                    <h3 className="font-medium text-gray-900 mb-2">No Custom Reports</h3>
+                    <h3 className="font-medium text-gray-900 mb-2 text-sm">No Custom Reports</h3>
                     <p className="text-xs text-gray-500">
                       Save reports from P&L, Balance Sheet, or Cash Flow pages to see them here.
                     </p>
@@ -243,7 +243,7 @@ export default function ReportsPage() {
                               </p>
                             </div>
                           </div>
-                          <div className="flex items-center gap-1 ml-2">
+                          <div className="flex items-center gap-1">
                             <Link href={`${getReportUrl(report.type)}?reportId=${report.id}`}>
                               <button
                                 className="border px-2 py-1 rounded text-xs flex items-center space-x-1 bg-gray-100 hover:bg-gray-200"

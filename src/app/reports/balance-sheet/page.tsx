@@ -65,7 +65,14 @@ export default function BalanceSheetPage() {
     accountTypes: ["Asset", "Liability", "Equity", "Revenue", "COGS", "Expense"],
   });
 
-  const { collapsedAccounts, toggleAccount, getTopLevelAccounts, collapseAllParentCategories } = useAccountOperations({
+  const {
+    collapsedAccounts,
+    toggleAccount,
+    getTopLevelAccounts,
+    collapseAllParentCategories,
+    expandAllParentCategories,
+    getParentAccounts,
+  } = useAccountOperations({
     accounts,
     journalEntries,
   });
@@ -452,6 +459,9 @@ export default function BalanceSheetPage() {
           selectedSecondaryDisplay={selectedSecondaryDisplay}
           onSecondaryDisplayChange={handleSecondaryDisplayChange}
           onCollapseAllCategories={collapseAllParentCategories}
+          onExpandAllCategories={expandAllParentCategories}
+          collapsedAccounts={collapsedAccounts}
+          parentAccounts={getParentAccounts()}
           exportToXLSX={exportToXLSX}
           onSaveReport={() => setShowSaveDialog(true)}
           loading={loading}
@@ -472,7 +482,7 @@ export default function BalanceSheetPage() {
               <TableHeader className="bg-gray-100">
                 <TableRow>
                   <TableHead
-                    className="border p-1 text-center font-medium text-xs whitespace-nowrap"
+                    className="border p-1 text-center text-xs whitespace-nowrap"
                     style={{
                       width:
                         (isMonthlyView || isQuarterlyView) && showPercentages
@@ -489,63 +499,53 @@ export default function BalanceSheetPage() {
                       {getMonthsInRange(startDate, asOfDate).map((month) => (
                         <React.Fragment key={month}>
                           <TableHead
-                            className="border p-1 text-center font-medium text-xs whitespace-nowrap"
+                            className="border p-1 text-center text-xs whitespace-nowrap"
                             style={{ width: showPercentages ? "7%" : "10%" }}
                           >
                             {formatMonth(month)}
                           </TableHead>
                           {showPercentages && (
-                            <TableHead className="border p-1 text-center font-medium text-xs whitespace-nowrap">
-                              %
-                            </TableHead>
+                            <TableHead className="border p-1 text-center text-xs whitespace-nowrap">%</TableHead>
                           )}
                         </React.Fragment>
                       ))}
                       <TableHead
-                        className="border p-1 text-center font-medium text-xs"
+                        className="border p-1 text-center text-xs"
                         style={{ width: showPercentages ? "7%" : "10%" }}
                       >
                         Total
                       </TableHead>
-                      {showPercentages && (
-                        <TableHead className="border p-1 text-center font-medium text-xs">%</TableHead>
-                      )}
+                      {showPercentages && <TableHead className="border p-1 text-center text-xs">%</TableHead>}
                     </>
                   ) : isQuarterlyView ? (
                     <>
                       {getQuartersInRange(startDate, asOfDate).map((quarter) => (
                         <React.Fragment key={quarter}>
                           <TableHead
-                            className="border p-1 text-center font-medium text-xs whitespace-nowrap"
+                            className="border p-1 text-center text-xs whitespace-nowrap"
                             style={{ width: showPercentages ? "7%" : "10%" }}
                           >
                             {formatQuarter(quarter)}
                           </TableHead>
                           {showPercentages && (
-                            <TableHead className="border p-1 text-center font-medium text-xs whitespace-nowrap">
-                              %
-                            </TableHead>
+                            <TableHead className="border p-1 text-center text-xs whitespace-nowrap">%</TableHead>
                           )}
                         </React.Fragment>
                       ))}
                       <TableHead
-                        className="border p-1 text-center font-medium text-xs"
+                        className="border p-1 text-center text-xs"
                         style={{ width: showPercentages ? "7%" : "10%" }}
                       >
                         Total
                       </TableHead>
-                      {showPercentages && (
-                        <TableHead className="border p-1 text-center font-medium text-xs">%</TableHead>
-                      )}
+                      {showPercentages && <TableHead className="border p-1 text-center text-xs">%</TableHead>}
                     </>
                   ) : (
                     <>
-                      <TableHead className="border p-1 text-center font-medium text-xs">
+                      <TableHead className="border p-1 text-center text-xs">
                         {showPercentages ? "Amount" : "Total"}
                       </TableHead>
-                      {showPercentages && (
-                        <TableHead className="border p-1 text-center font-medium text-xs">%</TableHead>
-                      )}
+                      {showPercentages && <TableHead className="border p-1 text-center text-xs">%</TableHead>}
                     </>
                   )}
                 </TableRow>

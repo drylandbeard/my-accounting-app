@@ -20,6 +20,8 @@ interface UseAccountOperationsReturn {
   calculateAccountTotalForQuarter: (account: Account, quarter: string) => number;
   calculateAccountTotalForQuarterWithSubaccounts: (account: Account, quarter: string) => number;
   collapseAllParentCategories: () => void;
+  expandAllParentCategories: () => void;
+  getParentAccounts: () => Account[];
 }
 
 export const useAccountOperations = ({
@@ -65,6 +67,11 @@ export const useAccountOperations = ({
     });
 
     setCollapsedAccounts(newCollapsed);
+  };
+
+  // Expand all parent categories at once
+  const expandAllParentCategories = () => {
+    setCollapsedAccounts(new Set());
   };
 
   // Calculate direct total for an account (only its own transactions)
@@ -209,5 +216,7 @@ export const useAccountOperations = ({
     calculateAccountTotalForQuarter,
     calculateAccountTotalForQuarterWithSubaccounts,
     collapseAllParentCategories,
+    expandAllParentCategories,
+    getParentAccounts,
   };
 };
