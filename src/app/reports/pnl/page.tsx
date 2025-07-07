@@ -42,8 +42,8 @@ export default function PnLPage() {
   
   // Store hooks for modal functionality
   const { accounts: bankAccounts } = useTransactionsStore();
-  const { categories, refreshCategories, addCategory } = useCategoriesStore();
-  const { payees, refreshPayees } = usePayeesStore();
+  const { categories } = useCategoriesStore();
+  const { payees } = usePayeesStore();
   
   // Modal states
   const [editJournalModal, setEditJournalModal] = useState<TransactionModalState & { selectedAccountId?: string; selectedAccountCategoryId?: string }>({
@@ -62,24 +62,13 @@ export default function PnLPage() {
   
   const [editManualModal, setEditManualModal] = useState<ManualJeModalState>({
     isOpen: false,
-    referenceNumber: "",
-    editEntry: {
-      date: "",
-      description: "",
-      jeName: "",
-      lines: [],
-    },
+    referenceNumber: '',
+    editEntry: { date: '', description: '', jeName: '', lines: [] },
     saving: false,
     error: null,
   });
   
-  const [newCategoryModal, setNewCategoryModal] = useState({
-    isOpen: false,
-    name: "",
-    type: "Expense",
-    parent_id: null as string | null,
-    lineId: null as string | null,
-  });
+
 
   const {
     selectedPeriod,
@@ -410,33 +399,6 @@ export default function PnLPage() {
     }, 0);
 
     return { totalDebits, totalCredits };
-  };
-
-  const handleCreateCategory = async () => {
-    if (!newCategoryModal.name.trim() || !currentCompany?.id) return;
-
-    try {
-      const newCategory = await addCategory({
-        name: newCategoryModal.name.trim(),
-        type: newCategoryModal.type,
-        parent_id: newCategoryModal.parent_id,
-      });
-
-      if (newCategory && newCategoryModal.lineId) {
-        // Update the line with the new category
-        updateEditJournalLine(newCategoryModal.lineId, "categoryId", newCategory.id);
-      }
-
-      setNewCategoryModal({
-        isOpen: false,
-        name: "",
-        type: "Expense",
-        parent_id: null,
-        lineId: null,
-      });
-    } catch (error) {
-      console.error("Failed to create category:", error);
-    }
   };
 
   // Save report function
@@ -1280,7 +1242,7 @@ export default function PnLPage() {
           onSave={handleSaveJournalEntry}
           onDateChange={(date) => setEditJournalModal((prev) => ({ ...prev, editEntry: { ...prev.editEntry, date } }))}
           onAccountChange={() => {}}
-          onOpenCategoryModal={(lineId) => setNewCategoryModal({ isOpen: true, name: "", type: "Expense", parent_id: null, lineId })}
+          onOpenCategoryModal={() => {}}
           calculateTotals={calculateTotals}
         />
       )}
@@ -1310,7 +1272,7 @@ export default function PnLPage() {
           handleSaveEditEntry={async () => {}}
           categoryOptions={categories.map(c => ({ value: c.id, label: c.name }))}
           payees={payees}
-          setNewCategoryModal={setNewCategoryModal}
+          setNewCategoryModal={() => {}}
         />
       )}
     </div>
