@@ -51,26 +51,19 @@ function EditCompanyModal({ isOpen, onClose, company, onUpdateCompany }: EditCom
       <div className="bg-white rounded-lg shadow-xl w-96 mx-4">
         <div className="flex justify-between items-center px-6 py-4 border-b border-gray-200">
           <h2 className="text-base font-semibold text-gray-900">Edit Company Info</h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
-          >
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
-        
+
         <form onSubmit={handleSubmit} className="px-6 py-4">
           <div className="space-y-4">
             {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm">
-                {error}
-              </div>
+              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm">{error}</div>
             )}
-            
+
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Company Name *
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Company Name *</label>
               <input
                 type="text"
                 value={name}
@@ -80,11 +73,9 @@ function EditCompanyModal({ isOpen, onClose, company, onUpdateCompany }: EditCom
                 required
               />
             </div>
-            
+
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Description (Optional)
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Description (Optional)</label>
               <textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
@@ -94,13 +85,9 @@ function EditCompanyModal({ isOpen, onClose, company, onUpdateCompany }: EditCom
               />
             </div>
           </div>
-          
+
           <div className="flex justify-end gap-3 mt-6">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
-            >
+            <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">
               Cancel
             </button>
             <button
@@ -155,26 +142,19 @@ function AddMemberModal({ isOpen, onClose, onAddMember }: AddMemberModalProps) {
       <div className="bg-white rounded-lg shadow-xl w-96 mx-4">
         <div className="flex justify-between items-center px-6 py-4 border-b border-gray-200">
           <h2 className="text-base font-semibold text-gray-900">Add Team Member</h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
-          >
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
-        
+
         <form onSubmit={handleSubmit} className="px-6 py-4">
           <div className="space-y-4">
             {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm">
-                {error}
-              </div>
+              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm">{error}</div>
             )}
-            
+
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Email Address *
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Email Address *</label>
               <input
                 type="email"
                 value={email}
@@ -184,11 +164,9 @@ function AddMemberModal({ isOpen, onClose, onAddMember }: AddMemberModalProps) {
                 required
               />
             </div>
-            
+
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Role *
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Role *</label>
               <select
                 value={role}
                 onChange={(e) => setRole(e.target.value as "Owner" | "Member" | "Accountant")}
@@ -200,13 +178,9 @@ function AddMemberModal({ isOpen, onClose, onAddMember }: AddMemberModalProps) {
               </select>
             </div>
           </div>
-          
+
           <div className="flex justify-end gap-3 mt-6">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
-            >
+            <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">
               Cancel
             </button>
             <button
@@ -235,7 +209,7 @@ function TransferOwnershipModal({ isOpen, onClose, members, onTransferOwnership 
   const [isTransferring, setIsTransferring] = useState(false);
   const [error, setError] = useState("");
 
-  const nonOwnerMembers = members.filter(member => member.role !== "Owner");
+  const nonOwnerMembers = members.filter((member) => member.role !== "Owner");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -261,30 +235,24 @@ function TransferOwnershipModal({ isOpen, onClose, members, onTransferOwnership 
       <div className="bg-white rounded-lg shadow-xl w-96 mx-4">
         <div className="flex justify-between items-center px-6 py-4 border-b border-gray-200">
           <h2 className="text-base font-semibold text-gray-900">Transfer Ownership</h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
-          >
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
-        
+
         <form onSubmit={handleSubmit} className="px-6 py-4">
           <div className="space-y-4">
             {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm">
-                {error}
-              </div>
+              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm">{error}</div>
             )}
-            
+
             <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-md text-sm">
-              <strong>Warning:</strong> This action cannot be undone. You will lose owner privileges and the selected member will become the new owner.
+              <strong>Warning:</strong> This action cannot be undone. You will lose owner privileges and the selected
+              member will become the new owner.
             </div>
-            
+
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Select New Owner *
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Select New Owner *</label>
               <select
                 value={selectedMemberId}
                 onChange={(e) => setSelectedMemberId(e.target.value)}
@@ -305,13 +273,9 @@ function TransferOwnershipModal({ isOpen, onClose, members, onTransferOwnership 
               )}
             </div>
           </div>
-          
+
           <div className="flex justify-end gap-3 mt-6">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
-            >
+            <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">
               Cancel
             </button>
             <button
@@ -319,7 +283,7 @@ function TransferOwnershipModal({ isOpen, onClose, members, onTransferOwnership 
               disabled={isTransferring || !selectedMemberId || nonOwnerMembers.length === 0}
               className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors hover:bg-red-700"
             >
-                              {isTransferring ? "Transferring..." : "Transfer"}
+              {isTransferring ? "Transferring..." : "Transfer"}
             </button>
           </div>
         </form>
@@ -339,49 +303,41 @@ interface ConfirmationModalProps {
   confirmButtonStyle?: "primary" | "danger";
 }
 
-function ConfirmationModal({ 
-  isOpen, 
-  onClose, 
-  onConfirm, 
-  title, 
-  message, 
-  confirmText = "Confirm", 
+function ConfirmationModal({
+  isOpen,
+  onClose,
+  onConfirm,
+  title,
+  message,
+  confirmText = "Confirm",
   cancelText = "Cancel",
-  confirmButtonStyle = "primary"
+  confirmButtonStyle = "primary",
 }: ConfirmationModalProps) {
   if (!isOpen) return null;
 
-  const confirmButtonClasses = confirmButtonStyle === "danger" 
-    ? "px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 transition-colors"
-    : "px-4 py-2 text-sm font-medium text-white bg-black rounded-md hover:bg-gray-800 transition-colors";
+  const confirmButtonClasses =
+    confirmButtonStyle === "danger"
+      ? "px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 transition-colors"
+      : "px-4 py-2 text-sm font-medium text-white bg-black rounded-md hover:bg-gray-800 transition-colors";
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg shadow-xl w-96 mx-4">
         <div className="flex justify-between items-center px-6 py-4 border-b border-gray-200">
           <h2 className="text-base font-semibold text-gray-900">{title}</h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
-          >
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
-        
+
         <div className="px-6 py-4">
           <p className="text-sm text-gray-700">{message}</p>
-          
+
           <div className="flex justify-end gap-3 mt-6">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
-            >
+            <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">
               {cancelText}
             </button>
-            <button
-              onClick={onConfirm}
-              className={confirmButtonClasses}
-            >
+            <button onClick={onConfirm} className={confirmButtonClasses}>
               {confirmText}
             </button>
           </div>
@@ -438,32 +394,30 @@ function DeleteCompanyModal({ isOpen, onClose, companyName, onDeleteCompany }: D
             <AlertTriangle className="w-5 h-5 text-red-600" />
             <h2 className="text-base font-semibold text-gray-900">Delete Company</h2>
           </div>
-          <button
-            onClick={handleClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
-          >
+          <button onClick={handleClose} className="text-gray-400 hover:text-gray-600 transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
-        
+
         <form onSubmit={handleSubmit} className="px-6 py-4">
           <div className="space-y-4">
             {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm">
-                {error}
-              </div>
+              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm">{error}</div>
             )}
-            
+
             <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-md text-sm">
               <div className="flex">
                 <AlertTriangle className="w-5 h-5 text-red-600 mr-2 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-medium">This action cannot be undone.</p>
-                  <p className="mt-1">This will permanently delete the company <strong>&ldquo;{companyName}&rdquo;</strong> and all of its data including transactions, accounts, and team members.</p>
+                  <p className="mt-1">
+                    This will permanently delete the company <strong>&ldquo;{companyName}&rdquo;</strong> and all of its
+                    data including transactions, accounts, and team members.
+                  </p>
                 </div>
               </div>
             </div>
-            
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Type <strong>DELETE</strong> to confirm deletion
@@ -481,13 +435,9 @@ function DeleteCompanyModal({ isOpen, onClose, companyName, onDeleteCompany }: D
               )}
             </div>
           </div>
-          
+
           <div className="flex justify-end gap-3 mt-6">
-            <button
-              type="button"
-              onClick={handleClose}
-              className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
-            >
+            <button type="button" onClick={handleClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">
               Cancel
             </button>
             <button
@@ -507,7 +457,7 @@ function DeleteCompanyModal({ isOpen, onClose, companyName, onDeleteCompany }: D
 export default function SettingsPage() {
   const { user, currentCompany, updateCompany, removeCompany } = useAuthStore();
   const router = useRouter();
-  
+
   // Team Members State
   const [companyMembers, setCompanyMembers] = useState<CompanyMember[]>([]);
   const [editCompanyModal, setEditCompanyModal] = useState<{
@@ -515,7 +465,7 @@ export default function SettingsPage() {
     company: { id: string; name: string; description?: string } | null;
   }>({
     isOpen: false,
-    company: null
+    company: null,
   });
   const [addMemberModal, setAddMemberModal] = useState(false);
   const [transferOwnershipModal, setTransferOwnershipModal] = useState(false);
@@ -537,6 +487,8 @@ export default function SettingsPage() {
   // Get current user's role in the company
   const currentUserRole = user?.role;
   const isOwner = currentUserRole === "Owner";
+
+  console.log("currentUserRole", currentUserRole);
 
   // Fetch company members when component mounts or current company changes
   useEffect(() => {
@@ -562,7 +514,7 @@ export default function SettingsPage() {
       }
 
       // Then get user details
-      const userIds = companyUsers.map(cu => cu.user_id);
+      const userIds = companyUsers.map((cu) => cu.user_id);
       const { data: users, error: usersError } = await supabase
         .from("users")
         .select("id, email, is_access_enabled")
@@ -571,15 +523,17 @@ export default function SettingsPage() {
       if (usersError) throw usersError;
 
       // Combine the data
-      const members: CompanyMember[] = (users || []).map((user: { id: string; email: string; is_access_enabled: boolean }) => {
-        const companyUser = companyUsers.find(cu => cu.user_id === user.id);
-        return {
-          id: user.id,
-          email: user.email,
-          role: companyUser?.role as "Owner" | "Member" | "Accountant",
-          is_access_enabled: user.is_access_enabled
-        };
-      });
+      const members: CompanyMember[] = (users || []).map(
+        (user: { id: string; email: string; is_access_enabled: boolean }) => {
+          const companyUser = companyUsers.find((cu) => cu.user_id === user.id);
+          return {
+            id: user.id,
+            email: user.email,
+            role: companyUser?.role as "Owner" | "Member" | "Accountant",
+            is_access_enabled: user.is_access_enabled,
+          };
+        }
+      );
 
       setCompanyMembers(members);
     } catch (error) {
@@ -601,7 +555,7 @@ export default function SettingsPage() {
       }
 
       const result = await response.json();
-      
+
       // Update company in Zustand state with the response data
       updateCompany(currentCompany.id, result.company);
       setEditCompanyModal({ isOpen: false, company: null });
@@ -644,18 +598,18 @@ export default function SettingsPage() {
   };
 
   const handleDeleteMember = async (memberId: string) => {
-    const member = companyMembers.find(m => m.id === memberId);
-    
+    const member = companyMembers.find((m) => m.id === memberId);
+
     setConfirmationModal({
       isOpen: true,
       title: "Remove Team Member",
-      message: `Are you sure you want to remove ${member?.email || 'this team member'} from the company?`,
+      message: `Are you sure you want to remove ${member?.email || "this team member"} from the company?`,
       onConfirm: () => {
         // For now, just show a success message since we're keeping this static
         setConfirmationModal({
           isOpen: true,
           title: "Member Removed",
-          message: `Team member ${member?.email || 'Unknown'} would be removed from the company.`,
+          message: `Team member ${member?.email || "Unknown"} would be removed from the company.`,
           onConfirm: () => setConfirmationModal({ ...confirmationModal, isOpen: false }),
           confirmText: "OK",
         });
@@ -677,17 +631,19 @@ export default function SettingsPage() {
       }
 
       const result = await response.json();
-      
+
       // Update local state to reflect the ownership change
-      setCompanyMembers(prev => prev.map(member => {
-        if (member.id === newOwnerId) {
-          return { ...member, role: "Owner" };
-        }
-        if (member.id === user.id) {
-          return { ...member, role: "Member" };
-        }
-        return member;
-      }));
+      setCompanyMembers((prev) =>
+        prev.map((member) => {
+          if (member.id === newOwnerId) {
+            return { ...member, role: "Owner" };
+          }
+          if (member.id === user.id) {
+            return { ...member, role: "Member" };
+          }
+          return member;
+        })
+      );
 
       // Close the transfer modal
       setTransferOwnershipModal(false);
@@ -704,7 +660,7 @@ export default function SettingsPage() {
       console.error("Error transferring ownership:", error);
       setConfirmationModal({
         isOpen: true,
-        title: "Transfer Failed", 
+        title: "Transfer Failed",
         message: error instanceof Error ? error.message : "Failed to transfer ownership. Please try again.",
         onConfirm: () => setConfirmationModal({ ...confirmationModal, isOpen: false }),
         confirmText: "OK",
@@ -730,17 +686,17 @@ export default function SettingsPage() {
       if (!response.ok) {
         const errorData = await response.json();
         console.error("Delete failed with error:", errorData);
-        
+
         // If company doesn't exist, clean up localStorage anyway
         if (response.status === 404 || errorData.error?.includes("Company does not exist")) {
           console.log("Company doesn't exist in database, cleaning up localStorage");
-          
+
           // Remove the non-existent company from Zustand state
           removeCompany(currentCompany.id);
           router.push("/");
           return; // Don't throw error, treat as successful cleanup
         }
-        
+
         throw new Error(errorData.error || "Failed to delete company");
       }
 
@@ -773,17 +729,19 @@ export default function SettingsPage() {
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-base font-semibold text-gray-900">Company Info</h2>
-                <button
-              onClick={() => setEditCompanyModal({ 
-                          isOpen: true, 
-                company: currentCompany 
-              })}
+            <button
+              onClick={() =>
+                setEditCompanyModal({
+                  isOpen: true,
+                  company: currentCompany,
+                })
+              }
               className="text-sm text-blue-600 hover:text-blue-800"
-                    >
-                      Edit
-                    </button>
-                  </div>
-          
+            >
+              Edit
+            </button>
+          </div>
+
           <div className="space-y-3">
             <div>
               <label className="block text-sm font-medium text-gray-700">Company Name</label>
@@ -795,12 +753,12 @@ export default function SettingsPage() {
                 <p className="text-sm text-gray-900 mt-1">{currentCompany.description}</p>
               </div>
             )}
-            </div>
           </div>
+        </div>
 
         {/* Team Section */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <div className="flex justify-between items-center mb-4">
+          <div className="flex justify-between items-center mb-4">
             <h2 className="text-base font-semibold text-gray-900">Team Members</h2>
             <div className="flex gap-2">
               {isOwner && (
@@ -820,54 +778,48 @@ export default function SettingsPage() {
                 <span>Add Member</span>
               </button>
             </div>
-            </div>
+          </div>
 
-              <div className="border border-gray-200 rounded-lg overflow-hidden">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Email
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Role
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Access
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Actions
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
+          <div className="border border-gray-200 rounded-lg overflow-hidden">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Email
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Role
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Access
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
                 {companyMembers.map((member) => (
                   <tr key={member.id}>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {member.email}
-                      {member.id === user.id && (
-                        <span className="ml-2 text-xs text-blue-600">(You)</span>
-                      )}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {member.role}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                        member.is_access_enabled 
-                              ? "bg-green-100 text-green-800" 
-                              : "bg-red-100 text-red-800"
-                          }`}>
+                      {member.id === user.id && <span className="ml-2 text-xs text-blue-600">(You)</span>}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{member.role}</td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span
+                        className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                          member.is_access_enabled ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
+                        }`}
+                      >
                         {member.is_access_enabled ? "Enabled" : "Disabled"}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      {member.id !== user.id && (
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                      {isOwner && member.id !== user.id && (
                         <>
-                          <button className="text-blue-600 hover:text-blue-900 mr-3">
-                            Edit
-                          </button>
-                          <button 
+                          <button className="text-blue-600 hover:text-blue-900 mr-3">Edit</button>
+                          <button
                             onClick={() => handleDeleteMember(member.id)}
                             className="text-red-600 hover:text-red-900"
                           >
@@ -875,25 +827,25 @@ export default function SettingsPage() {
                           </button>
                         </>
                       )}
-                        </td>
-                      </tr>
-                    ))}
+                    </td>
+                  </tr>
+                ))}
                 {companyMembers.length === 0 && (
-                      <tr>
-                        <td colSpan={4} className="px-6 py-4 text-center text-sm text-gray-500">
+                  <tr>
+                    <td colSpan={4} className="px-6 py-4 text-center text-sm text-gray-500">
                       No team members found.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
 
         {/* Billing Section */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           <h2 className="text-base font-semibold text-gray-900 mb-4">Billing</h2>
-          
+
           <div className="space-y-6">
             {/* Payment Method */}
             <div>
@@ -906,10 +858,8 @@ export default function SettingsPage() {
                       <p className="text-sm font-medium text-gray-900">**** **** **** 4242</p>
                       <p className="text-xs text-gray-500">Expires 12/2028</p>
                     </div>
-                </div>
-                  <button className="text-sm text-blue-600 hover:text-blue-800">
-                    Update
-                  </button>
+                  </div>
+                  <button className="text-sm text-blue-600 hover:text-blue-800">Update</button>
                 </div>
               </div>
             </div>
@@ -920,12 +870,12 @@ export default function SettingsPage() {
                 <h3 className="text-sm font-medium text-red-900 mb-3">Danger Zone</h3>
                 <div className="border border-red-200 rounded-lg p-4 bg-red-50">
                   <div className="flex items-center justify-between">
-                  <div>
+                    <div>
                       <p className="text-sm font-medium text-red-900">Delete Company</p>
                       <p className="text-xs text-red-700">
                         Permanently delete this company and all associated data. This action cannot be undone.
                       </p>
-                  </div>
+                    </div>
                     <button
                       onClick={() => setDeleteCompanyModal(true)}
                       className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-red-700 bg-red-100 border border-red-300 rounded-md hover:bg-red-200 transition-colors"
@@ -935,8 +885,8 @@ export default function SettingsPage() {
                     </button>
                   </div>
                 </div>
-                </div>
-              )}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -952,11 +902,7 @@ export default function SettingsPage() {
       )}
 
       {/* Add Member Modal */}
-      <AddMemberModal
-        isOpen={addMemberModal}
-        onClose={() => setAddMemberModal(false)}
-        onAddMember={handleAddMember}
-      />
+      <AddMemberModal isOpen={addMemberModal} onClose={() => setAddMemberModal(false)} onAddMember={handleAddMember} />
 
       {/* Transfer Ownership Modal */}
       <TransferOwnershipModal
@@ -986,4 +932,4 @@ export default function SettingsPage() {
       />
     </div>
   );
-} 
+}
