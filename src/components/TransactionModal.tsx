@@ -78,6 +78,8 @@ export default function TransactionModal({
 }: TransactionModalProps) {
   if (!modalState.isOpen) return null;
 
+  console.log("Modal state:", modalState.editEntry.lines);
+
   const categoryOptions = [
     { value: '', label: 'Select category...' },
     { value: 'add_new', label: '+ Add new category' },

@@ -2,8 +2,14 @@
 
 import React, { useState, useMemo, useEffect } from "react";
 import { useAuthStore } from "@/zustand/authStore";
+import { useTransactionsStore } from "@/zustand/transactionsStore";
+import { useCategoriesStore } from "@/zustand/categoriesStore";
+import { usePayeesStore } from "@/zustand/payeesStore";
+import { supabase } from "@/lib/supabase";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import TransactionModal, { EditJournalModalState as TransactionModalState, JournalEntryLine } from "@/components/TransactionModal";
+import ManualJeModal, { EditJournalModalState as ManualJeModalState, NewJournalEntry } from "@/components/ManualJeModal";
 
 import { useSearchParams } from "next/navigation";
 
@@ -33,6 +39,47 @@ import { api } from "@/lib/api";
 export default function PnLPage() {
   const { currentCompany } = useAuthStore();
   const hasCompanyContext = !!currentCompany;
+  
+  // Store hooks for modal functionality
+  const { accounts: bankAccounts } = useTransactionsStore();
+  const { categories, refreshCategories, addCategory } = useCategoriesStore();
+  const { payees, refreshPayees } = usePayeesStore();
+  
+  // Modal states
+  const [editJournalModal, setEditJournalModal] = useState<TransactionModalState & { selectedAccountId?: string; selectedAccountCategoryId?: string }>({
+    isOpen: false,
+    isLoading: false,
+    saving: false,
+    error: null,
+    transactionId: "",
+    isManualEntry: false,
+    editEntry: {
+      date: "",
+      description: "",
+      lines: [],
+    },
+  });
+  
+  const [editManualModal, setEditManualModal] = useState<ManualJeModalState>({
+    isOpen: false,
+    referenceNumber: "",
+    editEntry: {
+      date: "",
+      description: "",
+      jeName: "",
+      lines: [],
+    },
+    saving: false,
+    error: null,
+  });
+  
+  const [newCategoryModal, setNewCategoryModal] = useState({
+    isOpen: false,
+    name: "",
+    type: "Expense",
+    parent_id: null as string | null,
+    lineId: null as string | null,
+  });
 
   const {
     selectedPeriod,
@@ -177,6 +224,219 @@ export default function PnLPage() {
       0
     );
     return formatPercentage(amount, quarterRevenue);
+  };
+
+  // Handle transaction click
+  const handleTransactionClick = async (transaction: Transaction) => {
+    if (transaction.source === "manual") {
+      // Open ManualJeModal for manual journal entries
+      setEditManualModal({
+        isOpen: true,
+        referenceNumber: transaction.transaction_id,
+        editEntry: {
+          date: transaction.date,
+          description: transaction.description,
+          jeName: "",
+          lines: [],
+        },
+        saving: false,
+        error: null,
+      });
+      
+      // Fetch manual journal entry details
+      try {
+        const { data: manualEntries, error } = await supabase
+          .from('manual_journal_entries')
+          .select('*')
+          .eq('reference_number', transaction.transaction_id)
+          .eq('company_id', currentCompany?.id);
+
+        if (error) throw error;
+
+        if (manualEntries && manualEntries.length > 0) {
+          // For manual journal entries, each row is a separate line in the journal entry
+          // Can be 2 lines (normal) or 3+ lines (split)
+          const lines = manualEntries.map((entry: { description: string; chart_account_id: string; payee_id?: string; debit: number; credit: number }, index: number) => ({
+            id: (index + 1).toString(),
+            description: entry.description,
+            categoryId: entry.chart_account_id,
+            payeeId: entry.payee_id || "",
+            debit: entry.debit.toString(),
+            credit: entry.credit.toString(),
+          }));
+
+          setEditManualModal(prev => ({
+            ...prev,
+            editEntry: {
+              ...prev.editEntry,
+              lines,
+            },
+          }));
+        }
+      } catch (error) {
+        console.error('Error fetching manual journal entry:', error);
+      }
+    } else {
+      // Open TransactionModal for regular journal entries
+      setEditJournalModal({
+        isOpen: true,
+        isLoading: true,
+        saving: false,
+        error: null,
+        transactionId: transaction.transaction_id,
+        isManualEntry: false,
+        editEntry: {
+          date: transaction.date,
+          description: transaction.description,
+          lines: [],
+        },
+      });
+      
+      // Fetch journal entry details
+      try {
+        const { data: journalEntries, error } = await supabase
+          .from('journal')
+          .select('*')
+          .eq('transaction_id', transaction.transaction_id)
+          .eq('company_id', currentCompany?.id);
+
+        if (error) throw error;
+
+        if (journalEntries && journalEntries.length > 0) {
+          // Get the transaction data to find the corresponding account
+          const { data: transactionData } = await supabase
+            .from('transactions')
+            .select('corresponding_category_id, plaid_account_id')
+            .eq('id', transaction.transaction_id)
+            .single();
+          
+          // Map all journal entries to lines (TransactionModal will handle filtering)
+          const lines = journalEntries.map((entry: { description: string; chart_account_id: string; debit: number; credit: number }, index: number) => ({
+            id: (index + 1).toString(),
+            description: entry.description,
+            categoryId: entry.chart_account_id,
+            payeeId: "", // Journal entries don't have payee_id directly
+            debit: entry.debit.toString(),
+            credit: entry.credit.toString(),
+          }));
+
+          setEditJournalModal(prev => ({
+            ...prev,
+            isLoading: false,
+            selectedAccountId: transactionData?.plaid_account_id || null,
+            selectedAccountCategoryId: transactionData?.corresponding_category_id || null,
+            editEntry: {
+              ...prev.editEntry,
+              lines,
+            },
+          }));
+        } else {
+          setEditJournalModal(prev => ({ ...prev, isLoading: false }));
+        }
+      } catch (error) {
+        console.error('Error fetching journal entry:', error);
+        setEditJournalModal(prev => ({ 
+          ...prev, 
+          isLoading: false, 
+          error: 'Failed to load transaction details' 
+        }));
+      }
+    }
+  };
+
+  // Modal helper functions
+  const updateEditJournalLine = (lineId: string, field: keyof JournalEntryLine, value: string) => {
+    setEditJournalModal((prev) => ({
+      ...prev,
+      editEntry: {
+        ...prev.editEntry,
+        lines: prev.editEntry.lines.map((line) => (line.id === lineId ? { ...line, [field]: value } : line)),
+      },
+    }));
+  };
+
+  const handleEditAmountChange = (lineId: string, field: "debit" | "credit", value: string) => {
+    updateEditJournalLine(lineId, field, value || "0.00");
+    // Clear the opposite field when entering an amount
+    if (value) {
+      const oppositeField = field === "debit" ? "credit" : "debit";
+      updateEditJournalLine(lineId, oppositeField, "0.00");
+    }
+  };
+
+  const addEditLine = () => {
+    const newLineId = (editJournalModal.editEntry.lines.length + 1).toString();
+    setEditJournalModal((prev) => ({
+      ...prev,
+      editEntry: {
+        ...prev.editEntry,
+        lines: [...prev.editEntry.lines, {
+          id: newLineId,
+          description: "",
+          categoryId: "",
+          payeeId: "",
+          debit: "0.00",
+          credit: "0.00",
+        }],
+      },
+    }));
+  };
+
+  const removeEditLine = (lineId: string) => {
+    setEditJournalModal((prev) => ({
+      ...prev,
+      editEntry: {
+        ...prev.editEntry,
+        lines: prev.editEntry.lines.filter((line) => line.id !== lineId),
+      },
+    }));
+  };
+
+  const handleSaveJournalEntry = async () => {
+    // Implementation would go here
+    console.log("Save journal entry:", editJournalModal.editEntry);
+    setEditJournalModal((prev) => ({ ...prev, isOpen: false }));
+  };
+
+  const calculateTotals = () => {
+    const totalDebits = editJournalModal.editEntry.lines.reduce((sum, line) => {
+      const debit = parseFloat(line.debit) || 0;
+      return sum + debit;
+    }, 0);
+
+    const totalCredits = editJournalModal.editEntry.lines.reduce((sum, line) => {
+      const credit = parseFloat(line.credit) || 0;
+      return sum + credit;
+    }, 0);
+
+    return { totalDebits, totalCredits };
+  };
+
+  const handleCreateCategory = async () => {
+    if (!newCategoryModal.name.trim() || !currentCompany?.id) return;
+
+    try {
+      const newCategory = await addCategory({
+        name: newCategoryModal.name.trim(),
+        type: newCategoryModal.type,
+        parent_id: newCategoryModal.parent_id,
+      });
+
+      if (newCategory && newCategoryModal.lineId) {
+        // Update the line with the new category
+        updateEditJournalLine(newCategoryModal.lineId, "categoryId", newCategory.id);
+      }
+
+      setNewCategoryModal({
+        isOpen: false,
+        name: "",
+        type: "Expense",
+        parent_id: null,
+        lineId: null,
+      });
+    } catch (error) {
+      console.error("Failed to create category:", error);
+    }
   };
 
   // Save report function
@@ -999,6 +1259,58 @@ export default function PnLPage() {
           endDate={endDate}
           companyName={currentCompany.name}
           getCategoryName={getCategoryName}
+          onTransactionClick={handleTransactionClick}
+        />
+      )}
+      
+      {/* Transaction Modals */}
+      {editJournalModal.isOpen && (
+        <TransactionModal
+          modalState={editJournalModal}
+          categories={categories}
+          payees={payees}
+          accounts={bankAccounts}
+          selectedAccountId={editJournalModal.selectedAccountId || null}
+          selectedAccountCategoryId={editJournalModal.selectedAccountCategoryId || null}
+          onClose={() => setEditJournalModal((prev) => ({ ...prev, isOpen: false }))}
+          onUpdateLine={updateEditJournalLine}
+          onAmountChange={handleEditAmountChange}
+          onAddLine={addEditLine}
+          onRemoveLine={removeEditLine}
+          onSave={handleSaveJournalEntry}
+          onDateChange={(date) => setEditJournalModal((prev) => ({ ...prev, editEntry: { ...prev.editEntry, date } }))}
+          onAccountChange={() => {}}
+          onOpenCategoryModal={(lineId) => setNewCategoryModal({ isOpen: true, name: "", type: "Expense", parent_id: null, lineId })}
+          calculateTotals={calculateTotals}
+        />
+      )}
+
+      {editManualModal.isOpen && (
+        <ManualJeModal
+          showAddModal={false}
+          setShowAddModal={() => {}}
+          newEntry={{} as NewJournalEntry}
+          setNewEntry={() => {}}
+          saving={false}
+          isBalanced={true}
+          totalDebits={0}
+          totalCredits={0}
+          addJournalLine={() => {}}
+          removeJournalLine={() => {}}
+          updateJournalLine={() => {}}
+          handleAmountChange={() => {}}
+          handleAddEntry={async () => {}}
+          editModal={editManualModal}
+          setEditModal={setEditManualModal}
+          updateEditJournalLine={() => {}}
+          handleEditAmountChange={() => {}}
+          addEditJournalLine={() => {}}
+          removeEditJournalLine={() => {}}
+          calculateEditTotals={() => ({ totalDebits: 0, totalCredits: 0 })}
+          handleSaveEditEntry={async () => {}}
+          categoryOptions={categories.map(c => ({ value: c.id, label: c.name }))}
+          payees={payees}
+          setNewCategoryModal={setNewCategoryModal}
         />
       )}
     </div>
