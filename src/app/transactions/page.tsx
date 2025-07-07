@@ -94,6 +94,7 @@ type ImportModalState = {
   isLoading: boolean;
   error: string | null;
   selectedTransactions: Set<string>;
+  signsReversed: boolean;
 };
 
 type CSVRow = {
@@ -302,6 +303,7 @@ export default function TransactionsPage() {
     isLoading: false,
     error: null,
     selectedTransactions: new Set(),
+    signsReversed: false,
   });
 
   const [editModal, setEditModal] = useState<{
@@ -1318,6 +1320,36 @@ export default function TransactionsPage() {
       } as unknown as React.ChangeEvent<HTMLInputElement>;
       handleFileUpload(event);
     }
+  };
+
+  // Function to handle sign reversal toggle
+  const handleSignReversal = () => {
+    setImportModal((prev) => {
+      const newSignsReversed = !prev.signsReversed;
+      
+      // Update the transaction amounts when signs are reversed
+      const updatedCsvData = prev.csvData.map((tx) => {
+        const currentAmount = parseFloat(tx.amount || "0");
+        const reversedAmount = -currentAmount;
+        
+        // Convert amount to spent/received: negative amounts are spent, positive are received
+        const spent = reversedAmount < 0 ? Math.abs(reversedAmount) : 0;
+        const received = reversedAmount > 0 ? reversedAmount : 0;
+        
+        return {
+          ...tx,
+          amount: toFinancialAmount(reversedAmount),
+          spent: spent > 0 ? toFinancialAmount(spent) : toFinancialAmount(0),
+          received: received > 0 ? toFinancialAmount(received) : toFinancialAmount(0),
+        };
+      });
+      
+      return {
+        ...prev,
+        signsReversed: newSignsReversed,
+        csvData: updatedCsvData,
+      };
+    });
   };
 
   // handleEditTransaction - commented out until edit modal component is implemented
@@ -2654,6 +2686,21 @@ export default function TransactionsPage() {
                     <div className="space-y-4">
                       <div className="flex justify-between items-center">
                         <h3 className="text-sm font-medium text-gray-700">Review Transactions</h3>
+                        <div className="flex items-center gap-2">
+                          <label className="text-sm text-gray-600">Reverse Signs</label>
+                          <button
+                            onClick={handleSignReversal}
+                            className={`relative inline-flex h-4 w-8 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 ${
+                              importModal.signsReversed ? 'bg-gray-900' : 'bg-gray-200'
+                            }`}
+                          >
+                            <span
+                              className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
+                                importModal.signsReversed ? 'translate-x-4.5' : 'translate-x-1'
+                              }`}
+                            />
+                          </button>
+                        </div>
                       </div>
                       <div className="border rounded-lg overflow-hidden max-h-96 overflow-y-auto">
                         <table className="min-w-full divide-y divide-gray-200">
