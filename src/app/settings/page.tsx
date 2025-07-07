@@ -593,7 +593,7 @@ export default function SettingsPage() {
 
     try {
       // Use API endpoint for better security and validation
-      const response = await api.put("/api/update-company", updatedData);
+      const response = await api.put("/api/company/update", updatedData);
 
       if (!response.ok) {
         const errorData = await response.json();
