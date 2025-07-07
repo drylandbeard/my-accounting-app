@@ -3,7 +3,6 @@
 import React, { useState, useEffect } from "react";
 import { useAuthStore } from "@/zustand/authStore";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Plus, FileText, TrendingUp, DollarSign, BarChart3, Eye, Trash2, Edit2 } from "lucide-react";
 import Link from "next/link";
 import { api } from "@/lib/api";
@@ -246,26 +245,27 @@ export default function ReportsPage() {
                           </div>
                           <div className="flex items-center gap-1 ml-2">
                             <Link href={`${getReportUrl(report.type)}?reportId=${report.id}`}>
-                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                                <Eye className="w-3.5 h-3.5" />
-                              </Button>
+                              <button
+                                className="border px-2 py-1 rounded text-xs flex items-center space-x-1 bg-gray-100 hover:bg-gray-200"
+                                title="View Report"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
                             </Link>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-8 w-8 p-0"
+                            <button
+                              className="border px-2 py-1 rounded text-xs flex items-center space-x-1 bg-gray-100 hover:bg-gray-200"
+                              title="Edit Report"
                               onClick={() => handleEditReport(report)}
                             >
-                              <Edit2 className="w-3.5 h-3.5" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-8 w-8 p-0"
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button
+                              className="border px-2 py-1 rounded text-xs flex items-center space-x-1 bg-gray-100 hover:bg-gray-200"
+                              title="Delete Report"
                               onClick={() => deleteSavedReport(report.id)}
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </Button>
+                              <Trash2 className="w-4 h-4" />
+                            </button>
                           </div>
                         </div>
                       </div>

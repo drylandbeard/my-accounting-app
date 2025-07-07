@@ -1,7 +1,6 @@
 "use client";
 
 import React from "react";
-import { Button } from "@/components/ui/button";
 import { Download, Loader2, Save } from "lucide-react";
 import { PeriodSelector } from "@/components/ui/period-selector";
 import { DatePicker } from "@/components/ui/date-picker";
@@ -125,14 +124,22 @@ export function ReportHeader({
 
         <div className="flex justify-center gap-2">
           {onSaveReport && (
-            <Button variant="outline" onClick={onSaveReport} className="text-xs font-medium flex items-center gap-2">
+            <button
+              onClick={onSaveReport}
+              title="Save Report"
+              className="border px-3 py-1 rounded text-xs flex items-center space-x-1 bg-gray-100 hover:bg-gray-200"
+            >
               <Save className="w-4 h-4" />
-              Save Report
-            </Button>
+            </button>
           )}
-          <Button variant="outline" onClick={exportToXLSX} disabled={loading} className="text-xs font-medium">
+          <button
+            onClick={exportToXLSX}
+            disabled={loading}
+            title="Export to XLSX"
+            className="border px-3 py-1 rounded text-xs flex items-center space-x-1 bg-gray-100 hover:bg-gray-200"
+          >
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-          </Button>
+          </button>
         </div>
       </div>
     </div>

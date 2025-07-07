@@ -6,8 +6,7 @@ import { supabase } from "../../lib/supabase";
 import { Select } from "@/components/ui/select";
 import Papa from "papaparse";
 import { v4 as uuidv4 } from "uuid";
-import { X, FileDown, Plus } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { X, Plus } from "lucide-react";
 
 type PayeeAutomation = {
   id: string;
@@ -1091,32 +1090,30 @@ export default function AutomationsPage() {
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-semibold">Payee Automations</h2>
             <div className="flex gap-2">
-              <Button
-                variant="outline"
+              <button
                 onClick={() =>
                   setPayeeAutomationModal({
                     ...payeeAutomationModal,
                     isOpen: true,
                   })
                 }
-                className="text-xs font-medium"
+                className="border px-3 py-1 rounded text-xs flex items-center space-x-1 bg-gray-100 hover:bg-gray-200"
                 title="New Payee Automation"
               >
                 <Plus className="w-4 h-4" />
-              </Button>
-              <Button
-                variant="outline"
+              </button>
+              <button
                 onClick={() =>
                   setAutomationImportModal((prev) => ({
                     ...prev,
                     isOpen: true,
                   }))
                 }
-                className="text-xs font-medium"
+                className="border px-3 py-1 rounded text-xs flex items-center space-x-1 bg-gray-100 hover:bg-gray-200"
                 title="Import"
               >
-                <FileDown className="w-4 h-4" />
-              </Button>
+                Import
+              </button>
             </div>
           </div>
 
@@ -1180,32 +1177,30 @@ export default function AutomationsPage() {
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-semibold">Category Automations</h2>
             <div className="flex gap-2">
-              <Button
-                variant="outline"
+              <b
                 onClick={() =>
                   setCategoryAutomationModal({
                     ...categoryAutomationModal,
                     isOpen: true,
                   })
                 }
-                className="text-xs font-medium"
+                className="border px-3 py-1 rounded text-xs flex items-center space-x-1 bg-gray-100 hover:bg-gray-200"
                 title="New Category Automation"
               >
                 <Plus className="w-4 h-4" />
-              </Button>
-              <Button
-                variant="outline"
+              </b>
+              <button
                 onClick={() =>
                   setAutomationImportModal((prev) => ({
                     ...prev,
                     isOpen: true,
                   }))
                 }
-                className="text-xs font-medium"
+                className="border px-3 py-1 rounded text-xs flex items-center space-x-1 bg-gray-100 hover:bg-gray-200"
                 title="Import"
               >
-                <FileDown className="w-4 h-4" />
-              </Button>
+                Import
+              </button>
             </div>
           </div>
 
