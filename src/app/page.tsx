@@ -18,12 +18,40 @@ interface TeamMember {
   name: string;
   email: string;
   is_access_enabled: boolean;
+  userId?: string; // The actual user_id for API calls
 }
 
 interface TeamMemberModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAddTeamMember: (name: string, email: string) => Promise<void>;
+}
+
+interface ManageAccessModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  member: TeamMember | null;
+  onAccessChanged: () => void;
+}
+
+interface GrantedCompany {
+  accessGrantId: string;
+  company: {
+    id: string;
+    name: string;
+    description?: string;
+  };
+  grantedAt: string;
+}
+
+interface AvailableCompany {
+  company: {
+    id: string;
+    name: string;
+    description?: string;
+  };
+  accountantRole: string;
+  hasAccess: boolean;
 }
 
 function CompanyModal({ isOpen, onClose, onCreateCompany }: CompanyModalProps) {
@@ -223,6 +251,239 @@ function TeamMemberModal({ isOpen, onClose, onAddTeamMember }: TeamMemberModalPr
   );
 }
 
+function ManageAccessModal({ isOpen, onClose, member, onAccessChanged }: ManageAccessModalProps) {
+  const [grantedCompanies, setGrantedCompanies] = useState<GrantedCompany[]>([]);
+  const [availableCompanies, setAvailableCompanies] = useState<AvailableCompany[]>([]);
+  const [memberUserId, setMemberUserId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isGranting, setIsGranting] = useState<string | null>(null);
+  const [isRevoking, setIsRevoking] = useState<string | null>(null);
+  const [error, setError] = useState("");
+
+  // Fetch member's company access when modal opens
+  useEffect(() => {
+    if (isOpen && member?.id) {
+      fetchMemberAccess();
+    }
+  }, [isOpen, member?.id]);
+
+  const fetchMemberAccess = async () => {
+    if (!member?.id) return;
+
+    setIsLoading(true);
+    setError("");
+    setMemberUserId(null);
+
+    try {
+      const response = await api.get(`/api/accountant/member-company-access/${member.id}`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        setGrantedCompanies(data.grantedCompanies || []);
+        setAvailableCompanies(data.availableCompanies || []);
+        setMemberUserId(data.teamMember?.userId || null);
+      } else {
+        const errorData = await response.json();
+        setError(errorData.error || "Failed to fetch company access");
+      }
+    } catch (error) {
+      console.error("Error fetching member access:", error);
+      setError("Failed to fetch company access");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleGrantAccess = async (companyId: string) => {
+    if (!memberUserId) return;
+
+    setIsGranting(companyId);
+    setError("");
+
+    try {
+      const response = await api.post("/api/accountant/grant-company-access", {
+        memberUserId: memberUserId,
+        companyId
+      });
+
+      if (response.ok) {
+        await fetchMemberAccess(); // Refresh data
+        onAccessChanged(); // Notify parent to refresh team list if needed
+      } else {
+        const errorData = await response.json();
+        setError(errorData.error || "Failed to grant access");
+      }
+    } catch (error) {
+      console.error("Error granting access:", error);
+      setError("Failed to grant access");
+    } finally {
+      setIsGranting(null);
+    }
+  };
+
+  const handleRevokeAccess = async (companyId: string) => {
+    if (!memberUserId) return;
+
+    const confirmRevoke = confirm(`Are you sure you want to revoke ${member?.name}'s access to this company?`);
+    if (!confirmRevoke) return;
+
+    setIsRevoking(companyId);
+    setError("");
+
+    try {
+      const response = await api.delete("/api/accountant/revoke-company-access", {
+        body: JSON.stringify({
+          memberUserId: memberUserId,
+          companyId
+        }),
+      });
+
+      if (response.ok) {
+        await fetchMemberAccess(); // Refresh data
+        onAccessChanged(); // Notify parent to refresh team list if needed
+      } else {
+        const errorData = await response.json();
+        setError(errorData.error || "Failed to revoke access");
+      }
+    } catch (error) {
+      console.error("Error revoking access:", error);
+      setError("Failed to revoke access");
+    } finally {
+      setIsRevoking(null);
+    }
+  };
+
+  if (!isOpen || !member) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[80vh] overflow-hidden">
+        <div className="flex justify-between items-center px-6 py-4 border-b border-gray-200">
+          <h2 className="text-lg font-semibold text-gray-900">
+            Manage Company Access - {member.name}
+          </h2>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        
+        <div className="p-6 overflow-y-auto max-h-[calc(80vh-120px)]">
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm mb-4">
+              {error}
+            </div>
+          )}
+
+                     {isLoading ? (
+             <div className="flex items-center justify-center py-8">
+               <div className="w-6 h-6 relative">
+                 <div className="w-6 h-6 border-2 border-gray-200 rounded-full"></div>
+                 <div className="w-6 h-6 border-2 border-black border-t-transparent rounded-full animate-spin absolute top-0 left-0"></div>
+               </div>
+               <span className="ml-2 text-gray-600">Loading company access...</span>
+             </div>
+           ) : !memberUserId ? (
+             <div className="text-center py-8">
+               <p className="text-gray-600 mb-2">
+                 {member?.name} hasn&apos;t accepted their team invitation yet.
+               </p>
+               <p className="text-sm text-gray-500">
+                 Company access can be managed once they complete their account setup.
+               </p>
+             </div>
+           ) : (
+            <div className="space-y-6">
+              {/* Currently Granted Access */}
+              <div>
+                <h3 className="text-md font-medium text-gray-900 mb-3">
+                  Companies with Access ({grantedCompanies.length})
+                </h3>
+                {grantedCompanies.length > 0 ? (
+                  <div className="border border-gray-200 rounded-md overflow-hidden">
+                    {grantedCompanies.map((granted) => (
+                      <div key={granted.company.id} className="flex justify-between items-center px-4 py-3 border-b border-gray-100 last:border-b-0">
+                        <div>
+                          <p className="font-medium text-gray-900">{granted.company.name}</p>
+                          {granted.company.description && (
+                            <p className="text-sm text-gray-500">{granted.company.description}</p>
+                          )}
+                          <p className="text-xs text-gray-400">
+                            Granted: {new Date(granted.grantedAt).toLocaleDateString()}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => handleRevokeAccess(granted.company.id)}
+                          disabled={isRevoking === granted.company.id}
+                          className="px-3 py-1 text-sm text-red-600 hover:text-red-800 border border-red-300 rounded hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                          {isRevoking === granted.company.id ? "Revoking..." : "Revoke"}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-gray-500 text-sm italic">No company access granted yet.</p>
+                )}
+              </div>
+
+              {/* Available Companies to Grant */}
+              <div>
+                <h3 className="text-md font-medium text-gray-900 mb-3">
+                  Available Companies to Grant Access
+                </h3>
+                {availableCompanies.filter(comp => !comp.hasAccess).length > 0 ? (
+                  <div className="border border-gray-200 rounded-md overflow-hidden">
+                    {availableCompanies
+                      .filter(comp => !comp.hasAccess)
+                      .map((available) => (
+                        <div key={available.company.id} className="flex justify-between items-center px-4 py-3 border-b border-gray-100 last:border-b-0">
+                          <div>
+                            <p className="font-medium text-gray-900">{available.company.name}</p>
+                            {available.company.description && (
+                              <p className="text-sm text-gray-500">{available.company.description}</p>
+                            )}
+                            <p className="text-xs text-gray-400">
+                              Your role: {available.accountantRole}
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => handleGrantAccess(available.company.id)}
+                            disabled={isGranting === available.company.id}
+                            className="px-3 py-1 text-sm text-green-600 hover:text-green-800 border border-green-300 rounded hover:bg-green-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                          >
+                            {isGranting === available.company.id ? "Granting..." : "Grant Access"}
+                          </button>
+                        </div>
+                      ))}
+                  </div>
+                ) : (
+                  <p className="text-gray-500 text-sm italic">
+                    {availableCompanies.length === 0 
+                      ? "No companies available." 
+                      : "All available companies already have access granted."}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-200">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 transition-colors"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function GatewayPage() {
   const { user, companies } = useAuthStore();
   const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
@@ -232,6 +493,8 @@ export default function GatewayPage() {
   const [isTeamMemberModalOpen, setIsTeamMemberModalOpen] = useState(false);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [teamSearchQuery, setTeamSearchQuery] = useState("");
+  const [isManageAccessModalOpen, setIsManageAccessModalOpen] = useState(false);
+  const [selectedTeamMember, setSelectedTeamMember] = useState<TeamMember | null>(null);
 
   const router = useRouter();
   
@@ -459,8 +722,19 @@ export default function GatewayPage() {
   };
 
   const handleManageCompanyAccess = (member: TeamMember) => {
-    // TODO: Implement company access management modal
-    alert(`Company access management for ${member.name} - Coming soon!`);
+    setSelectedTeamMember(member);
+    setIsManageAccessModalOpen(true);
+  };
+
+  const handleCloseManageAccess = () => {
+    setIsManageAccessModalOpen(false);
+    setSelectedTeamMember(null);
+  };
+
+  const handleAccessChanged = () => {
+    // Refresh team members list if needed
+    // For now, we can just close the modal since the changes are immediate
+    // In the future, we might want to refresh the team list to show updated status
   };
 
   // Fetch team members when component mounts for Accountants
@@ -847,6 +1121,14 @@ export default function GatewayPage() {
           isOpen={isTeamMemberModalOpen}
           onClose={() => setIsTeamMemberModalOpen(false)}
           onAddTeamMember={handleAddTeamMember}
+        />
+
+        {/* Manage Access Modal */}
+        <ManageAccessModal
+          isOpen={isManageAccessModalOpen}
+          onClose={handleCloseManageAccess}
+          member={selectedTeamMember}
+          onAccessChanged={handleAccessChanged}
         />
       </main>
     </>

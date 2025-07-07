@@ -135,6 +135,7 @@ export async function GET(
     return NextResponse.json({
       teamMember: {
         id: teamMember.id,
+        userId: teamMember.user_id,
         name: teamMember.name,
         email: teamMember.email,
         hasUserAccount: true
