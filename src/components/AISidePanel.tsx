@@ -1377,7 +1377,7 @@ IMPORTANT: Use the appropriate tools for any data modification operations. For m
 
   return (
     <div style={panelStyle} className={isResizing ? "select-none" : ""}>
-      <div className="flex h-full flex-col bg-white shadow-xl font-sans text-xs">
+      <div className="flex h-screen flex-col bg-white shadow-xl font-sans text-xs" style={{height: "calc(100vh - 2.7rem)"}}>
         <div className="px-4 py-6 sm:px-6 bg-gray-50 border-b border-gray-200">
           <div className="flex items-start justify-between">
             <div className="font-semibold leading-6 text-gray-900 text-xs">Agent</div>
