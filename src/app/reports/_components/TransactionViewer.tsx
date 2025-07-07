@@ -4,7 +4,7 @@ import React from "react";
 import { Download } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Account, Transaction, ViewerModalState } from "../_types";
-import { formatDateForDisplay, formatNumber, getTransactionDisplayAmount } from "../_utils";
+import { formatDateForDisplay, formatNumber, getTransactionDisplayAmount, formatMonth } from "../_utils";
 import ExcelJS from "exceljs";
 
 interface TransactionViewerProps {
@@ -62,7 +62,7 @@ export const TransactionViewer: React.FC<TransactionViewerProps> = ({
 
     worksheet.mergeCells(`A${currentRow}:E${currentRow}`);
     worksheet.getCell(`A${currentRow}`).value = viewerModal.selectedMonth
-      ? `for ${viewerModal.selectedMonth}`
+      ? `for ${formatMonth(viewerModal.selectedMonth)}`
       : `${formatDateForDisplay(startDate)} to ${formatDateForDisplay(endDate)}`;
     worksheet.getCell(`A${currentRow}`).style = { font: { size: 10 }, alignment: { horizontal: "center" as const } };
     currentRow++; // Empty row
@@ -159,7 +159,7 @@ export const TransactionViewer: React.FC<TransactionViewerProps> = ({
         <div className="p-4 border-b flex justify-between items-center">
           <h2 className="text-lg font-semibold">
             {viewerModal.category?.name} Transactions
-            {viewerModal.selectedMonth && ` for ${viewerModal.selectedMonth}`}
+            {viewerModal.selectedMonth && ` for ${formatMonth(viewerModal.selectedMonth)}`}
           </h2>
           <div className="flex items-center gap-4">
             {selectedCategoryTransactions.length > 0 && (

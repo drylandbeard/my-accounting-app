@@ -446,7 +446,11 @@ export default function BalanceSheetPage() {
 
   return (
     <div className="p-6 bg-white min-h-screen">
-      <div className="max-w-7xl mx-auto">
+      <div
+        className={`mx-auto ${
+          getMonthsInRange(startDate, asOfDate).length > 6 ? "max-w-full" : "max-w-7xl"
+        } animate-in fade-in`}
+      >
         <ReportHeader
           startDate={startDate}
           endDate={asOfDate}
@@ -478,498 +482,490 @@ export default function BalanceSheetPage() {
                 : `As of ${formatDateForDisplay(asOfDate)}`}
             </p>
 
-            <Table className="border border-gray-300">
-              <TableHeader className="bg-gray-100">
-                <TableRow>
-                  <TableHead
-                    className="border p-1 text-center text-xs whitespace-nowrap"
-                    style={{
-                      width:
-                        (isMonthlyView || isQuarterlyView) && showPercentages
-                          ? "25%"
-                          : isMonthlyView || isQuarterlyView
-                          ? "30%"
-                          : showPercentages
-                          ? "50%"
-                          : "70%",
-                    }}
-                  ></TableHead>
-                  {isMonthlyView ? (
-                    <>
-                      {getMonthsInRange(startDate, asOfDate).map((month) => (
-                        <React.Fragment key={month}>
+            <div className="overflow-x-auto">
+              <Table className="border border-gray-300 w-full table-auto">
+                <TableHeader className="bg-gray-100">
+                  <TableRow>
+                    <TableHead
+                      className="border p-1 text-center text-xs whitespace-nowrap"
+                      style={{
+                        width:
+                          (isMonthlyView || isQuarterlyView) && showPercentages
+                            ? "25%"
+                            : isMonthlyView || isQuarterlyView
+                            ? "30%"
+                            : showPercentages
+                            ? "50%"
+                            : "70%",
+                      }}
+                    ></TableHead>
+                    {isMonthlyView ? (
+                      <>
+                        {getMonthsInRange(startDate, asOfDate).map((month) => (
+                          <React.Fragment key={month}>
+                            <TableHead
+                              className="border p-1 text-center text-xs whitespace-nowrap"
+                              style={{ width: `${65 / (getMonthsInRange(startDate, endDate).length + 1)}%` }}
+                            >
+                              {formatMonth(month)}
+                            </TableHead>
+                            {showPercentages && (
+                              <TableHead className="border p-1 text-center text-xs whitespace-nowrap">%</TableHead>
+                            )}
+                          </React.Fragment>
+                        ))}
+                        <TableHead
+                          className="border p-1 text-center text-xs"
+                          style={{ width: `${65 / (getMonthsInRange(startDate, endDate).length + 1)}%` }}
+                        >
+                          Total
+                        </TableHead>
+                        {showPercentages && (
                           <TableHead
-                            className="border p-1 text-center text-xs whitespace-nowrap"
-                            style={{ width: showPercentages ? "7%" : "10%" }}
+                            className="border p-1 text-center text-xs"
+                            style={{ width: `${65 / (getMonthsInRange(startDate, endDate).length + 1)}%` }}
                           >
-                            {formatMonth(month)}
+                            %
                           </TableHead>
-                          {showPercentages && (
-                            <TableHead className="border p-1 text-center text-xs whitespace-nowrap">%</TableHead>
-                          )}
-                        </React.Fragment>
-                      ))}
-                      <TableHead
-                        className="border p-1 text-center text-xs"
-                        style={{ width: showPercentages ? "7%" : "10%" }}
-                      >
-                        Total
-                      </TableHead>
-                      {showPercentages && <TableHead className="border p-1 text-center text-xs">%</TableHead>}
-                    </>
-                  ) : isQuarterlyView ? (
-                    <>
-                      {getQuartersInRange(startDate, asOfDate).map((quarter) => (
-                        <React.Fragment key={quarter}>
-                          <TableHead
-                            className="border p-1 text-center text-xs whitespace-nowrap"
-                            style={{ width: showPercentages ? "7%" : "10%" }}
-                          >
-                            {formatQuarter(quarter)}
-                          </TableHead>
-                          {showPercentages && (
-                            <TableHead className="border p-1 text-center text-xs whitespace-nowrap">%</TableHead>
-                          )}
-                        </React.Fragment>
-                      ))}
-                      <TableHead
-                        className="border p-1 text-center text-xs"
-                        style={{ width: showPercentages ? "7%" : "10%" }}
-                      >
-                        Total
-                      </TableHead>
-                      {showPercentages && <TableHead className="border p-1 text-center text-xs">%</TableHead>}
-                    </>
+                        )}
+                      </>
+                    ) : isQuarterlyView ? (
+                      <>
+                        {getQuartersInRange(startDate, asOfDate).map((quarter) => (
+                          <React.Fragment key={quarter}>
+                            <TableHead
+                              className="border p-1 text-center text-xs whitespace-nowrap"
+                              style={{ width: showPercentages ? "7%" : "10%" }}
+                            >
+                              {formatQuarter(quarter)}
+                            </TableHead>
+                            {showPercentages && (
+                              <TableHead className="border p-1 text-center text-xs whitespace-nowrap">%</TableHead>
+                            )}
+                          </React.Fragment>
+                        ))}
+                        <TableHead
+                          className="border p-1 text-center text-xs"
+                          style={{ width: showPercentages ? "7%" : "10%" }}
+                        >
+                          Total
+                        </TableHead>
+                        {showPercentages && <TableHead className="border p-1 text-center text-xs">%</TableHead>}
+                      </>
+                    ) : (
+                      <>
+                        <TableHead className="border p-1 text-center text-xs">
+                          {showPercentages ? "Amount" : "Total"}
+                        </TableHead>
+                        {showPercentages && <TableHead className="border p-1 text-center text-xs">%</TableHead>}
+                      </>
+                    )}
+                  </TableRow>
+                </TableHeader>
+
+                <TableBody>
+                  {loading || loadingSavedReport ? (
+                    <TableRow>
+                      <TableCell colSpan={getTotalColumns()} className="border p-4 text-center">
+                        <div className="flex flex-col items-center space-y-3">
+                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-black"></div>
+                          <span className="text-xs">Loading balance sheet data...</span>
+                        </div>
+                      </TableCell>
+                    </TableRow>
                   ) : (
                     <>
-                      <TableHead className="border p-1 text-center text-xs">
-                        {showPercentages ? "Amount" : "Total"}
-                      </TableHead>
-                      {showPercentages && <TableHead className="border p-1 text-center text-xs">%</TableHead>}
-                    </>
-                  )}
-                </TableRow>
-              </TableHeader>
+                      {/* Assets Section */}
+                      <TableRow className="bg-muted/50">
+                        <TableCell colSpan={getTotalColumns()} className="border p-1 font-semibold text-xs">
+                          ASSETS
+                        </TableCell>
+                      </TableRow>
+                      {assetAccounts.map((account) => renderAccountRow(account))}
 
-              <TableBody>
-                {loading || loadingSavedReport ? (
-                  <TableRow>
-                    <TableCell colSpan={getTotalColumns()} className="border p-4 text-center">
-                      <div className="flex flex-col items-center space-y-3">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-black"></div>
-                        <span className="text-xs">Loading balance sheet data...</span>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  <>
-                    {/* Assets Section */}
-                    <TableRow className="bg-muted/50">
-                      <TableCell colSpan={getTotalColumns()} className="border p-1 font-semibold text-xs">
-                        ASSETS
-                      </TableCell>
-                    </TableRow>
-                    {assetAccounts.map((account) => renderAccountRow(account))}
-
-                    {/* Total Assets */}
-                    <TableRow
-                      className="cursor-pointer hover:bg-blue-50 font-semibold"
-                      onClick={() =>
-                        setViewerModal({
-                          isOpen: true,
-                          category: { id: "ASSETS_GROUP", name: "Total Assets", type: "Asset", parent_id: null },
-                        })
-                      }
-                    >
-                      <TableCell className="border p-1 text-xs font-semibold">TOTAL ASSETS</TableCell>
-                      {isMonthlyView ? (
-                        <>
-                          {getMonthsInRange(startDate, asOfDate).map((month) => (
-                            <React.Fragment key={month}>
-                              <TableCell className="border p-1 text-right font-semibold text-xs">
-                                {formatNumber(
-                                  assetAccounts.reduce(
-                                    (sum, a) =>
-                                      sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month),
-                                    0
-                                  )
-                                )}
-                              </TableCell>
-                              {showPercentages && (
-                                <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
-                                  100.0%
+                      {/* Total Assets */}
+                      <TableRow
+                        className="cursor-pointer hover:bg-blue-50 font-semibold"
+                        onClick={() =>
+                          setViewerModal({
+                            isOpen: true,
+                            category: { id: "ASSETS_GROUP", name: "Total Assets", type: "Asset", parent_id: null },
+                          })
+                        }
+                      >
+                        <TableCell className="border p-1 text-xs font-semibold">TOTAL ASSETS</TableCell>
+                        {isMonthlyView ? (
+                          <>
+                            {getMonthsInRange(startDate, asOfDate).map((month) => (
+                              <React.Fragment key={month}>
+                                <TableCell className="border p-1 text-right font-semibold text-xs">
+                                  {formatNumber(
+                                    assetAccounts.reduce(
+                                      (sum, a) =>
+                                        sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month),
+                                      0
+                                    )
+                                  )}
                                 </TableCell>
-                              )}
-                            </React.Fragment>
-                          ))}
-                          <TableCell className="border p-1 text-right font-semibold text-xs">
-                            {formatNumber(totalAssets)}
-                          </TableCell>
-                          {showPercentages && (
-                            <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
-                              100.0%
-                            </TableCell>
-                          )}
-                        </>
-                      ) : isQuarterlyView ? (
-                        <>
-                          {getQuartersInRange(startDate, asOfDate).map((quarter) => (
-                            <React.Fragment key={quarter}>
-                              <TableCell className="border p-1 text-right font-semibold text-xs">
-                                {formatNumber(
-                                  assetAccounts.reduce(
-                                    (sum, a) =>
-                                      sum + calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter),
-                                    0
-                                  )
+                                {showPercentages && (
+                                  <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                                    100.0%
+                                  </TableCell>
                                 )}
+                              </React.Fragment>
+                            ))}
+                            <TableCell className="border p-1 text-right font-semibold text-xs">
+                              {formatNumber(totalAssets)}
+                            </TableCell>
+                            {showPercentages && (
+                              <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                                100.0%
                               </TableCell>
-                              {showPercentages && (
-                                <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
-                                  100.0%
+                            )}
+                          </>
+                        ) : isQuarterlyView ? (
+                          <>
+                            {getQuartersInRange(startDate, asOfDate).map((quarter) => (
+                              <React.Fragment key={quarter}>
+                                <TableCell className="border p-1 text-right font-semibold text-xs">
+                                  {formatNumber(
+                                    assetAccounts.reduce(
+                                      (sum, a) =>
+                                        sum + calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter),
+                                      0
+                                    )
+                                  )}
                                 </TableCell>
-                              )}
-                            </React.Fragment>
-                          ))}
-                          <TableCell className="border p-1 text-right font-semibold text-xs">
-                            {formatNumber(totalAssets)}
-                          </TableCell>
-                          {showPercentages && (
-                            <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
-                              100.0%
-                            </TableCell>
-                          )}
-                        </>
-                      ) : (
-                        <>
-                          <TableCell className="border p-1 text-right font-semibold text-xs">
-                            {formatNumber(totalAssets)}
-                          </TableCell>
-                          {showPercentages && (
-                            <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
-                              100.0%
-                            </TableCell>
-                          )}
-                        </>
-                      )}
-                    </TableRow>
-
-                    {/* Liabilities Section */}
-                    <TableRow className="bg-muted/50">
-                      <TableCell colSpan={getTotalColumns()} className="border p-1 font-semibold text-xs">
-                        LIABILITIES
-                      </TableCell>
-                    </TableRow>
-                    {liabilityAccounts.map((account) => renderAccountRow(account))}
-
-                    {/* Total Liabilities */}
-                    <TableRow
-                      className="cursor-pointer hover:bg-blue-50 font-semibold"
-                      onClick={() =>
-                        setViewerModal({
-                          isOpen: true,
-                          category: {
-                            id: "LIABILITIES_GROUP",
-                            name: "Total Liabilities",
-                            type: "Liability",
-                            parent_id: null,
-                          },
-                        })
-                      }
-                    >
-                      <TableCell className="border p-1 text-xs font-semibold">TOTAL LIABILITIES</TableCell>
-                      {isMonthlyView ? (
-                        <>
-                          {getMonthsInRange(startDate, asOfDate).map((month) => (
-                            <React.Fragment key={month}>
-                              <TableCell className="border p-1 text-right font-semibold text-xs">
-                                {formatNumber(
-                                  liabilityAccounts.reduce(
-                                    (sum, a) =>
-                                      sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month),
-                                    0
-                                  )
+                                {showPercentages && (
+                                  <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                                    100.0%
+                                  </TableCell>
                                 )}
+                              </React.Fragment>
+                            ))}
+                            <TableCell className="border p-1 text-right font-semibold text-xs">
+                              {formatNumber(totalAssets)}
+                            </TableCell>
+                            {showPercentages && (
+                              <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                                100.0%
                               </TableCell>
-                              {showPercentages && (
-                                <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
-                                  {calculatePercentageForMonth(
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <TableCell className="border p-1 text-right font-semibold text-xs">
+                              {formatNumber(totalAssets)}
+                            </TableCell>
+                            {showPercentages && (
+                              <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                                100.0%
+                              </TableCell>
+                            )}
+                          </>
+                        )}
+                      </TableRow>
+
+                      {/* Liabilities Section */}
+                      <TableRow className="bg-muted/50">
+                        <TableCell colSpan={getTotalColumns()} className="border p-1 font-semibold text-xs">
+                          LIABILITIES
+                        </TableCell>
+                      </TableRow>
+                      {liabilityAccounts.map((account) => renderAccountRow(account))}
+
+                      {/* Total Liabilities */}
+                      <TableRow
+                        className="cursor-pointer hover:bg-blue-50 font-semibold"
+                        onClick={() =>
+                          setViewerModal({
+                            isOpen: true,
+                            category: {
+                              id: "LIABILITIES_GROUP",
+                              name: "Total Liabilities",
+                              type: "Liability",
+                              parent_id: null,
+                            },
+                          })
+                        }
+                      >
+                        <TableCell className="border p-1 text-xs font-semibold">TOTAL LIABILITIES</TableCell>
+                        {isMonthlyView ? (
+                          <>
+                            {getMonthsInRange(startDate, asOfDate).map((month) => (
+                              <React.Fragment key={month}>
+                                <TableCell className="border p-1 text-right font-semibold text-xs">
+                                  {formatNumber(
                                     liabilityAccounts.reduce(
                                       (sum, a) =>
                                         sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month),
                                       0
-                                    ),
-                                    month
+                                    )
                                   )}
                                 </TableCell>
-                              )}
-                            </React.Fragment>
-                          ))}
-                          <TableCell className="border p-1 text-right font-semibold text-xs">
-                            {formatNumber(totalLiabilities)}
-                          </TableCell>
-                          {showPercentages && (
-                            <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
-                              {formatPercentageForAccount(totalLiabilities)}
-                            </TableCell>
-                          )}
-                        </>
-                      ) : isQuarterlyView ? (
-                        <>
-                          {getQuartersInRange(startDate, asOfDate).map((quarter) => (
-                            <React.Fragment key={quarter}>
-                              <TableCell className="border p-1 text-right font-semibold text-xs">
-                                {formatNumber(
-                                  liabilityAccounts.reduce(
-                                    (sum, a) =>
-                                      sum + calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter),
-                                    0
-                                  )
+                                {showPercentages && (
+                                  <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                                    {calculatePercentageForMonth(
+                                      liabilityAccounts.reduce(
+                                        (sum, a) =>
+                                          sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month),
+                                        0
+                                      ),
+                                      month
+                                    )}
+                                  </TableCell>
                                 )}
+                              </React.Fragment>
+                            ))}
+                            <TableCell className="border p-1 text-right font-semibold text-xs">
+                              {formatNumber(totalLiabilities)}
+                            </TableCell>
+                            {showPercentages && (
+                              <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                                {formatPercentageForAccount(totalLiabilities)}
                               </TableCell>
-                              {showPercentages && (
-                                <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
-                                  {calculatePercentageForQuarter(
+                            )}
+                          </>
+                        ) : isQuarterlyView ? (
+                          <>
+                            {getQuartersInRange(startDate, asOfDate).map((quarter) => (
+                              <React.Fragment key={quarter}>
+                                <TableCell className="border p-1 text-right font-semibold text-xs">
+                                  {formatNumber(
                                     liabilityAccounts.reduce(
                                       (sum, a) =>
                                         sum + calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter),
                                       0
-                                    ),
-                                    quarter
+                                    )
                                   )}
                                 </TableCell>
-                              )}
-                            </React.Fragment>
-                          ))}
-                          <TableCell className="border p-1 text-right font-semibold text-xs">
-                            {formatNumber(totalLiabilities)}
-                          </TableCell>
-                          {showPercentages && (
-                            <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
-                              {formatPercentageForAccount(totalLiabilities)}
-                            </TableCell>
-                          )}
-                        </>
-                      ) : (
-                        <>
-                          <TableCell className="border p-1 text-right font-semibold text-xs">
-                            {formatNumber(totalLiabilities)}
-                          </TableCell>
-                          {showPercentages && (
-                            <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
-                              {formatPercentageForAccount(totalLiabilities)}
-                            </TableCell>
-                          )}
-                        </>
-                      )}
-                    </TableRow>
-
-                    {/* Equity Section */}
-                    <TableRow className="bg-muted/50">
-                      <TableCell colSpan={getTotalColumns()} className="border p-1 font-semibold text-xs">
-                        EQUITY
-                      </TableCell>
-                    </TableRow>
-                    {equityAccounts.map((account) => renderAccountRow(account))}
-
-                    {/* Retained Earnings */}
-                    <TableRow
-                      className="cursor-pointer hover:bg-gray-100"
-                      onClick={() =>
-                        setViewerModal({
-                          isOpen: true,
-                          category: {
-                            id: "RETAINED_EARNINGS",
-                            name: "Retained Earnings",
-                            type: "Equity",
-                            parent_id: null,
-                          },
-                        })
-                      }
-                    >
-                      <TableCell className="border p-1 text-xs font-semibold">Retained Earnings</TableCell>
-                      {isMonthlyView ? (
-                        <>
-                          {getMonthsInRange(startDate, asOfDate).map((month) => (
-                            <React.Fragment key={month}>
-                              <TableCell className="border p-1 text-right text-xs">
-                                {formatNumber(retainedEarnings)}
-                              </TableCell>
-                              {showPercentages && (
-                                <TableCell className="border p-1 text-right text-xs text-slate-600">
-                                  {calculatePercentageForMonth(retainedEarnings, month)}
-                                </TableCell>
-                              )}
-                            </React.Fragment>
-                          ))}
-                          <TableCell className="border p-1 text-right text-xs">
-                            {formatNumber(retainedEarnings)}
-                          </TableCell>
-                          {showPercentages && (
-                            <TableCell className="border p-1 text-right text-xs text-slate-600">
-                              {formatPercentageForAccount(retainedEarnings)}
-                            </TableCell>
-                          )}
-                        </>
-                      ) : isQuarterlyView ? (
-                        <>
-                          {getQuartersInRange(startDate, asOfDate).map((quarter) => (
-                            <React.Fragment key={quarter}>
-                              <TableCell className="border p-1 text-right text-xs">
-                                {formatNumber(retainedEarnings)}
-                              </TableCell>
-                              {showPercentages && (
-                                <TableCell className="border p-1 text-right text-xs text-slate-600">
-                                  {calculatePercentageForQuarter(retainedEarnings, quarter)}
-                                </TableCell>
-                              )}
-                            </React.Fragment>
-                          ))}
-                          <TableCell className="border p-1 text-right text-xs">
-                            {formatNumber(retainedEarnings)}
-                          </TableCell>
-                          {showPercentages && (
-                            <TableCell className="border p-1 text-right text-xs text-slate-600">
-                              {formatPercentageForAccount(retainedEarnings)}
-                            </TableCell>
-                          )}
-                        </>
-                      ) : (
-                        <>
-                          <TableCell className="border p-1 text-right text-xs">
-                            {formatNumber(retainedEarnings)}
-                          </TableCell>
-                          {showPercentages && (
-                            <TableCell className="border p-1 text-right text-xs text-slate-600">
-                              {formatPercentageForAccount(retainedEarnings)}
-                            </TableCell>
-                          )}
-                        </>
-                      )}
-                    </TableRow>
-
-                    {/* Total Equity */}
-                    <TableRow
-                      className="cursor-pointer hover:bg-blue-50 font-semibold"
-                      onClick={() =>
-                        setViewerModal({
-                          isOpen: true,
-                          category: { id: "EQUITY_GROUP", name: "Total Equity", type: "Equity", parent_id: null },
-                        })
-                      }
-                    >
-                      <TableCell className="border p-1 text-xs font-semibold">TOTAL EQUITY</TableCell>
-                      {isMonthlyView ? (
-                        <>
-                          {getMonthsInRange(startDate, asOfDate).map((month) => (
-                            <React.Fragment key={month}>
-                              <TableCell className="border p-1 text-right font-semibold text-xs">
-                                {formatNumber(
-                                  equityAccounts.reduce(
-                                    (sum, a) =>
-                                      sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month),
-                                    0
-                                  ) + retainedEarnings
+                                {showPercentages && (
+                                  <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                                    {calculatePercentageForQuarter(
+                                      liabilityAccounts.reduce(
+                                        (sum, a) =>
+                                          sum + calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter),
+                                        0
+                                      ),
+                                      quarter
+                                    )}
+                                  </TableCell>
                                 )}
+                              </React.Fragment>
+                            ))}
+                            <TableCell className="border p-1 text-right font-semibold text-xs">
+                              {formatNumber(totalLiabilities)}
+                            </TableCell>
+                            {showPercentages && (
+                              <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                                {formatPercentageForAccount(totalLiabilities)}
                               </TableCell>
-                              {showPercentages && (
-                                <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
-                                  {calculatePercentageForMonth(
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <TableCell className="border p-1 text-right font-semibold text-xs">
+                              {formatNumber(totalLiabilities)}
+                            </TableCell>
+                            {showPercentages && (
+                              <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                                {formatPercentageForAccount(totalLiabilities)}
+                              </TableCell>
+                            )}
+                          </>
+                        )}
+                      </TableRow>
+
+                      {/* Equity Section */}
+                      <TableRow className="bg-muted/50">
+                        <TableCell colSpan={getTotalColumns()} className="border p-1 font-semibold text-xs">
+                          EQUITY
+                        </TableCell>
+                      </TableRow>
+                      {equityAccounts.map((account) => renderAccountRow(account))}
+
+                      {/* Retained Earnings */}
+                      <TableRow
+                        className="cursor-pointer hover:bg-gray-100"
+                        onClick={() =>
+                          setViewerModal({
+                            isOpen: true,
+                            category: {
+                              id: "RETAINED_EARNINGS",
+                              name: "Retained Earnings",
+                              type: "Equity",
+                              parent_id: null,
+                            },
+                          })
+                        }
+                      >
+                        <TableCell className="border p-1 text-xs font-semibold">Retained Earnings</TableCell>
+                        {isMonthlyView ? (
+                          <>
+                            {getMonthsInRange(startDate, asOfDate).map((month) => (
+                              <React.Fragment key={month}>
+                                <TableCell className="border p-1 text-right text-xs">
+                                  {formatNumber(retainedEarnings)}
+                                </TableCell>
+                                {showPercentages && (
+                                  <TableCell className="border p-1 text-right text-xs text-slate-600">
+                                    {calculatePercentageForMonth(retainedEarnings, month)}
+                                  </TableCell>
+                                )}
+                              </React.Fragment>
+                            ))}
+                            <TableCell className="border p-1 text-right text-xs">
+                              {formatNumber(retainedEarnings)}
+                            </TableCell>
+                            {showPercentages && (
+                              <TableCell className="border p-1 text-right text-xs text-slate-600">
+                                {formatPercentageForAccount(retainedEarnings)}
+                              </TableCell>
+                            )}
+                          </>
+                        ) : isQuarterlyView ? (
+                          <>
+                            {getQuartersInRange(startDate, asOfDate).map((quarter) => (
+                              <React.Fragment key={quarter}>
+                                <TableCell className="border p-1 text-right text-xs">
+                                  {formatNumber(retainedEarnings)}
+                                </TableCell>
+                                {showPercentages && (
+                                  <TableCell className="border p-1 text-right text-xs text-slate-600">
+                                    {calculatePercentageForQuarter(retainedEarnings, quarter)}
+                                  </TableCell>
+                                )}
+                              </React.Fragment>
+                            ))}
+                            <TableCell className="border p-1 text-right text-xs">
+                              {formatNumber(retainedEarnings)}
+                            </TableCell>
+                            {showPercentages && (
+                              <TableCell className="border p-1 text-right text-xs text-slate-600">
+                                {formatPercentageForAccount(retainedEarnings)}
+                              </TableCell>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <TableCell className="border p-1 text-right text-xs">
+                              {formatNumber(retainedEarnings)}
+                            </TableCell>
+                            {showPercentages && (
+                              <TableCell className="border p-1 text-right text-xs text-slate-600">
+                                {formatPercentageForAccount(retainedEarnings)}
+                              </TableCell>
+                            )}
+                          </>
+                        )}
+                      </TableRow>
+
+                      {/* Total Equity */}
+                      <TableRow
+                        className="cursor-pointer hover:bg-blue-50 font-semibold"
+                        onClick={() =>
+                          setViewerModal({
+                            isOpen: true,
+                            category: { id: "EQUITY_GROUP", name: "Total Equity", type: "Equity", parent_id: null },
+                          })
+                        }
+                      >
+                        <TableCell className="border p-1 text-xs font-semibold">TOTAL EQUITY</TableCell>
+                        {isMonthlyView ? (
+                          <>
+                            {getMonthsInRange(startDate, asOfDate).map((month) => (
+                              <React.Fragment key={month}>
+                                <TableCell className="border p-1 text-right font-semibold text-xs">
+                                  {formatNumber(
                                     equityAccounts.reduce(
                                       (sum, a) =>
                                         sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month),
                                       0
-                                    ) + retainedEarnings,
-                                    month
+                                    ) + retainedEarnings
                                   )}
                                 </TableCell>
-                              )}
-                            </React.Fragment>
-                          ))}
-                          <TableCell className="border p-1 text-right font-semibold text-xs">
-                            {formatNumber(totalEquity)}
-                          </TableCell>
-                          {showPercentages && (
-                            <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
-                              {formatPercentageForAccount(totalEquity)}
-                            </TableCell>
-                          )}
-                        </>
-                      ) : isQuarterlyView ? (
-                        <>
-                          {getQuartersInRange(startDate, asOfDate).map((quarter) => (
-                            <React.Fragment key={quarter}>
-                              <TableCell className="border p-1 text-right font-semibold text-xs">
-                                {formatNumber(
-                                  equityAccounts.reduce(
-                                    (sum, a) =>
-                                      sum + calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter),
-                                    0
-                                  ) + retainedEarnings
+                                {showPercentages && (
+                                  <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                                    {calculatePercentageForMonth(
+                                      equityAccounts.reduce(
+                                        (sum, a) =>
+                                          sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month),
+                                        0
+                                      ) + retainedEarnings,
+                                      month
+                                    )}
+                                  </TableCell>
                                 )}
+                              </React.Fragment>
+                            ))}
+                            <TableCell className="border p-1 text-right font-semibold text-xs">
+                              {formatNumber(totalEquity)}
+                            </TableCell>
+                            {showPercentages && (
+                              <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                                {formatPercentageForAccount(totalEquity)}
                               </TableCell>
-                              {showPercentages && (
-                                <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
-                                  {calculatePercentageForQuarter(
+                            )}
+                          </>
+                        ) : isQuarterlyView ? (
+                          <>
+                            {getQuartersInRange(startDate, asOfDate).map((quarter) => (
+                              <React.Fragment key={quarter}>
+                                <TableCell className="border p-1 text-right font-semibold text-xs">
+                                  {formatNumber(
                                     equityAccounts.reduce(
                                       (sum, a) =>
                                         sum + calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter),
                                       0
-                                    ) + retainedEarnings,
-                                    quarter
+                                    ) + retainedEarnings
                                   )}
                                 </TableCell>
-                              )}
-                            </React.Fragment>
-                          ))}
-                          <TableCell className="border p-1 text-right font-semibold text-xs">
-                            {formatNumber(totalEquity)}
-                          </TableCell>
-                          {showPercentages && (
-                            <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
-                              {formatPercentageForAccount(totalEquity)}
-                            </TableCell>
-                          )}
-                        </>
-                      ) : (
-                        <>
-                          <TableCell className="border p-1 text-right font-semibold text-xs">
-                            {formatNumber(totalEquity)}
-                          </TableCell>
-                          {showPercentages && (
-                            <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
-                              {formatPercentageForAccount(totalEquity)}
-                            </TableCell>
-                          )}
-                        </>
-                      )}
-                    </TableRow>
-
-                    {/* Total Liabilities & Equity */}
-                    <TableRow className="bg-muted/50 font-bold">
-                      <TableCell className="border p-1 text-xs font-semibold">TOTAL LIABILITIES & EQUITY</TableCell>
-                      {isMonthlyView ? (
-                        <>
-                          {getMonthsInRange(startDate, asOfDate).map((month) => (
-                            <React.Fragment key={month}>
-                              <TableCell className="border p-1 text-right text-xs">
-                                {formatNumber(
-                                  liabilityAccounts.reduce(
-                                    (sum, a) =>
-                                      sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month),
-                                    0
-                                  ) +
-                                    equityAccounts.reduce(
-                                      (sum, a) =>
-                                        sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month),
-                                      0
-                                    ) +
-                                    retainedEarnings
+                                {showPercentages && (
+                                  <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                                    {calculatePercentageForQuarter(
+                                      equityAccounts.reduce(
+                                        (sum, a) =>
+                                          sum + calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter),
+                                        0
+                                      ) + retainedEarnings,
+                                      quarter
+                                    )}
+                                  </TableCell>
                                 )}
+                              </React.Fragment>
+                            ))}
+                            <TableCell className="border p-1 text-right font-semibold text-xs">
+                              {formatNumber(totalEquity)}
+                            </TableCell>
+                            {showPercentages && (
+                              <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                                {formatPercentageForAccount(totalEquity)}
                               </TableCell>
-                              {showPercentages && (
-                                <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
-                                  {calculatePercentageForMonth(
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <TableCell className="border p-1 text-right font-semibold text-xs">
+                              {formatNumber(totalEquity)}
+                            </TableCell>
+                            {showPercentages && (
+                              <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                                {formatPercentageForAccount(totalEquity)}
+                              </TableCell>
+                            )}
+                          </>
+                        )}
+                      </TableRow>
+
+                      {/* Total Liabilities & Equity */}
+                      <TableRow className="bg-muted/50 font-bold">
+                        <TableCell className="border p-1 text-xs font-semibold">TOTAL LIABILITIES & EQUITY</TableCell>
+                        {isMonthlyView ? (
+                          <>
+                            {getMonthsInRange(startDate, asOfDate).map((month) => (
+                              <React.Fragment key={month}>
+                                <TableCell className="border p-1 text-right text-xs">
+                                  {formatNumber(
                                     liabilityAccounts.reduce(
                                       (sum, a) =>
                                         sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month),
@@ -980,44 +976,44 @@ export default function BalanceSheetPage() {
                                           sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month),
                                         0
                                       ) +
-                                      retainedEarnings,
-                                    month
+                                      retainedEarnings
                                   )}
                                 </TableCell>
-                              )}
-                            </React.Fragment>
-                          ))}
-                          <TableCell className="border p-1 text-right text-xs">
-                            {formatNumber(totalLiabilities + totalEquity)}
-                          </TableCell>
-                          {showPercentages && (
-                            <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
-                              {formatPercentageForAccount(totalLiabilities + totalEquity)}
-                            </TableCell>
-                          )}
-                        </>
-                      ) : isQuarterlyView ? (
-                        <>
-                          {getQuartersInRange(startDate, asOfDate).map((quarter) => (
-                            <React.Fragment key={quarter}>
-                              <TableCell className="border p-1 text-right text-xs">
-                                {formatNumber(
-                                  liabilityAccounts.reduce(
-                                    (sum, a) =>
-                                      sum + calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter),
-                                    0
-                                  ) +
-                                    equityAccounts.reduce(
-                                      (sum, a) =>
-                                        sum + calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter),
-                                      0
-                                    ) +
-                                    retainedEarnings
+                                {showPercentages && (
+                                  <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                                    {calculatePercentageForMonth(
+                                      liabilityAccounts.reduce(
+                                        (sum, a) =>
+                                          sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month),
+                                        0
+                                      ) +
+                                        equityAccounts.reduce(
+                                          (sum, a) =>
+                                            sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month),
+                                          0
+                                        ) +
+                                        retainedEarnings,
+                                      month
+                                    )}
+                                  </TableCell>
                                 )}
+                              </React.Fragment>
+                            ))}
+                            <TableCell className="border p-1 text-right text-xs">
+                              {formatNumber(totalLiabilities + totalEquity)}
+                            </TableCell>
+                            {showPercentages && (
+                              <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                                {formatPercentageForAccount(totalLiabilities + totalEquity)}
                               </TableCell>
-                              {showPercentages && (
-                                <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
-                                  {calculatePercentageForQuarter(
+                            )}
+                          </>
+                        ) : isQuarterlyView ? (
+                          <>
+                            {getQuartersInRange(startDate, asOfDate).map((quarter) => (
+                              <React.Fragment key={quarter}>
+                                <TableCell className="border p-1 text-right text-xs">
+                                  {formatNumber(
                                     liabilityAccounts.reduce(
                                       (sum, a) =>
                                         sum + calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter),
@@ -1028,39 +1024,57 @@ export default function BalanceSheetPage() {
                                           sum + calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter),
                                         0
                                       ) +
-                                      retainedEarnings,
-                                    quarter
+                                      retainedEarnings
                                   )}
                                 </TableCell>
-                              )}
-                            </React.Fragment>
-                          ))}
-                          <TableCell className="border p-1 text-right text-xs">
-                            {formatNumber(totalLiabilities + totalEquity)}
-                          </TableCell>
-                          {showPercentages && (
-                            <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
-                              {formatPercentageForAccount(totalLiabilities + totalEquity)}
+                                {showPercentages && (
+                                  <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                                    {calculatePercentageForQuarter(
+                                      liabilityAccounts.reduce(
+                                        (sum, a) =>
+                                          sum + calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter),
+                                        0
+                                      ) +
+                                        equityAccounts.reduce(
+                                          (sum, a) =>
+                                            sum +
+                                            calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter),
+                                          0
+                                        ) +
+                                        retainedEarnings,
+                                      quarter
+                                    )}
+                                  </TableCell>
+                                )}
+                              </React.Fragment>
+                            ))}
+                            <TableCell className="border p-1 text-right text-xs">
+                              {formatNumber(totalLiabilities + totalEquity)}
                             </TableCell>
-                          )}
-                        </>
-                      ) : (
-                        <>
-                          <TableCell className="border p-1 text-right text-xs">
-                            {formatNumber(totalLiabilities + totalEquity)}
-                          </TableCell>
-                          {showPercentages && (
-                            <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
-                              {formatPercentageForAccount(totalLiabilities + totalEquity)}
+                            {showPercentages && (
+                              <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                                {formatPercentageForAccount(totalLiabilities + totalEquity)}
+                              </TableCell>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <TableCell className="border p-1 text-right text-xs">
+                              {formatNumber(totalLiabilities + totalEquity)}
                             </TableCell>
-                          )}
-                        </>
-                      )}
-                    </TableRow>
-                  </>
-                )}
-              </TableBody>
-            </Table>
+                            {showPercentages && (
+                              <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                                {formatPercentageForAccount(totalLiabilities + totalEquity)}
+                              </TableCell>
+                            )}
+                          </>
+                        )}
+                      </TableRow>
+                    </>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
           </CardContent>
         </Card>
       </div>
