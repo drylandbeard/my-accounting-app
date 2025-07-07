@@ -2078,6 +2078,29 @@ export default function TransactionsPage() {
     }));
   };
 
+  // Function to remove a journal entry line by ID
+  const removeEditJournalLine = (lineId: string) => {
+    setEditJournalModal(prev => {
+      // Filter out lines that represent the account itself (account category lines)
+      const categoryLines = prev.editEntry.lines.filter(line => 
+        line.categoryId !== selectedAccountIdInCOA
+      );
+      
+      // Only allow removal if there are more than 1 category lines
+      if (categoryLines.length <= 1) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        editEntry: {
+          ...prev.editEntry,
+          lines: prev.editEntry.lines.filter(line => line.id !== lineId)
+        }
+      };
+    });
+  };
+
   // Handle account change in edit modal
   const handleEditAccountChange = (accountId: string) => {
     setSelectedAccountId(accountId);
@@ -4504,6 +4527,7 @@ export default function TransactionsPage() {
         onUpdateLine={updateEditJournalLine}
         onAmountChange={handleEditJournalAmountChange}
         onAddLine={addEditJournalLine}
+        onRemoveLine={removeEditJournalLine}
         onSave={saveJournalEntryChanges}
         onDateChange={(date) => setEditJournalModal(prev => ({
           ...prev,

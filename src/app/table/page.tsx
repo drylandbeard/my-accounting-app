@@ -796,6 +796,38 @@ export default function JournalTablePage() {
     });
   };
 
+  // Function to remove a journal entry line by ID
+  const removeEditJournalLine = (lineId: string) => {
+    setEditJournalModal(prev => {
+      // Find the chart of accounts ID for the selected account to filter out account category lines
+      const selectedAccountCategoryId = (() => {
+        if (selectedAccountId) {
+          const chartAccount = categories.find(cat => cat.plaid_account_id === selectedAccountId);
+          return chartAccount?.id || null;
+        }
+        return null;
+      })();
+
+      // Filter out lines that represent the account itself (account category lines)
+      const categoryLines = prev.editEntry.lines.filter(line => 
+        line.categoryId !== selectedAccountCategoryId
+      );
+      
+      // Only allow removal if there are more than 1 category lines
+      if (categoryLines.length <= 1) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        editEntry: {
+          ...prev.editEntry,
+          lines: prev.editEntry.lines.filter(line => line.id !== lineId)
+        }
+      };
+    });
+  };
+
   // Calculate totals for edit modal validation and display
   const calculateEditJournalTotals = () => {
     const totalDebits = editJournalModal.editEntry.lines.reduce((sum: number, line: JournalEntryLine) => {
@@ -1513,6 +1545,7 @@ export default function JournalTablePage() {
         onUpdateLine={updateEditJournalLine}
         onAmountChange={handleEditJournalAmountChange}
         onAddLine={addEditJournalLine}
+        onRemoveLine={removeEditJournalLine}
         onSave={saveJournalEntryChanges}
         onDateChange={(date) => setEditJournalModal((prev: EditJournalModalState) => ({
           ...prev,

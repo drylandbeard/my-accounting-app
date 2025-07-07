@@ -47,6 +47,8 @@ interface TransactionModalProps {
   onAmountChange: (lineId: string, field: 'debit' | 'credit', value: string) => void;
   /** Add a new line at the end of the list */
   onAddLine: () => void;
+  /** Remove a line by ID */
+  onRemoveLine: (lineId: string) => void;
   onSave: () => void;
   onDateChange: (date: string) => void;
   onAccountChange: (accountId: string) => void;
@@ -67,6 +69,7 @@ export default function TransactionModal({
   onUpdateLine,
   onAmountChange,
   onAddLine,
+  onRemoveLine,
   onSave,
   onDateChange,
   onAccountChange,
@@ -97,13 +100,16 @@ export default function TransactionModal({
   const { totalDebits, totalCredits } = calculateTotals();
   const isBalanced = Math.abs(totalDebits - totalCredits) < 0.01;
 
+  // Determine if we can remove lines (only if there are more than 1 category lines)
+  const canRemoveLines = categoryLines.length > 1;
+
   return (
     <div 
       className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
       onClick={onClose}
     >
       <div 
-        className="bg-white rounded-lg p-6 w-[80%] overflow-y-auto shadow-xl"
+        className="bg-white rounded-lg p-8 w-[80%] overflow-y-auto shadow-xl relative"
         onClick={e => e.stopPropagation()}
       >
         <div className="flex justify-between items-center mb-4">
@@ -180,7 +186,7 @@ export default function TransactionModal({
             </div>
             
             {/* Journal Entry Table */}
-            <div className="border rounded-lg overflow-hidden">
+            <div className="border rounded-lg overflow-visible relative">
               <table className="w-full border-collapse">
                 <thead className="bg-gray-50">
                   <tr>
@@ -194,7 +200,7 @@ export default function TransactionModal({
                 <tbody className="bg-white">
                   {categoryLines.map((line) => {
                     return (
-                      <tr key={line.id}>
+                      <tr key={line.id} className="relative">
                         <td className="border px-4 py-2">
                           <Select
                             options={[
@@ -307,6 +313,15 @@ export default function TransactionModal({
                             placeholder="0.00"
                           />
                         </td>
+                        {canRemoveLines && (
+                          <button
+                            onClick={() => onRemoveLine(line.id)}
+                            className="absolute -left-4 top-1/2 transform -translate-y-1/2 w-6 h-6 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-full flex items-center justify-center shadow-lg border-2 border-gray-300 z-20"
+                            title="Remove this line"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
                       </tr>
                     );
                   })}
