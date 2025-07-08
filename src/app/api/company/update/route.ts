@@ -94,7 +94,7 @@ export async function PUT(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error("Error in update-company endpoint:", error);
+    console.error("Error in company/update endpoint:", error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

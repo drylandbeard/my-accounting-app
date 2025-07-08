@@ -11,7 +11,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Define public pages that don't need auth initialization
   const publicPages = [
     "/verify-email",
-    "/accept-invitation"
+    "/accept-invitation",
+    "/accountant/accept-invite"
   ];
   
   // Check if current page is public (auth pages don't need token validation)

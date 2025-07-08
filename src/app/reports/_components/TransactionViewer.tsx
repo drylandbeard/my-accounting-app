@@ -15,6 +15,7 @@ interface TransactionViewerProps {
   endDate: string;
   companyName?: string;
   getCategoryName: (tx: Transaction, category: Account) => string;
+  onTransactionClick?: (transaction: Transaction) => void;
 }
 
 export const TransactionViewer: React.FC<TransactionViewerProps> = ({
@@ -25,6 +26,7 @@ export const TransactionViewer: React.FC<TransactionViewerProps> = ({
   endDate,
   companyName,
   getCategoryName,
+  onTransactionClick,
 }) => {
   // Export modal transactions function
   const exportModalTransactions = async () => {
@@ -191,7 +193,11 @@ export const TransactionViewer: React.FC<TransactionViewerProps> = ({
             </TableHeader>
             <TableBody>
               {selectedCategoryTransactions.map((tx) => (
-                <TableRow key={tx.id} className="hover:bg-gray-50">
+                <TableRow 
+                  key={tx.id} 
+                  className={`${onTransactionClick ? 'cursor-pointer hover:bg-gray-100' : 'hover:bg-gray-50'}`}
+                  onClick={() => onTransactionClick && onTransactionClick(tx)}
+                >
                   <TableCell className="p-2">{tx.date}</TableCell>
                   <TableCell className="p-2">{tx.description}</TableCell>
                   <TableCell className="p-2">

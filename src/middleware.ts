@@ -17,8 +17,11 @@ export function middleware(request: NextRequest) {
     "/api/accept-invitation",
     "/api/member/accept-invitation",
     "/api/member/complete-invitation",
+    "/api/accountant/accept-invite",
+    "/api/accountant/complete-invite",
     "/verify-email",
-    "/accept-invitation"
+    "/accept-invitation",
+    "/accountant/accept-invite"
   ];
 
   // Define routes that are always public (static assets, etc.)

@@ -17,6 +17,8 @@ export interface UserCompany {
   company_id: string;
   role: "Owner" | "Member" | "Accountant";
   companies: Company;
+  access_type?: "direct" | "granted";
+  granted_by_accountant?: string;
 }
 
 interface AuthData {
