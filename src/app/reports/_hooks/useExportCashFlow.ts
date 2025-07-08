@@ -1,16 +1,16 @@
 import { useMemo } from "react";
 import ExcelJS from "exceljs";
-import { Account, Transaction } from "../_types";
+import { Account, Category, Transaction } from "../_types";
 import { formatDateForDisplay, getMonthsInRange, getQuartersInRange, formatMonth, formatQuarter } from "../_utils";
 
 interface UseExportCashFlowParams {
   // Data
-  accounts: Account[];
+  categories: Category[];
   journalEntries: Transaction[];
-  bankAccounts: Account[];
-  revenueRows: Account[];
-  cogsRows: Account[];
-  expenseRows: Account[];
+  actualBankAccounts: Account[];
+  revenueRows: Category[];
+  cogsRows: Category[];
+  expenseRows: Category[];
 
   // Company info
   currentCompany: { name: string } | null;
@@ -18,7 +18,6 @@ interface UseExportCashFlowParams {
   // Display configuration
   isMonthlyView: boolean;
   isQuarterlyView: boolean;
-  showPercentages: boolean;
   startDate: string;
   endDate: string;
 
@@ -37,6 +36,9 @@ interface UseExportCashFlowParams {
     netInvestingChange: number;
   };
   financingActivities: {
+    increaseInCreditCards: number;
+    decreaseInCreditCards: number;
+    netCreditCardChange: number;
     increaseInLiabilities: number;
     decreaseInLiabilities: number;
     ownerInvestment: number;
@@ -46,12 +48,7 @@ interface UseExportCashFlowParams {
 
   // Account operations
   collapsedAccounts: Set<string>;
-  calculateAccountTotal: (account: Account) => number;
-  calculateAccountDirectTotal: (account: Account) => number;
-  calculateAccountTotalForMonth: (account: Account, month: string) => number;
-  calculateAccountTotalForMonthWithSubaccounts: (account: Account, month: string) => number;
-  calculateAccountTotalForQuarter: (account: Account, quarter: string) => number;
-  calculateAccountTotalForQuarterWithSubaccounts: (account: Account, quarter: string) => number;
+  calculateAccountTotal: (category: Category) => number;
 
   // Period calculation functions
   calculateBankBalanceForPeriod: (periodEnd: string) => number;
@@ -76,25 +73,21 @@ interface UseExportCashFlowParams {
     periodStart: string,
     periodEnd: string
   ) => {
+    increaseInCreditCards: number;
+    decreaseInCreditCards: number;
+    netCreditCardChange: number;
     increaseInLiabilities: number;
     decreaseInLiabilities: number;
     ownerInvestment: number;
     ownerWithdrawal: number;
     netFinancingChange: number;
   };
-  // Formatting functions
-  formatPercentageForAccount: (num: number, account?: Account) => string;
-  calculatePercentageForMonth: (amount: number, month: string) => string;
-  calculatePercentageForQuarter: (amount: number, quarter: string) => string;
 }
 
 export const useExportCashFlow = (params: UseExportCashFlowParams) => {
   const {
     beginningBankBalance,
     endingBankBalance,
-    operatingActivities,
-    investingActivities,
-    financingActivities,
     currentCompany,
     isMonthlyView,
     isQuarterlyView,
@@ -235,8 +228,49 @@ export const useExportCashFlow = (params: UseExportCashFlowParams) => {
       // Beginning Bank Balance
       worksheet.getCell(currentRow, 1).value = "Beginning Bank Balance";
       worksheet.getCell(currentRow, 1).style = sectionStyle;
-      worksheet.getCell(currentRow, 2).value = beginningBankBalance;
-      worksheet.getCell(currentRow, 2).style = numberStyle;
+
+      if (isMonthlyView) {
+        const months = getMonthsInRange(startDate, endDate);
+        let col = 2;
+        months.forEach((month, index) => {
+          const monthStart = `${month}-01`;
+          const prevMonthEnd =
+            index === 0
+              ? new Date(new Date(monthStart).getTime() - 24 * 60 * 60 * 1000).toISOString().split("T")[0]
+              : new Date(new Date(monthStart).getTime() - 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+          
+          const balance = index === 0 ? beginningBankBalance : calculateBankBalanceForPeriod(prevMonthEnd);
+          worksheet.getCell(currentRow, col).value = balance;
+          worksheet.getCell(currentRow, col).style = numberStyle;
+          col++;
+        });
+        // Total column - use beginning balance
+        worksheet.getCell(currentRow, col).value = beginningBankBalance;
+        worksheet.getCell(currentRow, col).style = numberStyle;
+      } else if (isQuarterlyView) {
+        const quarters = getQuartersInRange(startDate, endDate);
+        let col = 2;
+        quarters.forEach((quarter, index) => {
+          const [year, q] = quarter.split("-Q");
+          const quarterNum = parseInt(q);
+          const quarterStart = `${year}-${String((quarterNum - 1) * 3 + 1).padStart(2, "0")}-01`;
+          const prevQuarterEnd =
+            index === 0
+              ? new Date(new Date(quarterStart).getTime() - 24 * 60 * 60 * 1000).toISOString().split("T")[0]
+              : new Date(new Date(quarterStart).getTime() - 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+          
+          const balance = index === 0 ? beginningBankBalance : calculateBankBalanceForPeriod(prevQuarterEnd);
+          worksheet.getCell(currentRow, col).value = balance;
+          worksheet.getCell(currentRow, col).style = numberStyle;
+          col++;
+        });
+        // Total column - use beginning balance
+        worksheet.getCell(currentRow, col).value = beginningBankBalance;
+        worksheet.getCell(currentRow, col).style = numberStyle;
+      } else {
+        worksheet.getCell(currentRow, 2).value = beginningBankBalance;
+        worksheet.getCell(currentRow, 2).style = numberStyle;
+      }
       currentRow++;
 
       // Empty row
@@ -298,8 +332,12 @@ export const useExportCashFlow = (params: UseExportCashFlowParams) => {
       currentRow++;
 
       addPeriodRow(
-        "  Increase / decrease in Credit Cards",
-        (periodStart, periodEnd) => calculateFinancingActivitiesForPeriod(periodStart, periodEnd).increaseInLiabilities
+        "  Increase in Credit Cards",
+        (periodStart, periodEnd) => calculateFinancingActivitiesForPeriod(periodStart, periodEnd).increaseInCreditCards
+      );
+      addPeriodRow(
+        "  Decrease in Credit Cards",
+        (periodStart, periodEnd) => -calculateFinancingActivitiesForPeriod(periodStart, periodEnd).decreaseInCreditCards
       );
       addPeriodRow(
         "  Increases in Liabilities (e.g. new loans)",
@@ -395,7 +433,7 @@ export const useExportCashFlow = (params: UseExportCashFlowParams) => {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `Cash_Flow_Statement_${formatDateForDisplay(startDate)}_to_${formatDateForDisplay(endDate)}.xlsx`;
+      a.download = `${currentCompany?.name}-Cash Flow-${startDate}-to-${endDate}.xlsx`;
       a.click();
       window.URL.revokeObjectURL(url);
     };

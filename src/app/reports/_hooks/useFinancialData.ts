@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
-import { Account, Transaction } from "../_types";
+import { Category, Account, Transaction } from "../_types";
 
 interface UseFinancialDataProps {
   companyId: string | null;
@@ -12,7 +12,8 @@ interface UseFinancialDataProps {
 }
 
 interface UseFinancialDataReturn {
-  accounts: Account[];
+  categories: Category[];
+  actualBankAccounts: Account[];
   journalEntries: Transaction[];
   loading: boolean;
 }
@@ -23,6 +24,7 @@ export const useFinancialData = ({
   endDate,
   accountTypes,
 }: UseFinancialDataProps): UseFinancialDataReturn => {
+  const [categories, setCategories] = useState<Category[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [journalEntries, setJournalEntries] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -41,13 +43,22 @@ export const useFinancialData = ({
 
       try {
         // Fetch accounts
-        const { data: accountsData } = await supabase
+        const { data: categoryData } = await supabase
           .from("chart_of_accounts")
           .select("*")
           .eq("company_id", companyId)
           .in("type", stableAccountTypes);
 
-        setAccounts(accountsData || []);
+        setCategories(categoryData || []);
+
+        // Fetch actual bank accounts
+        const { data: actualBankAccountsData } = await supabase
+          .from("accounts")
+          .select("*")
+          .eq("company_id", companyId)
+          .eq("type", "Bank Account");
+
+        setAccounts(actualBankAccountsData || []);
 
         // Fetch ALL journal entries with pagination to handle more than 1000 rows
         let allJournalData: Array<{
@@ -175,5 +186,5 @@ export const useFinancialData = ({
     fetchData();
   }, [companyId, startDate, endDate, stableAccountTypes]);
 
-  return { accounts, journalEntries, loading };
+  return { categories, actualBankAccounts: accounts, journalEntries, loading };
 };

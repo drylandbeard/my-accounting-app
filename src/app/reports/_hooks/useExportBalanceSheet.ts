@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import ExcelJS from "exceljs";
-import { Account, Transaction } from "../_types";
+import { Category, Transaction } from "../_types";
 import {
   formatDateForDisplay,
   getSubaccounts,
@@ -13,11 +13,11 @@ import {
 
 interface UseExportBalanceSheetParams {
   // Data
-  accounts: Account[];
+  categories: Category[];
   journalEntries: Transaction[];
-  assetAccounts: Account[];
-  liabilityAccounts: Account[];
-  equityAccounts: Account[];
+  assetAccounts: Category[];
+  liabilityAccounts: Category[];
+  equityAccounts: Category[];
 
   // Company info
   currentCompany: { name: string } | null;
@@ -31,12 +31,12 @@ interface UseExportBalanceSheetParams {
 
   // Account operations
   collapsedAccounts: Set<string>;
-  calculateBalanceSheetAccountTotal: (account: Account) => number;
-  calculateBalanceSheetAccountTotalWithSubaccounts: (account: Account) => number;
-  calculateBalanceSheetAccountTotalForMonth: (account: Account, month: string) => number;
-  calculateBalanceSheetAccountTotalForMonthWithSubaccounts: (account: Account, month: string) => number;
-  calculateBalanceSheetAccountTotalForQuarter: (account: Account, quarter: string) => number;
-  calculateBalanceSheetAccountTotalForQuarterWithSubaccounts: (account: Account, quarter: string) => number;
+  calculateBalanceSheetAccountTotal: (category: Category) => number;
+  calculateBalanceSheetAccountTotalWithSubaccounts: (category: Category) => number;
+  calculateBalanceSheetAccountTotalForMonth: (category: Category, month: string) => number;
+  calculateBalanceSheetAccountTotalForMonthWithSubaccounts: (category: Category, month: string) => number;
+  calculateBalanceSheetAccountTotalForQuarter: (category: Category, quarter: string) => number;
+  calculateBalanceSheetAccountTotalForQuarterWithSubaccounts: (category: Category, quarter: string) => number;
 
   // Totals
   totalAssets: number;
@@ -52,7 +52,7 @@ interface UseExportBalanceSheetParams {
 
 export const useExportBalanceSheet = (params: UseExportBalanceSheetParams) => {
   const {
-    accounts,
+    categories,
     journalEntries,
     assetAccounts,
     liabilityAccounts,
@@ -221,7 +221,7 @@ export const useExportBalanceSheet = (params: UseExportBalanceSheetParams) => {
       currentRow++;
 
       // Helper function to add account rows
-      const addAccountRows = (accounts: Account[], sectionName: string, level = 0) => {
+      const addAccountRows = (accounts: Category[], sectionName: string, level = 0) => {
         if (accounts.length === 0) return 0;
 
         // Section header
@@ -232,9 +232,9 @@ export const useExportBalanceSheet = (params: UseExportBalanceSheetParams) => {
 
         // Account rows
         accounts.forEach((account) => {
-          const addAccountRow = (acc: Account, accountLevel: number) => {
-            const subaccounts = getSubaccounts(accounts, acc.id).filter((sub) =>
-              hasTransactions(sub, journalEntries, accounts)
+          const addAccountRow = (acc: Category, accountLevel: number) => {
+            const subaccounts = getSubaccounts(categories, acc.id).filter((sub) =>
+              hasTransactions(sub, journalEntries, categories)
             );
             const isParent = subaccounts.length > 0;
             const isCollapsed = collapsedAccounts.has(acc.id);
@@ -875,7 +875,7 @@ export const useExportBalanceSheet = (params: UseExportBalanceSheetParams) => {
       window.URL.revokeObjectURL(url);
     };
   }, [
-    accounts,
+    categories,
     journalEntries,
     assetAccounts,
     liabilityAccounts,

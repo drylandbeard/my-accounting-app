@@ -19,6 +19,7 @@ export interface PeriodSelectorProps {
   onExpandAllCategories?: () => void;
   collapsedAccounts?: Set<string>;
   parentAccounts?: Array<{ id: string }>;
+  hideSecondaryDisplay?: boolean;
 }
 
 const PERIOD_OPTIONS = [
@@ -54,6 +55,7 @@ export function PeriodSelector({
   onExpandAllCategories,
   collapsedAccounts,
   parentAccounts,
+  hideSecondaryDisplay = false,
 }: PeriodSelectorProps) {
   const [isOpen, setIsOpen] = React.useState(false);
 
@@ -151,44 +153,46 @@ export function PeriodSelector({
                   </div>
                 </div>
 
-                {/* Secondary Display Options */}
-                <div>
-                  <h3 className="text-sm font-medium text-gray-700 mb-1">Secondary Display:</h3>
-                  <div className="space-y-1">
-                    {SECONDARY_DISPLAY_OPTIONS.map((option) => (
+                {/* Secondary Display Options - Hidden for Cash Flow */}
+                {!hideSecondaryDisplay && (
+                  <div>
+                    <h3 className="text-sm font-medium text-gray-700 mb-1">Secondary Display:</h3>
+                    <div className="space-y-1">
+                      {SECONDARY_DISPLAY_OPTIONS.map((option) => (
+                        <button
+                          key={option.value}
+                          onClick={() => onSecondaryDisplayChange(option.value)}
+                          className="w-full flex items-center justify-between px-1 py-1.5 text-xs hover:bg-gray-50 rounded"
+                        >
+                          <span
+                            className={cn(
+                              selectedSecondaryDisplay === option.value ? "font-medium" : "font-normal",
+                              "whitespace-nowrap"
+                            )}
+                          >
+                            {option.label}
+                          </span>
+                          {selectedSecondaryDisplay === option.value && <Check className="h-4 w-4 text-blue-600" />}
+                        </button>
+                      ))}
+                      <Separator />
                       <button
-                        key={option.value}
-                        onClick={() => onSecondaryDisplayChange(option.value)}
+                        onClick={onCollapseAllCategories}
                         className="w-full flex items-center justify-between px-1 py-1.5 text-xs hover:bg-gray-50 rounded"
                       >
-                        <span
-                          className={cn(
-                            selectedSecondaryDisplay === option.value ? "font-medium" : "font-normal",
-                            "whitespace-nowrap"
-                          )}
-                        >
-                          {option.label}
-                        </span>
-                        {selectedSecondaryDisplay === option.value && <Check className="h-4 w-4 text-blue-600" />}
+                        <span className={cn("font-medium", "whitespace-nowrap")}>Collapsed</span>
+                        {collapseExpandState === "collapsed" && <Check className="h-4 w-4 text-blue-600" />}
                       </button>
-                    ))}
-                    <Separator />
-                    <button
-                      onClick={onCollapseAllCategories}
-                      className="w-full flex items-center justify-between px-1 py-1.5 text-xs hover:bg-gray-50 rounded"
-                    >
-                      <span className={cn("font-medium", "whitespace-nowrap")}>Collapsed</span>
-                      {collapseExpandState === "collapsed" && <Check className="h-4 w-4 text-blue-600" />}
-                    </button>
-                    <button
-                      onClick={handleExpandAllCategories}
-                      className="w-full flex items-center justify-between px-1 py-1.5 text-xs hover:bg-gray-50 rounded"
-                    >
-                      <span className="font-medium">Expanded</span>
-                      {collapseExpandState === "expanded" && <Check className="h-4 w-4 text-blue-600" />}
-                    </button>
+                      <button
+                        onClick={handleExpandAllCategories}
+                        className="w-full flex items-center justify-between px-1 py-1.5 text-xs hover:bg-gray-50 rounded"
+                      >
+                        <span className="font-medium">Expanded</span>
+                        {collapseExpandState === "expanded" && <Check className="h-4 w-4 text-blue-600" />}
+                      </button>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             </div>
           </div>

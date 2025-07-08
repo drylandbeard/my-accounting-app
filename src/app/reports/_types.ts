@@ -1,10 +1,28 @@
-export type Account = {
+import { FinancialAmount } from "@/lib/financial";
+
+export type Category = {
   id: string;
   name: string;
   type: string;
   subtype?: string;
   parent_id?: string | null;
   _viewerType?: string;
+};
+
+export type Account = {
+  plaid_account_id: string | null;
+  name: string;
+  starting_balance: FinancialAmount | null;
+  current_balance: FinancialAmount | null;
+  last_synced: string | null;
+  is_manual?: boolean;
+  plaid_account_name?: string;
+  institution_name?: string;
+  type?: string;
+  created_at?: string;
+  subtype?: string;
+  display_order?: number;
+  plaid_item_id?: string;
 };
 
 export type Transaction = {
@@ -20,7 +38,7 @@ export type Transaction = {
 
 export type ViewerModalState = {
   isOpen: boolean;
-  category: Account | null;
+  category: Category | null;
   selectedMonth?: string;
 };
 
