@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useSearchParams } from "next/navigation";
 
 // Shared imports
-import { Account, Transaction, ViewerModalState } from "../_types";
+import { Account, Category, Transaction, ViewerModalState } from "../_types";
 import {
   formatDateForDisplay,
   formatNumber,
@@ -58,7 +58,7 @@ export default function BalanceSheetPage() {
   }, [endDate]);
 
   // For balance sheet, we need all journal entries up to the as-of date
-  const { accounts, journalEntries, loading } = useFinancialData({
+  const { categories, journalEntries, loading } = useFinancialData({
     companyId: currentCompany?.id || null,
     startDate: "1900-01-01", // Get all historical data
     endDate: asOfDate,
@@ -67,13 +67,13 @@ export default function BalanceSheetPage() {
 
   const {
     collapsedAccounts,
-    toggleAccount,
+    toggleCategory,
     getTopLevelAccounts,
     collapseAllParentCategories,
     expandAllParentCategories,
     getParentAccounts,
   } = useAccountOperations({
-    accounts,
+    categories,
     journalEntries,
   });
 
@@ -151,21 +151,21 @@ export default function BalanceSheetPage() {
   };
 
   // Balance sheet specific account calculation (override the default P&L calculation)
-  const calculateBalanceSheetAccountTotal = (account: Account): number => {
-    if (account.type === "Asset") {
+  const calculateBalanceSheetAccountTotal = (category: Category): number => {
+    if (category.type === "Asset") {
       const totalDebits = journalEntries
-        .filter((tx) => tx.chart_account_id === account.id)
+        .filter((tx) => tx.chart_account_id === category.id)
         .reduce((sum, tx) => sum + Number(tx.debit), 0);
       const totalCredits = journalEntries
-        .filter((tx) => tx.chart_account_id === account.id)
+        .filter((tx) => tx.chart_account_id === category.id)
         .reduce((sum, tx) => sum + Number(tx.credit), 0);
       return totalDebits - totalCredits;
-    } else if (account.type === "Liability" || account.type === "Equity") {
+    } else if (category.type === "Liability" || category.type === "Equity") {
       const totalCredits = journalEntries
-        .filter((tx) => tx.chart_account_id === account.id)
+        .filter((tx) => tx.chart_account_id === category.id)
         .reduce((sum, tx) => sum + Number(tx.credit), 0);
       const totalDebits = journalEntries
-        .filter((tx) => tx.chart_account_id === account.id)
+        .filter((tx) => tx.chart_account_id === category.id)
         .reduce((sum, tx) => sum + Number(tx.debit), 0);
       return totalCredits - totalDebits;
     }
@@ -173,17 +173,17 @@ export default function BalanceSheetPage() {
   };
 
   // Balance sheet calculation for specific month (cumulative up to end of month)
-  const calculateBalanceSheetAccountTotalForMonth = (account: Account, month: string): number => {
+  const calculateBalanceSheetAccountTotalForMonth = (category: Category, month: string): number => {
     const endOfMonth = new Date(month + "-31").toISOString().split("T")[0];
     const monthTransactions = journalEntries.filter(
-      (tx) => tx.chart_account_id === account.id && tx.date <= endOfMonth
+      (tx) => tx.chart_account_id === category.id && tx.date <= endOfMonth
     );
 
-    if (account.type === "Asset") {
+    if (category.type === "Asset") {
       const totalDebits = monthTransactions.reduce((sum, tx) => sum + Number(tx.debit), 0);
       const totalCredits = monthTransactions.reduce((sum, tx) => sum + Number(tx.credit), 0);
       return totalDebits - totalCredits;
-    } else if (account.type === "Liability" || account.type === "Equity") {
+    } else if (category.type === "Liability" || category.type === "Equity") {
       const totalCredits = monthTransactions.reduce((sum, tx) => sum + Number(tx.credit), 0);
       const totalDebits = monthTransactions.reduce((sum, tx) => sum + Number(tx.debit), 0);
       return totalCredits - totalDebits;
@@ -192,19 +192,19 @@ export default function BalanceSheetPage() {
   };
 
   // Balance sheet calculation for specific quarter (cumulative up to end of quarter)
-  const calculateBalanceSheetAccountTotalForQuarter = (account: Account, quarter: string): number => {
+  const calculateBalanceSheetAccountTotalForQuarter = (category: Category, quarter: string): number => {
     const [year, q] = quarter.split("-Q");
     const endMonth = parseInt(q) * 3;
     const endOfQuarter = new Date(parseInt(year), endMonth - 1, 31).toISOString().split("T")[0];
     const quarterTransactions = journalEntries.filter(
-      (tx) => tx.chart_account_id === account.id && tx.date <= endOfQuarter
+      (tx) => tx.chart_account_id === category.id && tx.date <= endOfQuarter
     );
 
-    if (account.type === "Asset") {
+    if (category.type === "Asset") {
       const totalDebits = quarterTransactions.reduce((sum, tx) => sum + Number(tx.debit), 0);
       const totalCredits = quarterTransactions.reduce((sum, tx) => sum + Number(tx.credit), 0);
       return totalDebits - totalCredits;
-    } else if (account.type === "Liability" || account.type === "Equity") {
+    } else if (category.type === "Liability" || category.type === "Equity") {
       const totalCredits = quarterTransactions.reduce((sum, tx) => sum + Number(tx.credit), 0);
       const totalDebits = quarterTransactions.reduce((sum, tx) => sum + Number(tx.debit), 0);
       return totalCredits - totalDebits;
@@ -213,9 +213,9 @@ export default function BalanceSheetPage() {
   };
 
   // Recursive function to calculate account total including subaccounts for balance sheet
-  const calculateBalanceSheetAccountTotalWithSubaccounts = (account: Account): number => {
-    let total = calculateBalanceSheetAccountTotal(account);
-    const subaccounts = accounts.filter((acc) => acc.parent_id === account.id);
+  const calculateBalanceSheetAccountTotalWithSubaccounts = (category: Category): number => {
+    let total = calculateBalanceSheetAccountTotal(category);
+    const subaccounts = categories.filter((acc) => acc.parent_id === category.id);
     for (const sub of subaccounts) {
       total += calculateBalanceSheetAccountTotalWithSubaccounts(sub);
     }
@@ -223,9 +223,9 @@ export default function BalanceSheetPage() {
   };
 
   // Recursive function for month with subaccounts
-  const calculateBalanceSheetAccountTotalForMonthWithSubaccounts = (account: Account, month: string): number => {
-    let total = calculateBalanceSheetAccountTotalForMonth(account, month);
-    const subaccounts = accounts.filter((acc) => acc.parent_id === account.id);
+  const calculateBalanceSheetAccountTotalForMonthWithSubaccounts = (category: Category, month: string): number => {
+    let total = calculateBalanceSheetAccountTotalForMonth(category, month);
+    const subaccounts = categories.filter((acc) => acc.parent_id === category.id);
     for (const sub of subaccounts) {
       total += calculateBalanceSheetAccountTotalForMonthWithSubaccounts(sub, month);
     }
@@ -233,9 +233,9 @@ export default function BalanceSheetPage() {
   };
 
   // Recursive function for quarter with subaccounts
-  const calculateBalanceSheetAccountTotalForQuarterWithSubaccounts = (account: Account, quarter: string): number => {
-    let total = calculateBalanceSheetAccountTotalForQuarter(account, quarter);
-    const subaccounts = accounts.filter((acc) => acc.parent_id === account.id);
+  const calculateBalanceSheetAccountTotalForQuarterWithSubaccounts = (category: Category, quarter: string): number => {
+    let total = calculateBalanceSheetAccountTotalForQuarter(category, quarter);
+    const subaccounts = categories.filter((acc) => acc.parent_id === category.id);
     for (const sub of subaccounts) {
       total += calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(sub, quarter);
     }
@@ -257,27 +257,27 @@ export default function BalanceSheetPage() {
     return (
       sum +
       journalEntries
-        .filter((tx) => getAllAccountIds(accounts, a).includes(tx.chart_account_id))
+        .filter((tx) => getAllAccountIds(categories, a).includes(tx.chart_account_id))
         .reduce((txSum, tx) => txSum + Number(tx.credit) - Number(tx.debit), 0)
     );
   }, 0);
 
   const totalCOGS = cogsAccounts.reduce((sum, a) => {
     const totalDebits = journalEntries
-      .filter((tx) => getAllAccountIds(accounts, a).includes(tx.chart_account_id))
+      .filter((tx) => getAllAccountIds(categories, a).includes(tx.chart_account_id))
       .reduce((txSum, tx) => txSum + Number(tx.debit), 0);
     const totalCredits = journalEntries
-      .filter((tx) => getAllAccountIds(accounts, a).includes(tx.chart_account_id))
+      .filter((tx) => getAllAccountIds(categories, a).includes(tx.chart_account_id))
       .reduce((txSum, tx) => txSum + Number(tx.credit), 0);
     return sum + (totalDebits - totalCredits);
   }, 0);
 
   const totalExpenses = expenseAccounts.reduce((sum, a) => {
     const totalDebits = journalEntries
-      .filter((tx) => getAllAccountIds(accounts, a).includes(tx.chart_account_id))
+      .filter((tx) => getAllAccountIds(categories, a).includes(tx.chart_account_id))
       .reduce((txSum, tx) => txSum + Number(tx.debit), 0);
     const totalCredits = journalEntries
-      .filter((tx) => getAllAccountIds(accounts, a).includes(tx.chart_account_id))
+      .filter((tx) => getAllAccountIds(categories, a).includes(tx.chart_account_id))
       .reduce((txSum, tx) => txSum + Number(tx.credit), 0);
     return sum + (totalDebits - totalCredits);
   }, 0);
@@ -300,7 +300,7 @@ export default function BalanceSheetPage() {
 
   // Helper functions
   const getCategoryName = (tx: Transaction) => {
-    return accounts.find((a) => a.id === tx.chart_account_id)?.name || "";
+    return categories.find((a) => a.id === tx.chart_account_id)?.name || "";
   };
 
   // Calculate total columns for proper column spanning
@@ -346,26 +346,26 @@ export default function BalanceSheetPage() {
     const category = viewerModal.category;
     const transactions =
       category.id === "ASSETS_GROUP"
-        ? journalEntries.filter((tx) => getAllGroupAccountIds(accounts, assetAccounts).includes(tx.chart_account_id))
+        ? journalEntries.filter((tx) => getAllGroupAccountIds(categories, assetAccounts).includes(tx.chart_account_id))
         : category.id === "LIABILITIES_GROUP"
         ? journalEntries.filter((tx) =>
-            getAllGroupAccountIds(accounts, liabilityAccounts).includes(tx.chart_account_id)
+            getAllGroupAccountIds(categories, liabilityAccounts).includes(tx.chart_account_id)
           )
         : category.id === "EQUITY_GROUP"
-        ? journalEntries.filter((tx) => getAllGroupAccountIds(accounts, equityAccounts).includes(tx.chart_account_id))
+        ? journalEntries.filter((tx) => getAllGroupAccountIds(categories, equityAccounts).includes(tx.chart_account_id))
         : category.id === "RETAINED_EARNINGS"
         ? journalEntries.filter((tx) =>
-            getAllGroupAccountIds(accounts, [...revenueAccounts, ...cogsAccounts, ...expenseAccounts]).includes(
+            getAllGroupAccountIds(categories, [...revenueAccounts, ...cogsAccounts, ...expenseAccounts]).includes(
               tx.chart_account_id
             )
           )
-        : journalEntries.filter((tx) => getAllAccountIds(accounts, category).includes(tx.chart_account_id));
+        : journalEntries.filter((tx) => getAllAccountIds(categories, category).includes(tx.chart_account_id));
 
     return transactions;
   }, [
     viewerModal,
     journalEntries,
-    accounts,
+    categories,
     assetAccounts,
     liabilityAccounts,
     equityAccounts,
@@ -376,7 +376,7 @@ export default function BalanceSheetPage() {
 
   // Export hook
   const { exportToXLSX } = useExportBalanceSheet({
-    accounts,
+    categories,
     journalEntries,
     assetAccounts,
     liabilityAccounts,
@@ -404,13 +404,13 @@ export default function BalanceSheetPage() {
   });
 
   // Render account row helper for balance sheet
-  const renderAccountRow = (account: Account, level = 0): React.ReactElement | null => {
+  const renderAccountRow = (category: Category, level = 0): React.ReactElement | null => {
     return (
       <AccountRowRenderer
-        key={account.id}
-        account={account}
+        key={category.id}
+        category={category}
         level={level}
-        accounts={accounts}
+        categories={categories}
         journalEntries={journalEntries}
         isMonthlyView={isMonthlyView}
         isQuarterlyView={isQuarterlyView}
@@ -418,7 +418,7 @@ export default function BalanceSheetPage() {
         startDate={startDate}
         endDate={asOfDate}
         collapsedAccounts={collapsedAccounts}
-        toggleAccount={toggleAccount}
+        toggleCategory={toggleCategory}
         calculateAccountTotal={calculateBalanceSheetAccountTotalWithSubaccounts}
         calculateAccountDirectTotal={calculateBalanceSheetAccountTotal}
         calculateAccountTotalForMonth={calculateBalanceSheetAccountTotalForMonth}

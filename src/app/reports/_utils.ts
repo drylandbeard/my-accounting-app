@@ -1,4 +1,4 @@
-import { Account, Transaction, DateRange, DateRangeType } from "./_types";
+import { Account, Transaction, DateRange, DateRangeType, Category } from "./_types";
 
 // Date formatting helpers
 export const formatDate = (date: Date): string => {
@@ -128,21 +128,21 @@ export const formatPercentage = (num: number, base: number): string => {
 };
 
 // Account helpers
-export const getSubaccounts = (accounts: Account[], parentId: string): Account[] => {
+export const getSubaccounts = (accounts: Category[], parentId: string): Category[] => {
   return accounts.filter((acc) => acc.parent_id === parentId).sort((a, b) => a.name.localeCompare(b.name));
 };
 
-export const getAllAccountIds = (accounts: Account[], account: Account): string[] => {
+export const getAllAccountIds = (accounts: Category[], account: Category): string[] => {
   const subaccounts = getSubaccounts(accounts, account.id);
   return [account.id, ...subaccounts.flatMap((sub) => getAllAccountIds(accounts, sub))];
 };
 
-export const getAllGroupAccountIds = (accounts: Account[], groupAccounts: Account[]): string[] => {
+export const getAllGroupAccountIds = (accounts: Category[], groupAccounts: Category[]): string[] => {
   return groupAccounts.flatMap((acc) => getAllAccountIds(accounts, acc));
 };
 
 // Helper: check if an account or its subaccounts have any transactions
-export const hasTransactions = (account: Account, journalEntries: Transaction[], accounts: Account[]): boolean => {
+export const hasTransactions = (account: Category, journalEntries: Transaction[], accounts: Category[]): boolean => {
   // Check if the account has any direct transactions at all
   const directTransactions = journalEntries.some((tx) => tx.chart_account_id === account.id);
   if (directTransactions) return true;

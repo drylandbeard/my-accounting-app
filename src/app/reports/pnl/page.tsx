@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useSearchParams } from "next/navigation";
 
 // Shared imports
-import { Account, Transaction, ViewerModalState } from "../_types";
+import { Account, Category, Transaction, ViewerModalState } from "../_types";
 import {
   formatDateForDisplay,
   formatNumber,
@@ -50,7 +50,7 @@ export default function PnLPage() {
     handleSecondaryDisplayChange,
   } = usePeriodSelection();
 
-  const { accounts, journalEntries, loading } = useFinancialData({
+  const { categories, journalEntries, loading } = useFinancialData({
     companyId: currentCompany?.id || null,
     startDate: startDate,
     endDate: endDate,
@@ -59,7 +59,7 @@ export default function PnLPage() {
 
   const {
     collapsedAccounts,
-    toggleAccount,
+    toggleCategory,
     getTopLevelAccounts,
     calculateAccountDirectTotal,
     calculateAccountTotal,
@@ -70,7 +70,7 @@ export default function PnLPage() {
     collapseAllParentCategories,
     expandAllParentCategories,
     getParentAccounts,
-  } = useAccountOperations({ accounts, journalEntries });
+  } = useAccountOperations({ categories, journalEntries });
   const [viewerModal, setViewerModal] = useState<ViewerModalState>({
     isOpen: false,
     category: null,
@@ -146,18 +146,18 @@ export default function PnLPage() {
 
   // Helper functions
   const getCategoryName = (tx: Transaction) => {
-    return accounts.find((a) => a.id === tx.chart_account_id)?.name || "";
+    return categories.find((a) => a.id === tx.chart_account_id)?.name || "";
   };
 
-  const formatPercentageForAccount = (num: number, account?: Account): string => {
-    if (!account) return formatPercentage(num, totalRevenue);
+  const formatPercentageForAccount = (num: number, category?: Category): string => {
+    if (!category) return formatPercentage(num, totalRevenue);
 
     const base =
       totalRevenue !== 0
         ? totalRevenue
-        : account.type === "Expense"
+        : category.type === "Expense"
         ? totalExpenses
-        : account.type === "COGS"
+        : category.type === "COGS"
         ? totalCOGS
         : totalRevenue;
     return formatPercentage(num, base);
@@ -210,7 +210,7 @@ export default function PnLPage() {
 
   // Export hook
   const { exportToXLSX } = useExportProfitLoss({
-    accounts,
+    categories,
     journalEntries,
     revenueRows,
     cogsRows,
@@ -234,13 +234,13 @@ export default function PnLPage() {
   });
 
   // Render account row using the reusable component
-  const renderAccountRow = (account: Account, level = 0): React.ReactElement | null => {
+  const renderAccountRow = (category: Category, level = 0): React.ReactElement | null => {
     return (
       <AccountRowRenderer
-        key={account.id}
-        account={account}
+        key={category.id}
+        category={category}
         level={level}
-        accounts={accounts}
+        categories={categories}
         journalEntries={journalEntries}
         isMonthlyView={isMonthlyView}
         isQuarterlyView={isQuarterlyView}
@@ -248,7 +248,7 @@ export default function PnLPage() {
         startDate={startDate}
         endDate={endDate}
         collapsedAccounts={collapsedAccounts}
-        toggleAccount={toggleAccount}
+        toggleCategory={toggleCategory}
         calculateAccountTotal={calculateAccountTotal}
         calculateAccountDirectTotal={calculateAccountDirectTotal}
         calculateAccountTotalForMonth={calculateAccountTotalForMonth}
@@ -268,19 +268,19 @@ export default function PnLPage() {
     const category = viewerModal.category;
     let transactions =
       category.id === "REVENUE_GROUP"
-        ? journalEntries.filter((tx) => getAllGroupAccountIds(accounts, revenueRows).includes(tx.chart_account_id))
+        ? journalEntries.filter((tx) => getAllGroupAccountIds(categories, revenueRows).includes(tx.chart_account_id))
         : category.id === "COGS_GROUP"
-        ? journalEntries.filter((tx) => getAllGroupAccountIds(accounts, cogsRows).includes(tx.chart_account_id))
+        ? journalEntries.filter((tx) => getAllGroupAccountIds(categories, cogsRows).includes(tx.chart_account_id))
         : category.id === "EXPENSE_GROUP"
-        ? journalEntries.filter((tx) => getAllGroupAccountIds(accounts, expenseRows).includes(tx.chart_account_id))
-        : journalEntries.filter((tx) => getAllAccountIds(accounts, category).includes(tx.chart_account_id));
+        ? journalEntries.filter((tx) => getAllGroupAccountIds(categories, expenseRows).includes(tx.chart_account_id))
+        : journalEntries.filter((tx) => getAllAccountIds(categories, category).includes(tx.chart_account_id));
 
     if (viewerModal.selectedMonth) {
       transactions = transactions.filter((tx) => tx.date.startsWith(viewerModal.selectedMonth!));
     }
 
     return transactions;
-  }, [viewerModal, journalEntries, accounts, revenueRows, cogsRows, expenseRows]);
+  }, [viewerModal, journalEntries, categories, revenueRows, cogsRows, expenseRows]);
 
   if (!hasCompanyContext) {
     return (
