@@ -433,7 +433,7 @@ export const useExportCashFlow = (params: UseExportCashFlowParams) => {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `Cash_Flow_Statement_${formatDateForDisplay(startDate)}_to_${formatDateForDisplay(endDate)}.xlsx`;
+      a.download = `${currentCompany?.name}-Cash Flow-${startDate}-to-${endDate}.xlsx`;
       a.click();
       window.URL.revokeObjectURL(url);
     };
