@@ -30,6 +30,7 @@ export interface ReportHeaderProps {
   onSaveReport?: () => void;
   loading?: boolean;
   isBalanceSheet?: boolean;
+  hideSecondaryDisplay?: boolean;
 }
 
 export function ReportHeader({
@@ -54,6 +55,7 @@ export function ReportHeader({
   onSaveReport,
   loading,
   isBalanceSheet,
+  hideSecondaryDisplay,
 }: ReportHeaderProps) {
   // Calculate today's date once
   const today = React.useMemo(() => new Date().toISOString().split("T")[0], []);
@@ -78,6 +80,7 @@ export function ReportHeader({
             onExpandAllCategories={onExpandAllCategories}
             collapsedAccounts={collapsedAccounts}
             parentAccounts={parentAccounts}
+            hideSecondaryDisplay={hideSecondaryDisplay}
           />
 
           {/* Manual date override option */}

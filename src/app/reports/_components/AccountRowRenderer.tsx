@@ -3,15 +3,15 @@
 import React from "react";
 import { TableRow, TableCell } from "@/components/ui/table";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { Account, ViewerModalState, Transaction } from "../_types";
+import { Category, ViewerModalState, Transaction } from "../_types";
 import { formatNumber, getMonthsInRange, getQuartersInRange, getAllAccountIds } from "../_utils";
 
 interface AccountRowRendererProps {
-  account: Account;
+  category: Category;
   level?: number;
 
   // Data
-  accounts: Account[];
+  categories: Category[];
   journalEntries: Transaction[];
 
   // Display configuration
@@ -24,26 +24,26 @@ interface AccountRowRendererProps {
 
   // Account operations
   collapsedAccounts: Set<string>;
-  toggleAccount: (accountId: string) => void;
-  calculateAccountTotal: (account: Account) => number;
-  calculateAccountDirectTotal: (account: Account) => number;
-  calculateAccountTotalForMonth?: (account: Account, month: string) => number;
-  calculateAccountTotalForMonthWithSubaccounts?: (account: Account, month: string) => number;
-  calculateAccountTotalForQuarter?: (account: Account, quarter: string) => number;
-  calculateAccountTotalForQuarterWithSubaccounts?: (account: Account, quarter: string) => number;
+  toggleCategory: (categoryId: string) => void;
+  calculateAccountTotal: (category: Category) => number;
+  calculateAccountDirectTotal: (category: Category) => number;
+  calculateAccountTotalForMonth?: (category: Category, month: string) => number;
+  calculateAccountTotalForMonthWithSubaccounts?: (category: Category, month: string) => number;
+  calculateAccountTotalForQuarter?: (category: Category, quarter: string) => number;
+  calculateAccountTotalForQuarterWithSubaccounts?: (category: Category, quarter: string) => number;
 
   // UI handlers
   setViewerModal: (state: ViewerModalState) => void;
 
   // Formatting
-  formatPercentageForAccount: (num: number, account?: Account) => string;
+  formatPercentageForAccount: (num: number, category?: Category) => string;
 }
 
 export const AccountRowRenderer: React.FC<AccountRowRendererProps> = ({
-  account,
+  category,
   level = 0,
   parentOnly = false,
-  accounts,
+  categories,
   journalEntries,
   isMonthlyView,
   isQuarterlyView,
@@ -51,7 +51,7 @@ export const AccountRowRenderer: React.FC<AccountRowRendererProps> = ({
   startDate,
   endDate,
   collapsedAccounts,
-  toggleAccount,
+  toggleCategory,
   calculateAccountTotal,
   calculateAccountDirectTotal,
   calculateAccountTotalForMonth,
@@ -61,36 +61,36 @@ export const AccountRowRenderer: React.FC<AccountRowRendererProps> = ({
   setViewerModal,
   formatPercentageForAccount,
 }) => {
-  const subaccounts = accounts.filter(
-    (acc) =>
-      acc.parent_id === account.id &&
-      journalEntries.some((tx) => getAllAccountIds(accounts, acc).includes(tx.chart_account_id))
+  const subaccounts = categories.filter(
+    (category) =>
+      category.parent_id === category.id &&
+      journalEntries.some((tx) => getAllAccountIds(categories, category).includes(tx.chart_account_id))
   );
   const isParent = subaccounts.length > 0;
-  const isCollapsed = collapsedAccounts.has(account.id);
-  const accountTotal = calculateAccountTotal(account);
-  const directTotal = calculateAccountDirectTotal(account);
+  const isCollapsed = collapsedAccounts.has(category.id);
+  const accountTotal = calculateAccountTotal(category);
+  const directTotal = calculateAccountDirectTotal(category);
 
   if (Math.abs(isParent && isCollapsed ? accountTotal : directTotal) < 0.01 && !isParent) return null;
 
-  const renderAccountRow = (acc: Account, accLevel: number): React.ReactElement | null => {
-    const accSubaccounts = accounts.filter(
-      (subAcc) =>
-        subAcc.parent_id === acc.id &&
-        journalEntries.some((tx) => getAllAccountIds(accounts, subAcc).includes(tx.chart_account_id))
+  const renderAccountRow = (category: Category, accLevel: number): React.ReactElement | null => {
+    const accSubaccounts = categories.filter(
+      (subCategory) =>
+        subCategory.parent_id === category.id &&
+        journalEntries.some((tx) => getAllAccountIds(categories, subCategory).includes(tx.chart_account_id))
     );
     const accIsParent = accSubaccounts.length > 0;
-    const accIsCollapsed = collapsedAccounts.has(acc.id);
-    const accAccountTotal = calculateAccountTotal(acc);
-    const accDirectTotal = calculateAccountDirectTotal(acc);
+    const accIsCollapsed = collapsedAccounts.has(category.id);
+    const accAccountTotal = calculateAccountTotal(category);
+    const accDirectTotal = calculateAccountDirectTotal(category);
 
     if (Math.abs(accIsParent && accIsCollapsed ? accAccountTotal : accDirectTotal) < 0.01 && !accIsParent) return null;
 
     return (
-      <React.Fragment key={acc.id}>
+      <React.Fragment key={category.id}>
         <TableRow
           className="cursor-pointer hover:bg-gray-100"
-          onClick={() => setViewerModal({ isOpen: true, category: acc })}
+          onClick={() => setViewerModal({ isOpen: true, category: category })}
         >
           <TableCell className="border p-1 text-xs" style={{ paddingLeft: `${accLevel * 24 + 4}px` }}>
             <div className="flex items-center">
@@ -99,7 +99,7 @@ export const AccountRowRenderer: React.FC<AccountRowRendererProps> = ({
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    toggleAccount(acc.id);
+                    toggleCategory(category.id);
                   }}
                   className="mr-2 p-1 hover:bg-gray-200 rounded transition-colors"
                 >
@@ -112,7 +112,7 @@ export const AccountRowRenderer: React.FC<AccountRowRendererProps> = ({
               ) : accLevel === 0 ? (
                 <div className="mr-2 w-5 h-5"></div>
               ) : null}
-              <span className="font-semibold">{acc.name}</span>
+              <span className="font-semibold">{category.name}</span>
             </div>
           </TableCell>
 
@@ -124,22 +124,22 @@ export const AccountRowRenderer: React.FC<AccountRowRendererProps> = ({
                     className="border p-1 text-right text-xs cursor-pointer hover:bg-gray-50"
                     onClick={(e) => {
                       e.stopPropagation();
-                      setViewerModal({ isOpen: true, category: acc, selectedMonth: month });
+                      setViewerModal({ isOpen: true, category: category, selectedMonth: month });
                     }}
                   >
                     {formatNumber(
                       accIsParent && accIsCollapsed
-                        ? calculateAccountTotalForMonthWithSubaccounts?.(acc, month) || 0
-                        : calculateAccountTotalForMonth?.(acc, month) || 0
+                        ? calculateAccountTotalForMonthWithSubaccounts?.(category, month) || 0
+                        : calculateAccountTotalForMonth?.(category, month) || 0
                     )}
                   </TableCell>
                   {showPercentages && (
                     <TableCell className="border p-1 text-right text-xs text-slate-600">
                       {formatPercentageForAccount(
                         accIsParent && accIsCollapsed
-                          ? calculateAccountTotalForMonthWithSubaccounts?.(acc, month) || 0
-                          : calculateAccountTotalForMonth?.(acc, month) || 0,
-                        acc
+                          ? calculateAccountTotalForMonthWithSubaccounts?.(category, month) || 0
+                          : calculateAccountTotalForMonth?.(category, month) || 0,
+                        category
                       )}
                     </TableCell>
                   )}
@@ -150,7 +150,10 @@ export const AccountRowRenderer: React.FC<AccountRowRendererProps> = ({
               </TableCell>
               {showPercentages && (
                 <TableCell className="border p-1 text-right text-xs text-slate-600">
-                  {formatPercentageForAccount(accIsParent && accIsCollapsed ? accAccountTotal : accDirectTotal, acc)}
+                  {formatPercentageForAccount(
+                    accIsParent && accIsCollapsed ? accAccountTotal : accDirectTotal,
+                    category
+                  )}
                 </TableCell>
               )}
             </>
@@ -162,22 +165,22 @@ export const AccountRowRenderer: React.FC<AccountRowRendererProps> = ({
                     className="border p-1 text-right text-xs cursor-pointer hover:bg-gray-50"
                     onClick={(e) => {
                       e.stopPropagation();
-                      setViewerModal({ isOpen: true, category: acc, selectedMonth: quarter });
+                      setViewerModal({ isOpen: true, category: category, selectedMonth: quarter });
                     }}
                   >
                     {formatNumber(
                       accIsParent && accIsCollapsed
-                        ? calculateAccountTotalForQuarterWithSubaccounts?.(acc, quarter) || 0
-                        : calculateAccountTotalForQuarter?.(acc, quarter) || 0
+                        ? calculateAccountTotalForQuarterWithSubaccounts?.(category, quarter) || 0
+                        : calculateAccountTotalForQuarter?.(category, quarter) || 0
                     )}
                   </TableCell>
                   {showPercentages && (
                     <TableCell className="border p-1 text-right text-xs text-slate-600">
                       {formatPercentageForAccount(
                         accIsParent && accIsCollapsed
-                          ? calculateAccountTotalForQuarterWithSubaccounts?.(acc, quarter) || 0
-                          : calculateAccountTotalForQuarter?.(acc, quarter) || 0,
-                        acc
+                          ? calculateAccountTotalForQuarterWithSubaccounts?.(category, quarter) || 0
+                          : calculateAccountTotalForQuarter?.(category, quarter) || 0,
+                        category
                       )}
                     </TableCell>
                   )}
@@ -188,7 +191,10 @@ export const AccountRowRenderer: React.FC<AccountRowRendererProps> = ({
               </TableCell>
               {showPercentages && (
                 <TableCell className="border p-1 text-right text-xs text-slate-600">
-                  {formatPercentageForAccount(accIsParent && accIsCollapsed ? accAccountTotal : accDirectTotal, acc)}
+                  {formatPercentageForAccount(
+                    accIsParent && accIsCollapsed ? accAccountTotal : accDirectTotal,
+                    category
+                  )}
                 </TableCell>
               )}
             </>
@@ -199,7 +205,10 @@ export const AccountRowRenderer: React.FC<AccountRowRendererProps> = ({
               </TableCell>
               {showPercentages && (
                 <TableCell className="border p-1 text-right text-xs text-slate-600">
-                  {formatPercentageForAccount(accIsParent && accIsCollapsed ? accAccountTotal : accDirectTotal, acc)}
+                  {formatPercentageForAccount(
+                    accIsParent && accIsCollapsed ? accAccountTotal : accDirectTotal,
+                    category
+                  )}
                 </TableCell>
               )}
             </>
@@ -211,26 +220,26 @@ export const AccountRowRenderer: React.FC<AccountRowRendererProps> = ({
         {accIsParent && !accIsCollapsed && (
           <TableRow
             className="cursor-pointer hover:bg-blue-50"
-            onClick={() => setViewerModal({ isOpen: true, category: acc })}
+            onClick={() => setViewerModal({ isOpen: true, category: category })}
           >
             <TableCell
               className="border p-1 text-xs bg-gray-50"
               style={{ paddingLeft: `${(accLevel + 1) * 24 + 8}px` }}
             >
-              <span className="font-semibold">Total {acc.name}</span>
+              <span className="font-semibold">Total {category.name}</span>
             </TableCell>
             {isMonthlyView ? (
               <>
                 {getMonthsInRange(startDate, endDate).map((month) => (
                   <React.Fragment key={month}>
                     <TableCell className="border p-1 text-right font-semibold bg-gray-50 text-xs">
-                      {formatNumber(calculateAccountTotalForMonthWithSubaccounts?.(acc, month) || 0)}
+                      {formatNumber(calculateAccountTotalForMonthWithSubaccounts?.(category, month) || 0)}
                     </TableCell>
                     {showPercentages && (
                       <TableCell className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
                         {formatPercentageForAccount(
-                          calculateAccountTotalForMonthWithSubaccounts?.(acc, month) || 0,
-                          acc
+                          calculateAccountTotalForMonthWithSubaccounts?.(category, month) || 0,
+                          category
                         )}
                       </TableCell>
                     )}
@@ -241,7 +250,7 @@ export const AccountRowRenderer: React.FC<AccountRowRendererProps> = ({
                 </TableCell>
                 {showPercentages && (
                   <TableCell className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
-                    {formatPercentageForAccount(accAccountTotal, acc)}
+                    {formatPercentageForAccount(accAccountTotal, category)}
                   </TableCell>
                 )}
               </>
@@ -250,13 +259,13 @@ export const AccountRowRenderer: React.FC<AccountRowRendererProps> = ({
                 {getQuartersInRange(startDate, endDate).map((quarter) => (
                   <React.Fragment key={quarter}>
                     <TableCell className="border p-1 text-right font-semibold bg-gray-50 text-xs">
-                      {formatNumber(calculateAccountTotalForQuarterWithSubaccounts?.(acc, quarter) || 0)}
+                      {formatNumber(calculateAccountTotalForQuarterWithSubaccounts?.(category, quarter) || 0)}
                     </TableCell>
                     {showPercentages && (
                       <TableCell className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
                         {formatPercentageForAccount(
-                          calculateAccountTotalForQuarterWithSubaccounts?.(acc, quarter) || 0,
-                          acc
+                          calculateAccountTotalForQuarterWithSubaccounts?.(category, quarter) || 0,
+                          category
                         )}
                       </TableCell>
                     )}
@@ -267,7 +276,7 @@ export const AccountRowRenderer: React.FC<AccountRowRendererProps> = ({
                 </TableCell>
                 {showPercentages && (
                   <TableCell className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
-                    {formatPercentageForAccount(accAccountTotal, acc)}
+                    {formatPercentageForAccount(accAccountTotal, category)}
                   </TableCell>
                 )}
               </>
@@ -278,7 +287,7 @@ export const AccountRowRenderer: React.FC<AccountRowRendererProps> = ({
                 </TableCell>
                 {showPercentages && (
                   <TableCell className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
-                    {formatPercentageForAccount(accAccountTotal, acc)}
+                    {formatPercentageForAccount(accAccountTotal, category)}
                   </TableCell>
                 )}
               </>
@@ -289,5 +298,5 @@ export const AccountRowRenderer: React.FC<AccountRowRendererProps> = ({
     );
   };
 
-  return renderAccountRow(account, level);
+  return renderAccountRow(category, level);
 };
