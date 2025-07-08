@@ -49,11 +49,6 @@ interface UseExportCashFlowParams {
   // Account operations
   collapsedAccounts: Set<string>;
   calculateAccountTotal: (category: Category) => number;
-  calculateAccountDirectTotal: (category: Category) => number;
-  calculateAccountTotalForMonth: (category: Category, month: string) => number;
-  calculateAccountTotalForMonthWithSubaccounts: (category: Category, month: string) => number;
-  calculateAccountTotalForQuarter: (category: Category, quarter: string) => number;
-  calculateAccountTotalForQuarterWithSubaccounts: (category: Category, quarter: string) => number;
 
   // Period calculation functions
   calculateBankBalanceForPeriod: (periodEnd: string) => number;
@@ -87,19 +82,12 @@ interface UseExportCashFlowParams {
     ownerWithdrawal: number;
     netFinancingChange: number;
   };
-  // Formatting functions
-  formatPercentageForAccount: (num: number, category?: Category) => string;
-  calculatePercentageForMonth: (amount: number, month: string) => string;
-  calculatePercentageForQuarter: (amount: number, quarter: string) => string;
 }
 
 export const useExportCashFlow = (params: UseExportCashFlowParams) => {
   const {
     beginningBankBalance,
     endingBankBalance,
-    operatingActivities,
-    investingActivities,
-    financingActivities,
     currentCompany,
     isMonthlyView,
     isQuarterlyView,
@@ -240,8 +228,49 @@ export const useExportCashFlow = (params: UseExportCashFlowParams) => {
       // Beginning Bank Balance
       worksheet.getCell(currentRow, 1).value = "Beginning Bank Balance";
       worksheet.getCell(currentRow, 1).style = sectionStyle;
-      worksheet.getCell(currentRow, 2).value = beginningBankBalance;
-      worksheet.getCell(currentRow, 2).style = numberStyle;
+
+      if (isMonthlyView) {
+        const months = getMonthsInRange(startDate, endDate);
+        let col = 2;
+        months.forEach((month, index) => {
+          const monthStart = `${month}-01`;
+          const prevMonthEnd =
+            index === 0
+              ? new Date(new Date(monthStart).getTime() - 24 * 60 * 60 * 1000).toISOString().split("T")[0]
+              : new Date(new Date(monthStart).getTime() - 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+          
+          const balance = index === 0 ? beginningBankBalance : calculateBankBalanceForPeriod(prevMonthEnd);
+          worksheet.getCell(currentRow, col).value = balance;
+          worksheet.getCell(currentRow, col).style = numberStyle;
+          col++;
+        });
+        // Total column - use beginning balance
+        worksheet.getCell(currentRow, col).value = beginningBankBalance;
+        worksheet.getCell(currentRow, col).style = numberStyle;
+      } else if (isQuarterlyView) {
+        const quarters = getQuartersInRange(startDate, endDate);
+        let col = 2;
+        quarters.forEach((quarter, index) => {
+          const [year, q] = quarter.split("-Q");
+          const quarterNum = parseInt(q);
+          const quarterStart = `${year}-${String((quarterNum - 1) * 3 + 1).padStart(2, "0")}-01`;
+          const prevQuarterEnd =
+            index === 0
+              ? new Date(new Date(quarterStart).getTime() - 24 * 60 * 60 * 1000).toISOString().split("T")[0]
+              : new Date(new Date(quarterStart).getTime() - 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+          
+          const balance = index === 0 ? beginningBankBalance : calculateBankBalanceForPeriod(prevQuarterEnd);
+          worksheet.getCell(currentRow, col).value = balance;
+          worksheet.getCell(currentRow, col).style = numberStyle;
+          col++;
+        });
+        // Total column - use beginning balance
+        worksheet.getCell(currentRow, col).value = beginningBankBalance;
+        worksheet.getCell(currentRow, col).style = numberStyle;
+      } else {
+        worksheet.getCell(currentRow, 2).value = beginningBankBalance;
+        worksheet.getCell(currentRow, 2).style = numberStyle;
+      }
       currentRow++;
 
       // Empty row

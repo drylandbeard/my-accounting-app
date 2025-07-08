@@ -12,7 +12,6 @@ import { Transaction, ViewerModalState } from "../_types";
 import {
   formatDateForDisplay,
   formatNumber,
-  formatPercentage,
   getMonthsInRange,
   getQuartersInRange,
   formatMonth,
@@ -109,15 +108,7 @@ export default function CashFlowPage() {
     };
 
     loadSavedReport();
-  }, [
-    reportId,
-    currentCompany?.id,
-    setStartDate,
-    setEndDate,
-    handlePrimaryDisplayChange,
-    handleSecondaryDisplayChange,
-    handlePeriodChange,
-  ]);
+  }, [reportId, currentCompany?.id]); // Only depend on reportId and currentCompany?.id
 
   // Account groups
   const revenueRows = getTopLevelAccounts("Revenue");
@@ -432,14 +423,6 @@ export default function CashFlowPage() {
     endDate,
     collapsedAccounts,
     calculateAccountTotal,
-    calculateAccountDirectTotal: calculateAccountTotal, // Use the same function since calculateAccountDirectTotal is not defined
-    calculateAccountTotalForMonth,
-    calculateAccountTotalForMonthWithSubaccounts: calculateAccountTotalForMonth, // Use the same function since calculateAccountTotalForMonthWithSubaccounts is not defined
-    calculateAccountTotalForQuarter,
-    calculateAccountTotalForQuarterWithSubaccounts: calculateAccountTotalForQuarter, // Use the same function since calculateAccountTotalForQuarterWithSubaccounts is not defined
-    formatPercentageForAccount: (num: number) => formatPercentage(num, Math.abs(num)), // Simple wrapper
-    calculatePercentageForMonth: (amount: number) => formatPercentage(amount, Math.abs(amount)), // Simple wrapper
-    calculatePercentageForQuarter: (amount: number) => formatPercentage(amount, Math.abs(amount)), // Simple wrapper
     calculateBankBalanceForPeriod,
     calculateOperatingActivitiesForPeriod,
     calculateInvestingActivitiesForPeriod,
@@ -477,37 +460,6 @@ export default function CashFlowPage() {
     if (isMonthlyView) {
       const months = getMonthsInRange(startDate, endDate);
       const totalValue = getValue(startDate, endDate);
-
-      // Calculate total base value for percentages
-      const totalBaseValue = baseGetter ? Math.abs(baseGetter(startDate, endDate)) : Math.abs(totalValue);
-
-      // For financing activities, use total financing as base
-      const totalFinancing = Math.abs(financingActivities.netFinancingChange);
-
-      // For operating activities, use revenue or expenses as base
-      const totalNetIncome = Math.abs(operatingActivities.netIncome);
-
-      // Determine which base to use for percentages
-      const getBaseValue = () => {
-        // For different sections, use different base values
-        if (categoryType === "Revenue" || categoryType === "COGS" || categoryType === "Expense") {
-          // For operating activities, use revenue as base
-          return totalNetIncome;
-        } else if (categoryType === "Asset") {
-          // For investing activities, use total assets as base
-          const totalAssets = Math.abs(investingActivities.increaseInAssets);
-          return totalAssets > 0 ? totalAssets : 1;
-        } else if (categoryType === "Liability" || categoryType === "Equity" || categoryType === "Credit Card") {
-          // For financing activities, use total financing as base
-          return totalFinancing > 0 ? totalFinancing : 1;
-        } else if (baseGetter) {
-          // If a specific base getter is provided, use that
-          return totalBaseValue > 0 ? totalBaseValue : 1;
-        } else {
-          // Default case - use the absolute value of the total
-          return Math.abs(totalValue) > 0 ? Math.abs(totalValue) : 1;
-        }
-      };
 
       return (
         <>
@@ -552,37 +504,6 @@ export default function CashFlowPage() {
       const quarters = getQuartersInRange(startDate, endDate);
       const totalValue = getValue(startDate, endDate);
 
-      // Calculate total base value for percentages
-      const totalBaseValue = baseGetter ? Math.abs(baseGetter(startDate, endDate)) : Math.abs(totalValue);
-
-      // For financing activities, use total financing as base
-      const totalFinancing = Math.abs(financingActivities.netFinancingChange);
-
-      // For operating activities, use revenue or expenses as base
-      const totalNetIncome = Math.abs(operatingActivities.netIncome);
-
-      // Determine which base to use for percentages
-      const getBaseValue = () => {
-        // For different sections, use different base values
-        if (categoryType === "Revenue" || categoryType === "COGS" || categoryType === "Expense") {
-          // For operating activities, use revenue as base
-          return totalNetIncome > 0 ? totalNetIncome : 1;
-        } else if (categoryType === "Asset") {
-          // For investing activities, use total assets as base
-          const totalAssets = Math.abs(investingActivities.increaseInAssets);
-          return totalAssets > 0 ? totalAssets : 1;
-        } else if (categoryType === "Liability" || categoryType === "Equity" || categoryType === "Credit Card") {
-          // For financing activities, use total financing as base
-          return totalFinancing > 0 ? totalFinancing : 1;
-        } else if (baseGetter) {
-          // If a specific base getter is provided, use that
-          return totalBaseValue > 0 ? totalBaseValue : 1;
-        } else {
-          // Default case - use the absolute value of the total
-          return Math.abs(totalValue) > 0 ? Math.abs(totalValue) : 1;
-        }
-      };
-
       return (
         <>
           {quarters.map((quarter) => {
@@ -596,15 +517,6 @@ export default function CashFlowPage() {
               0
             ).getDate()}`;
             const value = getValue(quarterStart, quarterEnd);
-
-            // Calculate base value for this quarter
-            let quarterBaseValue;
-            if (baseGetter) {
-              const quarterBase = Math.abs(baseGetter(quarterStart, quarterEnd));
-              quarterBaseValue = quarterBase > 0 ? quarterBase : getBaseValue();
-            } else {
-              quarterBaseValue = Math.abs(value) > 0 ? Math.abs(value) : getBaseValue();
-            }
 
             return (
               <React.Fragment key={quarter}>
@@ -824,9 +736,6 @@ export default function CashFlowPage() {
                               const balance =
                                 index === 0 ? beginningBankBalance : calculateBankBalanceForPeriod(prevMonthEnd);
 
-                              // Use the absolute value of the balance itself as the base for percentage
-                              const baseValue = Math.abs(balance);
-
                               return (
                                 <React.Fragment key={month}>
                                   <TableCell isValue>{formatNumber(balance)}</TableCell>
@@ -850,9 +759,6 @@ export default function CashFlowPage() {
                                       .split("T")[0];
                               const balance =
                                 index === 0 ? beginningBankBalance : calculateBankBalanceForPeriod(prevQuarterEnd);
-
-                              // Use the absolute value of the balance itself as the base for percentage
-                              const baseValue = Math.abs(balance);
 
                               return (
                                 <React.Fragment key={quarter}>

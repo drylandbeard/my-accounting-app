@@ -109,7 +109,7 @@ export const EditReportModal: React.FC<EditReportModalProps> = ({ report, isOpen
       return;
     }
 
-    if (!primaryDisplay || !secondaryDisplay) {
+    if (!primaryDisplay || (report.type !== "cash-flow" && !secondaryDisplay)) {
       setError("Display options are required");
       return;
     }
@@ -158,7 +158,7 @@ export const EditReportModal: React.FC<EditReportModalProps> = ({ report, isOpen
           startDate,
           endDate,
           primaryDisplay,
-          secondaryDisplay,
+          secondaryDisplay: report.type === "cash-flow" ? "withoutPercentages" : secondaryDisplay,
           period,
         },
       });
@@ -292,7 +292,7 @@ export const EditReportModal: React.FC<EditReportModalProps> = ({ report, isOpen
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className={`grid gap-4 ${report.type === "cash-flow" ? "grid-cols-1" : "grid-cols-2"}`}>
             {/* Primary Display */}
             <div className="space-y-2">
               <Label htmlFor="primaryDisplay">Primary Display</Label>
@@ -339,51 +339,53 @@ export const EditReportModal: React.FC<EditReportModalProps> = ({ report, isOpen
               />
             </div>
 
-            {/* Secondary Display */}
-            <div className="space-y-2">
-              <Label htmlFor="secondaryDisplay">Secondary Display</Label>
-              <Select
-                options={SECONDARY_DISPLAY_OPTIONS}
-                value={SECONDARY_DISPLAY_OPTIONS.find((option) => option.value === secondaryDisplay) || null}
-                onChange={(selectedOption) => {
-                  const option = selectedOption as { value: string; label: string } | null;
-                  setSecondaryDisplay(option?.value || "");
-                }}
-                placeholder="Select secondary display"
-                isSearchable={false}
-                className="w-full"
-                styles={{
-                  control: (base) => ({
-                    ...base,
-                    minHeight: "36px",
-                    height: "36px",
-                    fontSize: "14px",
-                    borderColor: "#d1d5db",
-                    borderRadius: "6px",
-                    "&:hover": {
-                      borderColor: "#9ca3af",
-                    },
-                  }),
-                  valueContainer: (base) => ({
-                    ...base,
-                    padding: "0 12px",
-                  }),
-                  input: (base) => ({
-                    ...base,
-                    margin: "0",
-                    padding: "0",
-                  }),
-                  indicatorsContainer: (base) => ({
-                    ...base,
-                    height: "36px",
-                  }),
-                  dropdownIndicator: (base) => ({
-                    ...base,
-                    padding: "0 8px",
-                  }),
-                }}
-              />
-            </div>
+            {/* Secondary Display - Hidden for Cash Flow reports */}
+            {report.type !== "cash-flow" && (
+              <div className="space-y-2">
+                <Label htmlFor="secondaryDisplay">Secondary Display</Label>
+                <Select
+                  options={SECONDARY_DISPLAY_OPTIONS}
+                  value={SECONDARY_DISPLAY_OPTIONS.find((option) => option.value === secondaryDisplay) || null}
+                  onChange={(selectedOption) => {
+                    const option = selectedOption as { value: string; label: string } | null;
+                    setSecondaryDisplay(option?.value || "");
+                  }}
+                  placeholder="Select secondary display"
+                  isSearchable={false}
+                  className="w-full"
+                  styles={{
+                    control: (base) => ({
+                      ...base,
+                      minHeight: "36px",
+                      height: "36px",
+                      fontSize: "14px",
+                      borderColor: "#d1d5db",
+                      borderRadius: "6px",
+                      "&:hover": {
+                        borderColor: "#9ca3af",
+                      },
+                    }),
+                    valueContainer: (base) => ({
+                      ...base,
+                      padding: "0 12px",
+                    }),
+                    input: (base) => ({
+                      ...base,
+                      margin: "0",
+                      padding: "0",
+                    }),
+                    indicatorsContainer: (base) => ({
+                      ...base,
+                      height: "36px",
+                    }),
+                    dropdownIndicator: (base) => ({
+                      ...base,
+                      padding: "0 8px",
+                    }),
+                  }}
+                />
+              </div>
+            )}
           </div>
 
           {/* Error Message */}

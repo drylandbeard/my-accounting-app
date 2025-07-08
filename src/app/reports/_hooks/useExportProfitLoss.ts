@@ -208,7 +208,7 @@ export const useExportProfitLoss = (params: UseExportProfitLossParams) => {
       currentRow++;
 
       // Helper function to add account rows
-      const addAccountRows = (accountsToRender: Account[], sectionName: string, level = 0) => {
+      const addAccountRows = (accountsToRender: Category[], sectionName: string, level = 0) => {
         if (accountsToRender.length === 0) return 0;
 
         // Section header
