@@ -64,7 +64,7 @@ export function ReportHeader({
   const secondaryDisplayChangeHandler = onSecondaryDisplayChange || handleSecondaryDisplayChange;
 
   return (
-    <div className="flex flex-col space-y-4 mb-6">
+    <div className="flex flex-col space-y-4 mb-6 max-w-7xl mx-auto">
       <div className="flex justify-between items-center">
         <div className="flex items-center gap-4">
           <PeriodSelector

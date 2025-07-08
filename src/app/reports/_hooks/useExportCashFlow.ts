@@ -8,17 +8,19 @@ interface UseExportCashFlowParams {
   accounts: Account[];
   journalEntries: Transaction[];
   bankAccounts: Account[];
+  revenueRows: Account[];
+  cogsRows: Account[];
+  expenseRows: Account[];
 
   // Company info
   currentCompany: { name: string } | null;
 
-  // Date range
-  startDate: string;
-  endDate: string;
-
-  // View settings
+  // Display configuration
   isMonthlyView: boolean;
   isQuarterlyView: boolean;
+  showPercentages: boolean;
+  startDate: string;
+  endDate: string;
 
   // Calculated values
   beginningBankBalance: number;
@@ -36,10 +38,20 @@ interface UseExportCashFlowParams {
   };
   financingActivities: {
     increaseInLiabilities: number;
-    ownerContributions: number;
-    ownerDistributions: number;
+    decreaseInLiabilities: number;
+    ownerInvestment: number;
+    ownerWithdrawal: number;
     netFinancingChange: number;
   };
+
+  // Account operations
+  collapsedAccounts: Set<string>;
+  calculateAccountTotal: (account: Account) => number;
+  calculateAccountDirectTotal: (account: Account) => number;
+  calculateAccountTotalForMonth: (account: Account, month: string) => number;
+  calculateAccountTotalForMonthWithSubaccounts: (account: Account, month: string) => number;
+  calculateAccountTotalForQuarter: (account: Account, quarter: string) => number;
+  calculateAccountTotalForQuarterWithSubaccounts: (account: Account, quarter: string) => number;
 
   // Period calculation functions
   calculateBankBalanceForPeriod: (periodEnd: string) => number;
@@ -65,24 +77,29 @@ interface UseExportCashFlowParams {
     periodEnd: string
   ) => {
     increaseInLiabilities: number;
-    ownerContributions: number;
-    ownerDistributions: number;
+    decreaseInLiabilities: number;
+    ownerInvestment: number;
+    ownerWithdrawal: number;
     netFinancingChange: number;
   };
+  // Formatting functions
+  formatPercentageForAccount: (num: number, account?: Account) => string;
+  calculatePercentageForMonth: (amount: number, month: string) => string;
+  calculatePercentageForQuarter: (amount: number, quarter: string) => string;
 }
 
 export const useExportCashFlow = (params: UseExportCashFlowParams) => {
   const {
-    currentCompany,
-    startDate,
-    endDate,
-    isMonthlyView,
-    isQuarterlyView,
     beginningBankBalance,
     endingBankBalance,
     operatingActivities,
     investingActivities,
     financingActivities,
+    currentCompany,
+    isMonthlyView,
+    isQuarterlyView,
+    startDate,
+    endDate,
     calculateBankBalanceForPeriod,
     calculateOperatingActivitiesForPeriod,
     calculateInvestingActivitiesForPeriod,
@@ -288,14 +305,17 @@ export const useExportCashFlow = (params: UseExportCashFlowParams) => {
         "  Increases in Liabilities (e.g. new loans)",
         (periodStart, periodEnd) => calculateFinancingActivitiesForPeriod(periodStart, periodEnd).increaseInLiabilities
       );
-      addPeriodRow("  Decreases in Liabilities (e.g. loan repayments)", () => 0);
+      addPeriodRow(
+        "  Decreases in Liabilities (e.g. loan repayments)",
+        (periodStart, periodEnd) => -calculateFinancingActivitiesForPeriod(periodStart, periodEnd).decreaseInLiabilities
+      );
       addPeriodRow(
         "  Owner contributions (Equity increases)",
-        (periodStart, periodEnd) => calculateFinancingActivitiesForPeriod(periodStart, periodEnd).ownerContributions
+        (periodStart, periodEnd) => calculateFinancingActivitiesForPeriod(periodStart, periodEnd).ownerInvestment
       );
       addPeriodRow(
         "  Owner distributions (Equity decreases)",
-        (periodStart, periodEnd) => calculateFinancingActivitiesForPeriod(periodStart, periodEnd).ownerDistributions
+        (periodStart, periodEnd) => -calculateFinancingActivitiesForPeriod(periodStart, periodEnd).ownerWithdrawal
       );
       addPeriodRow(
         "Financing Change:",
@@ -385,9 +405,12 @@ export const useExportCashFlow = (params: UseExportCashFlowParams) => {
     endDate,
     beginningBankBalance,
     endingBankBalance,
-    operatingActivities,
-    investingActivities,
-    financingActivities,
+    isMonthlyView,
+    isQuarterlyView,
+    calculateBankBalanceForPeriod,
+    calculateOperatingActivitiesForPeriod,
+    calculateInvestingActivitiesForPeriod,
+    calculateFinancingActivitiesForPeriod,
   ]);
 
   return { exportToXLSX };
