@@ -3,6 +3,7 @@ import { supabase } from "./supabase";
 import { sendVerificationCodeEmail, generateVerificationCode } from "./email";
 import { getEmailService } from "./email/service";
 import { createPresetCategories, createPresetPayees } from "./preset-categories";
+import { UserCompany } from "@/zustand/authStore";
 
 /**
  * Hash a password using bcrypt
@@ -441,8 +442,8 @@ export async function signIn(email: string, password: string) {
       };
     }
 
-    // Get user's companies
-    const { data: companies } = await supabase
+    // Get user's companies (both direct access and accountant-granted access)
+    const { data: directCompanies } = await supabase
       .from("company_users")
       .select(`
         company_id,
@@ -456,12 +457,48 @@ export async function signIn(email: string, password: string) {
       .eq("user_id", user.id)
       .eq("is_active", true);
 
-    // Transform the data to match the expected UserCompany interface
-    const transformedCompanies = companies?.map(item => ({
+    // Get accountant-granted company access
+    const { data: grantedCompanies } = await supabase
+      .from("accountant_company_access")
+      .select(`
+        company_id,
+        accountant_id,
+        companies (
+          id,
+          name,
+          description
+        )
+      `)
+      .eq("member_user_id", user.id)
+      .eq("is_active", true);
+
+    // Transform direct companies
+    const transformedDirectCompanies = directCompanies?.map(item => ({
       company_id: item.company_id,
       role: item.role,
-      companies: Array.isArray(item.companies) ? item.companies[0] : item.companies
+      companies: Array.isArray(item.companies) ? item.companies[0] : item.companies,
+      access_type: "direct" as const
     })) || [];
+
+    // Transform granted companies
+    const transformedGrantedCompanies = grantedCompanies?.map(item => ({
+      company_id: item.company_id,
+      role: "Member" as const, // ATMs always have Member role for granted companies
+      companies: Array.isArray(item.companies) ? item.companies[0] : item.companies,
+      access_type: "granted" as const,
+      granted_by_accountant: "Accountant" // We'll fetch the actual name in the UI layer
+    })) || [];
+
+    // Merge both types of access, avoiding duplicates
+    const allCompanies: UserCompany[] = [...transformedDirectCompanies];
+    transformedGrantedCompanies.forEach(grantedCompany => {
+      const isDuplicate = allCompanies.some(directCompany => 
+        directCompany.company_id === grantedCompany.company_id
+      );
+      if (!isDuplicate) {
+        allCompanies.push(grantedCompany);
+      }
+    });
 
     return { 
       user: {
@@ -469,7 +506,7 @@ export async function signIn(email: string, password: string) {
         email: user.email,
         role: user.role
       },
-      companies: transformedCompanies
+      companies: allCompanies
     };
   } catch {
     return { error: "Failed to sign in" };
@@ -728,7 +765,7 @@ export async function verifyEmail(token: string) {
       .eq("id", verificationToken.user_id)
       .single();
 
-    if (user) {
+    if (user && user.role === "Owner") {
       // Create default company "My Company" after successful verification
       const defaultCompanyResult = await createCompany(user.id, "My Company", "Default company");
       
@@ -803,4 +840,129 @@ export async function resendVerificationEmail(email: string) {
   } catch {
     return { error: "Failed to resend verification email" };
   }
+}
+
+/**
+ * Send accountant team member invitation
+ */
+export async function sendAccountantTeamInvitation(
+  name: string,
+  email: string, 
+  accountantId: string
+) {
+  try {
+    console.log("🔍 sendAccountantTeamInvitation - Starting process:", { name, email, accountantId });
+    
+    // Check if team member already exists for this accountant
+    const { data: existingMember } = await supabase
+      .from("accountant_members_list")
+      .select("id")
+      .eq("accountant_id", accountantId)
+      .eq("email", email)
+      .eq("is_active", true)
+      .single();
+
+    if (existingMember) {
+      return { error: "Team member with this email already exists" };
+    }
+
+    // Create team member record
+    const { data: teamMember, error: memberError } = await supabase
+      .from("accountant_members_list")
+      .insert({
+        accountant_id: accountantId,
+        name,
+        email,
+        is_active: true,
+        is_access_enabled: false // Will be set to true when they accept invitation
+      })
+      .select()
+      .single();
+
+    if (memberError || !teamMember) {
+      return { error: "Failed to create team member record" };
+    }
+
+    // Get accountant details
+    const { data: accountant, error: accountantError } = await supabase
+      .from("users")
+      .select("email")
+      .eq("id", accountantId)
+      .single();
+
+    if (accountantError || !accountant) {
+      return { error: "Accountant not found" };
+    }
+
+    // Generate invitation token
+    const token = generateToken();
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + 24); // Expire in 24 hours
+
+    // Store invitation token
+    console.log("🎫 Creating accountant invitation token:", { teamMemberId: teamMember.id, token: token.substring(0, 10) + "...", tokenType: "acct_invite" });
+    const { error: tokenError } = await supabase
+      .from("email_verification_tokens")
+      .insert({
+        token,
+        token_type: "acct_invite",
+        invited_email: email,
+        invited_role: "Member", // Default role for team members
+        accountant_id: accountantId,
+        accountant_member_id: teamMember.id,
+        invited_by_user_id: accountantId,
+        expires_at: expiresAt.toISOString()
+      });
+
+    if (tokenError) {
+      console.error("❌ Token creation error:", tokenError);
+      // Clean up team member record if token creation fails
+      await supabase
+        .from("accountant_members_list")
+        .delete()
+        .eq("id", teamMember.id);
+      return { error: "Failed to create invitation token" };
+    }
+    
+    console.log("✅ Accountant invitation token created successfully");
+
+    // Send invitation email
+    const invitationUrl = createAccountantInvitationUrl(token);
+    const emailService = getEmailService();
+    const emailResult = await emailService.sendInvitationEmail({
+      email,
+      invitationUrl,
+      companyName: `${accountant.email}'s Team`,
+      inviterName: accountant.email,
+      role: "Member"
+    });
+
+    if (!emailResult.success) {
+      // Clean up token and team member record if email fails
+      await supabase
+        .from("email_verification_tokens")
+        .delete()
+        .eq("token", token);
+      await supabase
+        .from("accountant_members_list")
+        .delete()
+        .eq("id", teamMember.id);
+      return { error: "Failed to send invitation email. Please try again." };
+    }
+
+    return { success: true, memberId: teamMember.id };
+  } catch (error) {
+    console.error("Accountant team invitation error:", error);
+    return { error: "Failed to send invitation" };
+  }
+}
+
+/**
+ * Create accountant invitation URL
+ */
+export function createAccountantInvitationUrl(token: string): string {
+  const baseUrl = process.env.NODE_ENV === "development" 
+    ? "http://localhost:3000" 
+    : process.env.NEXT_PUBLIC_BASE_URL || "https://www.use-switch.com";
+  return `${baseUrl}/accountant/accept-invite?token=${token}`;
 } 

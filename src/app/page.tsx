@@ -2,7 +2,7 @@
 
 import { useAuthStore } from "@/zustand/authStore";
 import { api } from "@/lib/api";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
 import NavBar from "@/components/NavBar";
@@ -11,6 +11,37 @@ interface CompanyModalProps {
   isOpen: boolean;
   onClose: () => void;
   onCreateCompany: (name: string, description?: string) => Promise<void>;
+}
+
+interface TeamMember {
+  id: string;
+  name: string;
+  email: string;
+  is_access_enabled: boolean;
+  userId?: string; // The actual user_id for API calls
+}
+
+interface TeamMemberModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onAddTeamMember: (name: string, email: string) => Promise<void>;
+}
+
+interface ManageMemberModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  member: TeamMember | null;
+  onMemberChanged: () => void;
+}
+
+interface CompanyAccess {
+  company: {
+    id: string;
+    name: string;
+    description?: string;
+  };
+  hasAccess: boolean;
+  accountantRole: string;
 }
 
 function CompanyModal({ isOpen, onClose, onCreateCompany }: CompanyModalProps) {
@@ -111,12 +142,412 @@ function CompanyModal({ isOpen, onClose, onCreateCompany }: CompanyModalProps) {
   );
 }
 
+function TeamMemberModal({ isOpen, onClose, onAddTeamMember }: TeamMemberModalProps) {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [isAdding, setIsAdding] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim() || !email.trim()) return;
+
+    setIsAdding(true);
+    setError("");
+
+    try {
+      await onAddTeamMember(name.trim(), email.trim());
+      setName("");
+      setEmail("");
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to add team member");
+    } finally {
+      setIsAdding(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg shadow-xl w-80 mx-4">
+        <div className="flex justify-between items-center px-4 py-3 border-b border-gray-200">
+          <h2 className="text-sm font-semibold text-gray-900">Add Team Member</h2>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        
+        <form onSubmit={handleSubmit} className="px-4 py-4">
+          <div className="space-y-3">
+            {error && (
+              <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-md text-sm">
+                {error}
+              </div>
+            )}
+            
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                Name *
+              </label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="w-full px-2 py-1 border border-gray-300 rounded-md text-gray-900 placeholder-gray-500 focus:border-black focus:outline-none focus:ring-black text-sm"
+                placeholder="Enter full name"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                Email Address *
+              </label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-2 py-1 border border-gray-300 rounded-md text-gray-900 placeholder-gray-500 focus:border-black focus:outline-none focus:ring-black text-sm"
+                placeholder="Enter email address"
+                required
+              />
+            </div>
+          </div>
+          
+          <div className="flex justify-end gap-2 mt-4">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-3 py-1 text-sm text-gray-600 hover:text-gray-800"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isAdding || !name.trim() || !email.trim()}
+              className="px-3 py-1 text-sm font-medium text-white bg-black rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {isAdding ? "Adding..." : "Add"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function ManageMemberModal({ isOpen, onClose, member, onMemberChanged }: ManageMemberModalProps) {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [companyAccess, setCompanyAccess] = useState<CompanyAccess[]>([]);
+  const [memberUserId, setMemberUserId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  // Initialize form when modal opens
+  useEffect(() => {
+    if (isOpen && member) {
+      setName(member.name);
+      setEmail(member.email);
+      fetchMemberData();
+    }
+  }, [isOpen, member]);
+
+  const fetchMemberData = async () => {
+    if (!member?.id) return;
+
+    setIsLoading(true);
+    setError("");
+    setMemberUserId(null);
+
+    try {
+      const response = await api.get(`/api/accountant/member-company-access/${member.id}`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        setMemberUserId(data.teamMember?.userId || null);
+        
+        // Transform available companies into CompanyAccess format
+        const companyAccessList: CompanyAccess[] = data.availableCompanies?.map((comp: {
+          company: { id: string; name: string; description?: string };
+          hasAccess: boolean;
+          accountantRole: string;
+        }) => ({
+          company: comp.company,
+          hasAccess: comp.hasAccess,
+          accountantRole: comp.accountantRole
+        })) || [];
+        
+        setCompanyAccess(companyAccessList);
+      } else {
+        const errorData = await response.json();
+        setError(errorData.error || "Failed to fetch member data");
+      }
+    } catch (error) {
+      console.error("Error fetching member data:", error);
+      setError("Failed to fetch member data");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleToggleAccess = (companyId: string) => {
+    setCompanyAccess(prev => 
+      prev.map(comp => 
+        comp.company.id === companyId 
+          ? { ...comp, hasAccess: !comp.hasAccess }
+          : comp
+      )
+    );
+  };
+
+  const handleSave = async () => {
+    if (!member?.id || !memberUserId) return;
+
+    setIsSaving(true);
+    setError("");
+
+    try {
+      // Create the payload for the combined save operation
+      const payload = {
+        memberId: member.id,
+        memberUserId: memberUserId,
+        name: name.trim(),
+        email: email.trim(),
+        companyAccess: companyAccess.map(comp => ({
+          companyId: comp.company.id,
+          hasAccess: comp.hasAccess
+        }))
+      };
+
+      const response = await api.post("/api/accountant/save-member", payload);
+
+      if (response.ok) {
+        onMemberChanged(); // Notify parent to refresh team list
+        onClose(); // Close modal
+      } else {
+        const errorData = await response.json();
+        setError(errorData.error || "Failed to save member");
+      }
+    } catch (error) {
+      console.error("Error saving member:", error);
+      setError("Failed to save member");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleRemoveMember = async () => {
+    if (!member?.id) return;
+
+    const confirmRemove = confirm(`Are you sure you want to remove ${member.name} from your team? This action cannot be undone.`);
+    if (!confirmRemove) return;
+
+    setIsSaving(true);
+    setError("");
+
+    try {
+      const response = await api.delete("/api/accountant/remove-member", {
+        body: JSON.stringify({ memberId: member.id }),
+      });
+
+      if (response.ok) {
+        onMemberChanged(); // Notify parent to refresh team list
+        onClose(); // Close modal
+      } else {
+        const errorData = await response.json();
+        setError(errorData.error || "Failed to remove member");
+      }
+    } catch (error) {
+      console.error("Error removing member:", error);
+      setError("Failed to remove member");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  if (!isOpen || !member) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[80vh] overflow-hidden">
+        <div className="flex justify-between items-center px-6 py-4 border-b border-gray-200">
+          <h2 className="text-lg font-semibold text-gray-900">
+            Manage Member
+          </h2>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        
+        <div className="p-6 overflow-y-auto max-h-[calc(80vh-180px)]">
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm mb-4">
+              {error}
+            </div>
+          )}
+
+          {isLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="w-6 h-6 relative">
+                <div className="w-6 h-6 border-2 border-gray-200 rounded-full"></div>
+                <div className="w-6 h-6 border-2 border-black border-t-transparent rounded-full animate-spin absolute top-0 left-0"></div>
+              </div>
+              <span className="ml-2 text-gray-600">Loading member data...</span>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {/* Member Details */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Name
+                  </label>
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 focus:border-black focus:outline-none focus:ring-black text-sm"
+                    disabled={!memberUserId}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Email
+                  </label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 focus:border-black focus:outline-none focus:ring-black text-sm"
+                    disabled={!memberUserId}
+                  />
+                </div>
+              </div>
+
+              {!memberUserId ? (
+                <div className="text-center py-4 bg-yellow-50 border border-yellow-200 rounded-md">
+                  <p className="text-yellow-800 text-sm">
+                    {member.name} hasn&apos;t accepted their team invitation yet.
+                    <br />
+                    Company access and details can be managed once they complete their account setup.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {/* Company Access Table */}
+                  <div>
+                    <h3 className="text-md font-medium text-gray-900 mb-3">
+                      Company Access
+                    </h3>
+                    {companyAccess.length > 0 ? (
+                      <div className="border border-gray-200 rounded-md overflow-hidden">
+                        <table className="w-full">
+                          <thead className="bg-gray-50 border-b border-gray-200">
+                            <tr>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                                Company
+                              </th>
+                              <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 uppercase tracking-wider">
+                                Access
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white divide-y divide-gray-200">
+                            {companyAccess.map((comp) => (
+                              <tr key={comp.company.id} className="hover:bg-gray-50">
+                                <td className="px-4 py-3">
+                                  <div>
+                                    <p className="font-medium text-gray-900">{comp.company.name}</p>
+                                    {comp.company.description && (
+                                      <p className="text-sm text-gray-500">{comp.company.description}</p>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  <button
+                                    onClick={() => handleToggleAccess(comp.company.id)}
+                                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                                      comp.hasAccess ? 'bg-blue-600' : 'bg-gray-300'
+                                    }`}
+                                  >
+                                    <span
+                                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                        comp.hasAccess ? 'translate-x-6' : 'translate-x-1'
+                                      }`}
+                                    />
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <p className="text-gray-500 text-sm italic">No companies available.</p>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-between items-center px-6 py-4 border-t border-gray-200">
+          <div>
+            {memberUserId && (
+              <button
+                onClick={handleRemoveMember}
+                disabled={isSaving}
+                className="px-4 py-2 text-sm text-red-600 hover:text-red-800 border border-red-300 rounded hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                Remove Member
+              </button>
+            )}
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={onClose}
+              disabled={isSaving}
+              className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={isSaving || !memberUserId || !name.trim() || !email.trim()}
+              className="px-4 py-2 text-sm font-medium text-white bg-black rounded-md hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {isSaving ? "Saving..." : "Save"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function GatewayPage() {
   const { user, companies } = useAuthStore();
   const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
   const [showAccountSection, setShowAccountSection] = useState(false);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [isTeamMemberModalOpen, setIsTeamMemberModalOpen] = useState(false);
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [teamSearchQuery, setTeamSearchQuery] = useState("");
+  const [isManageMemberModalOpen, setIsManageMemberModalOpen] = useState(false);
+  const [selectedTeamMember, setSelectedTeamMember] = useState<TeamMember | null>(null);
+
   const router = useRouter();
   
   // Profile form states
@@ -287,6 +718,60 @@ export default function GatewayPage() {
     console.log("Selected company:", company);
     router.push('/transactions');
   };
+
+  const handleAddTeamMember = async (name: string, email: string) => {
+    if (!user) throw new Error("User not found");
+
+    // Use the authenticated API to invite team member
+    const response = await api.post("/api/accountant/invite-member", { name, email });
+
+    const result = await response.json();
+    
+    if (!response.ok) {
+      throw new Error(result.error || "Failed to invite team member");
+    }
+
+    // Refresh team members list
+    await fetchTeamMembers();
+  };
+
+
+
+  const fetchTeamMembers = async () => {
+    if (!user || user.role !== "Accountant") return;
+
+    try {
+      const response = await api.get("/api/accountant/team-members");
+      if (response.ok) {
+        const data = await response.json();
+        setTeamMembers(data.teamMembers || []);
+      }
+    } catch (error) {
+      console.error("Error fetching team members:", error);
+    }
+  };
+
+  const handleManageMember = (member: TeamMember) => {
+    setSelectedTeamMember(member);
+    setIsManageMemberModalOpen(true);
+  };
+
+  const handleCloseManageMember = () => {
+    setIsManageMemberModalOpen(false);
+    setSelectedTeamMember(null);
+  };
+
+  const handleMemberChanged = () => {
+    // Refresh team members list
+    fetchTeamMembers();
+  };
+
+  // Fetch team members when component mounts for Accountants
+  useEffect(() => {
+    if (user && user.role === "Accountant") {
+      fetchTeamMembers();
+    }
+  }, [user]);
 
   return (
     <>
@@ -484,7 +969,14 @@ export default function GatewayPage() {
                           .map((userCompany) => (
                           <tr key={userCompany.company_id} className="hover:bg-gray-50">
                             <td className="px-4 py-3 text-left text-sm font-medium text-gray-900">
-                              {userCompany.companies.name}
+                              <div className="flex items-center gap-2">
+                                {userCompany.companies.name}
+                                {userCompany.access_type === "granted" && (
+                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                                    via {userCompany.granted_by_accountant}
+                                  </span>
+                                )}
+                              </div>
                             </td>
                             <td className="px-4 py-3 text-left text-sm text-gray-600">
                               {userCompany.companies.description || "-"}
@@ -531,6 +1023,111 @@ export default function GatewayPage() {
               )}
             </div>
           )}
+
+          {/* Team Section for Accountants */}
+          {user && user.role === "Accountant" && !showAccountSection && (
+            <div className="mt-20">
+              <div className="space-y-4 w-2xl mx-auto">
+                {/* Team Header */}
+                <div className="flex justify-between items-center">
+                  <button
+                    onClick={() => setIsTeamMemberModalOpen(true)}
+                    className="flex items-center gap-2 px-2 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 transition-colors hover:cursor-pointer"
+                  >
+                    Add Team Member
+                  </button>
+                </div>
+
+                {/* Team Search Bar */}
+                <div className="w-full">
+                  <input
+                    type="text"
+                    placeholder="Search team members..."
+                    value={teamSearchQuery}
+                    onChange={(e) => setTeamSearchQuery(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 placeholder-gray-500 focus:border-gray-900 focus:outline-none focus:ring-gray-900 text-sm"
+                  />
+                </div>
+
+                {/* Team Members Table */}
+                <div className="border border-gray-300 rounded-md overflow-hidden">
+                  <table className="w-full">
+                    <thead className="bg-gray-50 border-b border-gray-300">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                          Email
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                          Name
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                          Status
+                        </th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-700 uppercase tracking-wider">
+                          Actions
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {teamMembers
+                        .filter((member) => 
+                          member.email.toLowerCase().includes(teamSearchQuery.toLowerCase()) ||
+                          member.name.toLowerCase().includes(teamSearchQuery.toLowerCase())
+                        )
+                        .map((member) => (
+                        <tr key={member.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 text-left text-sm font-medium text-gray-900">
+                            {member.email}
+                          </td>
+                          <td className="px-4 py-3 text-left text-sm text-gray-600">
+                            {member.name}
+                          </td>
+                          <td className="px-4 py-3 text-left text-sm text-gray-600">
+                            <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                              member.is_access_enabled 
+                                ? "bg-green-100 text-green-800" 
+                                : "bg-yellow-100 text-yellow-800"
+                            }`}>
+                              {member.is_access_enabled ? "Active" : "Pending"}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <div className="flex items-center gap-2 justify-end">
+                              <button
+                                onClick={() => handleManageMember(member)}
+                                className="text-sm text-blue-600 hover:text-blue-800 transition-colors"
+                              >
+                                Manage
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {teamMembers
+                        .filter((member) => 
+                          member.email.toLowerCase().includes(teamSearchQuery.toLowerCase()) ||
+                          member.name.toLowerCase().includes(teamSearchQuery.toLowerCase())
+                        )
+                        .length === 0 && teamSearchQuery && (
+                        <tr>
+                          <td colSpan={4} className="px-4 py-3 text-center text-sm text-gray-500">
+                            No team members found matching &quot;{teamSearchQuery}&quot;
+                          </td>
+                        </tr>
+                      )}
+                      {teamMembers.length === 0 && !teamSearchQuery && (
+                        <tr>
+                          <td colSpan={4} className="px-4 py-3 text-center text-sm text-gray-500">
+                            No team members yet. Add your first team member to get started.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Company Modal */}
@@ -538,6 +1135,21 @@ export default function GatewayPage() {
           isOpen={isCompanyModalOpen}
           onClose={() => setIsCompanyModalOpen(false)}
           onCreateCompany={handleCreateCompany}
+        />
+
+        {/* Team Member Modal */}
+        <TeamMemberModal
+          isOpen={isTeamMemberModalOpen}
+          onClose={() => setIsTeamMemberModalOpen(false)}
+          onAddTeamMember={handleAddTeamMember}
+        />
+
+        {/* Manage Member Modal */}
+        <ManageMemberModal
+          isOpen={isManageMemberModalOpen}
+          onClose={handleCloseManageMember}
+          member={selectedTeamMember}
+          onMemberChanged={handleMemberChanged}
         />
       </main>
     </>

@@ -21,6 +21,7 @@ export default function AuthenticatedApp({ children }: { children: React.ReactNo
   const publicPages = [
     "/verify-email",
     "/accept-invitation",
+    "/accountant/accept-invite",
     // Auth API routes are handled separately by middleware, but included for completeness
     "/api/auth/signup",
     "/api/auth/signin", 
