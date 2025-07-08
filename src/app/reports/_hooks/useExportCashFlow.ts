@@ -1,16 +1,16 @@
 import { useMemo } from "react";
 import ExcelJS from "exceljs";
-import { Account, Transaction } from "../_types";
+import { Account, Category, Transaction } from "../_types";
 import { formatDateForDisplay, getMonthsInRange, getQuartersInRange, formatMonth, formatQuarter } from "../_utils";
 
 interface UseExportCashFlowParams {
   // Data
-  accounts: Account[];
+  categories: Category[];
   journalEntries: Transaction[];
-  bankAccounts: Account[];
-  revenueRows: Account[];
-  cogsRows: Account[];
-  expenseRows: Account[];
+  actualBankAccounts: Account[];
+  revenueRows: Category[];
+  cogsRows: Category[];
+  expenseRows: Category[];
 
   // Company info
   currentCompany: { name: string } | null;
@@ -18,7 +18,6 @@ interface UseExportCashFlowParams {
   // Display configuration
   isMonthlyView: boolean;
   isQuarterlyView: boolean;
-  showPercentages: boolean;
   startDate: string;
   endDate: string;
 
@@ -37,6 +36,9 @@ interface UseExportCashFlowParams {
     netInvestingChange: number;
   };
   financingActivities: {
+    increaseInCreditCards: number;
+    decreaseInCreditCards: number;
+    netCreditCardChange: number;
     increaseInLiabilities: number;
     decreaseInLiabilities: number;
     ownerInvestment: number;
@@ -46,12 +48,12 @@ interface UseExportCashFlowParams {
 
   // Account operations
   collapsedAccounts: Set<string>;
-  calculateAccountTotal: (account: Account) => number;
-  calculateAccountDirectTotal: (account: Account) => number;
-  calculateAccountTotalForMonth: (account: Account, month: string) => number;
-  calculateAccountTotalForMonthWithSubaccounts: (account: Account, month: string) => number;
-  calculateAccountTotalForQuarter: (account: Account, quarter: string) => number;
-  calculateAccountTotalForQuarterWithSubaccounts: (account: Account, quarter: string) => number;
+  calculateAccountTotal: (category: Category) => number;
+  calculateAccountDirectTotal: (category: Category) => number;
+  calculateAccountTotalForMonth: (category: Category, month: string) => number;
+  calculateAccountTotalForMonthWithSubaccounts: (category: Category, month: string) => number;
+  calculateAccountTotalForQuarter: (category: Category, quarter: string) => number;
+  calculateAccountTotalForQuarterWithSubaccounts: (category: Category, quarter: string) => number;
 
   // Period calculation functions
   calculateBankBalanceForPeriod: (periodEnd: string) => number;
@@ -76,6 +78,9 @@ interface UseExportCashFlowParams {
     periodStart: string,
     periodEnd: string
   ) => {
+    increaseInCreditCards: number;
+    decreaseInCreditCards: number;
+    netCreditCardChange: number;
     increaseInLiabilities: number;
     decreaseInLiabilities: number;
     ownerInvestment: number;
@@ -83,7 +88,7 @@ interface UseExportCashFlowParams {
     netFinancingChange: number;
   };
   // Formatting functions
-  formatPercentageForAccount: (num: number, account?: Account) => string;
+  formatPercentageForAccount: (num: number, category?: Category) => string;
   calculatePercentageForMonth: (amount: number, month: string) => string;
   calculatePercentageForQuarter: (amount: number, quarter: string) => string;
 }
@@ -298,8 +303,12 @@ export const useExportCashFlow = (params: UseExportCashFlowParams) => {
       currentRow++;
 
       addPeriodRow(
-        "  Increase / decrease in Credit Cards",
-        (periodStart, periodEnd) => calculateFinancingActivitiesForPeriod(periodStart, periodEnd).increaseInLiabilities
+        "  Increase in Credit Cards",
+        (periodStart, periodEnd) => calculateFinancingActivitiesForPeriod(periodStart, periodEnd).increaseInCreditCards
+      );
+      addPeriodRow(
+        "  Decrease in Credit Cards",
+        (periodStart, periodEnd) => -calculateFinancingActivitiesForPeriod(periodStart, periodEnd).decreaseInCreditCards
       );
       addPeriodRow(
         "  Increases in Liabilities (e.g. new loans)",

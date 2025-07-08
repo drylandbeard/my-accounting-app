@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import ExcelJS from "exceljs";
-import { Account, Transaction } from "../_types";
+import { Category, Transaction } from "../_types";
 import {
   formatDateForDisplay,
   formatPercentage,
@@ -14,11 +14,11 @@ import {
 
 interface UseExportProfitLossParams {
   // Data
-  accounts: Account[];
+  categories: Category[];
   journalEntries: Transaction[];
-  revenueRows: Account[];
-  cogsRows: Account[];
-  expenseRows: Account[];
+  revenueRows: Category[];
+  cogsRows: Category[];
+  expenseRows: Category[];
 
   // Company info
   currentCompany: { name: string } | null;
@@ -32,22 +32,22 @@ interface UseExportProfitLossParams {
 
   // Account operations
   collapsedAccounts: Set<string>;
-  calculateAccountTotal: (account: Account) => number;
-  calculateAccountDirectTotal: (account: Account) => number;
-  calculateAccountTotalForMonth: (account: Account, month: string) => number;
-  calculateAccountTotalForMonthWithSubaccounts: (account: Account, month: string) => number;
-  calculateAccountTotalForQuarter: (account: Account, quarter: string) => number;
-  calculateAccountTotalForQuarterWithSubaccounts: (account: Account, quarter: string) => number;
+  calculateAccountTotal: (category: Category) => number;
+  calculateAccountDirectTotal: (category: Category) => number;
+  calculateAccountTotalForMonth: (category: Category, month: string) => number;
+  calculateAccountTotalForMonthWithSubaccounts: (category: Category, month: string) => number;
+  calculateAccountTotalForQuarter: (category: Category, quarter: string) => number;
+  calculateAccountTotalForQuarterWithSubaccounts: (category: Category, quarter: string) => number;
 
   // Formatting functions
-  formatPercentageForAccount: (num: number, account?: Account) => string;
+  formatPercentageForAccount: (num: number, category?: Category) => string;
   calculatePercentageForMonth: (amount: number, month: string) => string;
   calculatePercentageForQuarter: (amount: number, quarter: string) => string;
 }
 
 export const useExportProfitLoss = (params: UseExportProfitLossParams) => {
   const {
-    accounts,
+    categories,
     journalEntries,
     revenueRows,
     cogsRows,
@@ -219,9 +219,9 @@ export const useExportProfitLoss = (params: UseExportProfitLossParams) => {
 
         // Account rows
         accountsToRender.forEach((account) => {
-          const addAccountRow = (acc: Account, accountLevel: number) => {
-            const subaccounts = getSubaccounts(accounts, acc.id).filter((sub) =>
-              hasTransactions(sub, journalEntries, accounts)
+          const addAccountRow = (acc: Category, accountLevel: number) => {
+            const subaccounts = getSubaccounts(categories, acc.id).filter((sub) =>
+              hasTransactions(sub, journalEntries, categories)
             );
 
             const isParent = subaccounts.length > 0;
@@ -707,7 +707,7 @@ export const useExportProfitLoss = (params: UseExportProfitLossParams) => {
       window.URL.revokeObjectURL(url);
     };
   }, [
-    accounts,
+    categories,
     journalEntries,
     revenueRows,
     cogsRows,
