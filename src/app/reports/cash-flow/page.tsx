@@ -1,13 +1,14 @@
 "use client";
 
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useCallback } from "react";
 import { useAuthStore } from "@/zustand/authStore";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useSearchParams } from "next/navigation";
+import { useExportCashFlow } from "../_hooks/useExportCashFlow";
 
 // Shared imports
-import { Account, Transaction, ViewerModalState } from "../_types";
+import { Transaction, ViewerModalState } from "../_types";
 import {
   formatDateForDisplay,
   formatNumber,
@@ -25,8 +26,6 @@ import { useAccountOperations } from "../_hooks/useAccountOperations";
 import { ReportHeader } from "../_components/ReportHeader";
 import { TransactionViewer } from "../_components/TransactionViewer";
 import { SaveReportModal } from "../_components/SaveReportModal";
-import { useExportCashFlow } from "../_hooks/useExportCashFlow";
-import { AccountRowRenderer } from "../_components/AccountRowRenderer";
 import { api } from "@/lib/api";
 
 export default function CashFlowPage() {
@@ -59,13 +58,10 @@ export default function CashFlowPage() {
 
   const {
     collapsedAccounts,
-    toggleAccount,
     getTopLevelAccounts,
-    calculateAccountDirectTotal,
     calculateAccountTotal,
     calculateAccountTotalForMonth,
     calculateAccountTotalForQuarter,
-    calculateAccountTotalForQuarterWithSubaccounts,
     collapseAllParentCategories,
     expandAllParentCategories,
     getParentAccounts,
@@ -129,153 +125,191 @@ export default function CashFlowPage() {
   const cogsRows = getTopLevelAccounts("COGS");
   const expenseRows = getTopLevelAccounts("Expense");
 
-  // Totals
+  // Totals for cash flow calculations
   const totalRevenue = revenueRows.reduce((sum, a) => sum + calculateAccountTotal(a), 0);
   const totalCOGS = cogsRows.reduce((sum, a) => sum + calculateAccountTotal(a), 0);
   const totalExpenses = expenseRows.reduce((sum, a) => sum + calculateAccountTotal(a), 0);
-  const grossProfit = totalRevenue - totalCOGS;
-  const netIncome = grossProfit - totalExpenses;
 
-  const formatPercentageForAccount = (num: number, account?: Account): string => {
-    if (!account) return formatPercentage(num, totalRevenue);
+  // Net Income: difference of Revenue, COGS, and Expenses (as per business requirements)
+  const netIncome = totalRevenue - totalCOGS - totalExpenses;
 
-    const base =
-      totalRevenue !== 0
-        ? totalRevenue
-        : account.type === "Expense"
-        ? totalExpenses
-        : account.type === "COGS"
-        ? totalCOGS
-        : totalRevenue;
-    return formatPercentage(num, base);
-  };
-
-  // Get bank accounts for beginning and ending balance
+  // Get bank accounts for beginning and ending balance - specifically "Bank Account" type as per business requirements
   const bankAccounts = useMemo(() => {
-    return accounts.filter(
-      (acc) =>
-        acc.type === "Bank Account" ||
-        acc.name.toLowerCase().includes("cash") ||
-        acc.name.toLowerCase().includes("bank") ||
-        acc.name.toLowerCase().includes("checking") ||
-        acc.name.toLowerCase().includes("savings")
-    );
+    return accounts.filter((acc) => acc.type === "Bank Account");
   }, [accounts]);
 
-  // Calculate beginning bank balance (balance before start date)
+  // Beginning Bank Balance: total of all Bank Account type categories (as per business requirements)
   const beginningBankBalance = useMemo(() => {
     return bankAccounts.reduce((total, account) => {
       const accountTransactions = journalEntries.filter(
         (tx) => tx.chart_account_id === account.id && tx.date < startDate
       );
+      // For bank accounts, debits increase balance, credits decrease balance
       return total + accountTransactions.reduce((sum, tx) => sum + Number(tx.debit) - Number(tx.credit), 0);
     }, 0);
   }, [bankAccounts, journalEntries, startDate]);
 
-  // Calculate ending bank balance (balance up to end date)
-  const endingBankBalance = useMemo(() => {
-    return bankAccounts.reduce((total, account) => {
-      const accountTransactions = journalEntries.filter(
-        (tx) => tx.chart_account_id === account.id && tx.date <= endDate
-      );
-      return total + accountTransactions.reduce((sum, tx) => sum + Number(tx.debit) - Number(tx.credit), 0);
-    }, 0);
-  }, [bankAccounts, journalEntries, endDate]);
-
   // Period-specific calculation functions
-  const calculateBankBalanceForPeriod = (periodEnd: string) => {
-    return bankAccounts.reduce((total, account) => {
-      const accountTransactions = journalEntries.filter(
-        (tx) => tx.chart_account_id === account.id && tx.date <= periodEnd
-      );
-      return total + accountTransactions.reduce((sum, tx) => sum + Number(tx.debit) - Number(tx.credit), 0);
-    }, 0);
-  };
+  const calculateOperatingActivitiesForPeriod = useCallback(
+    (periodStart: string, periodEnd: string) => {
+      const revenueAccounts = getTopLevelAccounts("Revenue");
+      const cogsAccounts = getTopLevelAccounts("COGS");
+      const expenseAccounts = getTopLevelAccounts("Expense");
 
-  const calculateOperatingActivitiesForPeriod = (periodStart: string, periodEnd: string) => {
-    const revenueAccounts = getTopLevelAccounts("Revenue");
-    const cogsAccounts = getTopLevelAccounts("COGS");
-    const expenseAccounts = getTopLevelAccounts("Expense");
+      const revenue = revenueAccounts.reduce((sum, account) => {
+        const transactions = journalEntries.filter(
+          (tx) =>
+            getAllAccountIds(accounts, account).includes(tx.chart_account_id) &&
+            tx.date >= periodStart &&
+            tx.date <= periodEnd
+        );
+        return sum + transactions.reduce((txSum, tx) => txSum + Number(tx.credit) - Number(tx.debit), 0);
+      }, 0);
 
-    const revenue = revenueAccounts.reduce((sum, account) => {
-      const transactions = journalEntries.filter(
-        (tx) =>
-          getAllAccountIds(accounts, account).includes(tx.chart_account_id) &&
-          tx.date >= periodStart &&
-          tx.date <= periodEnd
-      );
-      return sum + transactions.reduce((txSum, tx) => txSum + Number(tx.credit) - Number(tx.debit), 0);
-    }, 0);
+      const cogs = cogsAccounts.reduce((sum, account) => {
+        const transactions = journalEntries.filter(
+          (tx) =>
+            getAllAccountIds(accounts, account).includes(tx.chart_account_id) &&
+            tx.date >= periodStart &&
+            tx.date <= periodEnd
+        );
+        return sum + transactions.reduce((txSum, tx) => txSum + Number(tx.debit) - Number(tx.credit), 0);
+      }, 0);
 
-    const cogs = cogsAccounts.reduce((sum, account) => {
-      const transactions = journalEntries.filter(
-        (tx) =>
-          getAllAccountIds(accounts, account).includes(tx.chart_account_id) &&
-          tx.date >= periodStart &&
-          tx.date <= periodEnd
-      );
-      return sum + transactions.reduce((txSum, tx) => txSum + Number(tx.debit) - Number(tx.credit), 0);
-    }, 0);
+      const expenses = expenseAccounts.reduce((sum, account) => {
+        const transactions = journalEntries.filter(
+          (tx) =>
+            getAllAccountIds(accounts, account).includes(tx.chart_account_id) &&
+            tx.date >= periodStart &&
+            tx.date <= periodEnd
+        );
+        return sum + transactions.reduce((txSum, tx) => txSum + Number(tx.debit) - Number(tx.credit), 0);
+      }, 0);
 
-    const expenses = expenseAccounts.reduce((sum, account) => {
-      const transactions = journalEntries.filter(
-        (tx) =>
-          getAllAccountIds(accounts, account).includes(tx.chart_account_id) &&
-          tx.date >= periodStart &&
-          tx.date <= periodEnd
-      );
-      return sum + transactions.reduce((txSum, tx) => txSum + Number(tx.debit) - Number(tx.credit), 0);
-    }, 0);
+      return { revenue, cogs, expenses, netIncome: revenue - cogs - expenses };
+    },
+    [accounts, journalEntries, getTopLevelAccounts]
+  );
 
-    return { revenue, cogs, expenses, netIncome: revenue - cogs - expenses };
-  };
+  const calculateInvestingActivitiesForPeriod = useCallback(
+    (periodStart: string, periodEnd: string) => {
+      // Get asset accounts excluding bank accounts as per business requirements
+      const assetAccounts = accounts.filter((acc) => acc.type === "Asset");
 
-  const calculateInvestingActivitiesForPeriod = (periodStart: string, periodEnd: string) => {
-    const assetAccounts = accounts.filter(
-      (acc) =>
-        acc.type === "Asset" &&
-        !acc.name.toLowerCase().includes("cash") &&
-        !acc.name.toLowerCase().includes("bank") &&
-        !acc.name.toLowerCase().includes("checking") &&
-        !acc.name.toLowerCase().includes("savings")
-    );
+      // Increase in Assets: total of assets debits (purchased) excluding bank accounts
+      const increaseInAssets = assetAccounts.reduce((total, account) => {
+        const accountTransactions = journalEntries.filter(
+          (tx) => tx.chart_account_id === account.id && tx.date >= periodStart && tx.date <= periodEnd
+        );
+        // For assets, debits represent purchases/increases
+        const debits = accountTransactions.reduce((sum, tx) => sum + Number(tx.debit), 0);
+        return total + debits;
+      }, 0);
 
-    const increaseInAssets = assetAccounts.reduce((total, account) => {
-      const accountTransactions = journalEntries.filter(
-        (tx) => tx.chart_account_id === account.id && tx.date >= periodStart && tx.date <= periodEnd
-      );
-      return total + accountTransactions.reduce((sum, tx) => sum + Number(tx.debit) - Number(tx.credit), 0);
-    }, 0);
+      // Decrease in Assets: total of assets sold (credits to asset accounts)
+      const decreaseInAssets = assetAccounts.reduce((total, account) => {
+        const accountTransactions = journalEntries.filter(
+          (tx) => tx.chart_account_id === account.id && tx.date >= periodStart && tx.date <= periodEnd
+        );
+        // For assets, credits represent sales/decreases
+        const credits = accountTransactions.reduce((sum, tx) => sum + Number(tx.credit), 0);
+        return total + credits;
+      }, 0);
 
-    return { increaseInAssets, decreaseInAssets: -increaseInAssets, netInvestingChange: -increaseInAssets };
-  };
+      // Investing Change: Decrease in Assets - Increase in Assets (as per business requirements)
+      const netInvestingChange = decreaseInAssets - increaseInAssets;
 
-  const calculateFinancingActivitiesForPeriod = (periodStart: string, periodEnd: string) => {
-    const liabilityAccounts = accounts.filter((acc) => acc.type === "Liability");
-    const equityAccounts = accounts.filter((acc) => acc.type === "Equity");
-    const creditCardAccounts = accounts.filter((acc) => acc.type === "Credit Card");
+      return { increaseInAssets, decreaseInAssets, netInvestingChange };
+    },
+    [accounts, journalEntries]
+  );
 
-    const increaseInLiabilities = [...liabilityAccounts, ...creditCardAccounts].reduce((total, account) => {
-      const accountTransactions = journalEntries.filter(
-        (tx) => tx.chart_account_id === account.id && tx.date >= periodStart && tx.date <= periodEnd
-      );
-      return total + accountTransactions.reduce((sum, tx) => sum + Number(tx.credit) - Number(tx.debit), 0);
-    }, 0);
+  const calculateFinancingActivitiesForPeriod = useCallback(
+    (periodStart: string, periodEnd: string) => {
+      const liabilityAccounts = accounts.filter((acc) => acc.type === "Liability");
+      const equityAccounts = accounts.filter((acc) => acc.type === "Equity");
+      const creditCardAccounts = accounts.filter((acc) => acc.type === "Credit Card");
 
-    const ownerContributions = equityAccounts.reduce((total, account) => {
-      const accountTransactions = journalEntries.filter(
-        (tx) => tx.chart_account_id === account.id && tx.date >= periodStart && tx.date <= periodEnd
-      );
-      return total + accountTransactions.reduce((sum, tx) => sum + Number(tx.credit) - Number(tx.debit), 0);
-    }, 0);
+      // Increase in Liabilities: total of liabilities credits (as per business requirements)
+      const increaseInLiabilities = [...liabilityAccounts, ...creditCardAccounts].reduce((total, account) => {
+        const accountTransactions = journalEntries.filter(
+          (tx) => tx.chart_account_id === account.id && tx.date >= periodStart && tx.date <= periodEnd
+        );
+        // For liabilities, credits represent increases
+        const credits = accountTransactions.reduce((sum, tx) => sum + Number(tx.credit), 0);
+        return total + credits;
+      }, 0);
 
-    return {
-      increaseInLiabilities,
-      ownerContributions,
-      ownerDistributions: -ownerContributions,
-      netFinancingChange: increaseInLiabilities + ownerContributions,
-    };
-  };
+      // Decrease in Liabilities: total of liabilities debits (as per business requirements)
+      const decreaseInLiabilities = [...liabilityAccounts, ...creditCardAccounts].reduce((total, account) => {
+        const accountTransactions = journalEntries.filter(
+          (tx) => tx.chart_account_id === account.id && tx.date >= periodStart && tx.date <= periodEnd
+        );
+        // For liabilities, debits represent decreases
+        const debits = accountTransactions.reduce((sum, tx) => sum + Number(tx.debit), 0);
+        return total + debits;
+      }, 0);
+
+      // Owner Investment: equity credits (investments into the business)
+      const ownerInvestment = equityAccounts.reduce((total, account) => {
+        const accountTransactions = journalEntries.filter(
+          (tx) => tx.chart_account_id === account.id && tx.date >= periodStart && tx.date <= periodEnd
+        );
+        // For equity, credits represent owner investments
+        const credits = accountTransactions.reduce((sum, tx) => sum + Number(tx.credit), 0);
+        return total + credits;
+      }, 0);
+
+      // Owner Withdrawal: equity debits (withdrawals from the business)
+      const ownerWithdrawal = equityAccounts.reduce((total, account) => {
+        const accountTransactions = journalEntries.filter(
+          (tx) => tx.chart_account_id === account.id && tx.date >= periodStart && tx.date <= periodEnd
+        );
+        // For equity, debits represent owner withdrawals
+        const debits = accountTransactions.reduce((sum, tx) => sum + Number(tx.debit), 0);
+        return total + debits;
+      }, 0);
+
+      // Net Financing Change: Increase in Liabilities - Decrease in Liabilities + Owner Investment - Owner Withdrawal
+      const netFinancingChange = increaseInLiabilities - decreaseInLiabilities + ownerInvestment - ownerWithdrawal;
+
+      return {
+        increaseInLiabilities,
+        decreaseInLiabilities,
+        ownerInvestment,
+        ownerWithdrawal,
+        netFinancingChange,
+      };
+    },
+    [accounts, journalEntries]
+  );
+
+  // Calculate bank balance for period (defined after other calculation functions)
+  const calculateBankBalanceForPeriod = useCallback(
+    (periodEnd: string) => {
+      // Calculate ending bank balance for a specific period using the cash flow formula
+      const periodStartBalance = bankAccounts.reduce((total, account) => {
+        const accountTransactions = journalEntries.filter(
+          (tx) => tx.chart_account_id === account.id && tx.date < startDate
+        );
+        return total + accountTransactions.reduce((sum, tx) => sum + Number(tx.debit) - Number(tx.credit), 0);
+      }, 0);
+
+      const operating = calculateOperatingActivitiesForPeriod(startDate, periodEnd);
+      const investing = calculateInvestingActivitiesForPeriod(startDate, periodEnd);
+      const financing = calculateFinancingActivitiesForPeriod(startDate, periodEnd);
+
+      return periodStartBalance + operating.netIncome + investing.netInvestingChange + financing.netFinancingChange;
+    },
+    [
+      bankAccounts,
+      journalEntries,
+      startDate,
+      calculateOperatingActivitiesForPeriod,
+      calculateInvestingActivitiesForPeriod,
+      calculateFinancingActivitiesForPeriod,
+    ]
+  );
 
   // Operating Activities
   const operatingActivities = useMemo(() => {
@@ -314,137 +348,68 @@ export default function CashFlowPage() {
     };
   }, [accounts, journalEntries, getTopLevelAccounts]);
 
-  // Investing Activities (changes in non-bank assets)
+  // Investing Activities (changes in non-bank assets as per business requirements)
   const investingActivities = useMemo(() => {
-    const assetAccounts = accounts.filter(
-      (acc) =>
-        acc.type === "Asset" &&
-        !acc.name.toLowerCase().includes("cash") &&
-        !acc.name.toLowerCase().includes("bank") &&
-        !acc.name.toLowerCase().includes("checking") &&
-        !acc.name.toLowerCase().includes("savings")
-    );
+    return calculateInvestingActivitiesForPeriod(startDate, endDate);
+  }, [startDate, endDate, calculateInvestingActivitiesForPeriod]);
 
-    const increaseInAssets = assetAccounts.reduce((total, account) => {
-      const accountTransactions = journalEntries.filter(
-        (tx) => tx.chart_account_id === account.id && tx.date >= startDate && tx.date <= endDate
-      );
-      // For assets, debits increase, credits decrease
-      return total + accountTransactions.reduce((sum, tx) => sum + Number(tx.debit) - Number(tx.credit), 0);
-    }, 0);
-
-    const decreaseInAssets = -increaseInAssets; // Opposite for cash flow purposes
-
-    return {
-      increaseInAssets,
-      decreaseInAssets,
-      netInvestingChange: decreaseInAssets, // Decrease in assets = positive cash flow
-    };
-  }, [accounts, journalEntries, startDate, endDate]);
-
-  // Financing Activities (changes in liabilities and equity)
+  // Financing Activities (changes in liabilities and equity as per business requirements)
   const financingActivities = useMemo(() => {
-    const liabilityAccounts = accounts.filter((acc) => acc.type === "Liability");
-    const equityAccounts = accounts.filter((acc) => acc.type === "Equity");
-    const creditCardAccounts = accounts.filter((acc) => acc.type === "Credit Card");
+    return calculateFinancingActivitiesForPeriod(startDate, endDate);
+  }, [startDate, endDate, calculateFinancingActivitiesForPeriod]);
 
-    const increaseInLiabilities = [...liabilityAccounts, ...creditCardAccounts].reduce((total, account) => {
-      const accountTransactions = journalEntries.filter(
-        (tx) => tx.chart_account_id === account.id && tx.date >= startDate && tx.date <= endDate
-      );
-      // For liabilities, credits increase, debits decrease
-      return total + accountTransactions.reduce((sum, tx) => sum + Number(tx.credit) - Number(tx.debit), 0);
-    }, 0);
+  // Ending Bank Balance: Beginning Bank Balance + Operating Change + Investing Change + Financing Change
+  const endingBankBalance = useMemo(() => {
+    const operatingChange = operatingActivities.netIncome;
+    const investingChange = investingActivities.netInvestingChange;
+    const financingChange = financingActivities.netFinancingChange;
 
-    const ownerContributions = equityAccounts.reduce((total, account) => {
-      const accountTransactions = journalEntries.filter(
-        (tx) => tx.chart_account_id === account.id && tx.date >= startDate && tx.date <= endDate
-      );
-      // For equity, credits increase, debits decrease
-      return total + accountTransactions.reduce((sum, tx) => sum + Number(tx.credit) - Number(tx.debit), 0);
-    }, 0);
-
-    const ownerDistributions = -ownerContributions; // Opposite for distributions
-
-    return {
-      increaseInLiabilities,
-      ownerContributions,
-      ownerDistributions,
-      netFinancingChange: increaseInLiabilities + ownerContributions,
-    };
-  }, [accounts, journalEntries, startDate, endDate]);
+    return beginningBankBalance + operatingChange + investingChange + financingChange;
+  }, [
+    beginningBankBalance,
+    operatingActivities.netIncome,
+    investingActivities.netInvestingChange,
+    financingActivities.netFinancingChange,
+  ]);
 
   // Export hook
-  // const { exportToXLSX } = useExportCashFlow({
-  //   accounts,
-  //   journalEntries,
-  //   revenueRows,
-  //   cogsRows,
-  //   expenseRows,
-  //   beginningBankBalance,
-  //   endingBankBalance,
-  //   operatingActivities,
-  //   investingActivities,
-  //   financingActivities,
-  //   currentCompany,
-  //   isMonthlyView,
-  //   isQuarterlyView,
-  //   showPercentages,
-  //   startDate,
-  //   endDate,
-  //   collapsedAccounts,
-  //   calculateAccountTotal,
-  //   calculateAccountDirectTotal,
-  //   calculateAccountTotalForMonth,
-  //   calculateAccountTotalForMonthWithSubaccounts,
-  //   calculateAccountTotalForQuarter,
-  //   calculateAccountTotalForQuarter,
-  //   formatPercentageForAccount,
-  //   calculatePercentageForMonth,
-  //   calculatePercentageForQuarter,
-  //   calculateBankBalanceForPeriod,
-  //   calculateOperatingActivitiesForPeriod,
-  //   calculateInvestingActivitiesForPeriod,
-  //   calculateFinancingActivitiesForPeriod,
-  // });
+  const { exportToXLSX } = useExportCashFlow({
+    accounts,
+    journalEntries,
+    bankAccounts,
+    revenueRows,
+    cogsRows,
+    expenseRows,
+    beginningBankBalance,
+    endingBankBalance,
+    operatingActivities,
+    investingActivities,
+    financingActivities,
+    currentCompany,
+    isMonthlyView,
+    isQuarterlyView,
+    showPercentages,
+    startDate,
+    endDate,
+    collapsedAccounts,
+    calculateAccountTotal,
+    calculateAccountDirectTotal: calculateAccountTotal, // Use the same function since calculateAccountDirectTotal is not defined
+    calculateAccountTotalForMonth,
+    calculateAccountTotalForMonthWithSubaccounts: calculateAccountTotalForMonth, // Use the same function since calculateAccountTotalForMonthWithSubaccounts is not defined
+    calculateAccountTotalForQuarter,
+    calculateAccountTotalForQuarterWithSubaccounts: calculateAccountTotalForQuarter, // Use the same function since calculateAccountTotalForQuarterWithSubaccounts is not defined
+    formatPercentageForAccount: (num: number) => formatPercentage(num, Math.abs(num)), // Simple wrapper
+    calculatePercentageForMonth: (amount: number) => formatPercentage(amount, Math.abs(amount)), // Simple wrapper
+    calculatePercentageForQuarter: (amount: number) => formatPercentage(amount, Math.abs(amount)), // Simple wrapper
+    calculateBankBalanceForPeriod,
+    calculateOperatingActivitiesForPeriod,
+    calculateInvestingActivitiesForPeriod,
+    calculateFinancingActivitiesForPeriod,
+  });
 
   // Helper functions (similar to P&L and Balance Sheet)
   const getCategoryName = (tx: Transaction) => {
     return accounts.find((a) => a.id === tx.chart_account_id)?.name || "";
-  };
-
-  const calculatePercentageForMonth = (amount: number, month: string): string => {
-    // For monthly view, calculate percentages based on monthly totals
-    const monthStart = `${month}-01`;
-    const lastDay = new Date(parseInt(month.split("-")[0]), parseInt(month.split("-")[1]), 0).getDate();
-    const monthEnd = `${month}-${String(lastDay).padStart(2, "0")}`;
-
-    // Get the appropriate base for the month
-    const monthlyOperating = calculateOperatingActivitiesForPeriod(monthStart, monthEnd);
-    const monthlyRevenue = Math.abs(monthlyOperating.revenue);
-
-    console.log(amount, monthlyRevenue);
-
-    return formatPercentage(amount, monthlyRevenue);
-  };
-
-  const calculatePercentageForQuarter = (amount: number, quarter: string): string => {
-    // For quarterly view, calculate percentages based on quarterly totals
-    const [year, q] = quarter.split("-Q");
-    const quarterNum = parseInt(q);
-    const quarterStart = `${year}-${String((quarterNum - 1) * 3 + 1).padStart(2, "0")}-01`;
-    const quarterEndMonth = quarterNum * 3;
-    const quarterEnd = `${year}-${String(quarterEndMonth).padStart(2, "0")}-${new Date(
-      parseInt(year),
-      quarterEndMonth,
-      0
-    ).getDate()}`;
-
-    // Get the appropriate base for the quarter
-    const quarterlyOperating = calculateOperatingActivitiesForPeriod(quarterStart, quarterEnd);
-    const quarterlyRevenue = Math.abs(quarterlyOperating.revenue) || 1;
-
-    return formatPercentage(amount, quarterlyRevenue);
   };
 
   // Calculate total columns for proper column spanning (consistent with P&L and Balance Sheet)
@@ -484,7 +449,7 @@ export default function CashFlowPage() {
       const totalNetIncome = Math.abs(operatingActivities.netIncome);
 
       // Determine which base to use for percentages
-      const getBaseValue = (value: number) => {
+      const getBaseValue = () => {
         // For different sections, use different base values
         if (categoryType === "Revenue" || categoryType === "COGS" || categoryType === "Expense") {
           // For operating activities, use revenue as base
@@ -526,7 +491,7 @@ export default function CashFlowPage() {
                 </TableCell>
                 {showPercentages && (
                   <TableCell className={`${categoryType ? "cursor-pointer hover:bg-slate-100" : ""}`} isValue>
-                    {value !== 0 ? formatPercentage(value, getBaseValue(value)) : "—"}
+                    {value !== 0 ? formatPercentage(value, getBaseValue()) : "—"}
                   </TableCell>
                 )}
               </React.Fragment>
@@ -548,9 +513,7 @@ export default function CashFlowPage() {
             {formatNumber(totalValue)}
           </TableCell>
           {showPercentages && (
-            <TableCell isValue>
-              {totalValue !== 0 ? formatPercentage(totalValue, getBaseValue(totalValue)) : "—"}
-            </TableCell>
+            <TableCell isValue>{totalValue !== 0 ? formatPercentage(totalValue, getBaseValue()) : "—"}</TableCell>
           )}
         </>
       );
@@ -568,7 +531,7 @@ export default function CashFlowPage() {
       const totalNetIncome = Math.abs(operatingActivities.netIncome);
 
       // Determine which base to use for percentages
-      const getBaseValue = (value: number) => {
+      const getBaseValue = () => {
         // For different sections, use different base values
         if (categoryType === "Revenue" || categoryType === "COGS" || categoryType === "Expense") {
           // For operating activities, use revenue as base
@@ -607,9 +570,9 @@ export default function CashFlowPage() {
             let quarterBaseValue;
             if (baseGetter) {
               const quarterBase = Math.abs(baseGetter(quarterStart, quarterEnd));
-              quarterBaseValue = quarterBase > 0 ? quarterBase : getBaseValue(value);
+              quarterBaseValue = quarterBase > 0 ? quarterBase : getBaseValue();
             } else {
-              quarterBaseValue = Math.abs(value) > 0 ? Math.abs(value) : getBaseValue(value);
+              quarterBaseValue = Math.abs(value) > 0 ? Math.abs(value) : getBaseValue();
             }
 
             return (
@@ -623,9 +586,7 @@ export default function CashFlowPage() {
           })}
           <TableCell isValue>{formatNumber(totalValue)}</TableCell>
           {showPercentages && (
-            <TableCell className="bg-red-300" isValue>
-              {totalValue !== 0 ? formatPercentage(totalValue, getBaseValue(totalValue)) : "—"}
-            </TableCell>
+            <TableCell isValue>{totalValue !== 0 ? formatPercentage(totalValue, getBaseValue()) : "—"}</TableCell>
           )}
         </>
       );
@@ -661,18 +622,6 @@ export default function CashFlowPage() {
 
     return transactions;
   }, [viewerModal, journalEntries, accounts, revenueRows, cogsRows, expenseRows]);
-
-  // Handle row click to show transaction viewer
-  const handleRowClick = (categoryType: string, categoryName: string) => {
-    setViewerModal({
-      isOpen: true,
-      category: {
-        id: categoryType,
-        name: categoryName,
-        type: categoryType,
-      },
-    });
-  };
 
   // Handle cell click to show transactions for a specific month
   const handleCellClick = (categoryType: string, categoryName: string, month: string) => {
@@ -771,7 +720,7 @@ export default function CashFlowPage() {
           onExpandAllCategories={expandAllParentCategories}
           collapsedAccounts={collapsedAccounts}
           parentAccounts={getParentAccounts()}
-          // exportToXLSX={exportToXLSX}
+          exportToXLSX={exportToXLSX}
           onSaveReport={() => setShowSaveDialog(true)}
           loading={loading}
         />
@@ -826,7 +775,7 @@ export default function CashFlowPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {loadingSavedReport ? (
+                  {loading || loadingSavedReport ? (
                     <TableRow>
                       <TableCell colSpan={getTotalColumns()} className="py-8 text-center">
                         <div className="flex flex-col items-center space-y-3">
@@ -1115,87 +1064,15 @@ export default function CashFlowPage() {
                           </>
                         )}
                       </TableRow>
-                      {/* Operating Change */}
+                      {/* Operating Change - equal to Net Income as per business requirements */}
                       <TableRow isSummaryLineItem>
                         <TableCell isLineItem>Operating Change</TableCell>
-                        {isMonthlyView ? (
-                          <>
-                            {getMonthsInRange(startDate, endDate).map((month) => (
-                              <React.Fragment key={month}>
-                                <TableCell isValue>
-                                  {formatNumber(
-                                    revenueRows.reduce((sum, a) => sum + calculateAccountTotalForMonth(a, month), 0) -
-                                      cogsRows.reduce((sum, a) => sum + calculateAccountTotalForMonth(a, month), 0) -
-                                      expenseRows.reduce((sum, a) => sum + calculateAccountTotalForMonth(a, month), 0)
-                                  )}
-                                </TableCell>
-                                {showPercentages && (
-                                  <TableCell isValue>
-                                    {formatPercentage(
-                                      revenueRows.reduce((sum, a) => sum + calculateAccountTotalForMonth(a, month), 0) -
-                                        cogsRows.reduce((sum, a) => sum + calculateAccountTotalForMonth(a, month), 0) -
-                                        expenseRows.reduce(
-                                          (sum, a) => sum + calculateAccountTotalForMonth(a, month),
-                                          0
-                                        ),
-                                      netIncome
-                                    )}
-                                  </TableCell>
-                                )}
-                              </React.Fragment>
-                            ))}
-                            <TableCell isValue>{formatNumber(netIncome)}</TableCell>
-                            {showPercentages && <TableCell isValue>{formatPercentage(netIncome, netIncome)}</TableCell>}
-                          </>
-                        ) : isQuarterlyView ? (
-                          <>
-                            {getQuartersInRange(startDate, endDate).map((quarter) => (
-                              <React.Fragment key={quarter}>
-                                <TableCell isValue>
-                                  {formatNumber(
-                                    revenueRows.reduce(
-                                      (sum, a) => sum + calculateAccountTotalForQuarter(a, quarter),
-                                      0
-                                    ) -
-                                      cogsRows.reduce(
-                                        (sum, a) => sum + calculateAccountTotalForQuarter(a, quarter),
-                                        0
-                                      ) -
-                                      expenseRows.reduce(
-                                        (sum, a) => sum + calculateAccountTotalForQuarter(a, quarter),
-                                        0
-                                      )
-                                  )}
-                                </TableCell>
-                                {showPercentages && (
-                                  <TableCell isValue>
-                                    {formatPercentage(
-                                      revenueRows.reduce(
-                                        (sum, a) => sum + calculateAccountTotalForQuarter(a, quarter),
-                                        0
-                                      ) -
-                                        cogsRows.reduce(
-                                          (sum, a) => sum + calculateAccountTotalForQuarter(a, quarter),
-                                          0
-                                        ) -
-                                        expenseRows.reduce(
-                                          (sum, a) => sum + calculateAccountTotalForQuarter(a, quarter),
-                                          0
-                                        ),
-                                      netIncome
-                                    )}
-                                  </TableCell>
-                                )}
-                              </React.Fragment>
-                            ))}
-                            <TableCell isValue>{formatNumber(netIncome)}</TableCell>
-                            {showPercentages && <TableCell isValue>{formatPercentage(netIncome, netIncome)}</TableCell>}
-                          </>
-                        ) : (
-                          <>
-                            <TableCell isValue>{formatNumber(netIncome)}</TableCell>
-                            {showPercentages && <TableCell isValue>{formatPercentage(netIncome, netIncome)}</TableCell>}
-                          </>
+                        {renderPeriodCells(
+                          (periodStart, periodEnd) =>
+                            calculateOperatingActivitiesForPeriod(periodStart, periodEnd).netIncome,
+                          undefined,
+                          "Operating",
+                          "Operating Change"
                         )}
                       </TableRow>
 
@@ -1232,15 +1109,27 @@ export default function CashFlowPage() {
                         )}
                       </TableRow>
 
-                      {/* Non-bank assets */}
+                      {/* Increase in Assets */}
                       <TableRow>
-                        <TableCell isLineItem>Changes in Non-Bank Assets</TableCell>
+                        <TableCell isLineItem>Increase in Assets</TableCell>
                         {renderPeriodCells(
                           (periodStart, periodEnd) =>
-                            calculateInvestingActivitiesForPeriod(periodStart, periodEnd).increaseInAssets,
+                            -calculateInvestingActivitiesForPeriod(periodStart, periodEnd).increaseInAssets,
                           undefined,
                           "Asset",
-                          "Changes in Non-Bank Assets"
+                          "Increase in Assets"
+                        )}
+                      </TableRow>
+
+                      {/* Decrease in Assets */}
+                      <TableRow>
+                        <TableCell isLineItem>Decrease in Assets</TableCell>
+                        {renderPeriodCells(
+                          (periodStart, periodEnd) =>
+                            calculateInvestingActivitiesForPeriod(periodStart, periodEnd).decreaseInAssets,
+                          undefined,
+                          "Asset",
+                          "Decrease in Assets"
                         )}
                       </TableRow>
 
@@ -1285,68 +1174,62 @@ export default function CashFlowPage() {
                         )}
                       </TableRow>
 
-                      {/* Credit Cards */}
+                      {/* Increase in Liabilities */}
                       <TableRow>
-                        <TableCell isLineItem>Credit Cards</TableCell>
-                        {renderPeriodCells(
-                          (periodStart, periodEnd) => {
-                            const creditCardAccounts = accounts.filter((acc) => acc.type === "Credit Card");
-                            return creditCardAccounts.reduce((total, account) => {
-                              const accountTransactions = journalEntries.filter(
-                                (tx) =>
-                                  tx.chart_account_id === account.id && tx.date >= periodStart && tx.date <= periodEnd
-                              );
-                              return (
-                                total +
-                                accountTransactions.reduce((sum, tx) => sum + Number(tx.credit) - Number(tx.debit), 0)
-                              );
-                            }, 0);
-                          },
-                          undefined,
-                          "Credit Card",
-                          "Credit Cards"
-                        )}
-                      </TableRow>
-
-                      {/* Liabilities */}
-                      <TableRow>
-                        <TableCell isLineItem>Liabilities</TableCell>
-                        {renderPeriodCells(
-                          (periodStart, periodEnd) => {
-                            const liabilityAccounts = accounts.filter((acc) => acc.type === "Liability");
-                            return liabilityAccounts.reduce((total, account) => {
-                              const accountTransactions = journalEntries.filter(
-                                (tx) =>
-                                  tx.chart_account_id === account.id && tx.date >= periodStart && tx.date <= periodEnd
-                              );
-                              return (
-                                total +
-                                accountTransactions.reduce((sum, tx) => sum + Number(tx.credit) - Number(tx.debit), 0)
-                              );
-                            }, 0);
-                          },
-                          undefined,
-                          "Liability",
-                          "Liabilities"
-                        )}
-                      </TableRow>
-
-                      {/* Equity */}
-                      <TableRow>
-                        <TableCell isLineItem>Equity</TableCell>
+                        <TableCell isLineItem>Increase in Liabilities</TableCell>
                         {renderPeriodCells(
                           (periodStart, periodEnd) =>
-                            calculateFinancingActivitiesForPeriod(periodStart, periodEnd).ownerContributions,
+                            calculateFinancingActivitiesForPeriod(periodStart, periodEnd).increaseInLiabilities,
                           undefined,
-                          "Equity",
-                          "Equity"
+                          "Liability",
+                          "Increase in Liabilities"
                         )}
                       </TableRow>
+
+                      {/* Decrease in Liabilities */}
+                      <TableRow>
+                        <TableCell isLineItem>Decrease in Liabilities</TableCell>
+                        {renderPeriodCells(
+                          (periodStart, periodEnd) =>
+                            -calculateFinancingActivitiesForPeriod(periodStart, periodEnd).decreaseInLiabilities,
+                          undefined,
+                          "Liability",
+                          "Decrease in Liabilities"
+                        )}
+                      </TableRow>
+
+                      {/* Owner Investment */}
+                      <TableRow>
+                        <TableCell isLineItem>Owner Investment</TableCell>
+                        {renderPeriodCells(
+                          (periodStart, periodEnd) =>
+                            calculateFinancingActivitiesForPeriod(periodStart, periodEnd).ownerInvestment,
+                          undefined,
+                          "Equity",
+                          "Owner Investment"
+                        )}
+                      </TableRow>
+
+                      {/* Owner Withdrawal */}
+                      <TableRow>
+                        <TableCell isLineItem>Owner Withdrawal</TableCell>
+                        {renderPeriodCells(
+                          (periodStart, periodEnd) =>
+                            -calculateFinancingActivitiesForPeriod(periodStart, periodEnd).ownerWithdrawal,
+                          undefined,
+                          "Equity",
+                          "Owner Withdrawal"
+                        )}
+                      </TableRow>
+                      {/* Financing Change */}
                       <TableRow isSummaryLineItem>
                         <TableCell isLineItem>Financing Change</TableCell>
                         {renderPeriodCells(
                           (periodStart, periodEnd) =>
-                            calculateFinancingActivitiesForPeriod(periodStart, periodEnd).netFinancingChange
+                            calculateFinancingActivitiesForPeriod(periodStart, periodEnd).netFinancingChange,
+                          undefined,
+                          "Financing",
+                          "Financing Change"
                         )}
                       </TableRow>
 

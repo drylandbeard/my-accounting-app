@@ -38,8 +38,9 @@ interface UseExportCashFlowParams {
   };
   financingActivities: {
     increaseInLiabilities: number;
-    ownerContributions: number;
-    ownerDistributions: number;
+    decreaseInLiabilities: number;
+    ownerInvestment: number;
+    ownerWithdrawal: number;
     netFinancingChange: number;
   };
 
@@ -76,8 +77,9 @@ interface UseExportCashFlowParams {
     periodEnd: string
   ) => {
     increaseInLiabilities: number;
-    ownerContributions: number;
-    ownerDistributions: number;
+    decreaseInLiabilities: number;
+    ownerInvestment: number;
+    ownerWithdrawal: number;
     netFinancingChange: number;
   };
   // Formatting functions
@@ -88,11 +90,6 @@ interface UseExportCashFlowParams {
 
 export const useExportCashFlow = (params: UseExportCashFlowParams) => {
   const {
-    accounts,
-    journalEntries,
-    revenueRows,
-    cogsRows,
-    expenseRows,
     beginningBankBalance,
     endingBankBalance,
     operatingActivities,
@@ -101,19 +98,8 @@ export const useExportCashFlow = (params: UseExportCashFlowParams) => {
     currentCompany,
     isMonthlyView,
     isQuarterlyView,
-    showPercentages,
     startDate,
     endDate,
-    collapsedAccounts,
-    calculateAccountTotal,
-    calculateAccountDirectTotal,
-    calculateAccountTotalForMonth,
-    calculateAccountTotalForMonthWithSubaccounts,
-    calculateAccountTotalForQuarter,
-    calculateAccountTotalForQuarterWithSubaccounts,
-    formatPercentageForAccount,
-    calculatePercentageForMonth,
-    calculatePercentageForQuarter,
     calculateBankBalanceForPeriod,
     calculateOperatingActivitiesForPeriod,
     calculateInvestingActivitiesForPeriod,
@@ -319,14 +305,17 @@ export const useExportCashFlow = (params: UseExportCashFlowParams) => {
         "  Increases in Liabilities (e.g. new loans)",
         (periodStart, periodEnd) => calculateFinancingActivitiesForPeriod(periodStart, periodEnd).increaseInLiabilities
       );
-      addPeriodRow("  Decreases in Liabilities (e.g. loan repayments)", () => 0);
+      addPeriodRow(
+        "  Decreases in Liabilities (e.g. loan repayments)",
+        (periodStart, periodEnd) => -calculateFinancingActivitiesForPeriod(periodStart, periodEnd).decreaseInLiabilities
+      );
       addPeriodRow(
         "  Owner contributions (Equity increases)",
-        (periodStart, periodEnd) => calculateFinancingActivitiesForPeriod(periodStart, periodEnd).ownerContributions
+        (periodStart, periodEnd) => calculateFinancingActivitiesForPeriod(periodStart, periodEnd).ownerInvestment
       );
       addPeriodRow(
         "  Owner distributions (Equity decreases)",
-        (periodStart, periodEnd) => calculateFinancingActivitiesForPeriod(periodStart, periodEnd).ownerDistributions
+        (periodStart, periodEnd) => -calculateFinancingActivitiesForPeriod(periodStart, periodEnd).ownerWithdrawal
       );
       addPeriodRow(
         "Financing Change:",
@@ -416,9 +405,12 @@ export const useExportCashFlow = (params: UseExportCashFlowParams) => {
     endDate,
     beginningBankBalance,
     endingBankBalance,
-    operatingActivities,
-    investingActivities,
-    financingActivities,
+    isMonthlyView,
+    isQuarterlyView,
+    calculateBankBalanceForPeriod,
+    calculateOperatingActivitiesForPeriod,
+    calculateInvestingActivitiesForPeriod,
+    calculateFinancingActivitiesForPeriod,
   ]);
 
   return { exportToXLSX };
