@@ -96,13 +96,21 @@ export const useAccountOperations = ({
         .filter((tx) => tx.chart_account_id === account.id)
         .reduce((sum, tx) => sum + Number(tx.credit), 0);
       return totalDebits - totalCredits;
-    } else if (account.type === "Liability" || account.type === "Equity") {
+    } else if (account.type === "Liability" || account.type === "Equity" || account.type === "Credit Card") {
       const totalCredits = journalEntries
         .filter((tx) => tx.chart_account_id === account.id)
         .reduce((sum, tx) => sum + Number(tx.credit), 0);
       const totalDebits = journalEntries
         .filter((tx) => tx.chart_account_id === account.id)
         .reduce((sum, tx) => sum + Number(tx.debit), 0);
+      return totalCredits - totalDebits;
+    } else if (account.type === "Bank Account") {
+      const totalDebits = journalEntries
+        .filter((tx) => tx.chart_account_id === account.id)
+        .reduce((sum, tx) => sum + Number(tx.debit), 0);
+      const totalCredits = journalEntries
+        .filter((tx) => tx.chart_account_id === account.id)
+        .reduce((sum, tx) => sum + Number(tx.credit), 0);
       return totalCredits - totalDebits;
     }
     return 0;
@@ -187,10 +195,14 @@ export const useAccountOperations = ({
       const totalDebits = quarterTransactions.reduce((sum, tx) => sum + Number(tx.debit), 0);
       const totalCredits = quarterTransactions.reduce((sum, tx) => sum + Number(tx.credit), 0);
       return totalDebits - totalCredits;
-    } else if (account.type === "Liability" || account.type === "Equity") {
+    } else if (account.type === "Liability" || account.type === "Equity" || account.type === "Credit Card") {
       const totalCredits = quarterTransactions.reduce((sum, tx) => sum + Number(tx.credit), 0);
       const totalDebits = quarterTransactions.reduce((sum, tx) => sum + Number(tx.debit), 0);
       return totalCredits - totalDebits;
+    } else if (account.type === "Bank Account") {
+      const totalDebits = quarterTransactions.reduce((sum, tx) => sum + Number(tx.debit), 0);
+      const totalCredits = quarterTransactions.reduce((sum, tx) => sum + Number(tx.credit), 0);
+      return totalDebits - totalCredits;
     }
     return 0;
   };

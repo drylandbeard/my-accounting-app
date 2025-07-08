@@ -8,17 +8,19 @@ interface UseExportCashFlowParams {
   accounts: Account[];
   journalEntries: Transaction[];
   bankAccounts: Account[];
+  revenueRows: Account[];
+  cogsRows: Account[];
+  expenseRows: Account[];
 
   // Company info
   currentCompany: { name: string } | null;
 
-  // Date range
-  startDate: string;
-  endDate: string;
-
-  // View settings
+  // Display configuration
   isMonthlyView: boolean;
   isQuarterlyView: boolean;
+  showPercentages: boolean;
+  startDate: string;
+  endDate: string;
 
   // Calculated values
   beginningBankBalance: number;
@@ -40,6 +42,15 @@ interface UseExportCashFlowParams {
     ownerDistributions: number;
     netFinancingChange: number;
   };
+
+  // Account operations
+  collapsedAccounts: Set<string>;
+  calculateAccountTotal: (account: Account) => number;
+  calculateAccountDirectTotal: (account: Account) => number;
+  calculateAccountTotalForMonth: (account: Account, month: string) => number;
+  calculateAccountTotalForMonthWithSubaccounts: (account: Account, month: string) => number;
+  calculateAccountTotalForQuarter: (account: Account, quarter: string) => number;
+  calculateAccountTotalForQuarterWithSubaccounts: (account: Account, quarter: string) => number;
 
   // Period calculation functions
   calculateBankBalanceForPeriod: (periodEnd: string) => number;
@@ -69,20 +80,40 @@ interface UseExportCashFlowParams {
     ownerDistributions: number;
     netFinancingChange: number;
   };
+  // Formatting functions
+  formatPercentageForAccount: (num: number, account?: Account) => string;
+  calculatePercentageForMonth: (amount: number, month: string) => string;
+  calculatePercentageForQuarter: (amount: number, quarter: string) => string;
 }
 
 export const useExportCashFlow = (params: UseExportCashFlowParams) => {
   const {
-    currentCompany,
-    startDate,
-    endDate,
-    isMonthlyView,
-    isQuarterlyView,
+    accounts,
+    journalEntries,
+    revenueRows,
+    cogsRows,
+    expenseRows,
     beginningBankBalance,
     endingBankBalance,
     operatingActivities,
     investingActivities,
     financingActivities,
+    currentCompany,
+    isMonthlyView,
+    isQuarterlyView,
+    showPercentages,
+    startDate,
+    endDate,
+    collapsedAccounts,
+    calculateAccountTotal,
+    calculateAccountDirectTotal,
+    calculateAccountTotalForMonth,
+    calculateAccountTotalForMonthWithSubaccounts,
+    calculateAccountTotalForQuarter,
+    calculateAccountTotalForQuarterWithSubaccounts,
+    formatPercentageForAccount,
+    calculatePercentageForMonth,
+    calculatePercentageForQuarter,
     calculateBankBalanceForPeriod,
     calculateOperatingActivitiesForPeriod,
     calculateInvestingActivitiesForPeriod,

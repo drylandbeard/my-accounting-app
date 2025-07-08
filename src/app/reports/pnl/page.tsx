@@ -331,11 +331,11 @@ export default function PnLPage() {
             </p>
 
             <div className="overflow-x-auto">
-              <Table className="border border-gray-300 w-full table-auto">
-                <TableHeader className="bg-gray-100 h-3">
+              <Table className="table-auto">
+                <TableHeader>
                   <TableRow>
                     <TableHead
-                      className="border p-1 text-center text-xs whitespace-nowrap"
+                      className="whitespace-nowrap"
                       style={{
                         width:
                           (isMonthlyView || isQuarterlyView) && showPercentages
@@ -352,29 +352,19 @@ export default function PnLPage() {
                         {getMonthsInRange(startDate, endDate).map((month) => (
                           <React.Fragment key={month}>
                             <TableHead
-                              className="border p-1 text-center text-xs whitespace-nowrap"
+                              className="whitespace-nowrap"
                               style={{ width: `${65 / (getMonthsInRange(startDate, endDate).length + 1)}%` }}
                             >
                               {formatMonth(month)}
                             </TableHead>
-                            {showPercentages && (
-                              <TableHead className="border p-1 text-center text-xs whitespace-nowrap min-w-11">
-                                %
-                              </TableHead>
-                            )}
+                            {showPercentages && <TableHead className="whitespace-nowrap min-w-11">%</TableHead>}
                           </React.Fragment>
                         ))}
-                        <TableHead
-                          className="border p-1 text-center text-xs"
-                          style={{ width: `${65 / (getMonthsInRange(startDate, endDate).length + 1)}%` }}
-                        >
+                        <TableHead style={{ width: `${65 / (getMonthsInRange(startDate, endDate).length + 1)}%` }}>
                           Total
                         </TableHead>
                         {showPercentages && (
-                          <TableHead
-                            className="border p-1 text-center text-xs"
-                            style={{ width: `${65 / (getMonthsInRange(startDate, endDate).length + 1)}%` }}
-                          >
+                          <TableHead style={{ width: `${65 / (getMonthsInRange(startDate, endDate).length + 1)}%` }}>
                             %
                           </TableHead>
                         )}
@@ -383,38 +373,23 @@ export default function PnLPage() {
                       <>
                         {getQuartersInRange(startDate, endDate).map((quarter) => (
                           <React.Fragment key={quarter}>
-                            <TableHead
-                              className="border p-1 text-center text-xs whitespace-nowrap"
-                              style={{ width: showPercentages ? "7%" : "10%" }}
-                            >
+                            <TableHead className="whitespace-nowrap" style={{ width: showPercentages ? "7%" : "10%" }}>
                               {formatQuarter(quarter)}
                             </TableHead>
                             {showPercentages && (
-                              <TableHead
-                                className="border p-1 text-center text-xs whitespace-nowrap"
-                                style={{ width: "6%" }}
-                              >
+                              <TableHead className="whitespace-nowrap" style={{ width: "6%" }}>
                                 %
                               </TableHead>
                             )}
                           </React.Fragment>
                         ))}
-                        <TableHead
-                          className="border p-1 text-center text-xs"
-                          style={{ width: showPercentages ? "7%" : "10%" }}
-                        >
-                          Total
-                        </TableHead>
-                        {showPercentages && (
-                          <TableHead className="border p-1 text-center text-xs" style={{ width: "6%" }}>
-                            %
-                          </TableHead>
-                        )}
+                        <TableHead style={{ width: showPercentages ? "7%" : "10%" }}>Total</TableHead>
+                        {showPercentages && <TableHead style={{ width: "6%" }}>%</TableHead>}
                       </>
                     ) : (
                       <>
-                        <TableHead className="border p-1 text-center text-xs">Total</TableHead>
-                        {showPercentages && <TableHead className="border p-1 text-center text-xs">%</TableHead>}
+                        <TableHead>Total</TableHead>
+                        {showPercentages && <TableHead>%</TableHead>}
                       </>
                     )}
                   </TableRow>
@@ -433,8 +408,8 @@ export default function PnLPage() {
                   ) : (
                     <>
                       {/* Revenue Section */}
-                      <TableRow className="bg-muted/50">
-                        <TableCell colSpan={getTotalColumns()} className="border p-1 font-semibold text-xs">
+                      <TableRow isSummaryLineItem>
+                        <TableCell colSpan={getTotalColumns()} isLineItem>
                           Revenue
                         </TableCell>
                       </TableRow>
@@ -442,7 +417,7 @@ export default function PnLPage() {
 
                       {/* Total Revenue */}
                       <TableRow
-                        className="cursor-pointer hover:bg-blue-50"
+                        className="cursor-pointer"
                         onClick={() =>
                           setViewerModal({
                             isOpen: true,
@@ -450,12 +425,12 @@ export default function PnLPage() {
                           })
                         }
                       >
-                        <TableCell className="border p-1 text-xs font-semibold">Total Revenue</TableCell>
+                        <TableCell isLineItem>Total Revenue</TableCell>
                         {isMonthlyView ? (
                           <>
                             {getMonthsInRange(startDate, endDate).map((month) => (
                               <React.Fragment key={month}>
-                                <TableCell className="border p-1 text-right font-semibold text-xs">
+                                <TableCell isValue>
                                   {formatNumber(
                                     revenueRows.reduce(
                                       (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
@@ -464,7 +439,7 @@ export default function PnLPage() {
                                   )}
                                 </TableCell>
                                 {showPercentages && (
-                                  <TableCell className="border p-1 text-right text-xs text-slate-600">
+                                  <TableCell isValue>
                                     {calculatePercentageForMonth(
                                       revenueRows.reduce(
                                         (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
@@ -476,20 +451,14 @@ export default function PnLPage() {
                                 )}
                               </React.Fragment>
                             ))}
-                            <TableCell className="border p-1 text-right font-semibold text-xs">
-                              {formatNumber(totalRevenue)}
-                            </TableCell>
-                            {showPercentages && (
-                              <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
-                                {totalRevenue !== 0 ? "100.0%" : "—"}
-                              </TableCell>
-                            )}
+                            <TableCell isValue>{formatNumber(totalRevenue)}</TableCell>
+                            {showPercentages && <TableCell isValue>{totalRevenue !== 0 ? "100.0%" : "—"}</TableCell>}
                           </>
                         ) : isQuarterlyView ? (
                           <>
                             {getQuartersInRange(startDate, endDate).map((quarter) => (
                               <React.Fragment key={quarter}>
-                                <TableCell className="border p-1 text-right font-semibold text-xs">
+                                <TableCell isValue>
                                   {formatNumber(
                                     revenueRows.reduce(
                                       (sum, a) => sum + calculateAccountTotalForQuarterWithSubaccounts(a, quarter),
@@ -498,7 +467,7 @@ export default function PnLPage() {
                                   )}
                                 </TableCell>
                                 {showPercentages && (
-                                  <TableCell className="border p-1 text-right text-xs text-slate-600">
+                                  <TableCell isValue>
                                     {calculatePercentageForQuarter(
                                       revenueRows.reduce(
                                         (sum, a) => sum + calculateAccountTotalForQuarterWithSubaccounts(a, quarter),
@@ -510,32 +479,20 @@ export default function PnLPage() {
                                 )}
                               </React.Fragment>
                             ))}
-                            <TableCell className="border p-1 text-right font-semibold text-xs">
-                              {formatNumber(totalRevenue)}
-                            </TableCell>
-                            {showPercentages && (
-                              <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
-                                {totalRevenue !== 0 ? "100.0%" : "—"}
-                              </TableCell>
-                            )}
+                            <TableCell isValue>{formatNumber(totalRevenue)}</TableCell>
+                            {showPercentages && <TableCell isValue>{totalRevenue !== 0 ? "100.0%" : "—"}</TableCell>}
                           </>
                         ) : (
                           <>
-                            <TableCell className="border p-1 text-right font-semibold text-xs">
-                              {formatNumber(totalRevenue)}
-                            </TableCell>
-                            {showPercentages && (
-                              <TableCell className="border p-1 text-right text-xs text-slate-600">
-                                {totalRevenue !== 0 ? "100.0%" : "—"}
-                              </TableCell>
-                            )}
+                            <TableCell isValue>{formatNumber(totalRevenue)}</TableCell>
+                            {showPercentages && <TableCell isValue>{totalRevenue !== 0 ? "100.0%" : "—"}</TableCell>}
                           </>
                         )}
                       </TableRow>
 
                       {/* COGS Section */}
-                      <TableRow className="bg-muted/50">
-                        <TableCell colSpan={getTotalColumns()} className="border p-1 font-semibold text-xs">
+                      <TableRow isSummaryLineItem>
+                        <TableCell colSpan={getTotalColumns()} isLineItem>
                           Cost of Goods Sold
                         </TableCell>
                       </TableRow>
@@ -543,7 +500,7 @@ export default function PnLPage() {
 
                       {/* Total COGS */}
                       <TableRow
-                        className="cursor-pointer hover:bg-blue-50"
+                        className="cursor-pointer"
                         onClick={() =>
                           setViewerModal({
                             isOpen: true,
@@ -556,12 +513,12 @@ export default function PnLPage() {
                           })
                         }
                       >
-                        <TableCell className="border p-1 text-xs font-semibold">Total Cost of Goods Sold</TableCell>
+                        <TableCell isLineItem>Total Cost of Goods Sold</TableCell>
                         {isMonthlyView ? (
                           <>
                             {getMonthsInRange(startDate, endDate).map((month) => (
                               <React.Fragment key={month}>
-                                <TableCell className="border p-1 text-right font-semibold text-xs">
+                                <TableCell isValue>
                                   {formatNumber(
                                     cogsRows.reduce(
                                       (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
@@ -570,7 +527,7 @@ export default function PnLPage() {
                                   )}
                                 </TableCell>
                                 {showPercentages && (
-                                  <TableCell className="border p-1 text-right text-xs text-slate-600">
+                                  <TableCell isValue>
                                     {calculatePercentageForMonth(
                                       cogsRows.reduce(
                                         (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
@@ -582,11 +539,9 @@ export default function PnLPage() {
                                 )}
                               </React.Fragment>
                             ))}
-                            <TableCell className="border p-1 text-right font-semibold text-xs">
-                              {formatNumber(totalCOGS)}
-                            </TableCell>
+                            <TableCell isValue>{formatNumber(totalCOGS)}</TableCell>
                             {showPercentages && (
-                              <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                              <TableCell isValue>
                                 {totalRevenue !== 0
                                   ? formatPercentage(totalCOGS, totalRevenue)
                                   : totalCOGS !== 0
@@ -599,7 +554,7 @@ export default function PnLPage() {
                           <>
                             {getQuartersInRange(startDate, endDate).map((quarter) => (
                               <React.Fragment key={quarter}>
-                                <TableCell className="border p-1 text-right font-semibold text-xs">
+                                <TableCell isValue>
                                   {formatNumber(
                                     cogsRows.reduce(
                                       (sum, a) => sum + calculateAccountTotalForQuarterWithSubaccounts(a, quarter),
@@ -608,7 +563,7 @@ export default function PnLPage() {
                                   )}
                                 </TableCell>
                                 {showPercentages && (
-                                  <TableCell className="border p-1 text-right text-xs text-slate-600">
+                                  <TableCell isValue>
                                     {calculatePercentageForQuarter(
                                       cogsRows.reduce(
                                         (sum, a) => sum + calculateAccountTotalForQuarterWithSubaccounts(a, quarter),
@@ -620,11 +575,9 @@ export default function PnLPage() {
                                 )}
                               </React.Fragment>
                             ))}
-                            <TableCell className="border p-1 text-right font-semibold text-xs">
-                              {formatNumber(totalCOGS)}
-                            </TableCell>
+                            <TableCell isValue>{formatNumber(totalCOGS)}</TableCell>
                             {showPercentages && (
-                              <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                              <TableCell isValue>
                                 {totalRevenue !== 0
                                   ? formatPercentage(totalCOGS, totalRevenue)
                                   : totalCOGS !== 0
@@ -635,11 +588,9 @@ export default function PnLPage() {
                           </>
                         ) : (
                           <>
-                            <TableCell className="border p-1 text-right font-semibold text-xs">
-                              {formatNumber(totalCOGS)}
-                            </TableCell>
+                            <TableCell isValue>{formatNumber(totalCOGS)}</TableCell>
                             {showPercentages && (
-                              <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                              <TableCell isValue>
                                 {totalRevenue !== 0
                                   ? formatPercentage(totalCOGS, totalRevenue)
                                   : totalCOGS !== 0
@@ -652,13 +603,13 @@ export default function PnLPage() {
                       </TableRow>
 
                       {/* Gross Profit */}
-                      <TableRow className="font-semibold">
-                        <TableCell className="border p-1 text-xs font-semibold">Gross Profit</TableCell>
+                      <TableRow>
+                        <TableCell isLineItem>Gross Profit</TableCell>
                         {isMonthlyView ? (
                           <>
                             {getMonthsInRange(startDate, endDate).map((month) => (
                               <React.Fragment key={month}>
-                                <TableCell className="border p-1 text-right font-semibold text-xs">
+                                <TableCell isValue>
                                   {formatNumber(
                                     revenueRows.reduce(
                                       (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
@@ -671,7 +622,7 @@ export default function PnLPage() {
                                   )}
                                 </TableCell>
                                 {showPercentages && (
-                                  <TableCell className="border p-1 text-right text-xs text-slate-600">
+                                  <TableCell isValue>
                                     {calculatePercentageForMonth(
                                       revenueRows.reduce(
                                         (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
@@ -687,20 +638,16 @@ export default function PnLPage() {
                                 )}
                               </React.Fragment>
                             ))}
-                            <TableCell className="border p-1 text-right font-semibold text-xs">
-                              {formatNumber(grossProfit)}
-                            </TableCell>
+                            <TableCell isValue>{formatNumber(grossProfit)}</TableCell>
                             {showPercentages && (
-                              <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
-                                {formatPercentage(grossProfit, totalRevenue)}
-                              </TableCell>
+                              <TableCell isValue>{formatPercentage(grossProfit, totalRevenue)}</TableCell>
                             )}
                           </>
                         ) : isQuarterlyView ? (
                           <>
                             {getQuartersInRange(startDate, endDate).map((quarter) => (
                               <React.Fragment key={quarter}>
-                                <TableCell className="border p-1 text-right font-semibold text-xs">
+                                <TableCell isValue>
                                   {formatNumber(
                                     revenueRows.reduce(
                                       (sum, a) => sum + calculateAccountTotalForQuarterWithSubaccounts(a, quarter),
@@ -713,7 +660,7 @@ export default function PnLPage() {
                                   )}
                                 </TableCell>
                                 {showPercentages && (
-                                  <TableCell className="border p-1 text-right text-xs text-slate-600">
+                                  <TableCell isValue>
                                     {calculatePercentageForQuarter(
                                       revenueRows.reduce(
                                         (sum, a) => sum + calculateAccountTotalForQuarterWithSubaccounts(a, quarter),
@@ -729,30 +676,24 @@ export default function PnLPage() {
                                 )}
                               </React.Fragment>
                             ))}
-                            <TableCell className="border p-1 text-right font-semibold text-xs">
-                              {formatNumber(grossProfit)}
-                            </TableCell>
+                            <TableCell isValue>{formatNumber(grossProfit)}</TableCell>
                             {showPercentages && (
-                              <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
-                                {formatPercentage(grossProfit, totalRevenue)}
-                              </TableCell>
+                              <TableCell isValue>{formatPercentage(grossProfit, totalRevenue)}</TableCell>
                             )}
                           </>
                         ) : (
                           <>
-                            <TableCell className="border p-1 text-right text-xs">{formatNumber(grossProfit)}</TableCell>
+                            <TableCell isValue>{formatNumber(grossProfit)}</TableCell>
                             {showPercentages && (
-                              <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
-                                {formatPercentage(grossProfit, totalRevenue)}
-                              </TableCell>
+                              <TableCell isValue>{formatPercentage(grossProfit, totalRevenue)}</TableCell>
                             )}
                           </>
                         )}
                       </TableRow>
 
                       {/* Expenses Section */}
-                      <TableRow className="bg-muted/50">
-                        <TableCell colSpan={getTotalColumns()} className="border p-1 font-semibold text-xs">
+                      <TableRow isSummaryLineItem>
+                        <TableCell colSpan={getTotalColumns()} isLineItem>
                           Expenses
                         </TableCell>
                       </TableRow>
@@ -760,7 +701,8 @@ export default function PnLPage() {
 
                       {/* Total Expenses */}
                       <TableRow
-                        className="cursor-pointer hover:bg-blue-50 bg-muted/50 font-bold"
+                        className="cursor-pointer"
+                        isSummaryLineItem
                         onClick={() =>
                           setViewerModal({
                             isOpen: true,
@@ -768,12 +710,12 @@ export default function PnLPage() {
                           })
                         }
                       >
-                        <TableCell className="border p-1 text-xs font-semibold">Total Expenses</TableCell>
+                        <TableCell isLineItem>Total Expenses</TableCell>
                         {isMonthlyView ? (
                           <>
                             {getMonthsInRange(startDate, endDate).map((month) => (
                               <React.Fragment key={month}>
-                                <TableCell className="border p-1 text-right font-semibold text-xs">
+                                <TableCell isValue>
                                   {formatNumber(
                                     expenseRows.reduce(
                                       (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
@@ -782,7 +724,7 @@ export default function PnLPage() {
                                   )}
                                 </TableCell>
                                 {showPercentages && (
-                                  <TableCell className="border p-1 text-right text-xs text-slate-600">
+                                  <TableCell isValue>
                                     {calculatePercentageForMonth(
                                       expenseRows.reduce(
                                         (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
@@ -794,11 +736,9 @@ export default function PnLPage() {
                                 )}
                               </React.Fragment>
                             ))}
-                            <TableCell className="border p-1 text-right font-semibold text-xs">
-                              {formatNumber(totalExpenses)}
-                            </TableCell>
+                            <TableCell isValue>{formatNumber(totalExpenses)}</TableCell>
                             {showPercentages && (
-                              <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                              <TableCell isValue>
                                 {totalRevenue !== 0
                                   ? formatPercentage(totalExpenses, totalRevenue)
                                   : totalExpenses !== 0
@@ -811,7 +751,7 @@ export default function PnLPage() {
                           <>
                             {getQuartersInRange(startDate, endDate).map((quarter) => (
                               <React.Fragment key={quarter}>
-                                <TableCell className="border p-1 text-right font-semibold text-xs">
+                                <TableCell isValue>
                                   {formatNumber(
                                     expenseRows.reduce(
                                       (sum, a) => sum + calculateAccountTotalForQuarterWithSubaccounts(a, quarter),
@@ -820,7 +760,7 @@ export default function PnLPage() {
                                   )}
                                 </TableCell>
                                 {showPercentages && (
-                                  <TableCell className="border p-1 text-right text-xs text-slate-600">
+                                  <TableCell isValue>
                                     {calculatePercentageForQuarter(
                                       expenseRows.reduce(
                                         (sum, a) => sum + calculateAccountTotalForQuarterWithSubaccounts(a, quarter),
@@ -832,11 +772,9 @@ export default function PnLPage() {
                                 )}
                               </React.Fragment>
                             ))}
-                            <TableCell className="border p-1 text-right font-semibold text-xs">
-                              {formatNumber(totalExpenses)}
-                            </TableCell>
+                            <TableCell isValue>{formatNumber(totalExpenses)}</TableCell>
                             {showPercentages && (
-                              <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                              <TableCell isValue>
                                 {totalRevenue !== 0
                                   ? formatPercentage(totalExpenses, totalRevenue)
                                   : totalExpenses !== 0
@@ -847,11 +785,9 @@ export default function PnLPage() {
                           </>
                         ) : (
                           <>
-                            <TableCell className="border p-1 text-right font-semibold text-xs">
-                              {formatNumber(totalExpenses)}
-                            </TableCell>
+                            <TableCell isValue>{formatNumber(totalExpenses)}</TableCell>
                             {showPercentages && (
-                              <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
+                              <TableCell isValue>
                                 {totalRevenue !== 0
                                   ? formatPercentage(totalExpenses, totalRevenue)
                                   : totalExpenses !== 0
@@ -864,13 +800,13 @@ export default function PnLPage() {
                       </TableRow>
 
                       {/* Net Income */}
-                      <TableRow className="bg-muted/50 font-bold">
-                        <TableCell className="border p-1 text-xs font-semibold">Net Income</TableCell>
+                      <TableRow isSummaryLineItem>
+                        <TableCell isLineItem>Net Income</TableCell>
                         {isMonthlyView ? (
                           <>
                             {getMonthsInRange(startDate, endDate).map((month) => (
                               <React.Fragment key={month}>
-                                <TableCell className="border p-1 text-right font-semibold text-xs">
+                                <TableCell isValue>
                                   {formatNumber(
                                     revenueRows.reduce(
                                       (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
@@ -887,7 +823,7 @@ export default function PnLPage() {
                                   )}
                                 </TableCell>
                                 {showPercentages && (
-                                  <TableCell className="border p-1 text-right text-xs text-slate-600">
+                                  <TableCell isValue>
                                     {calculatePercentageForMonth(
                                       revenueRows.reduce(
                                         (sum, a) => sum + calculateAccountTotalForMonthWithSubaccounts(a, month),
@@ -907,20 +843,16 @@ export default function PnLPage() {
                                 )}
                               </React.Fragment>
                             ))}
-                            <TableCell className="border p-1 text-right font-semibold text-xs">
-                              {formatNumber(netIncome)}
-                            </TableCell>
+                            <TableCell isValue>{formatNumber(netIncome)}</TableCell>
                             {showPercentages && (
-                              <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
-                                {formatPercentage(netIncome, totalRevenue)}
-                              </TableCell>
+                              <TableCell isValue>{formatPercentage(netIncome, totalRevenue)}</TableCell>
                             )}
                           </>
                         ) : isQuarterlyView ? (
                           <>
                             {getQuartersInRange(startDate, endDate).map((quarter) => (
                               <React.Fragment key={quarter}>
-                                <TableCell className="border p-1 text-right font-semibold text-xs">
+                                <TableCell isValue>
                                   {formatNumber(
                                     revenueRows.reduce(
                                       (sum, a) => sum + calculateAccountTotalForQuarterWithSubaccounts(a, quarter),
@@ -937,7 +869,7 @@ export default function PnLPage() {
                                   )}
                                 </TableCell>
                                 {showPercentages && (
-                                  <TableCell className="border p-1 text-right text-xs text-slate-600">
+                                  <TableCell isValue>
                                     {calculatePercentageForQuarter(
                                       revenueRows.reduce(
                                         (sum, a) => sum + calculateAccountTotalForQuarterWithSubaccounts(a, quarter),
@@ -957,22 +889,16 @@ export default function PnLPage() {
                                 )}
                               </React.Fragment>
                             ))}
-                            <TableCell className="border p-1 text-right font-semibold text-xs">
-                              {formatNumber(netIncome)}
-                            </TableCell>
+                            <TableCell isValue>{formatNumber(netIncome)}</TableCell>
                             {showPercentages && (
-                              <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
-                                {formatPercentage(netIncome, totalRevenue)}
-                              </TableCell>
+                              <TableCell isValue>{formatPercentage(netIncome, totalRevenue)}</TableCell>
                             )}
                           </>
                         ) : (
                           <>
-                            <TableCell className="border p-1 text-right text-xs">{formatNumber(netIncome)}</TableCell>
+                            <TableCell isValue>{formatNumber(netIncome)}</TableCell>
                             {showPercentages && (
-                              <TableCell className="border p-1 text-right text-xs font-bold text-slate-600">
-                                {formatPercentage(netIncome, totalRevenue)}
-                              </TableCell>
+                              <TableCell isValue>{formatPercentage(netIncome, totalRevenue)}</TableCell>
                             )}
                           </>
                         )}

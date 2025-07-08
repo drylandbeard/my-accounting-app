@@ -17,6 +17,7 @@ import {
   formatMonth,
   formatQuarter,
   getAllAccountIds,
+  getAllGroupAccountIds,
 } from "../_utils";
 import { useFinancialData } from "../_hooks/useFinancialData";
 import { usePeriodSelection } from "../_hooks/usePeriodSelection";
@@ -60,8 +61,11 @@ export default function CashFlowPage() {
     collapsedAccounts,
     toggleAccount,
     getTopLevelAccounts,
-    calculateAccountTotalForMonthWithSubaccounts: getAccountTotalForMonthWithSubaccounts,
-    calculateAccountTotalForQuarterWithSubaccounts: getAccountTotalForQuarterWithSubaccounts,
+    calculateAccountDirectTotal,
+    calculateAccountTotal,
+    calculateAccountTotalForMonth,
+    calculateAccountTotalForQuarter,
+    calculateAccountTotalForQuarterWithSubaccounts,
     collapseAllParentCategories,
     expandAllParentCategories,
     getParentAccounts,
@@ -120,190 +124,30 @@ export default function CashFlowPage() {
     handlePeriodChange,
   ]);
 
-  // Add account calculation functions for cash flow
-  const calculateAccountTotal = (account: Account): number => {
-    const transactions = journalEntries.filter((tx) =>
-      getAllAccountIds(accounts, account).includes(tx.chart_account_id)
-    );
+  // Account groups
+  const revenueRows = getTopLevelAccounts("Revenue");
+  const cogsRows = getTopLevelAccounts("COGS");
+  const expenseRows = getTopLevelAccounts("Expense");
 
-    if (account.type === "Revenue") {
-      return transactions.reduce((sum, tx) => sum + Number(tx.credit) - Number(tx.debit), 0);
-    } else if (account.type === "COGS" || account.type === "Expense") {
-      return transactions.reduce((sum, tx) => sum + Number(tx.debit) - Number(tx.credit), 0);
-    } else if (account.type === "Asset") {
-      // For non-bank assets in investing activities
-      return transactions.reduce((sum, tx) => sum + Number(tx.debit) - Number(tx.credit), 0);
-    } else if (account.type === "Liability" || account.type === "Credit Card") {
-      // For liabilities in financing activities
-      return transactions.reduce((sum, tx) => sum + Number(tx.credit) - Number(tx.debit), 0);
-    } else if (account.type === "Equity") {
-      // For equity in financing activities
-      return transactions.reduce((sum, tx) => sum + Number(tx.credit) - Number(tx.debit), 0);
-    } else if (account.type === "Bank Account") {
-      // For bank accounts
-      return transactions.reduce((sum, tx) => sum + Number(tx.debit) - Number(tx.credit), 0);
-    }
-    return 0;
-  };
+  // Totals
+  const totalRevenue = revenueRows.reduce((sum, a) => sum + calculateAccountTotal(a), 0);
+  const totalCOGS = cogsRows.reduce((sum, a) => sum + calculateAccountTotal(a), 0);
+  const totalExpenses = expenseRows.reduce((sum, a) => sum + calculateAccountTotal(a), 0);
+  const grossProfit = totalRevenue - totalCOGS;
+  const netIncome = grossProfit - totalExpenses;
 
-  const calculateAccountDirectTotal = (account: Account): number => {
-    const transactions = journalEntries.filter((tx) => tx.chart_account_id === account.id);
+  const formatPercentageForAccount = (num: number, account?: Account): string => {
+    if (!account) return formatPercentage(num, totalRevenue);
 
-    if (account.type === "Revenue") {
-      return transactions.reduce((sum, tx) => sum + Number(tx.credit) - Number(tx.debit), 0);
-    } else if (account.type === "COGS" || account.type === "Expense") {
-      return transactions.reduce((sum, tx) => sum + Number(tx.debit) - Number(tx.credit), 0);
-    } else if (account.type === "Asset") {
-      // For non-bank assets in investing activities
-      return transactions.reduce((sum, tx) => sum + Number(tx.debit) - Number(tx.credit), 0);
-    } else if (account.type === "Liability" || account.type === "Credit Card") {
-      // For liabilities in financing activities
-      return transactions.reduce((sum, tx) => sum + Number(tx.credit) - Number(tx.debit), 0);
-    } else if (account.type === "Equity") {
-      // For equity in financing activities
-      return transactions.reduce((sum, tx) => sum + Number(tx.credit) - Number(tx.debit), 0);
-    } else if (account.type === "Bank Account") {
-      // For bank accounts
-      return transactions.reduce((sum, tx) => sum + Number(tx.debit) - Number(tx.credit), 0);
-    }
-    return 0;
-  };
-
-  const calculateAccountTotalForMonth = (account: Account, month: string): number => {
-    const monthStart = `${month}-01`;
-    const lastDay = new Date(parseInt(month.split("-")[0]), parseInt(month.split("-")[1]), 0).getDate();
-    const monthEnd = `${month}-${String(lastDay).padStart(2, "0")}`;
-
-    const transactions = journalEntries.filter(
-      (tx) => tx.chart_account_id === account.id && tx.date >= monthStart && tx.date <= monthEnd
-    );
-
-    if (account.type === "Revenue") {
-      return transactions.reduce((sum, tx) => sum + Number(tx.credit) - Number(tx.debit), 0);
-    } else if (account.type === "COGS" || account.type === "Expense") {
-      return transactions.reduce((sum, tx) => sum + Number(tx.debit) - Number(tx.credit), 0);
-    } else if (account.type === "Asset") {
-      // For non-bank assets in investing activities
-      return transactions.reduce((sum, tx) => sum + Number(tx.debit) - Number(tx.credit), 0);
-    } else if (account.type === "Liability" || account.type === "Credit Card") {
-      // For liabilities in financing activities
-      return transactions.reduce((sum, tx) => sum + Number(tx.credit) - Number(tx.debit), 0);
-    } else if (account.type === "Equity") {
-      // For equity in financing activities
-      return transactions.reduce((sum, tx) => sum + Number(tx.credit) - Number(tx.debit), 0);
-    } else if (account.type === "Bank Account") {
-      // For bank accounts
-      return transactions.reduce((sum, tx) => sum + Number(tx.debit) - Number(tx.credit), 0);
-    }
-    return 0;
-  };
-
-  const calculateAccountTotalForQuarter = (account: Account, quarter: string): number => {
-    const [year, q] = quarter.split("-Q");
-    const quarterNum = parseInt(q);
-    const quarterStart = `${year}-${String((quarterNum - 1) * 3 + 1).padStart(2, "0")}-01`;
-    const quarterEndMonth = quarterNum * 3;
-    const quarterEnd = `${year}-${String(quarterEndMonth).padStart(2, "0")}-${new Date(
-      parseInt(year),
-      quarterEndMonth,
-      0
-    ).getDate()}`;
-
-    const transactions = journalEntries.filter(
-      (tx) => tx.chart_account_id === account.id && tx.date >= quarterStart && tx.date <= quarterEnd
-    );
-
-    if (account.type === "Revenue") {
-      return transactions.reduce((sum, tx) => sum + Number(tx.credit) - Number(tx.debit), 0);
-    } else if (account.type === "COGS" || account.type === "Expense") {
-      return transactions.reduce((sum, tx) => sum + Number(tx.debit) - Number(tx.credit), 0);
-    } else if (account.type === "Asset") {
-      // For non-bank assets in investing activities
-      return transactions.reduce((sum, tx) => sum + Number(tx.debit) - Number(tx.credit), 0);
-    } else if (account.type === "Liability" || account.type === "Credit Card") {
-      // For liabilities in financing activities
-      return transactions.reduce((sum, tx) => sum + Number(tx.credit) - Number(tx.debit), 0);
-    } else if (account.type === "Equity") {
-      // For equity in financing activities
-      return transactions.reduce((sum, tx) => sum + Number(tx.credit) - Number(tx.debit), 0);
-    } else if (account.type === "Bank Account") {
-      // For bank accounts
-      return transactions.reduce((sum, tx) => sum + Number(tx.debit) - Number(tx.credit), 0);
-    }
-    return 0;
-  };
-
-  // Add these functions to support the AccountRowRenderer
-  const calculateAccountTotalForMonthWithSubaccounts = (account: Account, month: string): number => {
-    let total = calculateAccountTotalForMonth(account, month);
-    const subaccounts = accounts.filter((acc) => acc.parent_id === account.id);
-    for (const sub of subaccounts) {
-      total += calculateAccountTotalForMonthWithSubaccounts(sub, month);
-    }
-    return total;
-  };
-
-  const calculateAccountTotalForQuarterWithSubaccounts = (account: Account, quarter: string): number => {
-    let total = calculateAccountTotalForQuarter(account, quarter);
-    const subaccounts = accounts.filter((acc) => acc.parent_id === account.id);
-    for (const sub of subaccounts) {
-      total += calculateAccountTotalForQuarterWithSubaccounts(sub, quarter);
-    }
-    return total;
-  };
-
-  // Create a wrapper function to adapt formatPercentageForCashFlow to match the expected signature
-  const formatPercentageForAccountAdapter = (num: number, account?: Account): string => {
-    if (!account) return formatPercentageForCashFlow(num);
-
-    // Determine appropriate base value based on account type
-    let baseValue: number;
-
-    if (account.type === "Revenue" || account.type === "COGS" || account.type === "Expense") {
-      // For operating activities, use revenue as base
-      baseValue = Math.abs(operatingActivities.revenue) > 0 ? Math.abs(operatingActivities.revenue) : 1;
-    } else if (account.type === "Asset") {
-      // For investing activities, use total assets as base
-      baseValue =
-        Math.abs(investingActivities.increaseInAssets) > 0 ? Math.abs(investingActivities.increaseInAssets) : 1;
-    } else if (account.type === "Liability" || account.type === "Credit Card" || account.type === "Equity") {
-      // For financing activities, use total financing as base
-      baseValue =
-        Math.abs(financingActivities.netFinancingChange) > 0 ? Math.abs(financingActivities.netFinancingChange) : 1;
-    } else {
-      // Default case
-      baseValue = 1;
-    }
-
-    return formatPercentageForCashFlow(num, baseValue);
-  };
-
-  // Render account row using the reusable component
-  const renderAccountRow = (account: Account, level = 0): React.ReactElement | null => {
-    return (
-      <AccountRowRenderer
-        key={account.id}
-        account={account}
-        level={level}
-        accounts={accounts}
-        journalEntries={journalEntries}
-        isMonthlyView={isMonthlyView}
-        isQuarterlyView={isQuarterlyView}
-        showPercentages={showPercentages}
-        startDate={startDate}
-        endDate={endDate}
-        collapsedAccounts={collapsedAccounts}
-        toggleAccount={toggleAccount}
-        calculateAccountTotal={calculateAccountTotal}
-        calculateAccountDirectTotal={calculateAccountDirectTotal}
-        calculateAccountTotalForMonth={calculateAccountTotalForMonth}
-        calculateAccountTotalForMonthWithSubaccounts={calculateAccountTotalForMonthWithSubaccounts}
-        calculateAccountTotalForQuarter={calculateAccountTotalForQuarter}
-        calculateAccountTotalForQuarterWithSubaccounts={calculateAccountTotalForQuarterWithSubaccounts}
-        setViewerModal={setViewerModal}
-        formatPercentageForAccount={formatPercentageForAccountAdapter}
-      />
-    );
+    const base =
+      totalRevenue !== 0
+        ? totalRevenue
+        : account.type === "Expense"
+        ? totalExpenses
+        : account.type === "COGS"
+        ? totalCOGS
+        : totalRevenue;
+    return formatPercentage(num, base);
   };
 
   // Get bank accounts for beginning and ending balance
@@ -530,44 +374,43 @@ export default function CashFlowPage() {
     };
   }, [accounts, journalEntries, startDate, endDate]);
 
-  // Export functionality
-  const { exportToXLSX } = useExportCashFlow({
-    accounts,
-    journalEntries,
-    bankAccounts,
-    currentCompany,
-    startDate,
-    endDate,
-    beginningBankBalance,
-    endingBankBalance,
-    operatingActivities,
-    investingActivities,
-    financingActivities,
-    isMonthlyView,
-    isQuarterlyView,
-    calculateBankBalanceForPeriod,
-    calculateOperatingActivitiesForPeriod,
-    calculateInvestingActivitiesForPeriod,
-    calculateFinancingActivitiesForPeriod,
-  });
+  // Export hook
+  // const { exportToXLSX } = useExportCashFlow({
+  //   accounts,
+  //   journalEntries,
+  //   revenueRows,
+  //   cogsRows,
+  //   expenseRows,
+  //   beginningBankBalance,
+  //   endingBankBalance,
+  //   operatingActivities,
+  //   investingActivities,
+  //   financingActivities,
+  //   currentCompany,
+  //   isMonthlyView,
+  //   isQuarterlyView,
+  //   showPercentages,
+  //   startDate,
+  //   endDate,
+  //   collapsedAccounts,
+  //   calculateAccountTotal,
+  //   calculateAccountDirectTotal,
+  //   calculateAccountTotalForMonth,
+  //   calculateAccountTotalForMonthWithSubaccounts,
+  //   calculateAccountTotalForQuarter,
+  //   calculateAccountTotalForQuarter,
+  //   formatPercentageForAccount,
+  //   calculatePercentageForMonth,
+  //   calculatePercentageForQuarter,
+  //   calculateBankBalanceForPeriod,
+  //   calculateOperatingActivitiesForPeriod,
+  //   calculateInvestingActivitiesForPeriod,
+  //   calculateFinancingActivitiesForPeriod,
+  // });
 
   // Helper functions (similar to P&L and Balance Sheet)
   const getCategoryName = (tx: Transaction) => {
     return accounts.find((a) => a.id === tx.chart_account_id)?.name || "";
-  };
-
-  const formatPercentageForCashFlow = (num: number, baseAmount?: number): string => {
-    // If baseAmount is provided, use it; otherwise use appropriate defaults
-    let base = baseAmount !== undefined ? Math.abs(baseAmount) : 1;
-
-    // Ensure we don't divide by zero
-    if (base === 0) base = 1;
-
-    // Calculate percentage
-    const percentage = (num / base) * 100;
-
-    // Format with 1 decimal place and add % symbol
-    return percentage === 0 ? "—" : `${percentage.toFixed(1)}%`;
   };
 
   const calculatePercentageForMonth = (amount: number, month: string): string => {
@@ -578,7 +421,9 @@ export default function CashFlowPage() {
 
     // Get the appropriate base for the month
     const monthlyOperating = calculateOperatingActivitiesForPeriod(monthStart, monthEnd);
-    const monthlyRevenue = Math.abs(monthlyOperating.revenue) || 1;
+    const monthlyRevenue = Math.abs(monthlyOperating.revenue);
+
+    console.log(amount, monthlyRevenue);
 
     return formatPercentage(amount, monthlyRevenue);
   };
@@ -636,20 +481,19 @@ export default function CashFlowPage() {
       const totalFinancing = Math.abs(financingActivities.netFinancingChange);
 
       // For operating activities, use revenue or expenses as base
-      const totalRevenue = Math.abs(operatingActivities.revenue);
-      const totalExpenses = Math.abs(operatingActivities.expenses);
+      const totalNetIncome = Math.abs(operatingActivities.netIncome);
 
       // Determine which base to use for percentages
       const getBaseValue = (value: number) => {
         // For different sections, use different base values
-        if (categoryType === "revenue" || categoryType === "cogs" || categoryType === "expenses") {
+        if (categoryType === "Revenue" || categoryType === "COGS" || categoryType === "Expense") {
           // For operating activities, use revenue as base
-          return totalRevenue > 0 ? totalRevenue : 1;
-        } else if (categoryType === "assets") {
+          return totalNetIncome;
+        } else if (categoryType === "Asset") {
           // For investing activities, use total assets as base
           const totalAssets = Math.abs(investingActivities.increaseInAssets);
           return totalAssets > 0 ? totalAssets : 1;
-        } else if (categoryType === "liabilities" || categoryType === "equity") {
+        } else if (categoryType === "Liability" || categoryType === "Equity" || categoryType === "Credit Card") {
           // For financing activities, use total financing as base
           return totalFinancing > 0 ? totalFinancing : 1;
         } else if (baseGetter) {
@@ -669,19 +513,11 @@ export default function CashFlowPage() {
             const monthEnd = `${month}-${String(lastDay).padStart(2, "0")}`;
             const value = getValue(monthStart, monthEnd);
 
-            // Calculate base value for this month
-            let monthBaseValue;
-            if (baseGetter) {
-              const monthBase = Math.abs(baseGetter(monthStart, monthEnd));
-              monthBaseValue = monthBase > 0 ? monthBase : getBaseValue(value);
-            } else {
-              monthBaseValue = Math.abs(value) > 0 ? Math.abs(value) : getBaseValue(value);
-            }
-
             return (
               <React.Fragment key={month}>
                 <TableCell
-                  className={`text-right p-1 py-2 ${categoryType ? "cursor-pointer hover:bg-slate-100" : ""}`}
+                  className={`${categoryType ? "cursor-pointer hover:bg-slate-100" : ""}`}
+                  isValue
                   onClick={
                     categoryType && categoryName ? () => handleCellClick(categoryType, categoryName, month) : undefined
                   }
@@ -689,23 +525,30 @@ export default function CashFlowPage() {
                   {formatNumber(value)}
                 </TableCell>
                 {showPercentages && (
-                  <TableCell
-                    className={`text-right p-1 py-2 text-xs ${categoryType ? "cursor-pointer hover:bg-slate-100" : ""}`}
-                    onClick={
-                      categoryType && categoryName
-                        ? () => handleCellClick(categoryType, categoryName, month)
-                        : undefined
-                    }
-                  >
-                    {value !== 0 ? formatPercentage(value, monthBaseValue) : "—"}
+                  <TableCell className={`${categoryType ? "cursor-pointer hover:bg-slate-100" : ""}`} isValue>
+                    {value !== 0 ? formatPercentage(value, getBaseValue(value)) : "—"}
                   </TableCell>
                 )}
               </React.Fragment>
             );
           })}
-          <TableCell className="text-right p-1 py-2">{formatNumber(totalValue)}</TableCell>
+          <TableCell
+            isValue
+            onClick={() =>
+              setViewerModal({
+                isOpen: true,
+                category: {
+                  id: categoryType?.toUpperCase() + "_GROUP",
+                  name: categoryName || "",
+                  type: categoryType || "",
+                },
+              })
+            }
+          >
+            {formatNumber(totalValue)}
+          </TableCell>
           {showPercentages && (
-            <TableCell className="text-right p-1 py-2 text-xs">
+            <TableCell isValue>
               {totalValue !== 0 ? formatPercentage(totalValue, getBaseValue(totalValue)) : "—"}
             </TableCell>
           )}
@@ -722,20 +565,19 @@ export default function CashFlowPage() {
       const totalFinancing = Math.abs(financingActivities.netFinancingChange);
 
       // For operating activities, use revenue or expenses as base
-      const totalRevenue = Math.abs(operatingActivities.revenue);
-      const totalExpenses = Math.abs(operatingActivities.expenses);
+      const totalNetIncome = Math.abs(operatingActivities.netIncome);
 
       // Determine which base to use for percentages
       const getBaseValue = (value: number) => {
         // For different sections, use different base values
-        if (categoryType === "revenue" || categoryType === "cogs" || categoryType === "expenses") {
+        if (categoryType === "Revenue" || categoryType === "COGS" || categoryType === "Expense") {
           // For operating activities, use revenue as base
-          return totalRevenue > 0 ? totalRevenue : 1;
-        } else if (categoryType === "assets") {
+          return totalNetIncome > 0 ? totalNetIncome : 1;
+        } else if (categoryType === "Asset") {
           // For investing activities, use total assets as base
           const totalAssets = Math.abs(investingActivities.increaseInAssets);
           return totalAssets > 0 ? totalAssets : 1;
-        } else if (categoryType === "liabilities" || categoryType === "equity") {
+        } else if (categoryType === "Liability" || categoryType === "Equity" || categoryType === "Credit Card") {
           // For financing activities, use total financing as base
           return totalFinancing > 0 ? totalFinancing : 1;
         } else if (baseGetter) {
@@ -772,18 +614,16 @@ export default function CashFlowPage() {
 
             return (
               <React.Fragment key={quarter}>
-                <TableCell className="text-right p-1 py-2">{formatNumber(value)}</TableCell>
+                <TableCell isValue>{formatNumber(value)}</TableCell>
                 {showPercentages && (
-                  <TableCell className="text-right p-1 py-2 text-xs">
-                    {value !== 0 ? formatPercentage(value, quarterBaseValue) : "—"}
-                  </TableCell>
+                  <TableCell isValue>{value !== 0 ? formatPercentage(value, quarterBaseValue) : "—"}</TableCell>
                 )}
               </React.Fragment>
             );
           })}
-          <TableCell className="text-right p-1 py-2">{formatNumber(totalValue)}</TableCell>
+          <TableCell isValue>{formatNumber(totalValue)}</TableCell>
           {showPercentages && (
-            <TableCell className="text-right p-1 py-2 text-xs">
+            <TableCell className="bg-red-300" isValue>
               {totalValue !== 0 ? formatPercentage(totalValue, getBaseValue(totalValue)) : "—"}
             </TableCell>
           )}
@@ -792,37 +632,10 @@ export default function CashFlowPage() {
     } else {
       const value = getValue(startDate, endDate);
 
-      // Calculate base value for percentages based on category type
-      let baseValue;
-
-      if (categoryType === "revenue" || categoryType === "cogs" || categoryType === "expenses") {
-        // For operating activities, use revenue as base
-        baseValue = Math.abs(operatingActivities.revenue) > 0 ? Math.abs(operatingActivities.revenue) : 1;
-      } else if (categoryType === "assets") {
-        // For investing activities, use total assets as base
-        baseValue =
-          Math.abs(investingActivities.increaseInAssets) > 0 ? Math.abs(investingActivities.increaseInAssets) : 1;
-      } else if (categoryType === "liabilities" || categoryType === "equity") {
-        // For financing activities, use total financing as base
-        baseValue =
-          Math.abs(financingActivities.netFinancingChange) > 0 ? Math.abs(financingActivities.netFinancingChange) : 1;
-      } else if (baseGetter) {
-        // If a specific base getter is provided, use that
-        const originalBase = Math.abs(baseGetter(startDate, endDate));
-        baseValue = originalBase > 0 ? originalBase : 1;
-      } else {
-        // Default case - use the absolute value of the value itself
-        baseValue = Math.abs(value) > 0 ? Math.abs(value) : 1;
-      }
-
       return (
         <>
-          <TableCell className="text-right py-2">{formatNumber(value)}</TableCell>
-          {showPercentages && (
-            <TableCell className="text-center py-2 text-xs">
-              {value !== 0 ? formatPercentage(value, baseValue) : "—"}
-            </TableCell>
-          )}
+          <TableCell isValue>{formatNumber(value)}</TableCell>
+          {showPercentages && <TableCell isValue>{value !== 0 ? formatPercentage(value, netIncome) : "—"}</TableCell>}
         </>
       );
     }
@@ -832,91 +645,22 @@ export default function CashFlowPage() {
   const selectedCategoryTransactions = useMemo(() => {
     if (!viewerModal.category) return [];
 
-    // Get transactions based on the selected category
-    let transactions: Transaction[] = [];
+    const category = viewerModal.category;
+    let transactions =
+      category.id === "REVENUE_GROUP"
+        ? journalEntries.filter((tx) => getAllGroupAccountIds(accounts, revenueRows).includes(tx.chart_account_id))
+        : category.id === "COGS_GROUP"
+        ? journalEntries.filter((tx) => getAllGroupAccountIds(accounts, cogsRows).includes(tx.chart_account_id))
+        : category.id === "EXPENSE_GROUP"
+        ? journalEntries.filter((tx) => getAllGroupAccountIds(accounts, expenseRows).includes(tx.chart_account_id))
+        : journalEntries.filter((tx) => getAllAccountIds(accounts, category).includes(tx.chart_account_id));
 
-    // Check if we're dealing with a specific account (has an ID that matches an account)
-    const specificAccount = accounts.find((a) => a.id === viewerModal.category?.id);
-
-    if (specificAccount) {
-      // If it's a specific account, get transactions for that account and its subaccounts
-      const accountIds = getAllAccountIds(accounts, specificAccount);
-      transactions = journalEntries.filter((tx) => accountIds.includes(tx.chart_account_id));
-      console.log(`Filtering for specific account: ${specificAccount.name}`, transactions);
-    } else {
-      // Otherwise filter by account type category
-      const categoryType = viewerModal.category.id;
-
-      // Base filter function for the category
-      const getCategoryFilter = (tx: Transaction) => {
-        const account = accounts.find((a) => a.id === tx.chart_account_id);
-        switch (categoryType) {
-          case "revenue":
-            return account?.type === "Revenue";
-          case "cogs":
-            return account?.type === "COGS";
-          case "expenses":
-            return account?.type === "Expense";
-          case "assets":
-            return account?.type === "Asset" && !bankAccounts.some((ba) => ba.id === account.id);
-          case "liabilities":
-            return account?.type === "Liability" || account?.type === "Credit Card";
-          case "equity":
-            return account?.type === "Equity";
-          default:
-            return false;
-        }
-      };
-
-      // Get base transactions for the category
-      transactions = journalEntries.filter((tx) => getCategoryFilter(tx));
-    }
-
-    console.log(transactions);
-
-    // If a month or quarter is selected, filter by that period with proper date boundaries
     if (viewerModal.selectedMonth) {
-      let periodStart: string;
-      let periodEnd: string;
-
-      if (viewerModal.selectedMonth.includes("-Q")) {
-        // Handle quarterly view (e.g., "2025-Q1")
-        const [year, q] = viewerModal.selectedMonth.split("-Q");
-        const quarterNum = parseInt(q);
-        periodStart = `${year}-${String((quarterNum - 1) * 3 + 1).padStart(2, "0")}-01`;
-        const quarterEndMonth = quarterNum * 3;
-        periodEnd = `${year}-${String(quarterEndMonth).padStart(2, "0")}-${new Date(
-          parseInt(year),
-          quarterEndMonth,
-          0
-        ).getDate()}`;
-      } else {
-        // Handle monthly view (e.g., "2025-05")
-        periodStart = `${viewerModal.selectedMonth}-01`;
-        // Fix the month calculation - JS months are 0-indexed but our string is 1-indexed
-        const year = parseInt(viewerModal.selectedMonth.split("-")[0]);
-        const month = parseInt(viewerModal.selectedMonth.split("-")[1]);
-        // To get the last day of a month, we can use the 0th day of the next month, then go back 1 day
-        const lastDay = new Date(year, month, 0).getDate();
-        periodEnd = `${viewerModal.selectedMonth}-${String(lastDay).padStart(2, "0")}`;
-      }
-
-      console.log(
-        `Filtering cash flow transactions for period: ${viewerModal.selectedMonth}, from ${periodStart} to ${periodEnd}`
-      );
-
-      // Filter transactions that fall within the selected period
-      transactions = transactions.filter((tx) => {
-        const matches = tx.date >= periodStart && tx.date <= periodEnd;
-        return matches;
-      });
-    } else {
-      // Otherwise filter by the full date range
-      transactions = transactions.filter((tx) => tx.date >= startDate && tx.date <= endDate);
+      transactions = transactions.filter((tx) => tx.date.startsWith(viewerModal.selectedMonth!));
     }
 
     return transactions;
-  }, [viewerModal, journalEntries, accounts, bankAccounts, startDate, endDate]);
+  }, [viewerModal, journalEntries, accounts, revenueRows, cogsRows, expenseRows]);
 
   // Handle row click to show transaction viewer
   const handleRowClick = (categoryType: string, categoryName: string) => {
@@ -932,22 +676,26 @@ export default function CashFlowPage() {
 
   // Handle cell click to show transactions for a specific month
   const handleCellClick = (categoryType: string, categoryName: string, month: string) => {
-    console.log(`Cell clicked for category: ${categoryType}, name: ${categoryName}, month: ${month}`);
-
     // Find the specific account if it exists
-    let category = {
-      id: categoryType,
-      name: categoryName,
-      type: categoryType,
-    };
+    let category;
 
     // Check if this is a specific account name rather than a category type
     const specificAccount = accounts.find((a) => a.name === categoryName);
+
     if (specificAccount) {
       category = {
         id: specificAccount.id,
         name: specificAccount.name,
         type: specificAccount.type,
+      };
+    } else {
+      // For category groups like "Revenue", "COGS", "Expenses"
+      // Use consistent ID format like in PnL page (REVENUE_GROUP, COGS_GROUP, EXPENSE_GROUP)
+      const groupId = categoryType.toUpperCase() + "_GROUP";
+      category = {
+        id: groupId,
+        name: categoryName,
+        type: categoryType,
       };
     }
 
@@ -1023,7 +771,7 @@ export default function CashFlowPage() {
           onExpandAllCategories={expandAllParentCategories}
           collapsedAccounts={collapsedAccounts}
           parentAccounts={getParentAccounts()}
-          exportToXLSX={exportToXLSX}
+          // exportToXLSX={exportToXLSX}
           onSaveReport={() => setShowSaveDialog(true)}
           loading={loading}
         />
@@ -1043,54 +791,42 @@ export default function CashFlowPage() {
             </p>
 
             <div className="overflow-x-auto">
-              <Table className="border border-gray-300 w-full table-auto">
-                <TableHeader className="text-xs bg-gray-100 h-3">
+              <Table className="table-auto">
+                <TableHeader>
                   <TableRow>
-                    <TableHead className="border p-1 text-center text-xs whitespace-nowrap">
-                      Cash Flow Activities
-                    </TableHead>
+                    <TableHead>Cash Flow Activities</TableHead>
                     {isMonthlyView ? (
                       <>
                         {getMonthsInRange(startDate, endDate).map((month) => (
                           <React.Fragment key={month}>
-                            <TableHead className="border p-1 text-center text-xs whitespace-nowrap">
-                              {formatMonth(month)}
-                            </TableHead>
-                            {showPercentages && (
-                              <TableHead className="text-center font-bold text-slate-700 min-w-11">%</TableHead>
-                            )}
+                            <TableHead className="whitespace-nowrap">{formatMonth(month)}</TableHead>
+                            {showPercentages && <TableHead className="whitespace-nowrap min-w-11">%</TableHead>}
                           </React.Fragment>
                         ))}
-                        <TableHead className="border p-1 text-center text-xs whitespace-nowrap">Total</TableHead>
-                        {showPercentages && (
-                          <TableHead className="border p-1 text-center text-xs whitespace-nowrap">%</TableHead>
-                        )}
+                        <TableHead>Total</TableHead>
+                        {showPercentages && <TableHead>%</TableHead>}
                       </>
                     ) : isQuarterlyView ? (
                       <>
                         {getQuartersInRange(startDate, endDate).map((quarter) => (
                           <React.Fragment key={quarter}>
-                            <TableHead className="border p-1 text-center text-xs whitespace-nowrap">
-                              {formatQuarter(quarter)}
-                            </TableHead>
-                            {showPercentages && (
-                              <TableHead className="text-center font-bold text-slate-700 min-w-11">%</TableHead>
-                            )}
+                            <TableHead className="whitespace-nowrap">{formatQuarter(quarter)}</TableHead>
+                            {showPercentages && <TableHead className="whitespace-nowrap">%</TableHead>}
                           </React.Fragment>
                         ))}
-                        <TableHead className="border p-1 text-center text-xs whitespace-nowrap">Total</TableHead>
-                        {showPercentages && <TableHead className="text-center font-bold text-slate-700">%</TableHead>}
+                        <TableHead>Total</TableHead>
+                        {showPercentages && <TableHead>%</TableHead>}
                       </>
                     ) : (
                       <>
-                        <TableHead className="border p-1 text-center text-xs whitespace-nowrap">Amount</TableHead>
-                        {showPercentages && <TableHead className="text-center font-bold text-slate-700">%</TableHead>}
+                        <TableHead>Amount</TableHead>
+                        {showPercentages && <TableHead>%</TableHead>}
                       </>
                     )}
                   </TableRow>
                 </TableHeader>
-                <TableBody className="text-xs">
-                  {loading || loadingSavedReport ? (
+                <TableBody>
+                  {loadingSavedReport ? (
                     <TableRow>
                       <TableCell colSpan={getTotalColumns()} className="py-8 text-center">
                         <div className="flex flex-col items-center space-y-3">
@@ -1102,8 +838,8 @@ export default function CashFlowPage() {
                   ) : (
                     <>
                       {/* Beginning Bank Balance */}
-                      <TableRow>
-                        <TableCell className="font-semibold text-slate-800 py-3">Beginning Bank Balance</TableCell>
+                      <TableRow isSummaryLineItem>
+                        <TableCell isLineItem>Beginning Bank Balance</TableCell>
                         {isMonthlyView ? (
                           <>
                             {getMonthsInRange(startDate, endDate).map((month, index) => {
@@ -1119,29 +855,25 @@ export default function CashFlowPage() {
                               const balance =
                                 index === 0 ? beginningBankBalance : calculateBankBalanceForPeriod(prevMonthEnd);
 
-                              // Calculate percentage based on total assets or total liabilities + equity
-                              const totalFinancing = Math.abs(financingActivities.netFinancingChange);
-                              const baseValue = totalFinancing > 0 ? totalFinancing : 1;
+                              // Use the absolute value of the balance itself as the base for percentage
+                              const baseValue = Math.abs(balance);
 
                               return (
                                 <React.Fragment key={month}>
-                                  <TableCell className="text-right py-3">{formatNumber(balance)}</TableCell>
+                                  <TableCell isValue>{formatNumber(balance)}</TableCell>
                                   {showPercentages && (
-                                    <TableCell className="text-right p-1 py-3 text-xs">
+                                    <TableCell isValue>
                                       {balance !== 0 ? formatPercentage(balance, baseValue) : "—"}
                                     </TableCell>
                                   )}
                                 </React.Fragment>
                               );
                             })}
-                            <TableCell className="text-right py-3">{formatNumber(beginningBankBalance)}</TableCell>
+                            <TableCell isValue>{formatNumber(beginningBankBalance)}</TableCell>
                             {showPercentages && (
-                              <TableCell className="text-right p-1 py-3 text-xs">
+                              <TableCell isValue>
                                 {beginningBankBalance !== 0
-                                  ? formatPercentage(
-                                      beginningBankBalance,
-                                      Math.abs(financingActivities.netFinancingChange) || 1
-                                    )
+                                  ? formatPercentage(beginningBankBalance, Math.abs(beginningBankBalance))
                                   : "—"}
                               </TableCell>
                             )}
@@ -1162,43 +894,36 @@ export default function CashFlowPage() {
                               const balance =
                                 index === 0 ? beginningBankBalance : calculateBankBalanceForPeriod(prevQuarterEnd);
 
-                              // Calculate percentage based on total assets or total liabilities + equity
-                              const totalFinancing = Math.abs(financingActivities.netFinancingChange);
-                              const baseValue = totalFinancing > 0 ? totalFinancing : 1;
+                              // Use the absolute value of the balance itself as the base for percentage
+                              const baseValue = Math.abs(balance);
 
                               return (
                                 <React.Fragment key={quarter}>
-                                  <TableCell className="text-right py-3">{formatNumber(balance)}</TableCell>
+                                  <TableCell isValue>{formatNumber(balance)}</TableCell>
                                   {showPercentages && (
-                                    <TableCell className="text-right p-1 py-3 text-xs">
+                                    <TableCell isValue>
                                       {balance !== 0 ? formatPercentage(balance, baseValue) : "—"}
                                     </TableCell>
                                   )}
                                 </React.Fragment>
                               );
                             })}
-                            <TableCell className="text-right py-3">{formatNumber(beginningBankBalance)}</TableCell>
+                            <TableCell isValue>{formatNumber(beginningBankBalance)}</TableCell>
                             {showPercentages && (
-                              <TableCell className="text-right p-1 py-3 text-xs">
+                              <TableCell isValue>
                                 {beginningBankBalance !== 0
-                                  ? formatPercentage(
-                                      beginningBankBalance,
-                                      Math.abs(financingActivities.netFinancingChange) || 1
-                                    )
+                                  ? formatPercentage(beginningBankBalance, Math.abs(beginningBankBalance))
                                   : "—"}
                               </TableCell>
                             )}
                           </>
                         ) : (
                           <>
-                            <TableCell className="text-right py-3">{formatNumber(beginningBankBalance)}</TableCell>
+                            <TableCell isValue>{formatNumber(beginningBankBalance)}</TableCell>
                             {showPercentages && (
-                              <TableCell className="text-right p-1 py-3 text-xs">
+                              <TableCell isValue>
                                 {beginningBankBalance !== 0
-                                  ? formatPercentage(
-                                      beginningBankBalance,
-                                      Math.abs(financingActivities.netFinancingChange) || 1
-                                    )
+                                  ? formatPercentage(beginningBankBalance, Math.abs(beginningBankBalance))
                                   : "—"}
                               </TableCell>
                             )}
@@ -1207,8 +932,8 @@ export default function CashFlowPage() {
                       </TableRow>
 
                       {/* Operating Activities */}
-                      <TableRow className="border-b-2 border-slate-200">
-                        <TableCell className="font-semibold text-slate-800 py-3">Operating:</TableCell>
+                      <TableRow isSummaryLineItem>
+                        <TableCell isLineItem>Operating</TableCell>
                         {isMonthlyView ? (
                           <>
                             {getMonthsInRange(startDate, endDate).map((month) => (
@@ -1240,70 +965,243 @@ export default function CashFlowPage() {
                       </TableRow>
 
                       {/* Revenue */}
-                      <TableRow>
-                        <TableCell className="py-2 font-medium">Revenue</TableCell>
+                      <TableRow className="cursor-pointer">
+                        <TableCell
+                          isLineItem
+                          onClick={() =>
+                            setViewerModal({
+                              isOpen: true,
+                              category: { id: "REVENUE_GROUP", name: "Revenue", type: "Revenue" },
+                            })
+                          }
+                        >
+                          Revenue
+                        </TableCell>
                         {renderPeriodCells(
                           (periodStart, periodEnd) =>
                             calculateOperatingActivitiesForPeriod(periodStart, periodEnd).revenue,
                           undefined,
-                          "revenue",
+                          "Revenue",
                           "Revenue"
                         )}
                       </TableRow>
-                      {/* Render revenue accounts */}
-                      {getTopLevelAccounts("Revenue").map((account) => renderAccountRow(account, 1))}
 
                       {/* COGS */}
-                      <TableRow>
-                        <TableCell className="py-2 font-medium">Cost of Goods Sold</TableCell>
+                      <TableRow className="cursor-pointer">
+                        <TableCell
+                          isLineItem
+                          onClick={() =>
+                            setViewerModal({
+                              isOpen: true,
+                              category: { id: "COGS_GROUP", name: "Cost of Goods Sold", type: "COGS" },
+                            })
+                          }
+                        >
+                          Cost of Goods Sold
+                        </TableCell>
                         {renderPeriodCells(
                           (periodStart, periodEnd) =>
                             -calculateOperatingActivitiesForPeriod(periodStart, periodEnd).cogs,
                           (periodStart, periodEnd) =>
                             calculateOperatingActivitiesForPeriod(periodStart, periodEnd).revenue,
-                          "cogs",
+                          "COGS",
                           "COGS"
                         )}
                       </TableRow>
-                      {/* Render COGS accounts */}
-                      {getTopLevelAccounts("COGS").map((account) => renderAccountRow(account, 1))}
 
                       {/* Expenses */}
-                      <TableRow>
-                        <TableCell className="py-2 font-medium">Expenses</TableCell>
+                      <TableRow className="cursor-pointer">
+                        <TableCell
+                          isLineItem
+                          onClick={() =>
+                            setViewerModal({
+                              isOpen: true,
+                              category: { id: "EXPENSE_GROUP", name: "Expenses", type: "Expense" },
+                            })
+                          }
+                        >
+                          Expenses
+                        </TableCell>
                         {renderPeriodCells(
                           (periodStart, periodEnd) =>
                             -calculateOperatingActivitiesForPeriod(periodStart, periodEnd).expenses,
                           (periodStart, periodEnd) =>
                             calculateOperatingActivitiesForPeriod(periodStart, periodEnd).revenue,
-                          "expenses",
+                          "Expense",
                           "Expenses"
                         )}
                       </TableRow>
-                      {/* Render expense accounts */}
-                      {getTopLevelAccounts("Expense").map((account) => renderAccountRow(account, 1))}
+
+                      {/* Net Income */}
                       <TableRow>
-                        <TableCell className="font-medium py-3">Net Income</TableCell>
-                        {renderPeriodCells(
-                          (periodStart, periodEnd) =>
-                            calculateOperatingActivitiesForPeriod(periodStart, periodEnd).netIncome,
-                          (periodStart, periodEnd) =>
-                            calculateOperatingActivitiesForPeriod(periodStart, periodEnd).revenue
+                        <TableCell isLineItem>Net Income</TableCell>
+                        {isMonthlyView ? (
+                          <>
+                            {getMonthsInRange(startDate, endDate).map((month) => (
+                              <React.Fragment key={month}>
+                                <TableCell isValue>
+                                  {formatNumber(
+                                    revenueRows.reduce((sum, a) => sum + calculateAccountTotalForMonth(a, month), 0) -
+                                      cogsRows.reduce((sum, a) => sum + calculateAccountTotalForMonth(a, month), 0) -
+                                      expenseRows.reduce((sum, a) => sum + calculateAccountTotalForMonth(a, month), 0)
+                                  )}
+                                </TableCell>
+                                {showPercentages && (
+                                  <TableCell isValue>
+                                    {formatPercentage(
+                                      revenueRows.reduce((sum, a) => sum + calculateAccountTotalForMonth(a, month), 0) -
+                                        cogsRows.reduce((sum, a) => sum + calculateAccountTotalForMonth(a, month), 0) -
+                                        expenseRows.reduce(
+                                          (sum, a) => sum + calculateAccountTotalForMonth(a, month),
+                                          0
+                                        ),
+                                      netIncome
+                                    )}
+                                  </TableCell>
+                                )}
+                              </React.Fragment>
+                            ))}
+                            <TableCell isValue>{formatNumber(netIncome)}</TableCell>
+                            {showPercentages && <TableCell isValue>{formatPercentage(netIncome, netIncome)}</TableCell>}
+                          </>
+                        ) : isQuarterlyView ? (
+                          <>
+                            {getQuartersInRange(startDate, endDate).map((quarter) => (
+                              <React.Fragment key={quarter}>
+                                <TableCell isValue>
+                                  {formatNumber(
+                                    revenueRows.reduce(
+                                      (sum, a) => sum + calculateAccountTotalForQuarter(a, quarter),
+                                      0
+                                    ) -
+                                      cogsRows.reduce(
+                                        (sum, a) => sum + calculateAccountTotalForQuarter(a, quarter),
+                                        0
+                                      ) -
+                                      expenseRows.reduce(
+                                        (sum, a) => sum + calculateAccountTotalForQuarter(a, quarter),
+                                        0
+                                      )
+                                  )}
+                                </TableCell>
+                                {showPercentages && (
+                                  <TableCell isValue>
+                                    {formatPercentage(
+                                      revenueRows.reduce(
+                                        (sum, a) => sum + calculateAccountTotalForQuarter(a, quarter),
+                                        0
+                                      ) -
+                                        cogsRows.reduce(
+                                          (sum, a) => sum + calculateAccountTotalForQuarter(a, quarter),
+                                          0
+                                        ) -
+                                        expenseRows.reduce(
+                                          (sum, a) => sum + calculateAccountTotalForQuarter(a, quarter),
+                                          0
+                                        ),
+                                      netIncome
+                                    )}
+                                  </TableCell>
+                                )}
+                              </React.Fragment>
+                            ))}
+                            <TableCell isValue>{formatNumber(netIncome)}</TableCell>
+                            {showPercentages && <TableCell isValue>{formatPercentage(netIncome, netIncome)}</TableCell>}
+                          </>
+                        ) : (
+                          <>
+                            <TableCell isValue>{formatNumber(netIncome)}</TableCell>
+                            {showPercentages && <TableCell isValue>{formatPercentage(netIncome, netIncome)}</TableCell>}
+                          </>
                         )}
                       </TableRow>
-                      <TableRow className="border-b border-slate-200">
-                        <TableCell className="font-medium py-3">Operating Change:</TableCell>
-                        {renderPeriodCells(
-                          (periodStart, periodEnd) =>
-                            calculateOperatingActivitiesForPeriod(periodStart, periodEnd).netIncome,
-                          (periodStart, periodEnd) =>
-                            calculateOperatingActivitiesForPeriod(periodStart, periodEnd).revenue
+                      {/* Operating Change */}
+                      <TableRow isSummaryLineItem>
+                        <TableCell isLineItem>Operating Change</TableCell>
+                        {isMonthlyView ? (
+                          <>
+                            {getMonthsInRange(startDate, endDate).map((month) => (
+                              <React.Fragment key={month}>
+                                <TableCell isValue>
+                                  {formatNumber(
+                                    revenueRows.reduce((sum, a) => sum + calculateAccountTotalForMonth(a, month), 0) -
+                                      cogsRows.reduce((sum, a) => sum + calculateAccountTotalForMonth(a, month), 0) -
+                                      expenseRows.reduce((sum, a) => sum + calculateAccountTotalForMonth(a, month), 0)
+                                  )}
+                                </TableCell>
+                                {showPercentages && (
+                                  <TableCell isValue>
+                                    {formatPercentage(
+                                      revenueRows.reduce((sum, a) => sum + calculateAccountTotalForMonth(a, month), 0) -
+                                        cogsRows.reduce((sum, a) => sum + calculateAccountTotalForMonth(a, month), 0) -
+                                        expenseRows.reduce(
+                                          (sum, a) => sum + calculateAccountTotalForMonth(a, month),
+                                          0
+                                        ),
+                                      netIncome
+                                    )}
+                                  </TableCell>
+                                )}
+                              </React.Fragment>
+                            ))}
+                            <TableCell isValue>{formatNumber(netIncome)}</TableCell>
+                            {showPercentages && <TableCell isValue>{formatPercentage(netIncome, netIncome)}</TableCell>}
+                          </>
+                        ) : isQuarterlyView ? (
+                          <>
+                            {getQuartersInRange(startDate, endDate).map((quarter) => (
+                              <React.Fragment key={quarter}>
+                                <TableCell isValue>
+                                  {formatNumber(
+                                    revenueRows.reduce(
+                                      (sum, a) => sum + calculateAccountTotalForQuarter(a, quarter),
+                                      0
+                                    ) -
+                                      cogsRows.reduce(
+                                        (sum, a) => sum + calculateAccountTotalForQuarter(a, quarter),
+                                        0
+                                      ) -
+                                      expenseRows.reduce(
+                                        (sum, a) => sum + calculateAccountTotalForQuarter(a, quarter),
+                                        0
+                                      )
+                                  )}
+                                </TableCell>
+                                {showPercentages && (
+                                  <TableCell isValue>
+                                    {formatPercentage(
+                                      revenueRows.reduce(
+                                        (sum, a) => sum + calculateAccountTotalForQuarter(a, quarter),
+                                        0
+                                      ) -
+                                        cogsRows.reduce(
+                                          (sum, a) => sum + calculateAccountTotalForQuarter(a, quarter),
+                                          0
+                                        ) -
+                                        expenseRows.reduce(
+                                          (sum, a) => sum + calculateAccountTotalForQuarter(a, quarter),
+                                          0
+                                        ),
+                                      netIncome
+                                    )}
+                                  </TableCell>
+                                )}
+                              </React.Fragment>
+                            ))}
+                            <TableCell isValue>{formatNumber(netIncome)}</TableCell>
+                            {showPercentages && <TableCell isValue>{formatPercentage(netIncome, netIncome)}</TableCell>}
+                          </>
+                        ) : (
+                          <>
+                            <TableCell isValue>{formatNumber(netIncome)}</TableCell>
+                            {showPercentages && <TableCell isValue>{formatPercentage(netIncome, netIncome)}</TableCell>}
+                          </>
                         )}
                       </TableRow>
 
                       {/* Investing Activities */}
-                      <TableRow className="border-b-2 border-slate-200">
-                        <TableCell className="font-semibold text-slate-800 py-3">Investing:</TableCell>
+                      <TableRow isSummaryLineItem>
+                        <TableCell isLineItem>Investing</TableCell>
                         {isMonthlyView ? (
                           <>
                             {getMonthsInRange(startDate, endDate).map((month) => (
@@ -1336,30 +1234,18 @@ export default function CashFlowPage() {
 
                       {/* Non-bank assets */}
                       <TableRow>
-                        <TableCell className="py-2 font-medium">Changes in Non-Bank Assets</TableCell>
+                        <TableCell isLineItem>Changes in Non-Bank Assets</TableCell>
                         {renderPeriodCells(
                           (periodStart, periodEnd) =>
                             calculateInvestingActivitiesForPeriod(periodStart, periodEnd).increaseInAssets,
                           undefined,
-                          "assets",
+                          "Asset",
                           "Changes in Non-Bank Assets"
                         )}
                       </TableRow>
-                      {/* Render non-bank asset accounts */}
-                      {accounts
-                        .filter(
-                          (acc) =>
-                            acc.type === "Asset" &&
-                            !acc.name.toLowerCase().includes("cash") &&
-                            !acc.name.toLowerCase().includes("bank") &&
-                            !acc.name.toLowerCase().includes("checking") &&
-                            !acc.name.toLowerCase().includes("savings") &&
-                            !acc.parent_id // Only top-level accounts
-                        )
-                        .map((account) => renderAccountRow(account, 1))}
 
-                      <TableRow className="border-b border-slate-200">
-                        <TableCell className="font-medium py-3">Investing Change:</TableCell>
+                      <TableRow isSummaryLineItem>
+                        <TableCell isLineItem>Investing Change</TableCell>
                         {renderPeriodCells(
                           (periodStart, periodEnd) =>
                             calculateInvestingActivitiesForPeriod(periodStart, periodEnd).netInvestingChange
@@ -1367,8 +1253,8 @@ export default function CashFlowPage() {
                       </TableRow>
 
                       {/* Financing Activities */}
-                      <TableRow className="border-b-2 border-slate-200">
-                        <TableCell className="font-semibold text-slate-800 py-3">Financing:</TableCell>
+                      <TableRow isSummaryLineItem>
+                        <TableCell isLineItem>Financing</TableCell>
                         {isMonthlyView ? (
                           <>
                             {getMonthsInRange(startDate, endDate).map((month) => (
@@ -1401,7 +1287,7 @@ export default function CashFlowPage() {
 
                       {/* Credit Cards */}
                       <TableRow>
-                        <TableCell className="py-2 font-medium">Credit Cards</TableCell>
+                        <TableCell isLineItem>Credit Cards</TableCell>
                         {renderPeriodCells(
                           (periodStart, periodEnd) => {
                             const creditCardAccounts = accounts.filter((acc) => acc.type === "Credit Card");
@@ -1417,18 +1303,14 @@ export default function CashFlowPage() {
                             }, 0);
                           },
                           undefined,
-                          "liabilities",
+                          "Credit Card",
                           "Credit Cards"
                         )}
                       </TableRow>
-                      {/* Render credit card accounts */}
-                      {accounts
-                        .filter((acc) => acc.type === "Credit Card" && !acc.parent_id)
-                        .map((account) => renderAccountRow(account, 1))}
 
                       {/* Liabilities */}
                       <TableRow>
-                        <TableCell className="py-2 font-medium">Liabilities</TableCell>
+                        <TableCell isLineItem>Liabilities</TableCell>
                         {renderPeriodCells(
                           (periodStart, periodEnd) => {
                             const liabilityAccounts = accounts.filter((acc) => acc.type === "Liability");
@@ -1444,32 +1326,24 @@ export default function CashFlowPage() {
                             }, 0);
                           },
                           undefined,
-                          "liabilities",
+                          "Liability",
                           "Liabilities"
                         )}
                       </TableRow>
-                      {/* Render liability accounts */}
-                      {accounts
-                        .filter((acc) => acc.type === "Liability" && !acc.parent_id)
-                        .map((account) => renderAccountRow(account, 1))}
 
                       {/* Equity */}
                       <TableRow>
-                        <TableCell className="py-2 font-medium">Equity</TableCell>
+                        <TableCell isLineItem>Equity</TableCell>
                         {renderPeriodCells(
                           (periodStart, periodEnd) =>
                             calculateFinancingActivitiesForPeriod(periodStart, periodEnd).ownerContributions,
                           undefined,
-                          "equity",
+                          "Equity",
                           "Equity"
                         )}
                       </TableRow>
-                      {/* Render equity accounts */}
-                      {accounts
-                        .filter((acc) => acc.type === "Equity" && !acc.parent_id)
-                        .map((account) => renderAccountRow(account, 1))}
-                      <TableRow className="border-b border-slate-200">
-                        <TableCell className="font-medium py-3">Financing Change:</TableCell>
+                      <TableRow isSummaryLineItem>
+                        <TableCell isLineItem>Financing Change</TableCell>
                         {renderPeriodCells(
                           (periodStart, periodEnd) =>
                             calculateFinancingActivitiesForPeriod(periodStart, periodEnd).netFinancingChange
@@ -1477,8 +1351,8 @@ export default function CashFlowPage() {
                       </TableRow>
 
                       {/* Ending Bank Balance */}
-                      <TableRow className="border-b-2 border-slate-400">
-                        <TableCell className="font-bold text-slate-900 py-4">Ending Bank Balance</TableCell>
+                      <TableRow isSummaryLineItem>
+                        <TableCell isLineItem>Ending Bank Balance</TableCell>
                         {isMonthlyView ? (
                           <>
                             {getMonthsInRange(startDate, endDate).map((month) => {
@@ -1490,33 +1364,22 @@ export default function CashFlowPage() {
                               const monthEnd = `${month}-${String(lastDay).padStart(2, "0")}`;
                               const balance = calculateBankBalanceForPeriod(monthEnd);
 
-                              // Calculate percentage based on total assets or total liabilities + equity
-                              const totalFinancing = Math.abs(financingActivities.netFinancingChange);
-                              const baseValue = totalFinancing > 0 ? totalFinancing : 1;
-
                               return (
                                 <React.Fragment key={month}>
-                                  <TableCell className="text-right font-bold text-slate-900 py-4">
-                                    {formatNumber(balance)}
-                                  </TableCell>
+                                  <TableCell isValue>{formatNumber(balance)}</TableCell>
                                   {showPercentages && (
-                                    <TableCell className="text-right py-4 text-xs">
-                                      {balance !== 0 ? formatPercentage(balance, baseValue) : "—"}
+                                    <TableCell isValue>
+                                      {balance !== 0 ? formatPercentage(balance, Math.abs(balance)) : "—"}
                                     </TableCell>
                                   )}
                                 </React.Fragment>
                               );
                             })}
-                            <TableCell className="text-right font-bold text-slate-900 py-4">
-                              {formatNumber(endingBankBalance)}
-                            </TableCell>
+                            <TableCell isValue>{formatNumber(endingBankBalance)}</TableCell>
                             {showPercentages && (
-                              <TableCell className="text-right py-4 text-xs">
+                              <TableCell isValue>
                                 {endingBankBalance !== 0
-                                  ? formatPercentage(
-                                      endingBankBalance,
-                                      Math.abs(financingActivities.netFinancingChange) || 1
-                                    )
+                                  ? formatPercentage(endingBankBalance, Math.abs(endingBankBalance))
                                   : "—"}
                               </TableCell>
                             )}
@@ -1534,49 +1397,33 @@ export default function CashFlowPage() {
                               ).getDate()}`;
                               const balance = calculateBankBalanceForPeriod(quarterEnd);
 
-                              // Calculate percentage based on total assets or total liabilities + equity
-                              const totalFinancing = Math.abs(financingActivities.netFinancingChange);
-                              const baseValue = totalFinancing > 0 ? totalFinancing : 1;
-
                               return (
                                 <React.Fragment key={quarter}>
-                                  <TableCell className="text-right font-bold text-slate-900 py-4">
-                                    {formatNumber(balance)}
-                                  </TableCell>
+                                  <TableCell isValue>{formatNumber(balance)}</TableCell>
                                   {showPercentages && (
-                                    <TableCell className="text-center py-4 text-xs">
-                                      {balance !== 0 ? formatPercentage(balance, baseValue) : "—"}
+                                    <TableCell isValue>
+                                      {balance !== 0 ? formatPercentage(balance, Math.abs(balance)) : "—"}
                                     </TableCell>
                                   )}
                                 </React.Fragment>
                               );
                             })}
-                            <TableCell className="text-right font-bold text-slate-900 py-4">
-                              {formatNumber(endingBankBalance)}
-                            </TableCell>
+                            <TableCell isValue>{formatNumber(endingBankBalance)}</TableCell>
                             {showPercentages && (
-                              <TableCell className="text-center py-4 text-xs">
+                              <TableCell isValue>
                                 {endingBankBalance !== 0
-                                  ? formatPercentage(
-                                      endingBankBalance,
-                                      Math.abs(financingActivities.netFinancingChange) || 1
-                                    )
+                                  ? formatPercentage(endingBankBalance, Math.abs(endingBankBalance))
                                   : "—"}
                               </TableCell>
                             )}
                           </>
                         ) : (
                           <>
-                            <TableCell className="text-right font-bold text-slate-900 py-4">
-                              {formatNumber(endingBankBalance)}
-                            </TableCell>
+                            <TableCell isValue>{formatNumber(endingBankBalance)}</TableCell>
                             {showPercentages && (
-                              <TableCell className="text-center py-4 text-xs">
+                              <TableCell isValue>
                                 {endingBankBalance !== 0
-                                  ? formatPercentage(
-                                      endingBankBalance,
-                                      Math.abs(financingActivities.netFinancingChange) || 1
-                                    )
+                                  ? formatPercentage(endingBankBalance, Math.abs(endingBankBalance))
                                   : "—"}
                               </TableCell>
                             )}

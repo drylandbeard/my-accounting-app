@@ -20,6 +20,7 @@ interface AccountRowRendererProps {
   showPercentages: boolean;
   startDate: string;
   endDate: string;
+  parentOnly?: boolean;
 
   // Account operations
   collapsedAccounts: Set<string>;
@@ -41,6 +42,7 @@ interface AccountRowRendererProps {
 export const AccountRowRenderer: React.FC<AccountRowRendererProps> = ({
   account,
   level = 0,
+  parentOnly = false,
   accounts,
   journalEntries,
   isMonthlyView,
@@ -93,7 +95,7 @@ export const AccountRowRenderer: React.FC<AccountRowRendererProps> = ({
           <TableCell className="border p-1 text-xs" style={{ paddingLeft: `${accLevel * 24 + 4}px` }}>
             <div className="flex items-center">
               {accLevel > 0 && <span className="text-gray-400 mr-2 text-xs">└</span>}
-              {accIsParent ? (
+              {accIsParent && !parentOnly ? (
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
