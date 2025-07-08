@@ -135,11 +135,11 @@ export const tools = [
     type: 'function',
     function: {
       name: 'create_payee',
-      description: 'Create a new payee using the payeesStore with validation and duplicate detection.',
+      description: 'Create a new payee with intelligent duplicate detection and suggestions. Handles similar name detection and provides helpful alternatives when duplicates exist.',
       parameters: {
         type: 'object',
         properties: {
-          name: { type: 'string', description: 'The name of the new payee' }
+          name: { type: 'string', description: 'The name of the new payee. Will check for duplicates and suggest alternatives if similar names exist.' }
         },
         required: ['name'],
       },
@@ -149,13 +149,13 @@ export const tools = [
     type: 'function',
     function: {
       name: 'update_payee',
-      description: 'Update an existing payee name using the payeesStore with automatic name resolution.',
+      description: 'Update an existing payee name with fuzzy matching for payee identification. Provides helpful suggestions when exact payee names are not found.',
       parameters: {
         type: 'object',
         properties: {
           payeeId: { type: 'string', description: 'The ID of the payee to update' },
-          payeeName: { type: 'string', description: 'The name of the payee to update (will be looked up automatically if ID is not provided)' },
-          name: { type: 'string', description: 'The new name for the payee' }
+          payeeName: { type: 'string', description: 'The current name of the payee to update (supports fuzzy matching if exact name not found)' },
+          name: { type: 'string', description: 'The new name for the payee. Will validate uniqueness and suggest alternatives if conflicts exist.' }
         },
         required: ['name'],
       },
@@ -165,12 +165,12 @@ export const tools = [
     type: 'function',
     function: {
       name: 'delete_payee',
-      description: 'Delete an existing payee using the payeesStore with usage validation.',
+      description: 'Delete an existing payee with usage validation and fuzzy matching. Warns if payee is used in transactions and suggests alternatives when exact names are not found.',
       parameters: {
         type: 'object',
         properties: {
           payeeId: { type: 'string', description: 'The ID of the payee to delete' },
-          payeeName: { type: 'string', description: 'The name of the payee to delete (will be looked up automatically if ID is not provided)' }
+          payeeName: { type: 'string', description: 'The name of the payee to delete (supports fuzzy matching if exact name not found)' }
         },
         required: []
       },
