@@ -237,6 +237,9 @@ export default function TransactionsPage() {
     importTransactionsFromCSV,
     saveImportedTransactionSplit,
     getImportedTransactionSplitsByTransactionId,
+    saveAutomationState,
+    loadAutomationState,
+    clearAutomationState,
   } = useTransactionsStore();
 
   const { categories, refreshCategories, createCategoryForTransaction, subscribeToCategories } = useCategoriesStore();
@@ -246,23 +249,51 @@ export default function TransactionsPage() {
   // Shared search query between tabs
   const [searchQuery, setSearchQuery] = useState("");
 
+  // Initialize automation state from persistence
+  const initializeAutomationState = () => {
+    if (!hasCompanyContext || !selectedAccountId) {
+      return {
+        selectedCategories: {},
+        selectedPayees: {},
+        autoAddedTransactions: new Set<string>()
+      };
+    }
+    
+    const stored = loadAutomationState(currentCompany!.id, selectedAccountId);
+    return {
+      selectedCategories: stored?.appliedCategories || {},
+      selectedPayees: stored?.appliedPayees || {},
+      autoAddedTransactions: new Set(stored?.autoAddedTransactionHashes || [])
+    };
+  };
+
   // Add selected categories state
-  const [selectedCategories, setSelectedCategories] = useState<{ [txId: string]: string }>({});
+  const [selectedCategories, setSelectedCategories] = useState<{ [txId: string]: string }>(() => 
+    initializeAutomationState().selectedCategories
+  );
 
   // Add selected payees state
-  const [selectedPayees, setSelectedPayees] = useState<{ [txId: string]: string }>({});
+  const [selectedPayees, setSelectedPayees] = useState<{ [txId: string]: string }>(() => 
+    initializeAutomationState().selectedPayees
+  );
 
   // Add state for tracking react-select input values
   const [payeeInputValues, setPayeeInputValues] = useState<{ [txId: string]: string }>({});
   const [categoryInputValues, setCategoryInputValues] = useState<{ [txId: string]: string }>({});
 
   // Add state to track automation-applied selections for visual feedback
-  const [automationAppliedCategories, setAutomationAppliedCategories] = useState<Set<string>>(new Set());
-  const [automationAppliedPayees, setAutomationAppliedPayees] = useState<Set<string>>(new Set());
+  const [automationAppliedCategories, setAutomationAppliedCategories] = useState<Set<string>>(() => 
+    new Set(Object.keys(initializeAutomationState().selectedCategories))
+  );
+  const [automationAppliedPayees, setAutomationAppliedPayees] = useState<Set<string>>(() => 
+    new Set(Object.keys(initializeAutomationState().selectedPayees))
+  );
 
   // Add state to track which transactions have been auto-added to prevent duplicates
   // Track by content hash instead of ID to handle undo scenarios
-  const [autoAddedTransactions, setAutoAddedTransactions] = useState<Set<string>>(new Set());
+  const [autoAddedTransactions, setAutoAddedTransactions] = useState<Set<string>>(() => 
+    initializeAutomationState().autoAddedTransactions
+  );
 
   // Add ref to prevent concurrent automation executions
   const isAutomationRunning = useRef(false);
@@ -276,6 +307,22 @@ export default function TransactionsPage() {
   // Helper function to create a unique content hash for a transaction
   const getTransactionContentHash = (tx: Transaction) => {
     return `${tx.date}_${tx.description}_${tx.spent || "0"}_${tx.received || "0"}_${tx.plaid_account_id}`;
+  };
+
+  // Function to manually clear automation state
+  const clearAutomationStateManual = () => {
+    if (!hasCompanyContext || !selectedAccountId) return;
+    
+    setSelectedCategories({});
+    setSelectedPayees({});
+    setAutoAddedTransactions(new Set());
+    setAutomationAppliedCategories(new Set());
+    setAutomationAppliedPayees(new Set());
+    
+    // Clear from localStorage
+    clearAutomationState(currentCompany!.id, selectedAccountId);
+    
+    showSuccessToast('🧹 Automation state cleared');
   };
 
   // Add missing state for multi-select checkboxes
@@ -804,27 +851,89 @@ export default function TransactionsPage() {
     };
   }, [currentCompany?.id, hasCompanyContext, subscribeToTransactions, subscribeToCategories, subscribeToPayees]);
 
-  // Apply automations automatically when transactions or related data changes (UI state only)
-  useEffect(() => {
-    if (importedTransactions.length > 0 && categories.length > 0 && payees.length > 0 && hasCompanyContext) {
-      // Apply automations immediately when data is available
-      runAutomationsWithStateUpdate();
-    }
-  }, [importedTransactions, categories, payees, hasCompanyContext]);
+  // Removed automatic automation execution to improve page load performance
+  // Automations now only run when explicitly triggered by user via "Run Automations" button
 
-  // Also apply automations when switching to the selected account
+  // Load persisted automation state when account changes
   useEffect(() => {
-    if (
-      selectedAccountId &&
-      importedTransactions.length > 0 &&
-      categories.length > 0 &&
-      payees.length > 0 &&
-      hasCompanyContext
-    ) {
-      // Apply automations when account selection changes
-      runAutomationsWithStateUpdate();
+    if (!hasCompanyContext || !selectedAccountId) {
+      // Clear state for invalid context
+      setSelectedCategories({});
+      setSelectedPayees({});
+      setAutoAddedTransactions(new Set());
+      setAutomationAppliedCategories(new Set());
+      setAutomationAppliedPayees(new Set());
+      return;
     }
-  }, [selectedAccountId, importedTransactions, categories, payees, hasCompanyContext]);
+    
+    const stored = loadAutomationState(currentCompany!.id, selectedAccountId);
+    if (stored) {
+      setSelectedCategories(stored.appliedCategories);
+      setSelectedPayees(stored.appliedPayees);
+      setAutoAddedTransactions(new Set(stored.autoAddedTransactionHashes));
+      
+      // Update visual indicators
+      setAutomationAppliedCategories(new Set(Object.keys(stored.appliedCategories)));
+      setAutomationAppliedPayees(new Set(Object.keys(stored.appliedPayees)));
+    } else {
+      // Clear state for new account
+      setSelectedCategories({});
+      setSelectedPayees({});
+      setAutoAddedTransactions(new Set());
+      setAutomationAppliedCategories(new Set());
+      setAutomationAppliedPayees(new Set());
+    }
+  }, [selectedAccountId, currentCompany?.id, hasCompanyContext, loadAutomationState]);
+
+  // Save automation state whenever it changes
+  useEffect(() => {
+    if (!hasCompanyContext || !selectedAccountId) return;
+    
+    const state = {
+      appliedCategories: selectedCategories,
+      appliedPayees: selectedPayees,
+      autoAddedTransactionHashes: Array.from(autoAddedTransactions),
+      lastAutomationRun: new Date().toISOString()
+    };
+    
+    // Debounce the save operation to avoid excessive localStorage writes
+    const timeoutId = setTimeout(() => {
+      saveAutomationState(currentCompany!.id, selectedAccountId, state);
+    }, 500);
+    
+    return () => clearTimeout(timeoutId);
+  }, [selectedCategories, selectedPayees, autoAddedTransactions, selectedAccountId, currentCompany?.id, hasCompanyContext, saveAutomationState]);
+
+  // Clean up automation state for transactions that no longer exist
+  useEffect(() => {
+    if (!hasCompanyContext || !selectedAccountId) return;
+    
+    const currentTransactionIds = new Set(importedTransactions.map(tx => tx.id));
+    const currentHashes = importedTransactions.map(tx => getTransactionContentHash(tx));
+    
+    // Remove categories/payees for transactions that no longer exist
+    setSelectedCategories(prev => {
+      const filtered = Object.fromEntries(
+        Object.entries(prev).filter(([txId]) => currentTransactionIds.has(txId))
+      );
+      return Object.keys(filtered).length !== Object.keys(prev).length ? filtered : prev;
+    });
+    
+    setSelectedPayees(prev => {
+      const filtered = Object.fromEntries(
+        Object.entries(prev).filter(([txId]) => currentTransactionIds.has(txId))
+      );
+      return Object.keys(filtered).length !== Object.keys(prev).length ? filtered : prev;
+    });
+
+    // Clean up auto-added hashes for transactions that no longer exist
+    setAutoAddedTransactions(prev => {
+      const validHashes = new Set(Array.from(prev).filter(hash => 
+        currentHashes.includes(hash)
+      ));
+      return validHashes.size !== prev.size ? validHashes : prev;
+    });
+  }, [importedTransactions, hasCompanyContext, selectedAccountId, getTransactionContentHash]);
 
   // Reset pagination when search query changes
   useEffect(() => {
@@ -2436,6 +2545,37 @@ export default function TransactionsPage() {
             ) : (
               <span>Update</span>
             )}
+          </button>
+          <button
+            onClick={runAutomationsWithStateUpdate}
+            disabled={isAutoAddRunning || !hasCompanyContext || !currentCompany?.id}
+            className={`border px-3 py-1 rounded text-xs flex items-center space-x-1 ${
+              isAutoAddRunning || !hasCompanyContext 
+                ? "bg-gray-100 text-gray-400 cursor-not-allowed" 
+                : "border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-xs"
+            }`}
+            title="Apply automation rules to transactions"
+          >
+            {isAutoAddRunning ? (
+              <div className="flex items-center space-x-1">
+                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-gray-400" />
+                <span>Running...</span>
+              </div>
+            ) : (
+              <span>Automations</span>
+            )}
+          </button>
+          <button
+            onClick={clearAutomationStateManual}
+            disabled={!hasCompanyContext || !selectedAccountId}
+            className={`border px-3 py-1 rounded text-xs flex items-center space-x-1 ${
+              !hasCompanyContext || !selectedAccountId
+                ? "bg-gray-100 text-gray-400 cursor-not-allowed" 
+                : "border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-xs"
+            }`}
+            title="Clear all automation selections for this account"
+          >
+            <span>Clear</span>
           </button>
           <button
             onClick={() => open()}

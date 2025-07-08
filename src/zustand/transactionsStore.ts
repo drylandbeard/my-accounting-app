@@ -36,6 +36,15 @@ export interface AutomationResult {
   autoAddTransactions: string[];
 }
 
+// Add automation state persistence types
+export interface AutomationState {
+  appliedCategories: { [txId: string]: string };
+  appliedPayees: { [txId: string]: string };
+  autoAddedTransactionHashes: string[];
+  lastAutomationRun: string | null;
+  timestamp: string;
+}
+
 // Error handling utility for store operations
 const handleStoreOperation = async <T>(
   operation: () => Promise<T>,
@@ -271,6 +280,11 @@ interface TransactionsState {
   
   // Automation functions
   applyAutomationsToTransactions: (companyId: string, selectedAccountId: string | null, categories: { id: string; name: string }[], payees: { id: string; name: string }[]) => Promise<StoreResult<AutomationResult>>;
+  
+  // Automation state persistence
+  saveAutomationState: (companyId: string, accountId: string, state: Omit<AutomationState, 'timestamp'>) => void;
+  loadAutomationState: (companyId: string, accountId: string) => AutomationState | null;
+  clearAutomationState: (companyId: string, accountId?: string) => void;
 }
 
 export const useTransactionsStore = create<TransactionsState>((set, get) => ({
@@ -1788,5 +1802,65 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
         autoAddTransactions
       };
     }, 'applyAutomationsToTransactions');
+  },
+  
+  // Automation state persistence
+  saveAutomationState: (companyId: string, accountId: string, state: Omit<AutomationState, 'timestamp'>) => {
+    try {
+      const storageKey = `automation_state_${companyId}_${accountId}`;
+      const stateWithTimestamp: AutomationState = {
+        ...state,
+        timestamp: new Date().toISOString()
+      };
+      localStorage.setItem(storageKey, JSON.stringify(stateWithTimestamp));
+    } catch (error) {
+      console.warn('Failed to save automation state:', error);
+    }
+  },
+
+  loadAutomationState: (companyId: string, accountId: string) => {
+    try {
+      const storageKey = `automation_state_${companyId}_${accountId}`;
+      const stored = localStorage.getItem(storageKey);
+      if (!stored) return null;
+      
+      const parsed: AutomationState = JSON.parse(stored);
+      
+      // Check if state is too old (more than 24 hours)
+      const timestamp = new Date(parsed.timestamp);
+      const now = new Date();
+      const hoursDiff = (now.getTime() - timestamp.getTime()) / (1000 * 60 * 60);
+      
+      if (hoursDiff > 24) {
+        localStorage.removeItem(storageKey);
+        return null;
+      }
+      
+      return parsed;
+    } catch (error) {
+      console.warn('Failed to load automation state:', error);
+      return null;
+    }
+  },
+
+  clearAutomationState: (companyId: string, accountId?: string) => {
+    try {
+      if (accountId) {
+        const storageKey = `automation_state_${companyId}_${accountId}`;
+        localStorage.removeItem(storageKey);
+      } else {
+        // Clear all automation states for this company
+        const keysToRemove: string[] = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith(`automation_state_${companyId}_`)) {
+            keysToRemove.push(key);
+          }
+        }
+        keysToRemove.forEach(key => localStorage.removeItem(key));
+      }
+    } catch (error) {
+      console.warn('Failed to clear automation state:', error);
+    }
   }
 }));
