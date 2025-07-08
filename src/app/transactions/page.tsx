@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { usePlaidLink } from "react-plaid-link";
 
 import Papa from 'papaparse'
@@ -239,7 +239,6 @@ export default function TransactionsPage() {
     getImportedTransactionSplitsByTransactionId,
     saveAutomationState,
     loadAutomationState,
-    clearAutomationState,
   } = useTransactionsStore();
 
   const { categories, refreshCategories, createCategoryForTransaction, subscribeToCategories } = useCategoriesStore();
@@ -305,25 +304,9 @@ export default function TransactionsPage() {
   const [isAutoAddRunning, setIsAutoAddRunning] = useState(false);
 
   // Helper function to create a unique content hash for a transaction
-  const getTransactionContentHash = (tx: Transaction) => {
+  const getTransactionContentHash = useCallback((tx: Transaction) => {
     return `${tx.date}_${tx.description}_${tx.spent || "0"}_${tx.received || "0"}_${tx.plaid_account_id}`;
-  };
-
-  // Function to manually clear automation state
-  const clearAutomationStateManual = () => {
-    if (!hasCompanyContext || !selectedAccountId) return;
-    
-    setSelectedCategories({});
-    setSelectedPayees({});
-    setAutoAddedTransactions(new Set());
-    setAutomationAppliedCategories(new Set());
-    setAutomationAppliedPayees(new Set());
-    
-    // Clear from localStorage
-    clearAutomationState(currentCompany!.id, selectedAccountId);
-    
-    showSuccessToast('🧹 Automation state cleared');
-  };
+  }, []);
 
   // Add missing state for multi-select checkboxes
   const [selectedToAdd, setSelectedToAdd] = useState<Set<string>>(new Set());
@@ -668,7 +651,7 @@ export default function TransactionsPage() {
   // Data fetching now handled by stores
 
   // Apply automations automatically when transactions or related data changes (UI state only)
-  const runAutomationsWithStateUpdate = async () => {
+  const runAutomationsWithStateUpdate = useCallback(async () => {
     if (!hasCompanyContext || !currentCompany?.id) return;
 
     // Prevent concurrent executions
@@ -766,6 +749,10 @@ export default function TransactionsPage() {
               selectedPayeeId?: string;
             }[];
 
+            // Find the selected account in chart_of_accounts by plaid_account_id
+            const selectedAccount = categories.find((c) => c.plaid_account_id === selectedAccountId);
+            const selectedAccountIdInCOA = selectedAccount?.id;
+
             if (transactionRequests.length > 0 && selectedAccountIdInCOA) {
               try {
                 await addTransactions(transactionRequests, selectedAccountIdInCOA, currentCompany.id);
@@ -824,7 +811,7 @@ export default function TransactionsPage() {
       isAutomationRunning.current = false;
       setIsAutoAddRunning(false);
     }
-  };
+  }, [hasCompanyContext, currentCompany?.id, selectedAccountId, categories, payees]);
 
   useEffect(() => {
     if (hasCompanyContext && currentCompany?.id) {
@@ -851,8 +838,57 @@ export default function TransactionsPage() {
     };
   }, [currentCompany?.id, hasCompanyContext, subscribeToTransactions, subscribeToCategories, subscribeToPayees]);
 
-  // Removed automatic automation execution to improve page load performance
-  // Automations now only run when explicitly triggered by user via "Run Automations" button
+  // Add ref to track automation state and prevent duplicate runs
+  const automationState = useRef({
+    lastContextKey: '',
+    lastDataSignature: '',
+    isInitialized: false,
+    lastRunTime: 0
+  });
+
+  // Single consolidated automation trigger with proper debouncing and deduplication
+  useEffect(() => {
+    if (!hasCompanyContext || !currentCompany?.id || !selectedAccountId) return;
+    if (importedTransactions.length === 0) return;
+    
+    const contextKey = `${currentCompany.id}_${selectedAccountId}`;
+    // Create a signature of the current data to detect actual changes
+    const dataSignature = `${importedTransactions.length}_${categories.length}_${payees.length}_${importedTransactions.map(t => t.id).join(',')}`;
+    const now = Date.now();
+    
+    // Don't run automations more than once every 2 seconds
+    if (now - automationState.current.lastRunTime < 2000) {
+      return;
+    }
+    
+    // Check if this is a context change (new account/company)
+    const isContextChange = automationState.current.lastContextKey !== contextKey;
+    // Check if the data has actually changed (not just refetched)
+    const isDataChange = automationState.current.lastDataSignature !== dataSignature;
+    
+    // Run automations if:
+    // 1. Context changed (new account/company), OR
+    // 2. Data actually changed (not just refetched) and we've already initialized this context
+    const shouldRun = isContextChange || (automationState.current.isInitialized && automationState.current.lastContextKey === contextKey && isDataChange);
+    
+    if (!shouldRun) return;
+    
+    // Debounce automation execution
+    const timeoutId = setTimeout(() => {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('🚀 Running automations for:', contextKey);
+      }
+      automationState.current = {
+        lastContextKey: contextKey,
+        lastDataSignature: dataSignature,
+        isInitialized: true,
+        lastRunTime: Date.now()
+      };
+      runAutomationsWithStateUpdate();
+    }, 1000);
+    
+    return () => clearTimeout(timeoutId);
+  }, [importedTransactions, categories, payees, selectedAccountId, hasCompanyContext, currentCompany?.id]);
 
   // Load persisted automation state when account changes
   useEffect(() => {
@@ -882,8 +918,11 @@ export default function TransactionsPage() {
       setAutoAddedTransactions(new Set());
       setAutomationAppliedCategories(new Set());
       setAutomationAppliedPayees(new Set());
+      
+      // Note: Automation will be triggered automatically by the main automation effect
+      // when it detects the context change, so we don't need to trigger it here
     }
-  }, [selectedAccountId, currentCompany?.id, hasCompanyContext, loadAutomationState]);
+  }, [selectedAccountId, currentCompany?.id, hasCompanyContext, loadAutomationState, importedTransactions.length, currentCompany]);
 
   // Save automation state whenever it changes
   useEffect(() => {
@@ -902,7 +941,7 @@ export default function TransactionsPage() {
     }, 500);
     
     return () => clearTimeout(timeoutId);
-  }, [selectedCategories, selectedPayees, autoAddedTransactions, selectedAccountId, currentCompany?.id, hasCompanyContext, saveAutomationState]);
+  }, [selectedCategories, selectedPayees, autoAddedTransactions, selectedAccountId, currentCompany?.id, hasCompanyContext, saveAutomationState, currentCompany]);
 
   // Clean up automation state for transactions that no longer exist
   useEffect(() => {
@@ -2547,37 +2586,6 @@ export default function TransactionsPage() {
             )}
           </button>
           <button
-            onClick={runAutomationsWithStateUpdate}
-            disabled={isAutoAddRunning || !hasCompanyContext || !currentCompany?.id}
-            className={`border px-3 py-1 rounded text-xs flex items-center space-x-1 ${
-              isAutoAddRunning || !hasCompanyContext 
-                ? "bg-gray-100 text-gray-400 cursor-not-allowed" 
-                : "border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-xs"
-            }`}
-            title="Apply automation rules to transactions"
-          >
-            {isAutoAddRunning ? (
-              <div className="flex items-center space-x-1">
-                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-gray-400" />
-                <span>Running...</span>
-              </div>
-            ) : (
-              <span>Automations</span>
-            )}
-          </button>
-          <button
-            onClick={clearAutomationStateManual}
-            disabled={!hasCompanyContext || !selectedAccountId}
-            className={`border px-3 py-1 rounded text-xs flex items-center space-x-1 ${
-              !hasCompanyContext || !selectedAccountId
-                ? "bg-gray-100 text-gray-400 cursor-not-allowed" 
-                : "border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-xs"
-            }`}
-            title="Clear all automation selections for this account"
-          >
-            <span>Clear</span>
-          </button>
-          <button
             onClick={() => open()}
             disabled={!ready}
             className="border px-3 py-1 rounded bg-gray-100 hover:bg-gray-200 text-xs"
@@ -2927,6 +2935,9 @@ export default function TransactionsPage() {
                                 showSuccessToast(`Successfully imported ${
                                   result.count || selectedTransactions.length
                                 } transactions!`);
+                                
+                                // Note: Automations will be triggered automatically by the main automation effect
+                                // when it detects the new imported transactions
                               } else {
                                 throw new Error(result.error || "Failed to import transactions");
                               }
@@ -3906,7 +3917,7 @@ export default function TransactionsPage() {
       {isAutoAddRunning && (
         <div className="fixed top-6 right-6 z-50 px-4 py-2 bg-blue-100 text-blue-800 border border-blue-300 rounded-lg shadow-lg flex items-center space-x-2">
           <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600" />
-          <span className="text-sm font-medium">Auto-adding transactions...</span>
+          <span className="text-sm font-medium">Automation running...</span>
         </div>
       )}
 

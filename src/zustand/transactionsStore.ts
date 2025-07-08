@@ -838,40 +838,79 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
     return importedTransactionSplits.filter(split => split.imported_transaction_id === importedTransactionId);
   },
   
-  // Add transactions (bulk operation)
+  // Add transactions (bulk operation with batching)
   addTransactions: async (transactionRequests: BulkTransactionRequest[], correspondingCategoryId: string, companyId: string) => {
     if (transactionRequests.length === 0) return false;
     
     try {
       set({ isAddingTransactions: true, error: null });
       
-      // Prepare bulk request
-      const bulkRequest = {
-        transactions: transactionRequests.map(req => ({
-          imported_transaction_id: req.transaction.id,
-          selected_category_id: req.selectedCategoryId,
-          corresponding_category_id: correspondingCategoryId, // Account category ID
-          payee_id: req.selectedPayeeId
-        }))
-      };
+      // Process transactions in batches to avoid 414 Request-URI Too Large errors
+      const BATCH_SIZE = 100; // Process 100 transactions at a time
+      const batches = [];
       
-      const response = await api.post('/api/transactions/move-to-added', bulkRequest);
-      const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to move transactions');
+      for (let i = 0; i < transactionRequests.length; i += BATCH_SIZE) {
+        batches.push(transactionRequests.slice(i, i + BATCH_SIZE));
       }
       
-      // Refresh data after successful operation
+      let totalProcessed = 0;
+      let hasErrors = false;
+      
+      // Process each batch sequentially
+      for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+        const batch = batches[batchIndex];
+        
+        try {
+          // Prepare batch request
+          const bulkRequest = {
+            transactions: batch.map(req => ({
+              imported_transaction_id: req.transaction.id,
+              selected_category_id: req.selectedCategoryId,
+              corresponding_category_id: correspondingCategoryId, // Account category ID
+              payee_id: req.selectedPayeeId
+            }))
+          };
+          
+          const response = await api.post('/api/transactions/move-to-added', bulkRequest);
+          const data = await response.json();
+          
+          if (!response.ok) {
+            throw new Error(data.error || `Failed to process batch ${batchIndex + 1}`);
+          }
+          
+          totalProcessed += batch.length;
+          
+          // Show progress for large batches
+          if (batches.length > 1) {
+            console.log(`Processed batch ${batchIndex + 1}/${batches.length} (${totalProcessed}/${transactionRequests.length} transactions)`);
+          }
+          
+        } catch (batchError) {
+          console.error(`Error processing batch ${batchIndex + 1}:`, batchError);
+          hasErrors = true;
+          
+          // Continue with remaining batches but track that there were errors
+          const errorMsg = batchError instanceof Error ? batchError.message : 'Unknown error';
+          showErrorToast(`Error processing batch ${batchIndex + 1}: ${errorMsg}`);
+        }
+      }
+      
+      // Refresh data after processing all batches
       await get().refreshAll(companyId);
       
-      showSuccessToast(`Successfully added ${transactionRequests.length} transactions!`);
+      if (hasErrors) {
+        showErrorToast(`Completed with errors. ${totalProcessed} out of ${transactionRequests.length} transactions processed.`);
+        return false;
+      } else {
+        showSuccessToast(`Successfully added ${totalProcessed} transactions!`);
+        return true;
+      }
       
-      return true;
     } catch (error) {
       console.error('Error adding transactions:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to add transactions';
       set({ error: errorMessage });
+      showErrorToast(errorMessage);
       return false;
     } finally {
       set({ isAddingTransactions: false });
