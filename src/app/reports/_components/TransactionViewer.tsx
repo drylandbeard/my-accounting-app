@@ -3,7 +3,7 @@
 import React from "react";
 import { Download } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Account, Transaction, ViewerModalState } from "../_types";
+import { Category, Transaction, ViewerModalState } from "../_types";
 import { formatDateForDisplay, formatNumber, getTransactionDisplayAmount, formatMonth } from "../_utils";
 import ExcelJS from "exceljs";
 
@@ -14,8 +14,8 @@ interface TransactionViewerProps {
   startDate: string;
   endDate: string;
   companyName?: string;
-  getCategoryName: (tx: Transaction, category: Account) => string;
-  onTransactionClick?: (transaction: Transaction) => void;
+  getCategoryName: (tx: Transaction, category: Category) => string;
+  onTransactionClick?: (tx: Transaction) => void;
 }
 
 export const TransactionViewer: React.FC<TransactionViewerProps> = ({

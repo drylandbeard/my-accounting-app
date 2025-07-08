@@ -42,7 +42,7 @@ export default function PnLPage() {
   
   // Store hooks for modal functionality
   const { accounts: bankAccounts } = useTransactionsStore();
-  const { categories } = useCategoriesStore();
+  const { categories: storeCategories } = useCategoriesStore();
   const { payees } = usePayeesStore();
   
   // Modal states
@@ -1161,7 +1161,7 @@ export default function PnLPage() {
       {editJournalModal.isOpen && (
         <TransactionModal
           modalState={editJournalModal}
-          categories={categories}
+          categories={storeCategories}
           payees={payees}
           accounts={bankAccounts}
           selectedAccountId={editJournalModal.selectedAccountId || null}
@@ -1202,7 +1202,7 @@ export default function PnLPage() {
           removeEditJournalLine={() => {}}
           calculateEditTotals={() => ({ totalDebits: 0, totalCredits: 0 })}
           handleSaveEditEntry={async () => {}}
-          categoryOptions={categories.map(c => ({ value: c.id, label: c.name }))}
+          categoryOptions={storeCategories.map(c => ({ value: c.id, label: c.name }))}
           payees={payees}
           setNewCategoryModal={() => {}}
         />
