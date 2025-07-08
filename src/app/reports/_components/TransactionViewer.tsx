@@ -15,6 +15,7 @@ interface TransactionViewerProps {
   endDate: string;
   companyName?: string;
   getCategoryName: (tx: Transaction, category: Category) => string;
+  onTransactionClick?: (tx: Transaction) => void;
 }
 
 export const TransactionViewer: React.FC<TransactionViewerProps> = ({

@@ -42,7 +42,7 @@ export default function BalanceSheetPage() {
   
   // Store hooks for modal functionality
   const { accounts: bankAccounts } = useTransactionsStore();
-  const { categories, addCategory } = useCategoriesStore();
+  const { categories: storeCategories, addCategory } = useCategoriesStore();
   const { payees } = usePayeesStore();
   
   // Modal states
@@ -1272,7 +1272,7 @@ export default function BalanceSheetPage() {
       {editJournalModal.isOpen && (
         <TransactionModal
           modalState={editJournalModal}
-          categories={categories}
+          categories={storeCategories}
           payees={payees}
           accounts={bankAccounts}
           selectedAccountId={editJournalModal.selectedAccountId || null}
@@ -1313,7 +1313,7 @@ export default function BalanceSheetPage() {
           removeEditJournalLine={() => {}}
           calculateEditTotals={() => ({ totalDebits: 0, totalCredits: 0 })}
           handleSaveEditEntry={async () => {}}
-          categoryOptions={categories.map(c => ({ value: c.id, label: c.name }))}
+          categoryOptions={storeCategories.map(c => ({ value: c.id, label: c.name }))}
           payees={payees}
           setNewCategoryModal={setNewCategoryModal}
         />
