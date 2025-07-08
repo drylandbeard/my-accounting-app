@@ -95,11 +95,8 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
 
 
   
-  const [pendingToolQueue, setPendingToolQueue] = useState<any[]>([]);
-  const [pendingToolArgs, setPendingToolArgs] = useState<any | null>(null);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [accounts, setAccounts] = useState<any[]>([]);
-  const [recentProactiveMessages, setRecentProactiveMessages] = useState<Set<string>>(new Set());
 
   // Load saved panel width from localStorage
   useEffect(() => {
@@ -145,37 +142,6 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
 
 
 
-  // Helper function to add proactive message without duplicates
-  const addProactiveMessage = (messageKey: string, content: string, delay: number = 2000) => {
-    if (recentProactiveMessages.has(messageKey)) return;
-
-    setRecentProactiveMessages((prev) => new Set(prev).add(messageKey));
-
-    setTimeout(() => {
-      setMessages((prev) => {
-        // Double-check the message hasn't been added already
-        const lastMessage = prev[prev.length - 1];
-        if (lastMessage?.role === "assistant" && lastMessage.content.includes(content.substring(0, 50))) {
-          return prev;
-        }
-        return [...prev, { role: "assistant", content }];
-      });
-    }, delay);
-
-    // Clear the message key after 5 minutes to allow future similar messages
-    setTimeout(() => {
-      setRecentProactiveMessages((prev) => {
-        const newSet = new Set(prev);
-        newSet.delete(messageKey);
-        return newSet;
-      });
-    }, 5 * 60 * 1000);
-  };
-
-  // Update activity time on user interaction
-  const updateActivityTime = () => {
-    // Activity tracking logic would go here
-  };
 
   // Function to refresh/clear chat context
   const handleRefreshContext = () => {
@@ -186,8 +152,6 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
       },
     ]);
     localStorage.removeItem("aiChatMessages");
-    setPendingToolQueue([]);
-    setPendingToolArgs(null);
   };
 
   const handleResizeStart = (e: React.MouseEvent) => {
@@ -526,54 +490,103 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
         case "create_payee": {
           // Validate required parameters
           if (!action.name || typeof action.name !== 'string') {
-            return "Error: Payee name is required and must be a string.";
+            return "I need a payee name to create a new payee. What would you like to name it?";
           }
           
-          // Check for duplicate payee names
-          const existingPayee = payees.find(p => p.name.toLowerCase() === action.name.toLowerCase());
+          const trimmedName = action.name.trim();
+          if (!trimmedName) {
+            return "The payee name cannot be empty. Please provide a valid name.";
+          }
+          
+          // Check for duplicate payee names with intelligent suggestions
+          const existingPayee = payees.find(p => p.name.toLowerCase() === trimmedName.toLowerCase());
           if (existingPayee) {
-            return `A payee named "${action.name}" already exists. Please choose a different name.`;
+            return `A payee named "${trimmedName}" already exists. Would you like to:\n• Use the existing payee "${existingPayee.name}"\n• Choose a different name (e.g., "${trimmedName} Inc" or "${trimmedName} LLC")`;
           }
 
-          const result = await addPayee({ name: action.name.trim() });
+          // Check for similar names (fuzzy matching)
+          const similarPayees = payees.filter(p => 
+            p.name.toLowerCase().includes(trimmedName.toLowerCase()) || 
+            trimmedName.toLowerCase().includes(p.name.toLowerCase())
+          );
+          
+          if (similarPayees.length > 0) {
+            const suggestions = similarPayees.map(p => p.name).join('", "');
+            return `I found similar payees: "${suggestions}". Did you mean one of these, or would you like to create "${trimmedName}" as a new payee?`;
+          }
+
+          const result = await addPayee({ name: trimmedName });
           
           if (!result) {
-            return `Sorry, I couldn't add that payee. ${payeesError || 'Please try again.'}`;
+            const errorMsg = payeesError || 'Unknown error occurred';
+            if (errorMsg.toLowerCase().includes('duplicate') || errorMsg.toLowerCase().includes('already exists')) {
+              return `It looks like "${trimmedName}" already exists. Current payees: ${payees.map(p => p.name).join(', ')}`;
+            }
+            return `I couldn't create the payee "${trimmedName}". ${errorMsg}. Would you like to try a different name?`;
           }
           
           if (!skipRefresh) await refreshPayeesFromStore();
-          return getFriendlySuccessMessage("create_payee", { name: action.name });
+          return getFriendlySuccessMessage("create_payee", { name: trimmedName });
         }
 
         case "update_payee": {
           // Validate required parameters
           if (!action.name || typeof action.name !== 'string') {
-            return "Error: New payee name is required and must be a string.";
+            return "I need a new name for the payee. What would you like to rename it to?";
+          }
+          
+          const trimmedNewName = action.name.trim();
+          if (!trimmedNewName) {
+            return "The new payee name cannot be empty. Please provide a valid name.";
           }
           
           // Resolve payee ID from name if needed
           let payeeId = action.payeeId || action.id;
+          let currentPayeeName = action.payeeName;
+          
           if (!payeeId && action.payeeName) {
             const payee = payees.find(p => p.name.toLowerCase() === action.payeeName.toLowerCase());
             if (payee) {
               payeeId = payee.id;
+              currentPayeeName = payee.name;
             } else {
-              return `Error: Payee "${action.payeeName}" not found. Available payees: ${payees.map(p => p.name).join(', ')}`;
+              // Try fuzzy matching for the payee name
+              const similarPayees = payees.filter(p => 
+                p.name.toLowerCase().includes(action.payeeName.toLowerCase()) || 
+                action.payeeName.toLowerCase().includes(p.name.toLowerCase())
+              );
+              
+              if (similarPayees.length > 0) {
+                const suggestions = similarPayees.map(p => p.name).join('", "');
+                return `I couldn't find "${action.payeeName}" exactly. Did you mean: "${suggestions}"?`;
+              }
+              
+              return `I couldn't find the payee "${action.payeeName}". Available payees: ${payees.map(p => p.name).join(', ')}`;
             }
           }
 
           if (!payeeId) {
-            return "Error: Payee ID or name is required for update operation.";
+            return "I need to know which payee to update. Please specify the current payee name.";
           }
 
-          const result = await updatePayee(payeeId, { name: action.name.trim() });
+          // Check if new name already exists (excluding current payee)
+          const nameConflict = payees.find(p => p.id !== payeeId && p.name.toLowerCase() === trimmedNewName.toLowerCase());
+          if (nameConflict) {
+            return `A payee named "${trimmedNewName}" already exists. Please choose a different name for "${currentPayeeName}".`;
+          }
+
+          const result = await updatePayee(payeeId, { name: trimmedNewName });
           
           if (!result) {
-            return `Sorry, I couldn't update that payee. ${payeesError || 'Please try again.'}`;
+            const errorMsg = payeesError || 'Unknown error occurred';
+            if (errorMsg.toLowerCase().includes('not found')) {
+              return `The payee "${currentPayeeName}" wasn't found. Current payees: ${payees.map(p => p.name).join(', ')}`;
+            }
+            return `I couldn't update "${currentPayeeName}" to "${trimmedNewName}". ${errorMsg}. Please try again.`;
           }
           
           if (!skipRefresh) await refreshPayeesFromStore();
-          return getFriendlySuccessMessage("update_payee", { name: action.name });
+          return getFriendlySuccessMessage("update_payee", { name: trimmedNewName });
         }
 
         case "delete_payee": {
@@ -587,18 +600,36 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
               payeeId = payee.id;
               payeeName = payee.name; // Use actual name from DB
             } else {
-              return `Error: Payee "${payeeName}" not found. Available payees: ${payees.map(p => p.name).join(', ')}`;
+              // Try fuzzy matching for the payee name
+              const similarPayees = payees.filter(p => 
+                p.name.toLowerCase().includes(payeeName.toLowerCase()) || 
+                payeeName.toLowerCase().includes(p.name.toLowerCase())
+              );
+              
+              if (similarPayees.length > 0) {
+                const suggestions = similarPayees.map(p => p.name).join('", "');
+                return `I couldn't find "${payeeName}" exactly. Did you mean: "${suggestions}"?`;
+              }
+              
+              return `I couldn't find the payee "${payeeName}". Available payees: ${payees.map(p => p.name).join(', ')}`;
             }
           }
 
           if (!payeeId) {
-            return "Error: Payee ID or name is required for delete operation.";
+            return "I need to know which payee to delete. Please specify the payee name.";
           }
 
           const result = await deletePayee(payeeId);
           
           if (!result) {
-            return `Sorry, I couldn't delete that payee. ${payeesError || 'Please try again.'}`;
+            const errorMsg = payeesError || 'Unknown error occurred';
+            if (errorMsg.toLowerCase().includes('in use') || errorMsg.toLowerCase().includes('transactions')) {
+              return `I can't delete "${payeeName}" because it's being used in transactions. You may want to update those transactions first, or keep the payee for historical records.`;
+            }
+            if (errorMsg.toLowerCase().includes('not found')) {
+              return `The payee "${payeeName}" wasn't found. Current payees: ${payees.map(p => p.name).join(', ')}`;
+            }
+            return `I couldn't delete "${payeeName}". ${errorMsg}. The payee might be in use by transactions.`;
           }
           
           if (!skipRefresh) await refreshPayeesFromStore();
@@ -684,9 +715,6 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
 
   const handleSendMessage = async () => {
     if (!inputMessage.trim()) return;
-
-    // Update activity time on user interaction
-    updateActivityTime();
 
     const userMessage = inputMessage.trim();
     const newMessage: Message = {
@@ -803,7 +831,6 @@ IMPORTANT: Use the appropriate tools for any data modification operations. For m
           });
 
           // Set up for execution
-          setPendingToolQueue(toolCalls);
           setMessages((prev) => [
             ...prev.slice(0, -1), // remove 'Thinking...'
             {
@@ -971,7 +998,6 @@ IMPORTANT: Use the appropriate tools for any data modification operations. For m
         }
         
         // Set confirmation message
-        setPendingToolQueue(toolCalls);
         setMessages((prev) => [
           ...prev.slice(0, -1), // remove 'Thinking...'
           {
@@ -1010,235 +1036,7 @@ IMPORTANT: Use the appropriate tools for any data modification operations. For m
     }
   };
 
-  const handleConfirmTool = async () => {
-    if (!pendingToolArgs || pendingToolQueue.length === 0) return;
-    let result: any;
-    if (pendingToolArgs.type === "create_category") {
-      try {
-        const categoryData = {
-          name: pendingToolArgs.args.name,
-          type: pendingToolArgs.args.type,
-          parent_id: pendingToolArgs.args.parent_id || null,
-        };
 
-        result = await addCategory(categoryData);
-        if (result) {
-          setMessages((prev) => [
-            ...prev,
-            {
-              role: "assistant",
-              content: `Category "${pendingToolArgs.args.name}" (${pendingToolArgs.args.type}) has been created! Would you like to create another category or assign this one to a parent category?`,
-            },
-          ]);
-        } else {
-          const errorMessage = storeError || 'Failed to create category';
-          setMessages((prev) => [...prev, { role: "assistant", content: `Error creating category: ${errorMessage}` }]);
-        }
-      } catch (error) {
-        setMessages((prev) => [...prev, { role: "assistant", content: `Error creating category: ${error instanceof Error ? error.message : 'Unknown error'}` }]);
-      }
-    } else if (pendingToolArgs.type === "update_category") {
-      try {
-        const updates: any = {};
-        if (pendingToolArgs.args.name) updates.name = pendingToolArgs.args.name;
-        if (pendingToolArgs.args.type) updates.type = pendingToolArgs.args.type;
-        if (pendingToolArgs.args.parent_id !== undefined) updates.parent_id = pendingToolArgs.args.parent_id;
-
-        result = await updateCategory(pendingToolArgs.args.categoryId, updates);
-        if (result) {
-          setMessages((prev) => [
-            ...prev,
-            {
-              role: "assistant",
-              content: `Category "${pendingToolArgs.args.categoryId}" has been updated. Is there anything else you'd like to change about this category?`,
-            },
-          ]);
-        } else {
-          const errorMessage = storeError || 'Failed to update category';
-          setMessages((prev) => [...prev, { role: "assistant", content: `Error updating category: ${errorMessage}` }]);
-        }
-      } catch (error) {
-        setMessages((prev) => [...prev, { role: "assistant", content: `Error updating category: ${error instanceof Error ? error.message : 'Unknown error'}` }]);
-              }
-    } else if (pendingToolArgs.type === "delete_category") {
-      try {
-        // The store now handles both ID and name, so we can pass either directly
-        let categoryIdOrName = pendingToolArgs.args.categoryId || pendingToolArgs.args.categoryName;
-        
-        // Handle different possible field names for category name
-        if (!categoryIdOrName) {
-          categoryIdOrName = pendingToolArgs.args.name || pendingToolArgs.args.category || pendingToolArgs.args.category_name;
-        }
-        
-        console.log('Delete category debug:', { 
-          action: pendingToolArgs, 
-          categoryIdOrName, 
-          availableCategories: categories.map((c: any) => ({ id: c.id, name: c.name }))
-        }); // Debug log
-        
-        if (!categoryIdOrName) {
-          setMessages((prev) => [...prev, { role: "assistant", content: 'Category ID or name is required for deletion' }]);
-          return;
-        }
-        
-        console.log('Deleting category:', { categoryIdOrName, pendingToolArgs }); // Debug log
-        
-        const result = await deleteCategory(categoryIdOrName);
-        
-        if (result) {
-          setMessages((prev) => [
-            ...prev,
-            {
-              role: "assistant",
-              content: `Category "${categoryIdOrName}" has been deleted. Would you like to make any other changes to your categories?`,
-            },
-          ]);
-        } else {
-          const errorMessage = storeError || 'Failed to delete category';
-          setMessages((prev) => [...prev, { role: "assistant", content: `Error deleting category: ${errorMessage}` }]);
-        }
-      } catch (error) {
-        setMessages((prev) => [...prev, { role: "assistant", content: `Error deleting category: ${error instanceof Error ? error.message : 'Unknown error'}` }]);
-      }
-    } else if (pendingToolArgs.type === "update_payee") {
-      result = await updatePayee(pendingToolArgs.args.payeeId, { name: pendingToolArgs.args.name });
-      if (result) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: `Payee "${pendingToolArgs.args.payeeId}" has been updated to "${pendingToolArgs.args.name}". Would you like to make any other changes to this payee?`,
-          },
-        ]);
-      } else {
-        const errorMessage = payeesError || 'Failed to update payee';
-        setMessages((prev) => [...prev, { role: "assistant", content: `Error updating payee: ${errorMessage}` }]);
-      }
-    } else if (pendingToolArgs.type === "delete_payee") {
-      result = await deletePayee(pendingToolArgs.args.payeeId);
-      if (result) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: `Payee "${pendingToolArgs.args.payeeId}" has been deleted. Would you like to make any other changes to your payees?`,
-          },
-        ]);
-      } else {
-        const errorMessage = payeesError || 'Failed to delete payee';
-        setMessages((prev) => [...prev, { role: "assistant", content: `Error deleting payee: ${errorMessage}` }]);
-      }
-    }
-    // Remove the first tool from the queue and set up the next one
-    const newQueue = pendingToolQueue.slice(1);
-    setPendingToolQueue(newQueue);
-    if (newQueue.length > 0) {
-      const nextTool = newQueue[0];
-      if (nextTool.function?.name === "create_category") {
-        setPendingToolArgs({ type: "create_category", args: JSON.parse(nextTool.function.arguments) });
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: `To confirm, I will create a new category named "${
-              JSON.parse(nextTool.function.arguments).name
-            }" with type "${JSON.parse(nextTool.function.arguments).type}". Please press confirm.`,
-          },
-        ]);
-      } else if (nextTool.function?.name === "update_category") {
-        setPendingToolArgs({ type: "update_category", args: JSON.parse(nextTool.function.arguments) });
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: `To confirm, I will update the category "${JSON.parse(nextTool.function.arguments).categoryId}". Please press confirm.`,
-          },
-        ]);
-      } else if (nextTool.function?.name === "move_category") {
-        setPendingToolArgs({ type: "move_category", args: JSON.parse(nextTool.function.arguments) });
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: `To confirm, I will move "${
-              JSON.parse(nextTool.function.arguments).categoryId || JSON.parse(nextTool.function.arguments).categoryName
-            }" under "${JSON.parse(nextTool.function.arguments).parentId || JSON.parse(nextTool.function.arguments).parentName || 'root level'}". Please press confirm.`,
-          },
-        ]);
-      } else if (nextTool.function?.name === "delete_category") {
-        setPendingToolArgs({ type: "delete_category", args: JSON.parse(nextTool.function.arguments) });
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: `To confirm, I will delete the category "${
-              JSON.parse(nextTool.function.arguments).categoryId
-            }". Please press confirm.`,
-          },
-        ]);
-      } else if (nextTool.function?.name === "change_category_type") {
-        setPendingToolArgs({ type: "change_category_type", args: JSON.parse(nextTool.function.arguments) });
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: `To confirm, I will change the type of category "${
-              JSON.parse(nextTool.function.arguments).categoryId
-            }" to "${JSON.parse(nextTool.function.arguments).newType}". Please press confirm.`,
-          },
-        ]);
-      } else if (nextTool.function?.name === "create_payee") {
-        setPendingToolArgs({ type: "create_payee", args: JSON.parse(nextTool.function.arguments) });
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: `To confirm, I will create a new payee named "${
-              JSON.parse(nextTool.function.arguments).name
-            }". Please press confirm.`,
-          },
-        ]);
-      } else if (nextTool.function?.name === "update_payee") {
-        setPendingToolArgs({ type: "update_payee", args: JSON.parse(nextTool.function.arguments) });
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: `To confirm, I will update the payee "${JSON.parse(nextTool.function.arguments).payeeId || JSON.parse(nextTool.function.arguments).payeeName}" to "${JSON.parse(nextTool.function.arguments).name}". Please press confirm.`,
-          },
-        ]);
-      } else if (nextTool.function?.name === "delete_payee") {
-        setPendingToolArgs({ type: "delete_payee", args: JSON.parse(nextTool.function.arguments) });
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "assistant",
-            content: `To confirm, I will delete the payee "${
-              JSON.parse(nextTool.function.arguments).payeeId || JSON.parse(nextTool.function.arguments).payeeName
-            }". Please press confirm.`,
-          },
-        ]);
-      }
-    } else {
-      setPendingToolArgs(null);
-    }
-  };
-
-  useEffect(() => {
-    function handleGlobalKeyDown(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-        if (pendingToolArgs) {
-          handleConfirmTool();
-        }
-      }
-    }
-    if (pendingToolArgs) {
-      window.addEventListener("keydown", handleGlobalKeyDown);
-    }
-    return () => {
-      window.removeEventListener("keydown", handleGlobalKeyDown);
-    };
-  }, [pendingToolArgs]);
 
   // Helper function to identify vague prompts
   const isVaguePrompt = (message: string): boolean => {
@@ -1435,21 +1233,6 @@ IMPORTANT: Use the appropriate tools for any data modification operations. For m
             ))}
             <div ref={messagesEndRef} />
           </div>
-          {/* Confirmation button for tool confirmation */}
-          {pendingToolArgs && (
-            <div className="flex flex-col items-center my-4">
-              <button
-                className="bg-gray-900 text-white px-3 py-2 rounded-md hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-400 transition-all duration-100 flex items-center gap-2 text-xs font-medium animate-pulse"
-                style={{ animationDuration: "2s" }}
-                onClick={handleConfirmTool}
-              >
-                Confirm
-                <span className="ml-2 inline-block bg-gray-100 text-gray-700 text-[10px] px-1.5 py-0.5 rounded font-mono border border-gray-300">
-                  ⌘↵
-                </span>
-              </button>
-            </div>
-          )}
         </div>
 
         <div className="border-t border-gray-200 px-4 py-6 sm:px-6 text-xs bg-gray-50">
