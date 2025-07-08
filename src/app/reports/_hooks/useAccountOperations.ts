@@ -20,6 +20,8 @@ interface UseAccountOperationsReturn {
   calculateAccountTotalForQuarter: (account: Account, quarter: string) => number;
   calculateAccountTotalForQuarterWithSubaccounts: (account: Account, quarter: string) => number;
   collapseAllParentCategories: () => void;
+  expandAllParentCategories: () => void;
+  getParentAccounts: () => Account[];
 }
 
 export const useAccountOperations = ({
@@ -67,6 +69,11 @@ export const useAccountOperations = ({
     setCollapsedAccounts(newCollapsed);
   };
 
+  // Expand all parent categories at once
+  const expandAllParentCategories = () => {
+    setCollapsedAccounts(new Set());
+  };
+
   // Calculate direct total for an account (only its own transactions)
   const calculateAccountDirectTotal = (account: Account): number => {
     if (account.type === "Revenue") {
@@ -89,13 +96,21 @@ export const useAccountOperations = ({
         .filter((tx) => tx.chart_account_id === account.id)
         .reduce((sum, tx) => sum + Number(tx.credit), 0);
       return totalDebits - totalCredits;
-    } else if (account.type === "Liability" || account.type === "Equity") {
+    } else if (account.type === "Liability" || account.type === "Equity" || account.type === "Credit Card") {
       const totalCredits = journalEntries
         .filter((tx) => tx.chart_account_id === account.id)
         .reduce((sum, tx) => sum + Number(tx.credit), 0);
       const totalDebits = journalEntries
         .filter((tx) => tx.chart_account_id === account.id)
         .reduce((sum, tx) => sum + Number(tx.debit), 0);
+      return totalCredits - totalDebits;
+    } else if (account.type === "Bank Account") {
+      const totalDebits = journalEntries
+        .filter((tx) => tx.chart_account_id === account.id)
+        .reduce((sum, tx) => sum + Number(tx.debit), 0);
+      const totalCredits = journalEntries
+        .filter((tx) => tx.chart_account_id === account.id)
+        .reduce((sum, tx) => sum + Number(tx.credit), 0);
       return totalCredits - totalDebits;
     }
     return 0;
@@ -180,10 +195,14 @@ export const useAccountOperations = ({
       const totalDebits = quarterTransactions.reduce((sum, tx) => sum + Number(tx.debit), 0);
       const totalCredits = quarterTransactions.reduce((sum, tx) => sum + Number(tx.credit), 0);
       return totalDebits - totalCredits;
-    } else if (account.type === "Liability" || account.type === "Equity") {
+    } else if (account.type === "Liability" || account.type === "Equity" || account.type === "Credit Card") {
       const totalCredits = quarterTransactions.reduce((sum, tx) => sum + Number(tx.credit), 0);
       const totalDebits = quarterTransactions.reduce((sum, tx) => sum + Number(tx.debit), 0);
       return totalCredits - totalDebits;
+    } else if (account.type === "Bank Account") {
+      const totalDebits = quarterTransactions.reduce((sum, tx) => sum + Number(tx.debit), 0);
+      const totalCredits = quarterTransactions.reduce((sum, tx) => sum + Number(tx.credit), 0);
+      return totalDebits - totalCredits;
     }
     return 0;
   };
@@ -209,5 +228,7 @@ export const useAccountOperations = ({
     calculateAccountTotalForQuarter,
     calculateAccountTotalForQuarterWithSubaccounts,
     collapseAllParentCategories,
+    expandAllParentCategories,
+    getParentAccounts,
   };
 };

@@ -45,3 +45,6 @@ supabase/.temp
 
 # cursor
 .cursor
+
+# claude
+CLAUDE.md

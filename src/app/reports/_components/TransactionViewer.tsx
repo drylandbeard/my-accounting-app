@@ -1,11 +1,10 @@
 "use client";
 
 import React from "react";
-import { Button } from "@/components/ui/button";
 import { Download } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Account, Transaction, ViewerModalState } from "../_types";
-import { formatDateForDisplay, formatNumber, getTransactionDisplayAmount } from "../_utils";
+import { formatDateForDisplay, formatNumber, getTransactionDisplayAmount, formatMonth } from "../_utils";
 import ExcelJS from "exceljs";
 
 interface TransactionViewerProps {
@@ -63,7 +62,7 @@ export const TransactionViewer: React.FC<TransactionViewerProps> = ({
 
     worksheet.mergeCells(`A${currentRow}:E${currentRow}`);
     worksheet.getCell(`A${currentRow}`).value = viewerModal.selectedMonth
-      ? `for ${viewerModal.selectedMonth}`
+      ? `for ${formatMonth(viewerModal.selectedMonth)}`
       : `${formatDateForDisplay(startDate)} to ${formatDateForDisplay(endDate)}`;
     worksheet.getCell(`A${currentRow}`).style = { font: { size: 10 }, alignment: { horizontal: "center" as const } };
     currentRow++; // Empty row
@@ -150,19 +149,26 @@ export const TransactionViewer: React.FC<TransactionViewerProps> = ({
     window.URL.revokeObjectURL(url);
   };
 
+  if (!viewerModal.isOpen) {
+    return null;
+  }
+
   return (
     <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50">
       <div className="bg-white rounded-lg w-[800px] max-h-[80vh] flex flex-col">
         <div className="p-4 border-b flex justify-between items-center">
           <h2 className="text-lg font-semibold">
             {viewerModal.category?.name} Transactions
-            {viewerModal.selectedMonth && ` for ${viewerModal.selectedMonth}`}
+            {viewerModal.selectedMonth && ` for ${formatMonth(viewerModal.selectedMonth)}`}
           </h2>
           <div className="flex items-center gap-4">
             {selectedCategoryTransactions.length > 0 && (
-              <Button variant="outline" onClick={exportModalTransactions} className="text-xs font-medium" size="sm">
+              <button
+                onClick={exportModalTransactions}
+                className="border px-3 py-1 rounded text-xs flex items-center space-x-1 bg-gray-100 hover:bg-gray-200"
+              >
                 <Download className="w-4 h-4" />
-              </Button>
+              </button>
             )}
             <button
               onClick={() => setViewerModal({ isOpen: false, category: null })}

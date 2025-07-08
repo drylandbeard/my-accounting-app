@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { X, Loader2 } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { api } from "@/lib/api";
+import { DatePicker } from "@/components/ui/date-picker";
 
 interface SavedReport {
   id: string;
@@ -227,21 +228,19 @@ export const EditReportModal: React.FC<EditReportModalProps> = ({ report, isOpen
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="startDate">{report.type === "balance-sheet" ? "Start Date" : "Start Date"}</Label>
-              <Input
+              <DatePicker
                 id="startDate"
-                type="date"
                 value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
+                onChange={(date) => setStartDate(date?.toISOString() || "")}
                 className="w-full"
               />
             </div>
             <div className="space-y-2">
               <Label htmlFor="endDate">{report.type === "balance-sheet" ? "As of Date" : "End Date"}</Label>
-              <Input
+              <DatePicker
                 id="endDate"
-                type="date"
                 value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
+                onChange={(date) => setEndDate(date?.toISOString() || "")}
                 className="w-full"
               />
             </div>

@@ -8,7 +8,7 @@ import { usePayeesStore } from "@/zustand/payeesStore";
 
 import Papa from "papaparse";
 import { v4 as uuidv4 } from "uuid";
-import { FileDown, X, Download, Merge, Plus } from "lucide-react";
+import { X, Download, Plus } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import {
   Pagination,
@@ -19,9 +19,8 @@ import {
   PaginationPrevious,
   PaginationEllipsis,
 } from "@/components/ui/pagination";
-import { Button } from "@/components/ui/button";
 
-const ACCOUNT_TYPES = ["Asset", "Liability", "Equity", "Revenue", "COGS", "Expense"];
+const ACCOUNT_TYPES = ["Asset", "Liability", "Equity", "Revenue", "COGS", "Expense", "Bank Account", "Credit Card"];
 
 type Category = {
   id: string;
@@ -1698,22 +1697,23 @@ export default function ChartOfAccountsPage() {
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-semibold">Payees</h2>
             <div className="flex gap-2">
-              <Button
-                variant="outline"
+              <button
                 onClick={() =>
                   setPayeeImportModal((prev) => ({
                     ...prev,
                     isOpen: true,
                   }))
                 }
-                className="text-xs font-medium"
-                title="Import"
+                className="border px-3 py-1 rounded text-xs flex items-center space-x-1 bg-gray-100 hover:bg-gray-200"
               >
-                <FileDown className="w-4 h-4" />
-              </Button>
-              <Button variant="outline" onClick={exportPayees} className="text-xs font-medium" title="Export">
+                Import
+              </button>
+              <button
+                onClick={exportPayees}
+                className="border px-3 py-1 rounded text-xs flex items-center space-x-1 bg-gray-100 hover:bg-gray-200"
+              >
                 <Download className="w-4 h-4" />
-              </Button>
+              </button>
             </div>
           </div>
 
@@ -1731,9 +1731,12 @@ export default function ChartOfAccountsPage() {
                 className="border border-gray-300 px-2 py-1 text-xs flex-1"
                 required
               />
-              <Button variant="outline" type="submit" className="text-xs font-medium py-1 px-2 h-7" title="Add">
+              <button
+                type="submit"
+                className="border px-3 py-1 rounded text-xs flex items-center space-x-1 bg-gray-100 hover:bg-gray-200"
+              >
                 <Plus className="h-4 w-4" />
-              </Button>
+              </button>
             </form>
             {(payeeError || payeesError) && (
               <div className="mt-2 p-2 bg-red-50 border border-red-200 text-red-700 text-xs rounded">
@@ -1852,35 +1855,34 @@ export default function ChartOfAccountsPage() {
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-semibold">Categories</h2>
             <div className="flex gap-2">
-              <Button
-                variant="outline"
+              <button
                 onClick={() =>
                   setMergeModal((prev) => ({
                     ...prev,
                     isOpen: true,
                   }))
                 }
-                className="text-xs font-medium"
-                title="Merge"
+                className="border px-3 py-1 rounded text-xs flex items-center space-x-1 bg-gray-100 hover:bg-gray-200"
               >
-                <Merge className="w-4 h-4" />
-              </Button>
-              <Button
-                variant="outline"
+                Merge
+              </button>
+              <button
                 onClick={() =>
                   setCategoryImportModal((prev) => ({
                     ...prev,
                     isOpen: true,
                   }))
                 }
-                className="text-xs font-medium"
-                title="Import"
+                className="border px-3 py-1 rounded text-xs flex items-center space-x-1 bg-gray-100 hover:bg-gray-200"
               >
-                <FileDown className="w-4 h-4" />
-              </Button>
-              <Button variant="outline" onClick={exportCategories} className="text-xs font-medium" title="Export">
+                Import
+              </button>
+              <button
+                onClick={exportCategories}
+                className="border px-3 py-1 rounded text-xs flex items-center space-x-1 bg-gray-100 hover:bg-gray-200"
+              >
                 <Download className="w-4 h-4" />
-              </Button>
+              </button>
             </div>
           </div>
 
@@ -1925,9 +1927,12 @@ export default function ChartOfAccountsPage() {
                     </option>
                   ))}
               </select>
-              <Button variant="outline" type="submit" className="text-xs font-medium py-1 px-2 h-7" title="Add">
+              <button
+                type="submit"
+                className="border px-3 py-1 rounded text-xs flex items-center space-x-1 bg-gray-100 hover:bg-gray-200"
+              >
                 <Plus className="h-4 w-4" />
-              </Button>
+              </button>
             </form>
             {(categoryError || categoriesError) && (
               <div className="mt-2 p-2 bg-red-50 border border-red-200 text-red-700 text-xs rounded">

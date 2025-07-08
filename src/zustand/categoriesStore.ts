@@ -40,7 +40,7 @@ export interface SelectOption {
 }
 
 // Constants
-const ACCOUNT_TYPES = ["Asset", "Liability", "Equity", "Revenue", "COGS", "Expense"];
+const ACCOUNT_TYPES = ["Asset", "Liability", "Equity", "Revenue", "COGS", "Expense", "Bank Account", "Credit Card"];
 
 // Helper function to sort categories the same way as the API
 const sortCategories = (categories: Category[]): Category[] => {

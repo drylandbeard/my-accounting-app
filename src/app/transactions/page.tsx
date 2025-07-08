@@ -2930,6 +2930,8 @@ export default function TransactionsPage() {
                   <option value="COGS">COGS</option>
                   <option value="Liability">Liability</option>
                   <option value="Equity">Equity</option>
+                  <option value="Bank Account">Bank Account</option>
+                  <option value="Credit Card">Credit Card</option>
                 </select>
               </div>
 
@@ -3070,9 +3072,14 @@ export default function TransactionsPage() {
                   }
                   className="w-full border px-2 py-1 rounded"
                 >
+                  <option value="Expense">Expense</option>
+                  <option value="Revenue">Revenue</option>
                   <option value="Asset">Asset</option>
+                  <option value="COGS">COGS</option>
                   <option value="Liability">Liability</option>
                   <option value="Equity">Equity</option>
+                  <option value="Bank Account">Bank Account</option>
+                  <option value="Credit Card">Credit Card</option>
                 </select>
               </div>
 
