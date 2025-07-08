@@ -4,7 +4,7 @@ import { supabase } from "@/lib/supabase";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { memberId: string } }
+  { params }: { params: Promise<{ memberId: string }> }
 ) {
   try {
     // Get user ID from JWT token
@@ -31,7 +31,7 @@ export async function GET(
       );
     }
 
-    const { memberId } = params;
+    const { memberId } = await params;
 
     // Validate input
     if (!memberId) {
