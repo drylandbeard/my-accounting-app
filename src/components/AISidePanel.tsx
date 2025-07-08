@@ -8,12 +8,9 @@ and the complex interaction between multiple imported type definitions from diff
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { X, RefreshCcw, ArrowUpCircle } from "lucide-react";
-import { useCategoriesStore } from "@/zustand/categoriesStore";
 import { usePayeesStore } from "@/zustand/payeesStore";
 import { useAuthStore } from "@/zustand/authStore";
 import { supabase } from "@/lib/supabase";
-import { tools } from "@/ai/tools";
-import { categoryPrompt } from "@/ai/prompts";
 
 const MIN_PANEL_WIDTH = 320;
 const MAX_PANEL_WIDTH = 600;
@@ -59,23 +56,6 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
   const resizeRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   
-  // Use the same Zustand store as the categories page for consistency
-  const { 
-    categories, 
-    refreshCategories: refreshCategoriesFromStore, 
-    addCategory,
-    updateCategory,
-    updateCategoryWithMergeCheck,
-    deleteCategory,
-    deleteCategoryWithValidation,
-    mergeCategories,
-    moveCategory,
-    findCategoryByName,
-    findCategoriesByName,
-    checkBankAccountLinkage,
-    error: storeError
-  } = useCategoriesStore();
-  
   // Use the payees store for payee operations
   const { 
     payees, 
@@ -88,10 +68,6 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
   
   const { currentCompany } = useAuthStore();
   
-  // Create a wrapper for refreshCategories
-  const refreshCategories = useCallback(async () => {
-    await refreshCategoriesFromStore();
-  }, [refreshCategoriesFromStore]);
 
 
   
@@ -189,22 +165,6 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
   // Add this helper function near the top of the file (after imports)
   function getFriendlySuccessMessage(action: string, details: any): string {
     switch (action) {
-      case "create_category":
-        return `All set! '${details.name}' has been added as an ${details.type}.`;
-      case "update_category":
-        return `Done! '${details.name}' has been updated.`;
-      case "delete_category":
-        return `'${details.name}' has been removed from your categories.`;
-      case "move_category":
-        return `'${details.categoryName}' has been moved to ${details.parentName}.`;
-      case "change_category_type":
-        return `Category type changed to ${details.newType}.`;
-      case "merge_categories":
-        return `Successfully merged ${details.sourceCount} categories into '${details.targetName}'.`;
-      case "find_categories":
-        return details.results || "Categories found.";
-      case "check_category_usage":
-        return details.message || "Category usage checked.";
       case "create_payee":
         return `Payee '${details.name}' has been added.`;
       case "update_payee":
@@ -227,265 +187,14 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
         return "Error: No company selected. Please select a company first.";
       }
 
-      const categoriesToUse = customCategories || categories;
-      
       switch (action.action) {
-        case "create_category": {
-          // Validate required parameters
-          if (!action.name || typeof action.name !== 'string') {
-            return "Error: Category name is required and must be a string.";
-          }
-          if (!action.type || typeof action.type !== 'string') {
-            return "Error: Category type is required and must be a string.";
-          }
-          
-          // Handle parent lookup by name if provided
-          let parentId = action.parent_id;
-          if (action.parentName && !parentId) {
-            const parentCategory = findCategoryByName(action.parentName);
-            if (parentCategory) {
-              parentId = parentCategory.id;
-            } else {
-              return `Error: Parent category "${action.parentName}" not found. Available categories: ${categories.map(c => c.name).join(', ')}`;
-            }
-          }
 
-          const result = await addCategory({
-            name: action.name.trim(), // Ensure we trim here to prevent store errors
-            type: action.type,
-            parent_id: parentId || null
-          });
-          
-          if (!result) {
-            return `Sorry, I couldn't add that category. ${storeError || 'Please try again.'}`;
-          }
-          if (!skipRefresh) await refreshCategories();
-          return getFriendlySuccessMessage("create_category", { name: action.name, type: action.type });
-        }
 
-        case "update_category": {
-          // Resolve category ID from name if needed
-          let categoryId = action.categoryId || action.id;
-          if (!categoryId && action.categoryName) {
-            const category = findCategoryByName(action.categoryName);
-            if (category) {
-              categoryId = category.id;
-            } else {
-              return `Error: Category "${action.categoryName}" not found. Available categories: ${categories.map(c => c.name).join(', ')}`;
-            }
-          }
 
-          if (!categoryId) {
-            return "Error: Category ID or name is required for update operation.";
-          }
 
-          // Handle parent lookup by name if provided
-          let parentId = action.parent_id;
-          if (action.parentName !== undefined) {
-            if (action.parentName === null || action.parentName === "") {
-              parentId = null; // Move to root
-            } else {
-              const parentCategory = findCategoryByName(action.parentName);
-              if (parentCategory) {
-                parentId = parentCategory.id;
-              } else {
-                return `Error: Parent category "${action.parentName}" not found. Available categories: ${categories.map(c => c.name).join(', ')}`;
-              }
-            }
-          }
 
-          const updates: any = {};
-          if (action.name !== undefined) updates.name = action.name;
-          if (action.type !== undefined) updates.type = action.type;
-          if (parentId !== undefined) updates.parent_id = parentId;
 
-          // Use robust update with merge check
-          const result = await updateCategoryWithMergeCheck(categoryId, updates, { companyId: currentCompany.id });
-          
-          if (!result.success) {
-            if (result.needsMerge && result.existingCategory) {
-              return `A category named "${action.name}" already exists. Would you like to merge "${action.categoryName || categoryId}" into "${result.existingCategory.name}"?`;
-            }
-            return `Sorry, I couldn't update that category. ${result.error || 'Please try again.'}`;
-          }
-          
-          if (!skipRefresh) await refreshCategories();
-          return getFriendlySuccessMessage("update_category", { name: action.name || action.categoryName });
-        }
 
-        case "delete_category": {
-          // Resolve category ID from name if needed
-          let categoryId = action.categoryId || action.id;
-          let categoryName = action.categoryName || action.name;
-          
-          if (!categoryId && categoryName) {
-            const category = findCategoryByName(categoryName);
-            if (category) {
-              categoryId = category.id;
-              categoryName = category.name; // Use the actual name from DB
-            } else {
-              return `Error: Category "${categoryName}" not found. Available categories: ${categories.map(c => c.name).join(', ')}`;
-            }
-          }
-
-          if (!categoryId) {
-            return "Error: Category ID or name is required for delete operation.";
-          }
-
-          // Use robust delete with validation
-          const result = await deleteCategoryWithValidation(categoryId, currentCompany.id);
-          
-          if (!result.success) {
-            return `Sorry, I couldn't delete that category. ${result.error || 'Please try again.'}`;
-          }
-          
-          if (!skipRefresh) await refreshCategories();
-          return getFriendlySuccessMessage("delete_category", { name: categoryName });
-        }
-
-        case "move_category": {
-          // Resolve category ID/name
-          const categoryIdOrName = action.categoryId || action.categoryName;
-          if (!categoryIdOrName) {
-            return "Error: Category ID or name is required for move operation.";
-          }
-
-          // Resolve parent ID/name (null means move to root)
-          let parentIdOrName = action.parentId || action.parentName;
-          if (parentIdOrName === "root" || parentIdOrName === "") {
-            parentIdOrName = null;
-          }
-
-          const result = await moveCategory(categoryIdOrName, parentIdOrName);
-          
-          if (!result) {
-            return `Sorry, I couldn't move that category. ${storeError || 'Please try again.'}`;
-          }
-          
-          if (!skipRefresh) await refreshCategories();
-          return getFriendlySuccessMessage("move_category", { 
-            categoryName: categoryIdOrName, 
-            parentName: parentIdOrName || "root level" 
-          });
-        }
-
-        case "change_category_type": {
-          // Resolve category ID from name if needed
-          let categoryId = action.categoryId || action.id;
-          if (!categoryId && action.categoryName) {
-            const category = findCategoryByName(action.categoryName);
-            if (category) {
-              categoryId = category.id;
-            } else {
-              return `Error: Category "${action.categoryName}" not found. Available categories: ${categories.map(c => c.name).join(', ')}`;
-            }
-          }
-
-          if (!categoryId) {
-            return "Error: Category ID or name is required for type change operation.";
-          }
-
-          const result = await updateCategory(categoryId, { type: action.newType });
-          
-          if (!result) {
-            return `Sorry, I couldn't change the category type. ${storeError || 'Please try again.'}`;
-          }
-          
-          if (!skipRefresh) await refreshCategories();
-          return getFriendlySuccessMessage("change_category_type", { newType: action.newType });
-        }
-
-        case "merge_categories": {
-          // Resolve source category IDs from names if needed
-          let sourceCategoryIds = action.sourceCategoryIds || [];
-          if (action.sourceCategoryNames && action.sourceCategoryNames.length > 0) {
-            sourceCategoryIds = [];
-            for (const name of action.sourceCategoryNames) {
-              const category = findCategoryByName(name);
-              if (category) {
-                sourceCategoryIds.push(category.id);
-              } else {
-                return `Error: Source category "${name}" not found. Available categories: ${categories.map(c => c.name).join(', ')}`;
-              }
-            }
-          }
-
-          // Resolve target category ID from name if needed
-          let targetCategoryId = action.targetCategoryId;
-          if (!targetCategoryId && action.targetCategoryName) {
-            const targetCategory = findCategoryByName(action.targetCategoryName);
-            if (targetCategory) {
-              targetCategoryId = targetCategory.id;
-            } else {
-              return `Error: Target category "${action.targetCategoryName}" not found. Available categories: ${categories.map(c => c.name).join(', ')}`;
-            }
-          }
-
-          if (!targetCategoryId || sourceCategoryIds.length === 0) {
-            return "Error: Both source and target categories are required for merge operation.";
-          }
-
-          const result = await mergeCategories(sourceCategoryIds, targetCategoryId, currentCompany.id);
-          
-          if (!result) {
-            return `Sorry, I couldn't merge those categories. ${storeError || 'Please try again.'}`;
-          }
-          
-          if (!skipRefresh) await refreshCategories();
-          return getFriendlySuccessMessage("merge_categories", { 
-            sourceCount: sourceCategoryIds.length,
-            targetName: action.targetCategoryName || targetCategoryId 
-          });
-        }
-
-        case "find_categories": {
-          const exactMatch = action.exactMatch || false;
-          const caseSensitive = action.caseSensitive || false;
-          
-          let foundCategories;
-          if (exactMatch) {
-            const category = findCategoryByName(action.namePattern, caseSensitive);
-            foundCategories = category ? [category] : [];
-          } else {
-            foundCategories = findCategoriesByName(action.namePattern, caseSensitive);
-          }
-
-          if (foundCategories.length === 0) {
-            return `No categories found matching "${action.namePattern}". Available categories: ${categories.map(c => c.name).join(', ')}`;
-          }
-
-          const categoryList = foundCategories.map(c => `- ${c.name} (${c.type})`).join('\n');
-          return `Found ${foundCategories.length} categories matching "${action.namePattern}":\n${categoryList}`;
-        }
-
-        case "check_category_usage": {
-          // Resolve category ID from name if needed
-          let categoryId = action.categoryId;
-          if (!categoryId && action.categoryName) {
-            const category = findCategoryByName(action.categoryName);
-            if (category) {
-              categoryId = category.id;
-            } else {
-              return `Error: Category "${action.categoryName}" not found. Available categories: ${categories.map(c => c.name).join(', ')}`;
-            }
-          }
-
-          if (!categoryId) {
-            return "Error: Category ID or name is required for usage check.";
-          }
-
-          const linkageResult = await checkBankAccountLinkage(categoryId);
-          
-          if (linkageResult.error) {
-            return `Error checking category usage: ${linkageResult.error}`;
-          }
-
-          if (linkageResult.isLinked) {
-            return `Category is linked to bank account "${linkageResult.name}". Deleting or modifying this category may affect account synchronization.`;
-          } else {
-            return `Category is not linked to any bank accounts and appears safe to modify or delete.`;
-          }
-        }
 
         case "create_payee": {
           // Validate required parameters
@@ -659,7 +368,7 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
 
           // Refresh stores after batch completion
           if (!skipRefresh) {
-            await Promise.all([refreshCategories(), refreshPayeesFromStore()]);
+            await refreshPayeesFromStore();
           }
 
           if (hasError) {
@@ -670,7 +379,7 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
         }
 
         default: {
-          return `Error: Unknown action "${action.action}". Available actions: create_category, update_category, delete_category, move_category, change_category_type, merge_categories, find_categories, check_category_usage, create_payee, update_payee, delete_payee, batch_execute`;
+          return `Error: Unknown action "${action.action}". Available actions: create_payee, update_payee, delete_payee, batch_execute`;
         }
       }
     } catch (error) {
@@ -735,21 +444,57 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
     const contextMessages: { role: string; content: string }[] = [
       {
         role: "system",
-        content: `Current categories in the system:
-${categories.map((c) => `- ${c.name} (${c.type})${c.parent_id ? ` - child of ${categories.find(p => p.id === c.parent_id)?.name || 'unknown parent'}` : ''}`).join('\n')}
-
-Current payees in the system:
+        content: `Current payees in the system:
 ${payees.map((p) => `- ${p.name}`).join('\n')}
 
-Available category names: ${categories.map((c) => c.name).join(", ")}
 Available payee names: ${payees.map((p) => p.name).join(", ")}
 
-IMPORTANT: Use the appropriate tools for any data modification operations. For multiple related operations, use batch_execute to group them together efficiently.`
+IMPORTANT: Use the appropriate tools for payee operations. For multiple related operations, use batch_execute to group them together efficiently.`
       },
     ];
 
+    const payeePrompt = `
+You are an AI assistant that helps users manage payees for bookkeeping.
+
+IMPORTANT VALIDATION RULES:
+1. Payee names must be unique within a company
+2. Always validate that referenced payees actually exist before acting
+3. Use fuzzy matching to find payees when exact names don't match
+
+AVAILABLE TOOLS:
+- create_payee: Create new payees with duplicate detection
+- update_payee: Update payee names with validation
+- delete_payee: Delete payees with usage validation
+- batch_execute: Execute multiple payee operations with proper dependency ordering
+
+PAYEE OPERATION GUIDELINES:
+1. For CREATE_PAYEE: Check for exact matches and suggest similar existing payees if found
+2. For UPDATE_PAYEE: Use fuzzy matching to find the intended payee when exact names don't match
+3. For DELETE_PAYEE: Check if the payee is used in transactions and warn appropriately
+4. When payee operations fail, provide helpful suggestions like alternative names or existing payees
+5. For unclear payee names, suggest the closest matches from the existing payee list
+
+ERROR HANDLING:
+1. NEVER hallucinate payee names - always validate they exist first
+2. When names don't exist, provide helpful suggestions with similar existing names
+3. For vague requests, ask for specific names with context about available options
+4. Always confirm destructive actions (deletes) and explain consequences
+5. Use batch_execute for multiple related operations
+6. Provide intelligent error messages that guide users toward successful actions
+7. When duplicate names are detected, suggest variations or alternatives
+
+RESPONSE STYLE:
+- Be conversational and helpful, not robotic
+- Explain what you're doing and why
+- Offer alternatives when operations can't be completed
+- Use fuzzy matching to understand user intent when exact names don't match
+- Prioritize user success over strict rule enforcement
+
+Respond concisely and only take action when confident about the existence of referenced items.
+`;
+
     const openAIMessages = [
-      { role: "system", content: categoryPrompt },
+      { role: "system", content: payeePrompt },
       ...contextMessages,
       ...[...messages, newMessage].map((m) => ({ role: m.role, content: m.content })),
     ];
@@ -768,7 +513,85 @@ IMPORTANT: Use the appropriate tools for any data modification operations. For m
           messages: openAIMessages,
           max_tokens: 512,
           temperature: 0.2,
-          tools,
+          tools: [
+            {
+              type: 'function',
+              function: {
+                name: 'create_payee',
+                description: 'Create a new payee with intelligent duplicate detection and suggestions. Handles similar name detection and provides helpful alternatives when duplicates exist.',
+                parameters: {
+                  type: 'object',
+                  properties: {
+                    name: { type: 'string', description: 'The name of the new payee. Will check for duplicates and suggest alternatives if similar names exist.' }
+                  },
+                  required: ['name'],
+                },
+              },
+            },
+            {
+              type: 'function',
+              function: {
+                name: 'update_payee',
+                description: 'Update an existing payee name with fuzzy matching for payee identification. Provides helpful suggestions when exact payee names are not found.',
+                parameters: {
+                  type: 'object',
+                  properties: {
+                    payeeId: { type: 'string', description: 'The ID of the payee to update' },
+                    payeeName: { type: 'string', description: 'The current name of the payee to update (supports fuzzy matching if exact name not found)' },
+                    name: { type: 'string', description: 'The new name for the payee. Will validate uniqueness and suggest alternatives if conflicts exist.' }
+                  },
+                  required: ['name'],
+                },
+              },
+            },
+            {
+              type: 'function',
+              function: {
+                name: 'delete_payee',
+                description: 'Delete an existing payee with usage validation and fuzzy matching. Warns if payee is used in transactions and suggests alternatives when exact names are not found.',
+                parameters: {
+                  type: 'object',
+                  properties: {
+                    payeeId: { type: 'string', description: 'The ID of the payee to delete' },
+                    payeeName: { type: 'string', description: 'The name of the payee to delete (supports fuzzy matching if exact name not found)' }
+                  },
+                  required: []
+                },
+              },
+            },
+            {
+              type: 'function',
+              function: {
+                name: 'batch_execute',
+                description: 'Execute multiple payee operations in a single batch with proper dependency ordering and rollback on failure.',
+                parameters: {
+                  type: 'object',
+                  properties: {
+                    operations: { 
+                      type: 'array',
+                      description: 'List of payee operations to execute in sequence',
+                      items: {
+                        type: 'object',
+                        properties: {
+                          action: { 
+                            type: 'string',
+                            description: 'The type of payee operation to perform',
+                            enum: ['create_payee', 'update_payee', 'delete_payee']
+                          },
+                          params: {
+                            type: 'object',
+                            description: 'Parameters for the payee operation'
+                          }
+                        },
+                        required: ['action', 'params']
+                      }
+                    }
+                  },
+                  required: ['operations'],
+                },
+              },
+            }
+          ],
         }),
       });
 
@@ -789,34 +612,14 @@ IMPORTANT: Use the appropriate tools for any data modification operations. For m
           const functionName = toolCall.function?.name;
           const args = JSON.parse(toolCall.function?.arguments || "{}");
 
-          if (functionName === "create_category") {
-              confirmationMessage += `${index + 1}. Create category "${args.name}" with type "${args.type}"${
-                args.parentName ? ` under ${args.parentName}` : ''
-              }\n`;
-            } else if (functionName === "update_category") {
-              confirmationMessage += `${index + 1}. Update category "${args.categoryName || args.categoryId}"${
-                args.name ? ` to name "${args.name}"` : ''
-              }${
-                args.type ? ` and type "${args.type}"` : ''
-              }\n`;
-          } else if (functionName === "delete_category") {
-              confirmationMessage += `${index + 1}. Delete category "${args.categoryName || args.categoryId}"\n`;
-            } else if (functionName === "move_category") {
-              confirmationMessage += `${index + 1}. Move category "${
-                args.categoryName || args.categoryId
-              }" under "${args.parentName || args.parentId || 'root level'}"\n`;
-          } else if (functionName === "change_category_type") {
-              confirmationMessage += `${index + 1}. Change category "${
-                args.categoryName || args.categoryId
-              }" type to "${args.newType}"\n`;
-            } else if (functionName === "create_payee") {
-              confirmationMessage += `${index + 1}. Create payee "${args.name}"\n`;
-            } else if (functionName === "update_payee") {
-              confirmationMessage += `${index + 1}. Update payee "${args.payeeName || args.payeeId}" to "${args.name}"\n`;
-            } else if (functionName === "delete_payee") {
-              confirmationMessage += `${index + 1}. Delete payee "${args.payeeName || args.payeeId}"\n`;
-            }
-          });
+          if (functionName === "create_payee") {
+            confirmationMessage += `${index + 1}. Create payee "${args.name}"\n`;
+          } else if (functionName === "update_payee") {
+            confirmationMessage += `${index + 1}. Update payee "${args.payeeName || args.payeeId}" to "${args.name}"\n`;
+          } else if (functionName === "delete_payee") {
+            confirmationMessage += `${index + 1}. Delete payee "${args.payeeName || args.payeeId}"\n`;
+          }
+        });
 
           confirmationMessage += "\nPress Confirm to execute all actions, or Cancel to abort.";
 
@@ -852,53 +655,6 @@ IMPORTANT: Use the appropriate tools for any data modification operations. For m
         let pendingAction: any = null;
 
         switch(functionName) {
-          case 'create_category':
-            confirmationMessage = `I'll create a new category named "${args.name}" with type "${args.type}"${
-              args.parentName ? ` under ${args.parentName}` : ''
-            }. Would you like to proceed?`;
-            pendingAction = { action: 'create_category', ...args };
-            break;
-          case 'update_category':
-            confirmationMessage = `I'll update the category "${args.categoryName || args.categoryId}"${
-              args.name ? ` to name "${args.name}"` : ''
-            }${
-              args.type ? ` with type "${args.type}"` : ''
-            }. Would you like to proceed?`;
-            pendingAction = { action: 'update_category', ...args };
-            break;
-          case 'delete_category':
-            confirmationMessage = `I'll delete the category "${args.categoryName || args.categoryId}". Would you like to proceed?`;
-            pendingAction = { action: 'delete_category', ...args };
-            break;
-          case 'move_category':
-            confirmationMessage = `I'll move category "${
-              args.categoryName || args.categoryId
-            }" under "${
-              args.parentName || args.parentId || 'root level'
-            }". Would you like to proceed?`;
-            pendingAction = { action: 'move_category', ...args };
-            break;
-          case 'change_category_type':
-            confirmationMessage = `I'll change category "${
-              args.categoryName || args.categoryId
-            }" type to "${args.newType}". Would you like to proceed?`;
-            pendingAction = { action: 'change_category_type', ...args };
-            break;
-          case 'merge_categories':
-            const sourceNames = args.sourceCategoryNames || args.sourceCategoryIds || [];
-            const targetName = args.targetCategoryName || args.targetCategoryId;
-            confirmationMessage = `I'll merge ${sourceNames.length} categories into "${targetName}". This action cannot be undone. Would you like to proceed?`;
-            pendingAction = { action: 'merge_categories', ...args };
-            break;
-          case 'find_categories':
-            confirmationMessage = `I'll search for categories matching "${args.namePattern}". Would you like to proceed?`;
-            pendingAction = { action: 'find_categories', ...args };
-            break;
-          case 'check_category_usage':
-            const categoryToCheck = args.categoryName || args.categoryId;
-            confirmationMessage = `I'll check the usage and linkage status of category "${categoryToCheck}". Would you like to proceed?`;
-            pendingAction = { action: 'check_category_usage', ...args };
-            break;
           case 'create_payee':
             confirmationMessage = `I'll create a new payee named "${args.name}". Would you like to proceed?`;
             pendingAction = { action: 'create_payee', ...args };
@@ -914,32 +670,12 @@ IMPORTANT: Use the appropriate tools for any data modification operations. For m
           case 'batch_execute':
             // Handle batch execute by showing all operations
             let batchMessage = "I'll perform the following operations:\n\n";
-            let hasAutoCreation = false;
             
             args.operations.forEach((op: any, index: number) => {
               // Safely access parameters with fallbacks
               const params = op.params || op;
               
               switch(op.action) {
-                case 'create_category':
-                  const categoryName = params.name || 'Unknown Category';
-                  const categoryType = params.type || 'Unknown Type';
-                  const isAutoCreation = !categories.find(c => c.name.toLowerCase() === categoryName.toLowerCase());
-                  if (isAutoCreation) {
-                    hasAutoCreation = true;
-                    batchMessage += `${index + 1}. Auto-create category "${categoryName}" (${categoryType}) - category doesn't exist yet\n`;
-                  } else {
-                    batchMessage += `${index + 1}. Create category "${categoryName}" (${categoryType})\n`;
-                  }
-                  break;
-                case 'update_category':
-                  const updateCategoryName = params.categoryName || params.categoryId || 'Unknown Category';
-                  batchMessage += `${index + 1}. Update category "${updateCategoryName}"\n`;
-                  break;
-                case 'delete_category':
-                  const deleteCategoryName = params.categoryName || params.categoryId || 'Unknown Category';
-                  batchMessage += `${index + 1}. Delete category "${deleteCategoryName}"\n`;
-                  break;
                 case 'create_payee':
                   const payeeName = params.name || 'Unknown Payee';
                   batchMessage += `${index + 1}. Create payee "${payeeName}"\n`;
@@ -953,37 +689,11 @@ IMPORTANT: Use the appropriate tools for any data modification operations. For m
                   const deletePayeeName = params.payeeName || params.payeeId || 'Unknown Payee';
                   batchMessage += `${index + 1}. Delete payee "${deletePayeeName}"\n`;
                   break;
-                case 'move_category':
-                  const moveCategoryName = params.categoryName || params.categoryId || 'Unknown Category';
-                  const moveParentName = params.parentName || params.parentId || 'root level';
-                  batchMessage += `${index + 1}. Move "${moveCategoryName}" under "${moveParentName}"\n`;
-                  break;
-                case 'change_category_type':
-                  const changeCategoryName = params.categoryName || params.categoryId || 'Unknown Category';
-                  const newType = params.newType || 'Unknown Type';
-                  batchMessage += `${index + 1}. Change "${changeCategoryName}" type to "${newType}"\n`;
-                  break;
-                case 'merge_categories':
-                  const mergeSourceNames = params.sourceCategoryNames || params.sourceCategoryIds || [];
-                  const mergeTargetName = params.targetCategoryName || params.targetCategoryId || 'Unknown Target';
-                  batchMessage += `${index + 1}. Merge ${mergeSourceNames.length} categories into "${mergeTargetName}"\n`;
-                  break;
-                case 'find_categories':
-                  const searchPattern = params.namePattern || 'Unknown Pattern';
-                  batchMessage += `${index + 1}. Search for categories matching "${searchPattern}"\n`;
-                  break;
-                case 'check_category_usage':
-                  const checkCategoryName = params.categoryName || params.categoryId || 'Unknown Category';
-                  batchMessage += `${index + 1}. Check usage of category "${checkCategoryName}"\n`;
-                  break;
                 default:
                   batchMessage += `${index + 1}. ${op.action} operation\n`;
               }
             });
             
-            if (hasAutoCreation) {
-              batchMessage += "\nI detected that some categories don't exist yet, so I'll create them first before performing the main operations.";
-            }
             
             batchMessage += "\nWould you like to proceed with all these operations?";
             
@@ -1041,16 +751,12 @@ IMPORTANT: Use the appropriate tools for any data modification operations. For m
   // Helper function to identify vague prompts
   const isVaguePrompt = (message: string): boolean => {
     const vaguePatterns = [
-      /^add\s+category$/i, // "Add category"
-      /^new\s+category$/i, // "New category"
-      /^create\s+category$/i, // "Create category"
       /^add\s+payee$/i, // "Add payee"
       /^new\s+payee$/i, // "New payee"
       /^create\s+payee$/i, // "Create payee"
       /^delete\s+(\w+)$/i, // "Delete Test", etc.
-      /^update\s+(\w+)$/i, // "Update category", etc.
-      /^change\s+(\w+)$/i, // "Change type", etc.
-      /^move\s+(\w+)$/i, // "Move category", etc.
+      /^update\s+(\w+)$/i, // "Update payee", etc.
+      /^rename\s+(\w+)$/i, // "Rename payee", etc.
     ];
     
     return vaguePatterns.some(pattern => pattern.test(message.trim()));
@@ -1119,27 +825,18 @@ IMPORTANT: Use the appropriate tools for any data modification operations. For m
   const handleVaguePrompt = (userMessage: string) => {
     let clarificationMessage = "I'd be happy to help with that, but I need a bit more information:";
     
-    if (/add|create|new/i.test(userMessage) && /category|account/i.test(userMessage)) {
-      clarificationMessage = "I'd be happy to create a new category for you. Could you please provide:\n\n" +
-        "1. The complete name for the category\n" +
-        "2. What type it should be (Asset, Liability, Equity, Revenue, COGS, Expense)\n" +
-        "3. Should it be a subcategory under another category? If so, which one?";
-    } else if (/add|create|new/i.test(userMessage) && /payee/i.test(userMessage)) {
+    if (/add|create|new/i.test(userMessage) && /payee/i.test(userMessage)) {
       clarificationMessage = "I'd be happy to create a new payee for you. Could you please provide:\n\n" +
         "1. The complete name for the payee\n" +
         "2. Any additional details about the payee if relevant";
     } else if (/delete|remove/i.test(userMessage)) {
-      clarificationMessage = "I'd be happy to delete that for you, but I need to know exactly what you want to delete:\n\n" +
-        "1. The complete name of the category or payee you want to delete\n" +
+      clarificationMessage = "I'd be happy to delete that payee for you, but I need to know:\n\n" +
+        "1. The complete name of the payee you want to delete\n" +
         "2. Are you sure you want to permanently remove it?";
-    } else if (/update|change|modify/i.test(userMessage)) {
+    } else if (/update|change|modify|rename/i.test(userMessage)) {
       clarificationMessage = "I'd be happy to make that change, but I need more specifics:\n\n" +
-        "1. The exact name of the category or payee you want to change\n" +
-        "2. What specific changes would you like to make?";
-    } else if (/move/i.test(userMessage)) {
-      clarificationMessage = "I'd be happy to help move a category. Could you please specify:\n\n" +
-        "1. Which category you want to move\n" +
-        "2. Where you want to move it (under which parent category, or to the root level)";
+        "1. The exact name of the payee you want to change\n" +
+        "2. What would you like to rename it to?";
     }
     
     setMessages((prev) => [...prev, {
