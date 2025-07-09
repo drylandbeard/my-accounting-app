@@ -816,15 +816,19 @@ export default function SettingsPage() {
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      {isOwner && member.id !== user.id && (
+                      {member.id !== user.id && (
                         <>
-                          <button className="text-blue-600 hover:text-blue-900 mr-3">Edit</button>
-                          <button
-                            onClick={() => handleDeleteMember(member.id)}
-                            className="text-red-600 hover:text-red-900"
-                          >
-                            Remove
-                          </button>
+                          {(isOwner || member.role !== "Owner") && (
+                            <>
+                              <button className="text-blue-600 hover:text-blue-900 mr-3">Edit</button>
+                              <button
+                                onClick={() => handleDeleteMember(member.id)}
+                                className="text-red-600 hover:text-red-900"
+                              >
+                                Remove
+                              </button>
+                            </>
+                          )}
                         </>
                       )}
                     </td>
