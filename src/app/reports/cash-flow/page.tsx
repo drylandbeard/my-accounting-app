@@ -1073,6 +1073,7 @@ export default function CashFlowPage() {
                               category: { id: "REVENUE_GROUP", name: "Revenue", type: "Revenue" },
                             })
                           }
+                          style={{ paddingLeft: "28px" }}
                         >
                           Revenue
                         </TableCell>
@@ -1095,6 +1096,7 @@ export default function CashFlowPage() {
                               category: { id: "COGS_GROUP", name: "Cost of Goods Sold", type: "COGS" },
                             })
                           }
+                          style={{ paddingLeft: "28px" }}
                         >
                           Cost of Goods Sold
                         </TableCell>
@@ -1118,6 +1120,7 @@ export default function CashFlowPage() {
                               category: { id: "EXPENSE_GROUP", name: "Expenses", type: "Expense" },
                             })
                           }
+                          style={{ paddingLeft: "28px" }}
                         >
                           Expenses
                         </TableCell>
@@ -1221,7 +1224,7 @@ export default function CashFlowPage() {
 
                       {/* Increase in Assets */}
                       <TableRow>
-                        <TableCell isLineItem>Increase in Assets</TableCell>
+                        <TableCell isLineItem style={{ paddingLeft: "28px" }}>Increase in Assets</TableCell>
                         {renderPeriodCells(
                           (periodStart, periodEnd) =>
                             -calculateInvestingActivitiesForPeriod(periodStart, periodEnd).increaseInAssets,
@@ -1233,7 +1236,7 @@ export default function CashFlowPage() {
 
                       {/* Decrease in Assets */}
                       <TableRow>
-                        <TableCell isLineItem>Decrease in Assets</TableCell>
+                        <TableCell isLineItem style={{ paddingLeft: "28px" }}>Decrease in Assets</TableCell>
                         {renderPeriodCells(
                           (periodStart, periodEnd) =>
                             calculateInvestingActivitiesForPeriod(periodStart, periodEnd).decreaseInAssets,
@@ -1281,7 +1284,7 @@ export default function CashFlowPage() {
 
                       {/* Increase in Credit Cards */}
                       <TableRow>
-                        <TableCell isLineItem>Increase in Credit Cards</TableCell>
+                        <TableCell isLineItem style={{ paddingLeft: "28px" }}>Increase in Credit Cards</TableCell>
                         {renderPeriodCells(
                           (periodStart, periodEnd) =>
                             calculateFinancingActivitiesForPeriod(periodStart, periodEnd).increaseInCreditCards,
@@ -1293,7 +1296,7 @@ export default function CashFlowPage() {
 
                       {/* Decrease in Credit Cards */}
                       <TableRow>
-                        <TableCell isLineItem>Decrease in Credit Cards</TableCell>
+                        <TableCell isLineItem style={{ paddingLeft: "28px" }}>Decrease in Credit Cards</TableCell>
                         {renderPeriodCells(
                           (periodStart, periodEnd) =>
                             -calculateFinancingActivitiesForPeriod(periodStart, periodEnd).decreaseInCreditCards,
@@ -1305,7 +1308,7 @@ export default function CashFlowPage() {
 
                       {/* Increase in Liabilities */}
                       <TableRow>
-                        <TableCell isLineItem>Increase in Liabilities</TableCell>
+                        <TableCell isLineItem style={{ paddingLeft: "28px" }}>Increase in Liabilities</TableCell>
                         {renderPeriodCells(
                           (periodStart, periodEnd) =>
                             calculateFinancingActivitiesForPeriod(periodStart, periodEnd).increaseInLiabilities,
@@ -1317,7 +1320,7 @@ export default function CashFlowPage() {
 
                       {/* Decrease in Liabilities */}
                       <TableRow>
-                        <TableCell isLineItem>Decrease in Liabilities</TableCell>
+                        <TableCell isLineItem style={{ paddingLeft: "28px" }}>Decrease in Liabilities</TableCell>
                         {renderPeriodCells(
                           (periodStart, periodEnd) =>
                             -calculateFinancingActivitiesForPeriod(periodStart, periodEnd).decreaseInLiabilities,
@@ -1329,7 +1332,7 @@ export default function CashFlowPage() {
 
                       {/* Owner Investment */}
                       <TableRow>
-                        <TableCell isLineItem>Owner Investment</TableCell>
+                        <TableCell isLineItem style={{ paddingLeft: "28px" }}>Owner Investment</TableCell>
                         {renderPeriodCells(
                           (periodStart, periodEnd) =>
                             calculateFinancingActivitiesForPeriod(periodStart, periodEnd).ownerInvestment,
@@ -1341,7 +1344,7 @@ export default function CashFlowPage() {
 
                       {/* Owner Withdrawal */}
                       <TableRow>
-                        <TableCell isLineItem>Owner Withdrawal</TableCell>
+                        <TableCell isLineItem style={{ paddingLeft: "28px" }}>Owner Withdrawal</TableCell>
                         {renderPeriodCells(
                           (periodStart, periodEnd) =>
                             -calculateFinancingActivitiesForPeriod(periodStart, periodEnd).ownerWithdrawal,
