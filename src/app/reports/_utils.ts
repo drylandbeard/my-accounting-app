@@ -1,36 +1,57 @@
-import { Account, Transaction, DateRange, DateRangeType, Category } from "./_types";
+import { Transaction, DateRange, DateRangeType, Category } from "./_types";
+import { startOfMonth, endOfMonth, startOfQuarter, endOfQuarter, startOfYear, endOfYear, subMonths, subQuarters, subYears, format, startOfDay, endOfDay, parseISO, isValid } from "date-fns";
 
 // Date formatting helpers
 export const formatDate = (date: Date): string => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return format(date, "yyyy-MM-dd");
 };
 
 export const formatDateForDisplay = (dateString: string): string => {
-  const [year, month, day] = dateString.split("-").map(Number);
-  const date = new Date(year, month - 1, day); // month is 0-indexed
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  if (!dateString) return "";
+  
+  // Handle different date string formats
+  let date: Date;
+  
+  if (dateString.includes("T")) {
+    // ISO string with time
+    date = parseISO(dateString);
+  } else if (dateString.match(/^\d{4}-\d{2}-\d{2}$/)) {
+    // YYYY-MM-DD format
+    date = parseISO(dateString);
+  } else {
+    // Fallback to manual parsing for YYYY-MM-DD format
+    const [year, month, day] = dateString.split("-").map(Number);
+    if (year && month && day) {
+      date = new Date(year, month - 1, day);
+    } else {
+      return dateString; // Return original if parsing fails
+    }
+  }
+  
+  // Check if date is valid
+  if (!isValid(date)) {
+    return dateString; // Return original if invalid
+  }
+  
+  return format(date, "MMM d, yyyy");
 };
 
 // Date range helpers
 export const getMonthRange = (date: Date): DateRange => {
-  const start = new Date(date.getFullYear(), date.getMonth(), 1);
-  const end = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+  const start = startOfMonth(date);
+  const end = endOfMonth(date);
   return { start, end };
 };
 
 export const getQuarterRange = (date: Date): DateRange => {
-  const quarter = Math.floor(date.getMonth() / 3);
-  const start = new Date(date.getFullYear(), quarter * 3, 1);
-  const end = new Date(date.getFullYear(), (quarter + 1) * 3, 0);
+  const start = startOfQuarter(date);
+  const end = endOfQuarter(date);
   return { start, end };
 };
 
 export const getYearRange = (date: Date): DateRange => {
-  const start = new Date(date.getFullYear(), 0, 1);
-  const end = new Date(date.getFullYear(), 11, 31);
+  const start = startOfYear(date);
+  const end = endOfYear(date);
   return { start, end };
 };
 
@@ -40,16 +61,15 @@ export const getPreviousPeriodRange = (start: Date, end: Date): DateRange => {
   const previousEnd = new Date(start.getTime() - 1); // One day before current period starts
 
   // Ensure dates are set to start and end of day in local timezone
-  previousStart.setHours(0, 0, 0, 0);
-  previousEnd.setHours(23, 59, 59, 999);
+  const startOfPreviousStart = startOfDay(previousStart);
+  const endOfPreviousEnd = endOfDay(previousEnd);
 
-  return { start: previousStart, end: previousEnd };
+  return { start: startOfPreviousStart, end: endOfPreviousEnd };
 };
 
 export const getDateRangeFromType = (range: DateRangeType): DateRange => {
   // Create a date object for the current date in local timezone
-  const today = new Date();
-  today.setHours(0, 0, 0, 0); // Reset time to start of day
+  const today = startOfDay(new Date());
 
   let start: Date;
   let end: Date;
@@ -68,21 +88,21 @@ export const getDateRangeFromType = (range: DateRangeType): DateRange => {
       break;
     }
     case "previousMonth": {
-      const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+      const lastMonth = subMonths(today, 1);
       const range = getMonthRange(lastMonth);
       start = range.start;
       end = range.end;
       break;
     }
     case "previousQuarter": {
-      const lastQuarter = new Date(today.getFullYear(), today.getMonth() - 3, 1);
+      const lastQuarter = subQuarters(today, 1);
       const range = getQuarterRange(lastQuarter);
       start = range.start;
       end = range.end;
       break;
     }
     case "previousYear": {
-      const lastYear = new Date(today.getFullYear() - 1, 0, 1);
+      const lastYear = subYears(today, 1);
       const range = getYearRange(lastYear);
       start = range.start;
       end = range.end;
@@ -95,21 +115,21 @@ export const getDateRangeFromType = (range: DateRangeType): DateRange => {
       break;
     }
     case "yearToLastMonth": {
-      start = new Date(today.getFullYear(), 0, 1); // January 1st of current year
-      const lastMonth = new Date(today.getFullYear(), today.getMonth(), 0); // Last day of previous month
-      end = lastMonth;
+      start = startOfYear(today);
+      const lastMonth = subMonths(today, 1);
+      end = endOfMonth(lastMonth);
       break;
     }
     case "ytd": {
-      start = new Date(today.getFullYear(), 0, 1); // January 1st of current year
-      end = today; // Today
+      start = startOfYear(today);
+      end = today;
       break;
     }
   }
 
   // Ensure dates are set to start and end of day in local timezone
-  start.setHours(0, 0, 0, 0);
-  end.setHours(23, 59, 59, 999);
+  start = startOfDay(start);
+  end = endOfDay(end);
 
   return { start, end };
 };
@@ -156,20 +176,17 @@ export const hasTransactions = (account: Category, journalEntries: Transaction[]
 export const getQuartersInRange = (startDate: string, endDate: string): string[] => {
   const quarters: string[] = [];
 
-  // Parse dates as local dates to avoid timezone issues
-  const [startYear, startMonth, startDay] = startDate.split("-").map(Number);
-  const [endYear, endMonth, endDay] = endDate.split("-").map(Number);
-
-  const start = new Date(startYear, startMonth - 1, startDay); // Month is 0-indexed
-  const end = new Date(endYear, endMonth - 1, endDay);
+  // Parse dates using date-fns to avoid timezone issues
+  const start = parseISO(startDate);
+  const end = parseISO(endDate);
 
   // Start from the first quarter that contains the start date
   let currentYear = start.getFullYear();
   let currentQuarter = Math.floor(start.getMonth() / 3) + 1; // 1-indexed quarter
 
   while (true) {
-    const quarterStart = new Date(currentYear, (currentQuarter - 1) * 3, 1);
-    const quarterEnd = new Date(currentYear, currentQuarter * 3, 0); // Last day of quarter
+    const quarterStart = startOfQuarter(new Date(currentYear, (currentQuarter - 1) * 3, 1));
+    const quarterEnd = endOfQuarter(new Date(currentYear, (currentQuarter - 1) * 3, 1));
 
     // If the quarter start is after the end date, we're done
     if (quarterStart > end) break;
@@ -199,33 +216,26 @@ export const formatQuarter = (quarterStr: string): string => {
 export const getMonthsInRange = (startDate: string, endDate: string): string[] => {
   const months: string[] = [];
 
-  // Parse dates as local dates to avoid timezone issues
-  const [startYear, startMonth, startDay] = startDate.split("-").map(Number);
-  const [endYear, endMonth, endDay] = endDate.split("-").map(Number);
-
-  const start = new Date(startYear, startMonth - 1, startDay); // Month is 0-indexed
-  const end = new Date(endYear, endMonth - 1, endDay);
+  // Parse dates using date-fns to avoid timezone issues
+  const start = parseISO(startDate);
+  const end = parseISO(endDate);
 
   // Start from the first day of the start month
-  let current = new Date(start.getFullYear(), start.getMonth(), 1);
+  let current = startOfMonth(start);
 
   while (current <= end) {
-    const year = current.getFullYear();
-    const month = String(current.getMonth() + 1).padStart(2, "0"); // Convert back to 1-indexed
-    months.push(`${year}-${month}`); // Format: YYYY-MM
+    months.push(format(current, "yyyy-MM")); // Format: YYYY-MM
 
     // Move to next month
-    current = new Date(current.getFullYear(), current.getMonth() + 1, 1);
+    current = startOfMonth(new Date(current.getFullYear(), current.getMonth() + 1, 1));
   }
   return months;
 };
 
 export const formatMonth = (monthStr: string): string => {
   const [year, month] = monthStr.split("-");
-  return new Date(parseInt(year), parseInt(month) - 1).toLocaleDateString("en-US", {
-    month: "short",
-    year: "numeric",
-  });
+  const date = new Date(parseInt(year), parseInt(month) - 1, 1);
+  return format(date, "MMM yyyy");
 };
 
 // Transaction helpers

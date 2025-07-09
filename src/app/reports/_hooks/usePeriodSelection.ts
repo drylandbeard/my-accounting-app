@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { PeriodType, DateRangeType, PrimaryDisplayType, SecondaryDisplayType } from "../_types";
 import { formatDate, getDateRangeFromType } from "../_utils";
+import { startOfMonth, endOfMonth, subMonths, startOfDay } from "date-fns";
 
 interface UsePeriodSelectionReturn {
   selectedPeriod: PeriodType;
@@ -44,17 +45,17 @@ export const usePeriodSelection = (): UsePeriodSelectionReturn => {
         break;
       case "last4Months":
         // Last 4 months
-        const today = new Date();
-        const fourMonthsAgo = new Date(today.getFullYear(), today.getMonth() - 4, 1);
-        const endOfLastMonth = new Date(today.getFullYear(), today.getMonth(), 0);
+        const today = startOfDay(new Date());
+        const fourMonthsAgo = startOfMonth(subMonths(today, 4));
+        const endOfLastMonth = endOfMonth(subMonths(today, 1));
         setStartDate(formatDate(fourMonthsAgo));
         setEndDate(formatDate(endOfLastMonth));
         break;
       case "last12Months":
         // Last 12 months
-        const todayFor12 = new Date();
-        const twelveMonthsAgo = new Date(todayFor12.getFullYear(), todayFor12.getMonth() - 12, 1);
-        const endOfCurrentMonth = new Date(todayFor12.getFullYear(), todayFor12.getMonth() + 1, 0);
+        const todayFor12 = startOfDay(new Date());
+        const twelveMonthsAgo = startOfMonth(subMonths(todayFor12, 12));
+        const endOfCurrentMonth = endOfMonth(todayFor12);
         setStartDate(formatDate(twelveMonthsAgo));
         setEndDate(formatDate(endOfCurrentMonth));
         break;

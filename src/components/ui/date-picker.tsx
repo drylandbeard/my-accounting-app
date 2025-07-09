@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { format, parse } from "date-fns";
+import { format, parse, parseISO, isValid } from "date-fns";
 import { Calendar as CalendarIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -31,7 +31,7 @@ function isValidDate(date: Date | undefined) {
   if (!date) {
     return false;
   }
-  return !isNaN(date.getTime());
+  return isValid(date);
 }
 
 export function DatePicker({
@@ -50,7 +50,10 @@ export function DatePicker({
     if (!value) return undefined;
     if (value instanceof Date) return value;
     try {
-      const parsedDate = new Date(value);
+      // Use parseISO for YYYY-MM-DD format to avoid timezone issues
+      const parsedDate = typeof value === 'string' && value.match(/^\d{4}-\d{2}-\d{2}$/) 
+        ? parseISO(value)
+        : new Date(value);
       return isValidDate(parsedDate) ? parsedDate : undefined;
     } catch {
       return undefined;
@@ -69,7 +72,11 @@ export function DatePicker({
       return;
     }
 
-    const newDate = value instanceof Date ? value : new Date(value);
+    const newDate = value instanceof Date 
+      ? value 
+      : (typeof value === 'string' && value.match(/^\d{4}-\d{2}-\d{2}$/) 
+          ? parseISO(value)
+          : new Date(value));
     if (isValidDate(newDate)) {
       setDate(newDate);
       setMonth(newDate);

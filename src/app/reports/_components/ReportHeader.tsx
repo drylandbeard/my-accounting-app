@@ -57,13 +57,17 @@ export function ReportHeader({
   isBalanceSheet,
   hideSecondaryDisplay,
 }: ReportHeaderProps) {
-  // Calculate today's date once
-  const today = React.useMemo(() => new Date().toISOString().split("T")[0], []);
+  // Calculate today's date once using date-fns
+  const today = React.useMemo(() => format(new Date(), "yyyy-MM-dd"), []);
 
   // Use either the handle* or on* prop versions
   const periodChangeHandler = onPeriodChange || handlePeriodChange;
   const primaryDisplayChangeHandler = onPrimaryDisplayChange || handlePrimaryDisplayChange;
   const secondaryDisplayChangeHandler = onSecondaryDisplayChange || handleSecondaryDisplayChange;
+
+  console.log("startDate", startDate);
+  console.log("endDate", endDate);
+  
 
   return (
     <div className="flex flex-col space-y-4 mb-6 max-w-7xl mx-auto">
