@@ -783,7 +783,16 @@ export default function CashFlowPage() {
               </React.Fragment>
             );
           })}
-          <TableCell isValue>{formatNumber(totalValue)}</TableCell>
+          <TableCell onClick={() =>
+              setViewerModal({
+                isOpen: true,
+                category: {
+                  id: categoryType?.toUpperCase() + "_GROUP",
+                  name: categoryName || "",
+                  type: categoryType || "",
+                },
+              })
+            } isValue>{formatNumber(totalValue)}</TableCell>
         </>
       );
     } else {
@@ -791,7 +800,16 @@ export default function CashFlowPage() {
 
       return (
         <>
-          <TableCell isValue>{formatNumber(value)}</TableCell>
+          <TableCell onClick={() =>
+              setViewerModal({
+                isOpen: true,
+                category: {
+                  id: categoryType?.toUpperCase() + "_GROUP",
+                  name: categoryName || "",
+                  type: categoryType || "",
+                },
+              })
+            } isValue>{formatNumber(value)}</TableCell>
         </>
       );
     }
