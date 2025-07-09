@@ -65,10 +65,6 @@ export function ReportHeader({
   const primaryDisplayChangeHandler = onPrimaryDisplayChange || handlePrimaryDisplayChange;
   const secondaryDisplayChangeHandler = onSecondaryDisplayChange || handleSecondaryDisplayChange;
 
-  console.log("startDate", startDate);
-  console.log("endDate", endDate);
-  
-
   return (
     <div className="flex flex-col space-y-4 mb-6 max-w-7xl mx-auto">
       <div className="flex justify-between items-center">
