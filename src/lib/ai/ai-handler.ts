@@ -519,6 +519,10 @@ export class AIHandler {
   private needsConfirmationButtons(content: string): { needsConfirmation: boolean; pendingAction?: Record<string, unknown> } {
     // Check for confirmation questions
     const confirmationPatterns = [
+      /press confirm/i,
+      /confirm the action/i,
+      /do you want to confirm/i,
+      /do you want to continue/i,
       /would you like to proceed/i,
       /would you like to continue/i,
       /shall I proceed/i,
