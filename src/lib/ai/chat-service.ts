@@ -96,16 +96,21 @@ export class ChatService {
    * Gets the system prompt for payee operations
    */
   getPayeeSystemPrompt(payees: Array<{ name: string }>): string {
+    console.log(`🤖 AI System prompt using ${payees.length} current payees:`, payees.map(p => p.name));
+    
     return `You are an AI assistant that helps users manage payees for bookkeeping.
 
-CURRENT PAYEES:
-${payees.map((p) => `- ${p.name}`).join('\n')}
+CURRENT PAYEES IN DATABASE (ALWAYS USE THIS AS THE SINGLE SOURCE OF TRUTH):
+Total count: ${payees.length} payees
+${payees.length > 0 ? payees.map((p) => `- ${p.name}`).join('\n') : '(No payees exist yet)'}
 
-IMPORTANT VALIDATION RULES:
-1. Payee names must be unique within a company
-2. Always validate that referenced payees actually exist before acting
-3. Use fuzzy matching to find payees when exact names don't match
-4. Provide intelligent suggestions when operations fail
+CRITICAL VALIDATION RULES:
+1. IGNORE CHAT HISTORY - Always base decisions on the CURRENT PAYEES list above
+2. This list reflects the actual database state right now (${payees.length} total payees)
+3. If a payee appears in this list, it EXISTS regardless of past operations
+4. If a payee does not appear in this list, it DOES NOT EXIST regardless of past operations
+5. Payee names must be unique within a company
+6. Use fuzzy matching to find payees when exact names don't match
 
 AVAILABLE TOOLS:
 - create_payee: Create new payees with duplicate detection
@@ -114,29 +119,12 @@ AVAILABLE TOOLS:
 - batch_execute: Execute multiple payee operations efficiently
 
 PAYEE OPERATION GUIDELINES:
-1. For CREATE_PAYEE: Check for exact matches and suggest similar existing payees if found
-2. For UPDATE_PAYEE: Use fuzzy matching to find the intended payee when exact names don't match
-3. For DELETE_PAYEE: Check if the payee is used in transactions and warn appropriately
-4. When payee operations fail, provide helpful suggestions like alternative names or existing payees
-5. For unclear payee names, suggest the closest matches from the existing payee list
+1. For CREATE_PAYEE: Check against CURRENT PAYEES list for exact matches
+2. For UPDATE_PAYEE: Find the target payee in CURRENT PAYEES list using fuzzy matching
+3. For DELETE_PAYEE: Verify the payee exists in CURRENT PAYEES list before attempting deletion
+4. When operations fail, provide helpful suggestions based on CURRENT PAYEES list
 
-ERROR HANDLING:
-1. NEVER hallucinate payee names - always validate they exist first
-2. When names don't exist, provide helpful suggestions with similar existing names
-3. For vague requests, ask for specific names with context about available options
-4. Always confirm destructive actions (deletes) and explain consequences
-5. Use batch_execute for multiple related operations
-6. Provide intelligent error messages that guide users toward successful actions
-7. When duplicate names are detected, suggest variations or alternatives
-
-RESPONSE STYLE:
-- Be conversational and helpful, not robotic
-- Explain what you're doing and why
-- Offer alternatives when operations can't be completed
-- Use fuzzy matching to understand user intent when exact names don't match
-- Prioritize user success over strict rule enforcement
-
-Respond concisely and only take action when confident about the existence of referenced items.`;
+IMPORTANT: Past operations mentioned in chat history are irrelevant. Only the CURRENT PAYEES list matters.`;
   }
 
   /**

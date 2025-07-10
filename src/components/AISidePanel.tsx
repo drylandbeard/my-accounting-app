@@ -54,6 +54,7 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
       return;
     }
 
+    // Create new handler with current payees and store methods
     const handler = new AIHandler(
       {
         payees,
@@ -190,11 +191,19 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
     const thinkingMessageIndex = messages.length + 1; // +1 for the user message we just added
 
     try {
-      // Process with AI Handler
+      // Refresh payees to ensure we have the latest state from database
+      console.log('🔄 Refreshing payees before AI processing...');
+      await refreshPayeesFromStore();
+      
+      // Get fresh payees from store after refresh
+      const freshPayees = usePayeesStore.getState().payees;
+      console.log(`✅ Using fresh payees for AI: ${freshPayees.length} payees`);
+      
+      // Process with AI Handler using fresh payees
       const result = await aiHandler.processUserMessage(
         userMessage,
         messages,
-        payees
+        freshPayees
       );
 
       if (result.success && result.response) {
