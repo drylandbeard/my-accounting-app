@@ -40,6 +40,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Prevent accountant from adding themselves as a team member
+    if (email.toLowerCase() === user.email.toLowerCase()) {
+      return NextResponse.json(
+        { error: "You cannot add yourself as a team member" },
+        { status: 400 }
+      );
+    }
+
     // Send team invitation
     const result = await sendAccountantTeamInvitation(name, email, userId);
 

@@ -2,10 +2,12 @@
 
 import { useAuthStore } from "@/zustand/authStore";
 import { api } from "@/lib/api";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
 import NavBar from "@/components/NavBar";
+import { toast } from "sonner";
+import { Toaster } from "@/components/ui/sonner";
 
 interface CompanyModalProps {
   isOpen: boolean;
@@ -48,22 +50,21 @@ function CompanyModal({ isOpen, onClose, onCreateCompany }: CompanyModalProps) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [isCreating, setIsCreating] = useState(false);
-  const [error, setError] = useState("");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
 
     setIsCreating(true);
-    setError("");
 
     try {
       await onCreateCompany(name.trim(), description.trim());
       setName("");
       setDescription("");
+      toast.success("Company created successfully!");
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create company");
+      toast.error(err instanceof Error ? err.message : "Failed to create company");
     } finally {
       setIsCreating(false);
     }
@@ -86,12 +87,6 @@ function CompanyModal({ isOpen, onClose, onCreateCompany }: CompanyModalProps) {
         
         <form onSubmit={handleSubmit} className="px-4 py-4">
           <div className="space-y-3">
-            {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-md text-sm">
-                {error}
-              </div>
-            )}
-            
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">
                 Company Name *
@@ -146,22 +141,21 @@ function TeamMemberModal({ isOpen, onClose, onAddTeamMember }: TeamMemberModalPr
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [isAdding, setIsAdding] = useState(false);
-  const [error, setError] = useState("");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !email.trim()) return;
 
     setIsAdding(true);
-    setError("");
 
     try {
       await onAddTeamMember(name.trim(), email.trim());
       setName("");
       setEmail("");
+      toast.success("Team member invited successfully!");
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to add team member");
+      toast.error(err instanceof Error ? err.message : "Failed to add team member");
     } finally {
       setIsAdding(false);
     }
@@ -184,12 +178,6 @@ function TeamMemberModal({ isOpen, onClose, onAddTeamMember }: TeamMemberModalPr
         
         <form onSubmit={handleSubmit} className="px-4 py-4">
           <div className="space-y-3">
-            {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-md text-sm">
-                {error}
-              </div>
-            )}
-            
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">
                 Name *
@@ -248,22 +236,11 @@ function ManageMemberModal({ isOpen, onClose, member, onMemberChanged }: ManageM
   const [memberUserId, setMemberUserId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState("");
 
-  // Initialize form when modal opens
-  useEffect(() => {
-    if (isOpen && member) {
-      setName(member.name);
-      setEmail(member.email);
-      fetchMemberData();
-    }
-  }, [isOpen, member]);
-
-  const fetchMemberData = async () => {
+  const fetchMemberData = useCallback(async () => {
     if (!member?.id) return;
 
     setIsLoading(true);
-    setError("");
     setMemberUserId(null);
 
     try {
@@ -287,15 +264,24 @@ function ManageMemberModal({ isOpen, onClose, member, onMemberChanged }: ManageM
         setCompanyAccess(companyAccessList);
       } else {
         const errorData = await response.json();
-        setError(errorData.error || "Failed to fetch member data");
+        toast.error(errorData.error || "Failed to fetch member data");
       }
     } catch (error) {
       console.error("Error fetching member data:", error);
-      setError("Failed to fetch member data");
+      toast.error("Failed to fetch member data");
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [member?.id]);
+
+  // Initialize form when modal opens
+  useEffect(() => {
+    if (isOpen && member) {
+      setName(member.name);
+      setEmail(member.email);
+      fetchMemberData();
+    }
+  }, [isOpen, member, fetchMemberData]);
 
   const handleToggleAccess = (companyId: string) => {
     setCompanyAccess(prev => 
@@ -311,7 +297,6 @@ function ManageMemberModal({ isOpen, onClose, member, onMemberChanged }: ManageM
     if (!member?.id || !memberUserId) return;
 
     setIsSaving(true);
-    setError("");
 
     try {
       // Create the payload for the combined save operation
@@ -329,15 +314,16 @@ function ManageMemberModal({ isOpen, onClose, member, onMemberChanged }: ManageM
       const response = await api.post("/api/accountant/save-member", payload);
 
       if (response.ok) {
+        toast.success("Member saved successfully!");
         onMemberChanged(); // Notify parent to refresh team list
         onClose(); // Close modal
       } else {
         const errorData = await response.json();
-        setError(errorData.error || "Failed to save member");
+        toast.error(errorData.error || "Failed to save member");
       }
     } catch (error) {
       console.error("Error saving member:", error);
-      setError("Failed to save member");
+      toast.error("Failed to save member");
     } finally {
       setIsSaving(false);
     }
@@ -346,30 +332,44 @@ function ManageMemberModal({ isOpen, onClose, member, onMemberChanged }: ManageM
   const handleRemoveMember = async () => {
     if (!member?.id) return;
 
-    const confirmRemove = confirm(`Are you sure you want to remove ${member.name} from your team? This action cannot be undone.`);
-    if (!confirmRemove) return;
+    // Use toast for confirmation - we can use a promise-based approach
+    toast.promise(
+      new Promise<void>((resolve, reject) => {
+        const confirmRemove = confirm(`Are you sure you want to remove ${member.name} from your team? This action cannot be undone.`);
+        if (!confirmRemove) {
+          reject(new Error("Cancelled"));
+          return;
+        }
 
-    setIsSaving(true);
-    setError("");
-
-    try {
-      const response = await api.delete("/api/accountant/remove-member", {
-        body: JSON.stringify({ memberId: member.id }),
-      });
-
-      if (response.ok) {
-        onMemberChanged(); // Notify parent to refresh team list
-        onClose(); // Close modal
-      } else {
-        const errorData = await response.json();
-        setError(errorData.error || "Failed to remove member");
+        setIsSaving(true);
+        
+        api.delete("/api/accountant/remove-member", {
+          body: JSON.stringify({ memberId: member.id }),
+        })
+          .then(async (response) => {
+            if (response.ok) {
+              onMemberChanged(); // Notify parent to refresh team list
+              onClose(); // Close modal
+              resolve();
+            } else {
+              const errorData = await response.json();
+              reject(new Error(errorData.error || "Failed to remove member"));
+            }
+          })
+          .catch((error) => {
+            console.error("Error removing member:", error);
+            reject(new Error("Failed to remove member"));
+          })
+          .finally(() => {
+            setIsSaving(false);
+          });
+      }),
+      {
+        loading: 'Removing member...',
+        success: `${member.name} has been removed from your team`,
+        error: (err) => err.message === "Cancelled" ? "" : err.message || "Failed to remove member",
       }
-    } catch (error) {
-      console.error("Error removing member:", error);
-      setError("Failed to remove member");
-    } finally {
-      setIsSaving(false);
-    }
+    );
   };
 
   if (!isOpen || !member) return null;
@@ -390,12 +390,6 @@ function ManageMemberModal({ isOpen, onClose, member, onMemberChanged }: ManageM
         </div>
         
         <div className="p-6 overflow-y-auto max-h-[calc(80vh-180px)]">
-          {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm mb-4">
-              {error}
-            </div>
-          )}
-
           {isLoading ? (
             <div className="flex items-center justify-center py-8">
               <div className="w-6 h-6 relative">
@@ -553,17 +547,13 @@ export default function GatewayPage() {
   // Profile form states
   const [emailForm, setEmailForm] = useState({
     email: user?.email || "",
-    isUpdating: false,
-    error: "",
-    success: false
+    isUpdating: false
   });
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: "",
     newPassword: "",
     confirmPassword: "",
-    isUpdating: false,
-    error: "",
-    success: false
+    isUpdating: false
   });
 
   const handleCreateCompany = async (name: string, description?: string) => {
@@ -598,12 +588,6 @@ export default function GatewayPage() {
   const handleUpdateProfile = async () => {
     if (!user || !isEditingProfile) return;
 
-    // Reset errors and success states
-    setEmailForm(prev => ({ ...prev, error: "", success: false }));
-    setPasswordForm(prev => ({ ...prev, error: "", success: false }));
-
-    let hasErrors = false;
-
     // Check if email changed
     const emailChanged = emailForm.email !== user.email;
     
@@ -617,24 +601,22 @@ export default function GatewayPage() {
     // Validate password if being changed
     if (passwordChanged) {
       if (!passwordForm.currentPassword) {
-        setPasswordForm(prev => ({ ...prev, error: "Current password is required" }));
-        hasErrors = true;
+        toast.error("Current password is required");
+        return;
       }
       if (!passwordForm.newPassword) {
-        setPasswordForm(prev => ({ ...prev, error: "New password is required" }));
-        hasErrors = true;
+        toast.error("New password is required");
+        return;
       }
       if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-        setPasswordForm(prev => ({ ...prev, error: "New passwords do not match" }));
-        hasErrors = true;
+        toast.error("New passwords do not match");
+        return;
       }
       if (passwordForm.newPassword.length < 6) {
-        setPasswordForm(prev => ({ ...prev, error: "Password must be at least 6 characters long" }));
-        hasErrors = true;
+        toast.error("Password must be at least 6 characters long");
+        return;
       }
     }
-
-    if (hasErrors) return;
 
     // Set updating state
     if (emailChanged) setEmailForm(prev => ({ ...prev, isUpdating: true }));
@@ -645,7 +627,8 @@ export default function GatewayPage() {
       if (emailChanged) {
         const emailResult = await api.post("/api/user/update-email", { email: emailForm.email });
         if (!emailResult.ok) {
-          setEmailForm(prev => ({ ...prev, error: "Failed to update email", isUpdating: false }));
+          toast.error("Failed to update email");
+          setEmailForm(prev => ({ ...prev, isUpdating: false }));
           if (passwordChanged) setPasswordForm(prev => ({ ...prev, isUpdating: false }));
           return;
         }
@@ -658,7 +641,8 @@ export default function GatewayPage() {
           newPassword: passwordForm.newPassword,
         });
         if (!passwordResult.ok) {
-          setPasswordForm(prev => ({ ...prev, error: "Failed to update password", isUpdating: false }));
+          toast.error("Failed to update password");
+          setPasswordForm(prev => ({ ...prev, isUpdating: false }));
           if (emailChanged) setEmailForm(prev => ({ ...prev, isUpdating: false }));
           return;
         }
@@ -666,27 +650,21 @@ export default function GatewayPage() {
 
       // Success - reset form and exit edit mode
       if (emailChanged || passwordChanged) {
-        setEmailForm(prev => ({ ...prev, isUpdating: false, success: true }));
+        toast.success("Profile updated successfully!");
+        setEmailForm(prev => ({ ...prev, isUpdating: false }));
         setPasswordForm({
           currentPassword: "",
           newPassword: "",
           confirmPassword: "",
-          isUpdating: false,
-          error: "",
-          success: true
+          isUpdating: false
         });
         setIsEditingProfile(false);
-
-        // Clear success message after 3 seconds
-        setTimeout(() => {
-          setEmailForm(prev => ({ ...prev, success: false }));
-          setPasswordForm(prev => ({ ...prev, success: false }));
-        }, 3000);
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Failed to update profile";
-      setEmailForm(prev => ({ ...prev, error: errorMessage, isUpdating: false }));
-      setPasswordForm(prev => ({ ...prev, error: errorMessage, isUpdating: false }));
+      toast.error(errorMessage);
+      setEmailForm(prev => ({ ...prev, isUpdating: false }));
+      setPasswordForm(prev => ({ ...prev, isUpdating: false }));
     }
   };
 
@@ -696,17 +674,13 @@ export default function GatewayPage() {
     if (!showAccountSection && user) {
       setEmailForm({
         email: user.email,
-        isUpdating: false,
-        error: "",
-        success: false
+        isUpdating: false
       });
       setPasswordForm({
         currentPassword: "",
         newPassword: "",
         confirmPassword: "",
-        isUpdating: false,
-        error: "",
-        success: false
+        isUpdating: false
       });
       setIsEditingProfile(false);
     }
@@ -737,7 +711,7 @@ export default function GatewayPage() {
 
 
 
-  const fetchTeamMembers = async () => {
+  const fetchTeamMembers = useCallback(async () => {
     if (!user || user.role !== "Accountant") return;
 
     try {
@@ -749,7 +723,7 @@ export default function GatewayPage() {
     } catch (error) {
       console.error("Error fetching team members:", error);
     }
-  };
+  }, [user]);
 
   const handleManageMember = (member: TeamMember) => {
     setSelectedTeamMember(member);
@@ -771,7 +745,7 @@ export default function GatewayPage() {
     if (user && user.role === "Accountant") {
       fetchTeamMembers();
     }
-  }, [user]);
+  }, [user, fetchTeamMembers]);
 
   return (
     <>
@@ -787,22 +761,6 @@ export default function GatewayPage() {
             <div className="mb-8 p-6 bg-gray-50 border border-gray-200 rounded-lg w-lg">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Account Details</h3>
               
-              {emailForm.error && (
-                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm mb-4">
-                  {emailForm.error}
-                </div>
-              )}
-              {passwordForm.error && (
-                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm mb-4">
-                  {passwordForm.error}
-                </div>
-              )}
-              {(emailForm.success || passwordForm.success) && (
-                <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-md text-sm mb-4">
-                  Profile updated successfully!
-                </div>
-              )}
-
               <div className="space-y-4 text-left">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -881,14 +839,12 @@ export default function GatewayPage() {
                     <button
                       onClick={() => {
                         setIsEditingProfile(false);
-                        setEmailForm(prev => ({ ...prev, email: user.email, error: "", success: false }));
+                        setEmailForm(prev => ({ ...prev, email: user.email }));
                         setPasswordForm({
                           currentPassword: "",
                           newPassword: "",
                           confirmPassword: "",
-                          isUpdating: false,
-                          error: "",
-                          success: false
+                          isUpdating: false
                         });
                       }}
                       className="flex-1 px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
@@ -1159,6 +1115,9 @@ export default function GatewayPage() {
           member={selectedTeamMember}
           onMemberChanged={handleMemberChanged}
         />
+        
+        {/* Toast notifications */}
+        <Toaster />
       </main>
     </>
   );

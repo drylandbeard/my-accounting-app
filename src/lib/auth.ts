@@ -853,6 +853,22 @@ export async function sendAccountantTeamInvitation(
   try {
     console.log("🔍 sendAccountantTeamInvitation - Starting process:", { name, email, accountantId });
     
+    // Get accountant details first to check email
+    const { data: accountant, error: accountantError } = await supabase
+      .from("users")
+      .select("email")
+      .eq("id", accountantId)
+      .single();
+
+    if (accountantError || !accountant) {
+      return { error: "Accountant not found" };
+    }
+
+    // Prevent accountant from adding themselves as a team member
+    if (email.toLowerCase() === accountant.email.toLowerCase()) {
+      return { error: "You cannot add yourself as a team member" };
+    }
+    
     // Check if team member already exists for this accountant
     const { data: existingMember } = await supabase
       .from("accountant_members_list")
@@ -881,17 +897,6 @@ export async function sendAccountantTeamInvitation(
 
     if (memberError || !teamMember) {
       return { error: "Failed to create team member record" };
-    }
-
-    // Get accountant details
-    const { data: accountant, error: accountantError } = await supabase
-      .from("users")
-      .select("email")
-      .eq("id", accountantId)
-      .single();
-
-    if (accountantError || !accountant) {
-      return { error: "Accountant not found" };
     }
 
     // Generate invitation token
