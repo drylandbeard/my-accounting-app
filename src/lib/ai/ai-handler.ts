@@ -70,9 +70,25 @@ export class AIHandler {
 
       // Prepare messages for OpenAI
       const systemPrompt = this.chatService.getPayeeSystemPrompt(payees);
+      
+      // For payee operations, limit chat history to prevent confusion from stale operations
+      // Check if this is a payee operation that might be affected by stale history
+      const isPayeeOperation = /(?:create|add|delete|remove|update|rename|edit)\s+(?:payee|.*(?:mark|aenon|justine|ryland))/i.test(userMessage);
+      
+      let recentMessages: Message[] = [];
+      if (isPayeeOperation) {
+        // For payee operations, only include the most recent 2 messages to minimize conflicting context
+        recentMessages = existingMessages.slice(-2);
+        console.log(`🎯 Payee operation detected, using minimal context: ${recentMessages.length} messages`);
+      } else {
+        // For non-payee operations, include more context
+        recentMessages = existingMessages.slice(-6);
+        console.log(`📨 Regular operation, using ${recentMessages.length} recent messages`);
+      }
+      
       const chatMessages: ChatMessage[] = [
         { role: 'system', content: systemPrompt },
-        ...existingMessages.map(m => ({ role: m.role, content: m.content })),
+        ...recentMessages.map(m => ({ role: m.role, content: m.content })),
         { role: 'user', content: userMessage }
       ];
 

@@ -100,31 +100,36 @@ export class ChatService {
     
     return `You are an AI assistant that helps users manage payees for bookkeeping.
 
-CURRENT PAYEES IN DATABASE (ALWAYS USE THIS AS THE SINGLE SOURCE OF TRUTH):
+CURRENT PAYEES IN DATABASE (SINGLE SOURCE OF TRUTH):
 Total count: ${payees.length} payees
 ${payees.length > 0 ? payees.map((p) => `- ${p.name}`).join('\n') : '(No payees exist yet)'}
 
 CRITICAL VALIDATION RULES:
-1. IGNORE CHAT HISTORY - Always base decisions on the CURRENT PAYEES list above
-2. This list reflects the actual database state right now (${payees.length} total payees)
-3. If a payee appears in this list, it EXISTS regardless of past operations
-4. If a payee does not appear in this list, it DOES NOT EXIST regardless of past operations
-5. Payee names must be unique within a company
-6. Use fuzzy matching to find payees when exact names don't match
+1. **COMPLETELY IGNORE CHAT HISTORY** - Previous messages about deletions/creations are irrelevant
+2. **THE ABOVE LIST IS THE ONLY TRUTH** - This shows the ACTUAL database state RIGHT NOW (${payees.length} total payees)
+3. If a payee appears in this list above, it EXISTS and can be updated/deleted
+4. If a payee does not appear in this list above, it DOES NOT EXIST and cannot be operated on
+5. **IGNORE ALL PREVIOUS STATEMENTS** about payees existing or not existing
+6. **ONLY CHECK THE CURRENT LIST ABOVE** - Previous operations in chat are irrelevant
+7. Use fuzzy matching to find payees when exact names don't match
+
+REFRESH CONTEXT: The database has been refreshed. Any previous statements about payee existence are now obsolete. Only use the current list above.
 
 AVAILABLE TOOLS:
 - create_payee: Create new payees with duplicate detection
-- update_payee: Update payee names with validation
+- update_payee: Update payee names with validation  
 - delete_payee: Delete payees with usage validation
 - batch_execute: Execute multiple payee operations efficiently
 
-PAYEE OPERATION GUIDELINES:
-1. For CREATE_PAYEE: Check against CURRENT PAYEES list for exact matches
-2. For UPDATE_PAYEE: Find the target payee in CURRENT PAYEES list using fuzzy matching
-3. For DELETE_PAYEE: Verify the payee exists in CURRENT PAYEES list before attempting deletion
-4. When operations fail, provide helpful suggestions based on CURRENT PAYEES list
+OPERATION GUIDELINES:
+1. For CREATE_PAYEE: Check if name exists in CURRENT PAYEES list above
+2. For UPDATE_PAYEE: Find target payee in CURRENT PAYEES list above using fuzzy matching
+3. For DELETE_PAYEE: Verify payee exists in CURRENT PAYEES list above before attempting deletion
+4. When operations fail, provide suggestions based on CURRENT PAYEES list above
 
-IMPORTANT: Past operations mentioned in chat history are irrelevant. Only the CURRENT PAYEES list matters.`;
+REMEMBER: Chat history is unreliable and outdated. Only trust the CURRENT PAYEES list above.
+
+FINAL OVERRIDE: If there is ANY conflict between chat history and the current payees list above, ALWAYS trust the current payees list. The list above is the absolute truth.`;
   }
 
   /**
