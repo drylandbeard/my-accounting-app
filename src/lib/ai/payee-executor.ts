@@ -121,15 +121,10 @@ export class PayeeExecutor {
    */
   async executeBatchOperations(operations: PayeeOperation[]): Promise<BatchOperationResult> {
     try {
-      // Validate company context
-      if (!this.currentCompany) {
-        return {
-          success: false,
-          message: 'No company selected. Please select a company first.',
-          results: [],
-          completedOperations: 0
-        };
-      }
+      console.log(`🚀 Executing batch operations: ${operations.length} operations`);
+      operations.forEach((op, index) => {
+        console.log(`  ${index + 1}. ${op.action} with params:`, op.params);
+      });
 
       // Get fresh payees from database for validation to prevent stale data issues
       const existingPayees = await this.ensureFreshPayeeData();

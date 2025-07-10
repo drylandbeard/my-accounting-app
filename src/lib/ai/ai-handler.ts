@@ -523,6 +523,7 @@ export class AIHandler {
       /would you like to continue/i,
       /shall I proceed/i,
       /do you want to proceed/i,
+      /do you want to/i,
       /proceed with those/i,
       /proceed with these/i,
       /proceed with that/i,
@@ -531,6 +532,7 @@ export class AIHandler {
       /would you like me to/i,
       /should I proceed/i,
       /continue with/i,
+      /are you sure you want to/i,
     ];
     
     const hasConfirmationQuestion = confirmationPatterns.some(pattern => pattern.test(content));

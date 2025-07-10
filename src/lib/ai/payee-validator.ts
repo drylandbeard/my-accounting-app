@@ -331,15 +331,32 @@ export class PayeeValidator {
     const warnings: string[] = [];
     const suggestions: string[] = [];
 
+    // Map operation names to validator-expected names (same as in PayeeExecutor)
+    const operationMapping: Record<string, 'create' | 'update' | 'delete'> = {
+      'create_payee': 'create',
+      'update_payee': 'update',
+      'delete_payee': 'delete'
+    };
+
     // Track names that will be created in this batch to avoid duplicates
     const namesInBatch = new Set<string>();
 
     for (let i = 0; i < operations.length; i++) {
       const operation = operations[i];
       
-      // Validate individual operation
+      // Map the operation name
+      const mappedOperation = operationMapping[operation.action];
+      console.log(`🔍 Batch validation - Operation ${i + 1}: "${operation.action}" -> "${mappedOperation}"`);
+      
+      if (!mappedOperation) {
+        errors.push(`Operation ${i + 1}: Unknown operation: ${operation.action}`);
+        suggestions.push(`Operation ${i + 1}: Available operations: create_payee, update_payee, delete_payee`);
+        continue;
+      }
+      
+      // Validate individual operation with mapped operation name
       const validation = this.validatePayeeOperation(
-        operation.action as 'create' | 'update' | 'delete',
+        mappedOperation,
         operation.params,
         context
       );
@@ -350,7 +367,7 @@ export class PayeeValidator {
       }
 
       // Check for duplicates within the batch
-      if (operation.action === 'create') {
+      if (mappedOperation === 'create') {
         const name = (operation.params.name as string)?.trim()?.toLowerCase();
         if (name) {
           if (namesInBatch.has(name)) {
