@@ -846,12 +846,29 @@ export async function resendVerificationEmail(email: string) {
  * Send accountant team member invitation
  */
 export async function sendAccountantTeamInvitation(
-  name: string,
+  firstName: string,
+  lastName: string,
   email: string, 
   accountantId: string
 ) {
   try {
-    console.log("🔍 sendAccountantTeamInvitation - Starting process:", { name, email, accountantId });
+    console.log("🔍 sendAccountantTeamInvitation - Starting process:", { firstName, lastName, email, accountantId });
+    
+    // Get accountant details first to check email
+    const { data: accountant, error: accountantError } = await supabase
+      .from("users")
+      .select("email")
+      .eq("id", accountantId)
+      .single();
+
+    if (accountantError || !accountant) {
+      return { error: "Accountant not found" };
+    }
+
+    // Prevent accountant from adding themselves as a team member
+    if (email.toLowerCase() === accountant.email.toLowerCase()) {
+      return { error: "You cannot add yourself as a team member" };
+    }
     
     // Check if team member already exists for this accountant
     const { data: existingMember } = await supabase
@@ -871,7 +888,8 @@ export async function sendAccountantTeamInvitation(
       .from("accountant_members_list")
       .insert({
         accountant_id: accountantId,
-        name,
+        first_name: firstName,
+        last_name: lastName,
         email,
         is_active: true,
         is_access_enabled: false // Will be set to true when they accept invitation
@@ -881,17 +899,6 @@ export async function sendAccountantTeamInvitation(
 
     if (memberError || !teamMember) {
       return { error: "Failed to create team member record" };
-    }
-
-    // Get accountant details
-    const { data: accountant, error: accountantError } = await supabase
-      .from("users")
-      .select("email")
-      .eq("id", accountantId)
-      .single();
-
-    if (accountantError || !accountant) {
-      return { error: "Accountant not found" };
     }
 
     // Generate invitation token

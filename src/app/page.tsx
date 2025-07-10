@@ -2,10 +2,13 @@
 
 import { useAuthStore } from "@/zustand/authStore";
 import { api } from "@/lib/api";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
 import NavBar from "@/components/NavBar";
+import { showSuccessToast, showErrorToast } from "@/components/ui/toast";
+import { toast } from "sonner";
+import { Toaster } from "@/components/ui/sonner";
 
 interface CompanyModalProps {
   isOpen: boolean;
@@ -15,7 +18,8 @@ interface CompanyModalProps {
 
 interface TeamMember {
   id: string;
-  name: string;
+  firstName: string;
+  lastName: string;
   email: string;
   is_access_enabled: boolean;
   userId?: string; // The actual user_id for API calls
@@ -24,7 +28,7 @@ interface TeamMember {
 interface TeamMemberModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onAddTeamMember: (name: string, email: string) => Promise<void>;
+  onAddTeamMember: (firstName: string, lastName: string, email: string) => Promise<void>;
 }
 
 interface ManageMemberModalProps {
@@ -48,22 +52,21 @@ function CompanyModal({ isOpen, onClose, onCreateCompany }: CompanyModalProps) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [isCreating, setIsCreating] = useState(false);
-  const [error, setError] = useState("");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
 
     setIsCreating(true);
-    setError("");
 
     try {
       await onCreateCompany(name.trim(), description.trim());
       setName("");
       setDescription("");
+      showSuccessToast("Company created successfully!");
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create company");
+      showErrorToast(err instanceof Error ? err.message : "Failed to create company");
     } finally {
       setIsCreating(false);
     }
@@ -86,12 +89,6 @@ function CompanyModal({ isOpen, onClose, onCreateCompany }: CompanyModalProps) {
         
         <form onSubmit={handleSubmit} className="px-4 py-4">
           <div className="space-y-3">
-            {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-md text-sm">
-                {error}
-              </div>
-            )}
-            
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">
                 Company Name *
@@ -143,25 +140,26 @@ function CompanyModal({ isOpen, onClose, onCreateCompany }: CompanyModalProps) {
 }
 
 function TeamMemberModal({ isOpen, onClose, onAddTeamMember }: TeamMemberModalProps) {
-  const [name, setName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [isAdding, setIsAdding] = useState(false);
-  const [error, setError] = useState("");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !email.trim()) return;
+    if (!firstName.trim() || !lastName.trim() || !email.trim()) return;
 
     setIsAdding(true);
-    setError("");
 
     try {
-      await onAddTeamMember(name.trim(), email.trim());
-      setName("");
+      await onAddTeamMember(firstName.trim(), lastName.trim(), email.trim());
+      setFirstName("");
+      setLastName("");
       setEmail("");
+      showSuccessToast("Team member invited successfully!");
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to add team member");
+      showErrorToast(err instanceof Error ? err.message : "Failed to add team member");
     } finally {
       setIsAdding(false);
     }
@@ -184,22 +182,30 @@ function TeamMemberModal({ isOpen, onClose, onAddTeamMember }: TeamMemberModalPr
         
         <form onSubmit={handleSubmit} className="px-4 py-4">
           <div className="space-y-3">
-            {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-md text-sm">
-                {error}
-              </div>
-            )}
-            
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">
-                Name *
+                First Name *
               </label>
               <input
                 type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
                 className="w-full px-2 py-1 border border-gray-300 rounded-md text-gray-900 placeholder-gray-500 focus:border-black focus:outline-none focus:ring-black text-sm"
-                placeholder="Enter full name"
+                placeholder="Enter first name"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                Last Name *
+              </label>
+              <input
+                type="text"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                className="w-full px-2 py-1 border border-gray-300 rounded-md text-gray-900 placeholder-gray-500 focus:border-black focus:outline-none focus:ring-black text-sm"
+                placeholder="Enter last name"
                 required
               />
             </div>
@@ -229,7 +235,7 @@ function TeamMemberModal({ isOpen, onClose, onAddTeamMember }: TeamMemberModalPr
             </button>
             <button
               type="submit"
-              disabled={isAdding || !name.trim() || !email.trim()}
+              disabled={isAdding || !firstName.trim() || !lastName.trim() || !email.trim()}
               className="px-3 py-1 text-sm font-medium text-white bg-black rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {isAdding ? "Adding..." : "Add"}
@@ -242,28 +248,18 @@ function TeamMemberModal({ isOpen, onClose, onAddTeamMember }: TeamMemberModalPr
 }
 
 function ManageMemberModal({ isOpen, onClose, member, onMemberChanged }: ManageMemberModalProps) {
-  const [name, setName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [companyAccess, setCompanyAccess] = useState<CompanyAccess[]>([]);
   const [memberUserId, setMemberUserId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState("");
 
-  // Initialize form when modal opens
-  useEffect(() => {
-    if (isOpen && member) {
-      setName(member.name);
-      setEmail(member.email);
-      fetchMemberData();
-    }
-  }, [isOpen, member]);
-
-  const fetchMemberData = async () => {
+  const fetchMemberData = useCallback(async () => {
     if (!member?.id) return;
 
     setIsLoading(true);
-    setError("");
     setMemberUserId(null);
 
     try {
@@ -287,15 +283,25 @@ function ManageMemberModal({ isOpen, onClose, member, onMemberChanged }: ManageM
         setCompanyAccess(companyAccessList);
       } else {
         const errorData = await response.json();
-        setError(errorData.error || "Failed to fetch member data");
+        showErrorToast(errorData.error || "Failed to fetch member data");
       }
     } catch (error) {
       console.error("Error fetching member data:", error);
-      setError("Failed to fetch member data");
+      showErrorToast("Failed to fetch member data");
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [member?.id]);
+
+  // Initialize form when modal opens
+  useEffect(() => {
+    if (isOpen && member) {
+      setFirstName(member.firstName);
+      setLastName(member.lastName);
+      setEmail(member.email);
+      fetchMemberData();
+    }
+  }, [isOpen, member, fetchMemberData]);
 
   const handleToggleAccess = (companyId: string) => {
     setCompanyAccess(prev => 
@@ -311,14 +317,14 @@ function ManageMemberModal({ isOpen, onClose, member, onMemberChanged }: ManageM
     if (!member?.id || !memberUserId) return;
 
     setIsSaving(true);
-    setError("");
 
     try {
       // Create the payload for the combined save operation
       const payload = {
         memberId: member.id,
         memberUserId: memberUserId,
-        name: name.trim(),
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
         email: email.trim(),
         companyAccess: companyAccess.map(comp => ({
           companyId: comp.company.id,
@@ -329,15 +335,16 @@ function ManageMemberModal({ isOpen, onClose, member, onMemberChanged }: ManageM
       const response = await api.post("/api/accountant/save-member", payload);
 
       if (response.ok) {
+        showSuccessToast("Member saved successfully!");
         onMemberChanged(); // Notify parent to refresh team list
         onClose(); // Close modal
       } else {
         const errorData = await response.json();
-        setError(errorData.error || "Failed to save member");
+        showErrorToast(errorData.error || "Failed to save member");
       }
     } catch (error) {
       console.error("Error saving member:", error);
-      setError("Failed to save member");
+      showErrorToast("Failed to save member");
     } finally {
       setIsSaving(false);
     }
@@ -346,30 +353,44 @@ function ManageMemberModal({ isOpen, onClose, member, onMemberChanged }: ManageM
   const handleRemoveMember = async () => {
     if (!member?.id) return;
 
-    const confirmRemove = confirm(`Are you sure you want to remove ${member.name} from your team? This action cannot be undone.`);
-    if (!confirmRemove) return;
+    // Use toast for confirmation - we can use a promise-based approach
+    toast.promise(
+      new Promise<void>((resolve, reject) => {
+        const confirmRemove = confirm(`Are you sure you want to remove ${member.firstName} ${member.lastName} from your team? This action cannot be undone.`);
+        if (!confirmRemove) {
+          reject(new Error("Cancelled"));
+          return;
+        }
 
-    setIsSaving(true);
-    setError("");
-
-    try {
-      const response = await api.delete("/api/accountant/remove-member", {
-        body: JSON.stringify({ memberId: member.id }),
-      });
-
-      if (response.ok) {
-        onMemberChanged(); // Notify parent to refresh team list
-        onClose(); // Close modal
-      } else {
-        const errorData = await response.json();
-        setError(errorData.error || "Failed to remove member");
+        setIsSaving(true);
+        
+        api.delete("/api/accountant/remove-member", {
+          body: JSON.stringify({ memberId: member.id }),
+        })
+          .then(async (response) => {
+            if (response.ok) {
+              onMemberChanged(); // Notify parent to refresh team list
+              onClose(); // Close modal
+              resolve();
+            } else {
+              const errorData = await response.json();
+              reject(new Error(errorData.error || "Failed to remove member"));
+            }
+          })
+          .catch((error) => {
+            console.error("Error removing member:", error);
+            reject(new Error("Failed to remove member"));
+          })
+          .finally(() => {
+            setIsSaving(false);
+          });
+      }),
+      {
+        loading: 'Removing member...',
+        success: `${member.firstName} ${member.lastName} has been removed from your team`,
+        error: (err) => err.message === "Cancelled" ? "" : err.message || "Failed to remove member",
       }
-    } catch (error) {
-      console.error("Error removing member:", error);
-      setError("Failed to remove member");
-    } finally {
-      setIsSaving(false);
-    }
+    );
   };
 
   if (!isOpen || !member) return null;
@@ -390,12 +411,6 @@ function ManageMemberModal({ isOpen, onClose, member, onMemberChanged }: ManageM
         </div>
         
         <div className="p-6 overflow-y-auto max-h-[calc(80vh-180px)]">
-          {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm mb-4">
-              {error}
-            </div>
-          )}
-
           {isLoading ? (
             <div className="flex items-center justify-center py-8">
               <div className="w-6 h-6 relative">
@@ -410,34 +425,47 @@ function ManageMemberModal({ isOpen, onClose, member, onMemberChanged }: ManageM
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Name
+                    First Name
                   </label>
                   <input
                     type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 focus:border-black focus:outline-none focus:ring-black text-sm"
                     disabled={!memberUserId}
                   />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Email
+                    Last Name
                   </label>
                   <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    type="text"
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 focus:border-black focus:outline-none focus:ring-black text-sm"
                     disabled={!memberUserId}
                   />
                 </div>
               </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Email
+                </label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 focus:border-black focus:outline-none focus:ring-black text-sm"
+                  disabled={!memberUserId}
+                />
+              </div>
 
               {!memberUserId ? (
                 <div className="text-center py-4 bg-yellow-50 border border-yellow-200 rounded-md">
                   <p className="text-yellow-800 text-sm">
-                    {member.name} hasn&apos;t accepted their team invitation yet.
+                    {member.firstName} {member.lastName} hasn&apos;t accepted their team invitation yet.
                     <br />
                     Company access and details can be managed once they complete their account setup.
                   </p>
@@ -524,7 +552,7 @@ function ManageMemberModal({ isOpen, onClose, member, onMemberChanged }: ManageM
             </button>
             <button
               onClick={handleSave}
-              disabled={isSaving || !memberUserId || !name.trim() || !email.trim()}
+              disabled={isSaving || !memberUserId || !firstName.trim() || !lastName.trim() || !email.trim()}
               className="px-4 py-2 text-sm font-medium text-white bg-black rounded-md hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {isSaving ? "Saving..." : "Save"}
@@ -553,17 +581,18 @@ export default function GatewayPage() {
   // Profile form states
   const [emailForm, setEmailForm] = useState({
     email: user?.email || "",
-    isUpdating: false,
-    error: "",
-    success: false
+    isUpdating: false
+  });
+  const [nameForm, setNameForm] = useState({
+    firstName: user?.first_name || "",
+    lastName: user?.last_name || "",
+    isUpdating: false
   });
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: "",
     newPassword: "",
     confirmPassword: "",
-    isUpdating: false,
-    error: "",
-    success: false
+    isUpdating: false
   });
 
   const handleCreateCompany = async (name: string, description?: string) => {
@@ -598,54 +627,67 @@ export default function GatewayPage() {
   const handleUpdateProfile = async () => {
     if (!user || !isEditingProfile) return;
 
-    // Reset errors and success states
-    setEmailForm(prev => ({ ...prev, error: "", success: false }));
-    setPasswordForm(prev => ({ ...prev, error: "", success: false }));
-
-    let hasErrors = false;
-
     // Check if email changed
     const emailChanged = emailForm.email !== user.email;
+    
+    // Check if name changed
+    const nameChanged = nameForm.firstName !== (user.first_name || "") || nameForm.lastName !== (user.last_name || "");
     
     // Check if password fields are filled
     const passwordChanged = passwordForm.currentPassword || passwordForm.newPassword || passwordForm.confirmPassword;
 
-    if (!emailChanged && !passwordChanged) {
+    if (!emailChanged && !nameChanged && !passwordChanged) {
       return; // No changes to save
     }
 
     // Validate password if being changed
     if (passwordChanged) {
       if (!passwordForm.currentPassword) {
-        setPasswordForm(prev => ({ ...prev, error: "Current password is required" }));
-        hasErrors = true;
+        showErrorToast("Current password is required");
+        return;
       }
       if (!passwordForm.newPassword) {
-        setPasswordForm(prev => ({ ...prev, error: "New password is required" }));
-        hasErrors = true;
+        showErrorToast("New password is required");
+        return;
       }
       if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-        setPasswordForm(prev => ({ ...prev, error: "New passwords do not match" }));
-        hasErrors = true;
+        showErrorToast("New passwords do not match");
+        return;
       }
       if (passwordForm.newPassword.length < 6) {
-        setPasswordForm(prev => ({ ...prev, error: "Password must be at least 6 characters long" }));
-        hasErrors = true;
+        showErrorToast("Password must be at least 6 characters long");
+        return;
       }
     }
 
-    if (hasErrors) return;
-
     // Set updating state
     if (emailChanged) setEmailForm(prev => ({ ...prev, isUpdating: true }));
+    if (nameChanged) setNameForm(prev => ({ ...prev, isUpdating: true }));
     if (passwordChanged) setPasswordForm(prev => ({ ...prev, isUpdating: true }));
 
     try {
+      // Update name if changed
+      if (nameChanged) {
+        const nameResult = await api.post("/api/user/update-profile", { 
+          first_name: nameForm.firstName,
+          last_name: nameForm.lastName
+        });
+        if (!nameResult.ok) {
+          showErrorToast("Failed to update name");
+          setNameForm(prev => ({ ...prev, isUpdating: false }));
+          if (emailChanged) setEmailForm(prev => ({ ...prev, isUpdating: false }));
+          if (passwordChanged) setPasswordForm(prev => ({ ...prev, isUpdating: false }));
+          return;
+        }
+      }
+
       // Update email if changed
       if (emailChanged) {
         const emailResult = await api.post("/api/user/update-email", { email: emailForm.email });
         if (!emailResult.ok) {
-          setEmailForm(prev => ({ ...prev, error: "Failed to update email", isUpdating: false }));
+          showErrorToast("Failed to update email");
+          setEmailForm(prev => ({ ...prev, isUpdating: false }));
+          if (nameChanged) setNameForm(prev => ({ ...prev, isUpdating: false }));
           if (passwordChanged) setPasswordForm(prev => ({ ...prev, isUpdating: false }));
           return;
         }
@@ -658,35 +700,45 @@ export default function GatewayPage() {
           newPassword: passwordForm.newPassword,
         });
         if (!passwordResult.ok) {
-          setPasswordForm(prev => ({ ...prev, error: "Failed to update password", isUpdating: false }));
+          showErrorToast("Failed to update password");
+          setPasswordForm(prev => ({ ...prev, isUpdating: false }));
           if (emailChanged) setEmailForm(prev => ({ ...prev, isUpdating: false }));
+          if (nameChanged) setNameForm(prev => ({ ...prev, isUpdating: false }));
           return;
         }
       }
 
       // Success - reset form and exit edit mode
-      if (emailChanged || passwordChanged) {
-        setEmailForm(prev => ({ ...prev, isUpdating: false, success: true }));
+      if (emailChanged || nameChanged || passwordChanged) {
+        // Update user in auth store if name changed
+        if (nameChanged) {
+          useAuthStore.setState(state => ({
+            ...state,
+            user: state.user ? {
+              ...state.user,
+              first_name: nameForm.firstName,
+              last_name: nameForm.lastName
+            } : null
+          }));
+        }
+        
+        showSuccessToast("Profile updated successfully!");
+        setEmailForm(prev => ({ ...prev, isUpdating: false }));
+        setNameForm(prev => ({ ...prev, isUpdating: false }));
         setPasswordForm({
           currentPassword: "",
           newPassword: "",
           confirmPassword: "",
-          isUpdating: false,
-          error: "",
-          success: true
+          isUpdating: false
         });
         setIsEditingProfile(false);
-
-        // Clear success message after 3 seconds
-        setTimeout(() => {
-          setEmailForm(prev => ({ ...prev, success: false }));
-          setPasswordForm(prev => ({ ...prev, success: false }));
-        }, 3000);
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Failed to update profile";
-      setEmailForm(prev => ({ ...prev, error: errorMessage, isUpdating: false }));
-      setPasswordForm(prev => ({ ...prev, error: errorMessage, isUpdating: false }));
+      showErrorToast(errorMessage);
+      setEmailForm(prev => ({ ...prev, isUpdating: false }));
+      setNameForm(prev => ({ ...prev, isUpdating: false }));
+      setPasswordForm(prev => ({ ...prev, isUpdating: false }));
     }
   };
 
@@ -696,17 +748,18 @@ export default function GatewayPage() {
     if (!showAccountSection && user) {
       setEmailForm({
         email: user.email,
-        isUpdating: false,
-        error: "",
-        success: false
+        isUpdating: false
+      });
+      setNameForm({
+        firstName: user.first_name || "",
+        lastName: user.last_name || "",
+        isUpdating: false
       });
       setPasswordForm({
         currentPassword: "",
         newPassword: "",
         confirmPassword: "",
-        isUpdating: false,
-        error: "",
-        success: false
+        isUpdating: false
       });
       setIsEditingProfile(false);
     }
@@ -719,11 +772,11 @@ export default function GatewayPage() {
     router.push('/transactions');
   };
 
-  const handleAddTeamMember = async (name: string, email: string) => {
+  const handleAddTeamMember = async (firstName: string, lastName: string, email: string) => {
     if (!user) throw new Error("User not found");
 
     // Use the authenticated API to invite team member
-    const response = await api.post("/api/accountant/invite-member", { name, email });
+    const response = await api.post("/api/accountant/invite-member", { firstName, lastName, email });
 
     const result = await response.json();
     
@@ -737,7 +790,7 @@ export default function GatewayPage() {
 
 
 
-  const fetchTeamMembers = async () => {
+  const fetchTeamMembers = useCallback(async () => {
     if (!user || user.role !== "Accountant") return;
 
     try {
@@ -749,7 +802,7 @@ export default function GatewayPage() {
     } catch (error) {
       console.error("Error fetching team members:", error);
     }
-  };
+  }, [user]);
 
   const handleManageMember = (member: TeamMember) => {
     setSelectedTeamMember(member);
@@ -771,7 +824,7 @@ export default function GatewayPage() {
     if (user && user.role === "Accountant") {
       fetchTeamMembers();
     }
-  }, [user]);
+  }, [user, fetchTeamMembers]);
 
   return (
     <>
@@ -787,23 +840,39 @@ export default function GatewayPage() {
             <div className="mb-8 p-6 bg-gray-50 border border-gray-200 rounded-lg w-lg">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Account Details</h3>
               
-              {emailForm.error && (
-                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm mb-4">
-                  {emailForm.error}
-                </div>
-              )}
-              {passwordForm.error && (
-                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm mb-4">
-                  {passwordForm.error}
-                </div>
-              )}
-              {(emailForm.success || passwordForm.success) && (
-                <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-md text-sm mb-4">
-                  Profile updated successfully!
-                </div>
-              )}
-
               <div className="space-y-4 text-left">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    First Name
+                  </label>
+                  <input
+                    type="text"
+                    value={nameForm.firstName}
+                    onChange={(e) => setNameForm(prev => ({ ...prev, firstName: e.target.value }))}
+                    disabled={!isEditingProfile}
+                    className={`w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 focus:border-black focus:outline-none focus:ring-black ${
+                      !isEditingProfile ? "bg-gray-50 text-gray-500" : ""
+                    }`}
+                    placeholder="Enter first name"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Last Name
+                  </label>
+                  <input
+                    type="text"
+                    value={nameForm.lastName}
+                    onChange={(e) => setNameForm(prev => ({ ...prev, lastName: e.target.value }))}
+                    disabled={!isEditingProfile}
+                    className={`w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 focus:border-black focus:outline-none focus:ring-black ${
+                      !isEditingProfile ? "bg-gray-50 text-gray-500" : ""
+                    }`}
+                    placeholder="Enter last name"
+                  />
+                </div>
+                
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Email Address
@@ -881,14 +950,17 @@ export default function GatewayPage() {
                     <button
                       onClick={() => {
                         setIsEditingProfile(false);
-                        setEmailForm(prev => ({ ...prev, email: user.email, error: "", success: false }));
+                        setEmailForm(prev => ({ ...prev, email: user.email }));
+                        setNameForm({
+                          firstName: user.first_name || "",
+                          lastName: user.last_name || "",
+                          isUpdating: false
+                        });
                         setPasswordForm({
                           currentPassword: "",
                           newPassword: "",
                           confirmPassword: "",
-                          isUpdating: false,
-                          error: "",
-                          success: false
+                          isUpdating: false
                         });
                       }}
                       className="flex-1 px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
@@ -897,10 +969,10 @@ export default function GatewayPage() {
                     </button>
                     <button
                       onClick={handleUpdateProfile}
-                      disabled={emailForm.isUpdating || passwordForm.isUpdating}
+                      disabled={emailForm.isUpdating || nameForm.isUpdating || passwordForm.isUpdating}
                       className="flex-1 px-4 py-2 text-sm font-medium text-white bg-black rounded-md hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      {emailForm.isUpdating || passwordForm.isUpdating ? "Saving..." : "Save"}
+                      {emailForm.isUpdating || nameForm.isUpdating || passwordForm.isUpdating ? "Saving..." : "Save"}
                     </button>
                   </div>
                 ) : (
@@ -921,14 +993,16 @@ export default function GatewayPage() {
               {companies.length > 0 ? (
                 <div className="space-y-4 w-2xl mx-auto">
                   {/* Add Company Button */}
-                  <div className="flex justify-start">
-                    <button
-                      onClick={() => setIsCompanyModalOpen(true)}
-                      className="flex items-center gap-2 px-2 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 transition-colors hover:cursor-pointer"
-                    >
-                      Add Company
-                    </button>
-                  </div>
+                  {companies.some((userCompany) => userCompany.access_type !== "granted") && (
+                    <div className="flex justify-start">
+                      <button
+                        onClick={() => setIsCompanyModalOpen(true)}
+                        className="flex items-center gap-2 px-2 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 transition-colors hover:cursor-pointer"
+                      >
+                        Add Company
+                      </button>
+                    </div>
+                  )}
 
                   {/* Search Bar */}
                   <div className="w-full">
@@ -952,9 +1026,12 @@ export default function GatewayPage() {
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                             Description
                           </th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                            Role
-                          </th>
+                          {/* Only show Role column if at least one company is not access_type granted */}
+                          {companies.some((userCompany) => userCompany.access_type !== "granted") && (
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                              Role
+                            </th>
+                          )}
                           <th className="px-4 py-3 text-right text-xs font-medium text-gray-700 uppercase tracking-wider">
                             Action
                           </th>
@@ -981,9 +1058,12 @@ export default function GatewayPage() {
                             <td className="px-4 py-3 text-left text-sm text-gray-600">
                               {userCompany.companies.description || "-"}
                             </td>
-                            <td className="px-4 py-3 text-left text-sm text-gray-600">
-                              {userCompany.role}
-                            </td>
+                            {/* Only show Role cell if at least one company is not access_type granted */}
+                            {companies.some((uc) => uc.access_type !== "granted") && (
+                              <td className="px-4 py-3 text-left text-sm text-gray-600">
+                                {userCompany.access_type !== "granted" ? userCompany.role : ""}
+                              </td>
+                            )}
                             <td className="px-4 py-3 text-left">
                               <button
                                 onClick={() => handleCompanySelect(userCompany.companies)}
@@ -1072,7 +1152,8 @@ export default function GatewayPage() {
                       {teamMembers
                         .filter((member) => 
                           member.email.toLowerCase().includes(teamSearchQuery.toLowerCase()) ||
-                          member.name.toLowerCase().includes(teamSearchQuery.toLowerCase())
+                          member.firstName.toLowerCase().includes(teamSearchQuery.toLowerCase()) ||
+                          member.lastName.toLowerCase().includes(teamSearchQuery.toLowerCase())
                         )
                         .map((member) => (
                         <tr key={member.id} className="hover:bg-gray-50">
@@ -1080,7 +1161,7 @@ export default function GatewayPage() {
                             {member.email}
                           </td>
                           <td className="px-4 py-3 text-left text-sm text-gray-600">
-                            {member.name}
+                            {member.firstName} {member.lastName}
                           </td>
                           <td className="px-4 py-3 text-left text-sm text-gray-600">
                             <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
@@ -1106,7 +1187,8 @@ export default function GatewayPage() {
                       {teamMembers
                         .filter((member) => 
                           member.email.toLowerCase().includes(teamSearchQuery.toLowerCase()) ||
-                          member.name.toLowerCase().includes(teamSearchQuery.toLowerCase())
+                          member.firstName.toLowerCase().includes(teamSearchQuery.toLowerCase()) ||
+                          member.lastName.toLowerCase().includes(teamSearchQuery.toLowerCase())
                         )
                         .length === 0 && teamSearchQuery && (
                         <tr>
@@ -1151,7 +1233,10 @@ export default function GatewayPage() {
           member={selectedTeamMember}
           onMemberChanged={handleMemberChanged}
         />
+        
+        {/* Toast notifications */}
+        <Toaster />
       </main>
     </>
   );
-} 
+}

@@ -98,6 +98,7 @@ export const authApi = {
     return makeAuthenticatedRequest(url, {
       ...options,
       method: "DELETE",
+      body: options.body,
     });
   },
 };

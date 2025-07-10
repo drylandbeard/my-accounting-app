@@ -18,7 +18,7 @@ import ManualJeModal, {
 import { 
   isZeroAmount
 } from '@/lib/financial';
-import { showSuccessToast } from '@/lib/utils';
+import { showSuccessToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
 import { 
   Pagination,

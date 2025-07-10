@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
     // Get the team member details
     const { data: teamMember, error: teamMemberError } = await supabase
       .from("accountant_members_list")
-      .select("id, name, email")
+      .select("id, first_name, last_name, email")
       .eq("id", invitationToken.accountant_member_id)
       .single();
 
@@ -80,7 +80,8 @@ export async function GET(request: NextRequest) {
       success: true, 
       invitation: {
         email: teamMember.email,
-        name: teamMember.name,
+        firstName: teamMember.first_name,
+        lastName: teamMember.last_name,
         accountantId: invitationToken.accountant_id,
         accountantMemberId: teamMember.id,
         token

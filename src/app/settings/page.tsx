@@ -604,15 +604,39 @@ export default function SettingsPage() {
       isOpen: true,
       title: "Remove Team Member",
       message: `Are you sure you want to remove ${member?.email || "this team member"} from the company?`,
-      onConfirm: () => {
-        // For now, just show a success message since we're keeping this static
-        setConfirmationModal({
-          isOpen: true,
-          title: "Member Removed",
-          message: `Team member ${member?.email || "Unknown"} would be removed from the company.`,
-          onConfirm: () => setConfirmationModal({ ...confirmationModal, isOpen: false }),
-          confirmText: "OK",
-        });
+      onConfirm: async () => {
+        try {
+          const response = await api.delete("/api/member/remove", {
+            body: JSON.stringify({ memberId }),
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || "Failed to remove member");
+          }
+
+          // Remove the member from local state
+          setCompanyMembers((prev) => prev.filter((m) => m.id !== memberId));
+
+          // Show success message
+          setConfirmationModal({
+            isOpen: true,
+            title: "Member Removed",
+            message: `${member?.email || "Team member"} has been successfully removed from the company.`,
+            onConfirm: () => setConfirmationModal({ ...confirmationModal, isOpen: false }),
+            confirmText: "OK",
+          });
+        } catch (error) {
+          console.error("Error removing member:", error);
+          setConfirmationModal({
+            isOpen: true,
+            title: "Remove Failed",
+            message: error instanceof Error ? error.message : "Failed to remove member. Please try again.",
+            onConfirm: () => setConfirmationModal({ ...confirmationModal, isOpen: false }),
+            confirmText: "OK",
+            confirmButtonStyle: "danger",
+          });
+        }
       },
       confirmText: "Remove",
       confirmButtonStyle: "danger",
@@ -816,15 +840,19 @@ export default function SettingsPage() {
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      {isOwner && member.id !== user.id && (
+                      {member.id !== user.id && (
                         <>
-                          <button className="text-blue-600 hover:text-blue-900 mr-3">Edit</button>
-                          <button
-                            onClick={() => handleDeleteMember(member.id)}
-                            className="text-red-600 hover:text-red-900"
-                          >
-                            Remove
-                          </button>
+                          {(isOwner || member.role !== "Owner") && (
+                            <>
+                              <button className="text-blue-600 hover:text-blue-900 mr-3">Edit</button>
+                              <button
+                                onClick={() => handleDeleteMember(member.id)}
+                                className="text-red-600 hover:text-red-900"
+                              >
+                                Remove
+                              </button>
+                            </>
+                          )}
                         </>
                       )}
                     </td>
