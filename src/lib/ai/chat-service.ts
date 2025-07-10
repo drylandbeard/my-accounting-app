@@ -34,7 +34,7 @@ export class ChatService {
     }
   ): Promise<OpenAIResponse> {
     const requestBody = {
-      model: options?.model || 'gpt-3.5-turbo',
+      model: options?.model || 'gpt-4o-mini-2024-07-18',
       messages: messages,
       max_tokens: options?.maxTokens || 512,
       temperature: options?.temperature || 0.2,

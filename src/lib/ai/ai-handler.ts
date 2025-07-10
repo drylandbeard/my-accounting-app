@@ -4,10 +4,12 @@ import {
   BatchOperationResult,
   PayeeOperation,
   ChatMessage,
-  OpenAIResponse 
+  OpenAIResponse,
+  PayeeValidationContext
 } from './types';
 import { PayeeExecutor } from './payee-executor';
 import { ChatService } from './chat-service';
+import { PayeeValidator } from './payee-validator';
 
 /**
  * Main AI handler that coordinates all AI operations
@@ -16,6 +18,14 @@ import { ChatService } from './chat-service';
 export class AIHandler {
   private payeeExecutor: PayeeExecutor;
   private chatService: ChatService;
+  private payeesStore: {
+    payees: Array<{ id: string; name: string; company_id: string }>;
+    error: string | null;
+    addPayee: (payee: { name: string }) => Promise<{ id: string; name: string } | null>;
+    updatePayee: (id: string, updates: { name: string }) => Promise<boolean>;
+    deletePayee: (id: string) => Promise<boolean>;
+    refreshPayees: () => Promise<void>;
+  };
 
   constructor(
     payeesStore: {
@@ -29,6 +39,7 @@ export class AIHandler {
     currentCompany: { id: string; name: string } | null,
     apiKey: string
   ) {
+    this.payeesStore = payeesStore;
     this.payeeExecutor = new PayeeExecutor(payeesStore, currentCompany);
     this.chatService = new ChatService(apiKey);
   }
@@ -69,7 +80,7 @@ export class AIHandler {
       const response = await this.chatService.sendChatCompletion(
         chatMessages,
         {
-          model: 'gpt-3.5-turbo',
+          model: 'gpt-4o-mini-2024-07-18',
           temperature: 0.2,
           maxTokens: 512,
           tools: this.chatService.getPayeeTools()
@@ -91,6 +102,11 @@ export class AIHandler {
    */
   async executeAction(action: Record<string, unknown>): Promise<string> {
     try {
+      // Handle text confirmations that were converted to actual actions
+      if (action.action === 'text_confirmation') {
+        return '✅ Confirmed! Please try your request again with the specific action.';
+      }
+      
       if (action.action === 'batch_execute') {
         const operations = action.operations as PayeeOperation[];
         const result = await this.payeeExecutor.executeBatchOperations(operations);
@@ -140,6 +156,20 @@ export class AIHandler {
         aiResponse = "Sorry, I could not generate a response.";
       }
 
+      // Check if the response needs confirmation buttons
+      const { needsConfirmation, pendingAction } = this.needsConfirmationButtons(aiResponse);
+      if (needsConfirmation) {
+        return {
+          success: true,
+          response: {
+            role: 'assistant',
+            content: aiResponse,
+            showConfirmation: true,
+            pendingAction: pendingAction as { action: string; [key: string]: unknown }
+          }
+        };
+      }
+
       return {
         success: true,
         response: {
@@ -166,24 +196,54 @@ export class AIHandler {
     response: Message;
   } {
     let confirmationMessage = "I will perform the following actions:\n\n";
-
     const operations: PayeeOperation[] = [];
+    const validationErrors: string[] = [];
 
+    // First pass: validate all operations
+    toolCalls.forEach((toolCall, index) => {
+      const functionName = toolCall.function?.name;
+      const args = JSON.parse(toolCall.function?.arguments || '{}');
+
+      if (functionName) {
+        const validation = this.validateOperationArgs(functionName, args);
+        if (!validation.isValid) {
+          validationErrors.push(`Operation ${index + 1}: ${validation.errorMessage}`);
+        }
+      }
+    });
+
+    // If there are validation errors, return them immediately
+    if (validationErrors.length > 0) {
+      return {
+        success: true,
+        response: {
+          role: 'assistant',
+          content: `I found some issues with your request:\n\n${validationErrors.join('\n')}\n\nPlease correct these issues and try again.`,
+          isError: true
+        }
+      };
+    }
+
+    // Second pass: build confirmation message
     toolCalls.forEach((toolCall, index) => {
       const functionName = toolCall.function?.name;
       const args = JSON.parse(toolCall.function?.arguments || '{}');
 
       switch (functionName) {
         case 'create_payee':
-          confirmationMessage += `${index + 1}. Create payee "${args.name}"\n`;
+          const createName = this.sanitizeDisplayValue(args.name);
+          confirmationMessage += `${index + 1}. Create payee${createName ? ` "${createName}"` : ''}\n`;
           operations.push({ action: 'create_payee', params: args });
           break;
         case 'update_payee':
-          confirmationMessage += `${index + 1}. Update payee "${args.payeeName || args.payeeId}" to "${args.name}"\n`;
+          const currentName = this.sanitizeDisplayValue(args.payeeName || args.payeeId);
+          const newName = this.sanitizeDisplayValue(args.name);
+          confirmationMessage += `${index + 1}. Update payee${currentName ? ` "${currentName}"` : ''}${newName ? ` to "${newName}"` : ''}\n`;
           operations.push({ action: 'update_payee', params: args });
           break;
         case 'delete_payee':
-          confirmationMessage += `${index + 1}. Delete payee "${args.payeeName || args.payeeId}"\n`;
+          const deleteName = this.sanitizeDisplayValue(args.payeeName || args.payeeId);
+          confirmationMessage += `${index + 1}. Delete payee${deleteName ? ` "${deleteName}"` : ''}\n`;
           operations.push({ action: 'delete_payee', params: args });
           break;
         default:
@@ -217,18 +277,37 @@ export class AIHandler {
     const functionName = toolCall.function?.name;
     const args = JSON.parse(toolCall.function?.arguments || '{}');
 
+    // Validate operation arguments
+    if (functionName) {
+      const validation = this.validateOperationArgs(functionName, args);
+      if (!validation.isValid) {
+        return {
+          success: true,
+          response: {
+            role: 'assistant',
+            content: validation.errorMessage || 'Operation is invalid',
+            isError: true
+          }
+        };
+      }
+    }
+
     let confirmationMessage = '';
     let pendingAction: Record<string, unknown> = { action: functionName, ...args };
 
     switch (functionName) {
       case 'create_payee':
-        confirmationMessage = `I'll create a new payee named "${args.name}". Would you like to proceed?`;
+        const payeeName = this.sanitizeDisplayValue(args.name);
+        confirmationMessage = `I'll create a new payee${payeeName ? ` named "${payeeName}"` : ''}. Would you like to proceed?`;
         break;
       case 'update_payee':
-        confirmationMessage = `I'll update the payee "${args.payeeName || args.payeeId}" to "${args.name}". Would you like to proceed?`;
+        const currentPayee = this.sanitizeDisplayValue(args.payeeName || args.payeeId);
+        const newPayeeName = this.sanitizeDisplayValue(args.name);
+        confirmationMessage = `I'll update the payee${currentPayee ? ` "${currentPayee}"` : ''}${newPayeeName ? ` to "${newPayeeName}"` : ''}. Would you like to proceed?`;
         break;
       case 'delete_payee':
-        confirmationMessage = `I'll delete the payee "${args.payeeName || args.payeeId}". Would you like to proceed?`;
+        const payeeToDelete = this.sanitizeDisplayValue(args.payeeName || args.payeeId);
+        confirmationMessage = `I'll delete the payee${payeeToDelete ? ` "${payeeToDelete}"` : ''}. Would you like to proceed?`;
         break;
       case 'batch_execute':
         const operations = args.operations || [];
@@ -239,13 +318,17 @@ export class AIHandler {
           
           switch (op.action) {
             case 'create_payee':
-              batchMessage += `${index + 1}. Create payee "${params.name || 'Unknown Payee'}"\n`;
+              const createName = this.sanitizeDisplayValue(params.name);
+              batchMessage += `${index + 1}. Create payee${createName ? ` "${createName}"` : ''}\n`;
               break;
             case 'update_payee':
-              batchMessage += `${index + 1}. Update payee "${params.payeeName || params.payeeId || 'Unknown Payee'}" to "${params.name || 'Unknown Name'}"\n`;
+              const currentName = this.sanitizeDisplayValue(params.payeeName || params.payeeId);
+              const newName = this.sanitizeDisplayValue(params.name);
+              batchMessage += `${index + 1}. Update payee${currentName ? ` "${currentName}"` : ''}${newName ? ` to "${newName}"` : ''}\n`;
               break;
             case 'delete_payee':
-              batchMessage += `${index + 1}. Delete payee "${params.payeeName || params.payeeId || 'Unknown Payee'}"\n`;
+              const deleteName = this.sanitizeDisplayValue(params.payeeName || params.payeeId);
+              batchMessage += `${index + 1}. Delete payee${deleteName ? ` "${deleteName}"` : ''}\n`;
               break;
             default:
               batchMessage += `${index + 1}. ${op.action} operation\n`;
@@ -277,13 +360,51 @@ export class AIHandler {
    */
   private formatOperationResult(result: OperationResult, operationName: string): string {
     if (result.success) {
-      return PayeeExecutor.getSuccessMessage(
-        operationName,
-        result.data as Record<string, unknown> || {}
-      );
+      // Create a better success message that doesn't show null/undefined
+      return this.createSuccessMessage(operationName, result);
     } else {
       return PayeeExecutor.getErrorMessage(result);
     }
+  }
+
+  /**
+   * Creates a user-friendly success message without null/undefined values
+   */
+  private createSuccessMessage(operationName: string, result: OperationResult): string {
+    const data = result.data as Record<string, unknown> || {};
+    
+    switch (operationName) {
+      case 'create_payee':
+        const createdName = this.sanitizeDisplayValue(data.name);
+        return `✅ Successfully created payee${createdName ? ` "${createdName}"` : ''}`;
+        
+      case 'update_payee':
+        const updatedName = this.sanitizeDisplayValue(data.name);
+        return `✅ Successfully updated payee${updatedName ? ` to "${updatedName}"` : ''}`;
+        
+      case 'delete_payee':
+        const deletedName = this.sanitizeDisplayValue(data.name);
+        return `✅ Successfully deleted payee${deletedName ? ` "${deletedName}"` : ''}`;
+        
+      default:
+        return '✅ Operation completed successfully';
+    }
+  }
+
+  /**
+   * Sanitizes display values to avoid showing null, undefined, or empty strings
+   */
+  private sanitizeDisplayValue(value: unknown): string | null {
+    if (value === null || value === undefined || value === '' || value === 'null' || value === 'undefined') {
+      return null;
+    }
+    
+    const stringValue = String(value).trim();
+    if (stringValue === '' || stringValue === 'null' || stringValue === 'undefined') {
+      return null;
+    }
+    
+    return stringValue;
   }
 
   /**
@@ -291,16 +412,19 @@ export class AIHandler {
    */
   private formatBatchResult(result: BatchOperationResult): string {
     if (result.success) {
-      return `✅ Successfully completed all ${result.completedOperations} operations!`;
+      const operationCount = this.sanitizeDisplayValue(result.completedOperations) || '0';
+      return `✅ Successfully completed ${operationCount} operation${result.completedOperations === 1 ? '' : 's'}!`;
     } else {
-      let message = `❌ Batch operation failed: ${result.message}`;
+      let message = `❌ Batch operation failed: ${result.message || 'Unknown error'}`;
       
       if (result.completedOperations > 0) {
-        message += `\n\n✅ Completed: ${result.completedOperations} operations`;
+        const completedCount = this.sanitizeDisplayValue(result.completedOperations) || '0';
+        message += `\n\n✅ Completed: ${completedCount} operation${result.completedOperations === 1 ? '' : 's'}`;
       }
       
-      if (result.failedAt !== undefined) {
-        message += `\n❌ Failed at operation ${result.failedAt + 1}`;
+      if (result.failedAt !== undefined && result.failedAt !== null) {
+        const failedAt = this.sanitizeDisplayValue(result.failedAt + 1) || 'unknown';
+        message += `\n❌ Failed at operation ${failedAt}`;
       }
       
       return message;
@@ -343,5 +467,133 @@ export class AIHandler {
     
     return "I'd be happy to help with that, but I need a bit more information. " +
       "Could you please be more specific about what you'd like me to do?";
+  }
+
+  /**
+   * Validates operation arguments before creating confirmation message
+   */
+  private validateOperationArgs(
+    functionName: string,
+    args: Record<string, unknown>
+  ): { isValid: boolean; errorMessage?: string } {
+    const existingPayees = this.payeesStore.payees || [];
+    
+    // Create validation context
+    const context: PayeeValidationContext = {
+      existingPayees,
+      operation: functionName as 'create' | 'update' | 'delete'
+    };
+    
+    // Map function names to operation types
+    const operationMap: Record<string, 'create' | 'update' | 'delete'> = {
+      'create_payee': 'create',
+      'update_payee': 'update',
+      'delete_payee': 'delete'
+    };
+    
+    const operation = operationMap[functionName];
+    if (!operation) {
+      return { isValid: false, errorMessage: `Unknown operation: ${functionName}` };
+    }
+    
+    // Use the comprehensive PayeeValidator
+    const validation = PayeeValidator.validatePayeeOperation(operation, args, context);
+    
+    if (!validation.isValid) {
+      // Combine errors and suggestions into a user-friendly message
+      let errorMessage = validation.errors.join('; ');
+      
+      if (validation.suggestions.length > 0) {
+        errorMessage += '\n\nSuggestions:\n' + validation.suggestions.map(s => `• ${s}`).join('\n');
+      }
+      
+      return { isValid: false, errorMessage };
+    }
+    
+    return { isValid: true };
+  }
+
+  /**
+   * Detects if a text response needs confirmation buttons
+   */
+  private needsConfirmationButtons(content: string): { needsConfirmation: boolean; pendingAction?: Record<string, unknown> } {
+    // Check for confirmation questions
+    const confirmationPatterns = [
+      /would you like to proceed/i,
+      /would you like to continue/i,
+      /shall I proceed/i,
+      /do you want to proceed/i,
+      /proceed with those/i,
+      /proceed with these/i,
+      /proceed with that/i,
+      /proceed with this/i,
+      /would you like me to/i,
+      /should I proceed/i,
+      /continue with/i,
+    ];
+    
+    const hasConfirmationQuestion = confirmationPatterns.some(pattern => pattern.test(content));
+    
+    if (!hasConfirmationQuestion) {
+      return { needsConfirmation: false };
+    }
+    
+    // Try to extract the intended action from the content
+    let pendingAction: Record<string, unknown> = { action: 'text_confirmation' };
+    
+    // Look for batch operations (multiple payees)
+    const batchMatches = content.match(/add\s+"([^"]+)",?\s*"([^"]+)",?\s*(?:and\s+)?"([^"]+)"/i) ||
+                        content.match(/help you add\s+"([^"]+)",?\s*"([^"]+)",?\s*(?:and\s+)?"([^"]+)"/i);
+    if (batchMatches) {
+      const payeeNames = batchMatches.slice(1)
+        .filter(name => name && name.trim())
+        .map(name => name.trim().replace(/[,.]$/, '')); // Remove trailing commas and periods
+      
+      pendingAction = {
+        action: 'batch_execute',
+        operations: payeeNames.map(name => ({
+          action: 'create_payee',
+          params: { name: name.trim() }
+        }))
+      };
+      return { needsConfirmation: true, pendingAction };
+    }
+    
+    // Look for single create operations
+    const createMatch = content.match(/create.*payee.*"([^"]+)"/i) || 
+                       content.match(/add.*payee.*"([^"]+)"/i);
+    if (createMatch) {
+      pendingAction = {
+        action: 'create_payee',
+        name: createMatch[1]
+      };
+      return { needsConfirmation: true, pendingAction };
+    }
+    
+    // Look for update operations
+    const updateMatch = content.match(/update.*payee.*"([^"]+)".*to.*"([^"]+)"/i) ||
+                       content.match(/rename.*"([^"]+)".*to.*"([^"]+)"/i);
+    if (updateMatch) {
+      pendingAction = {
+        action: 'update_payee',
+        payeeName: updateMatch[1],
+        name: updateMatch[2]
+      };
+      return { needsConfirmation: true, pendingAction };
+    }
+    
+    // Look for delete operations
+    const deleteMatch = content.match(/delete.*payee.*"([^"]+)"/i) ||
+                       content.match(/remove.*payee.*"([^"]+)"/i);
+    if (deleteMatch) {
+      pendingAction = {
+        action: 'delete_payee',
+        payeeName: deleteMatch[1]
+      };
+      return { needsConfirmation: true, pendingAction };
+    }
+    
+    // Default to generic confirmation if we can't extract specific action
+    return { needsConfirmation: true, pendingAction };
   }
 }
