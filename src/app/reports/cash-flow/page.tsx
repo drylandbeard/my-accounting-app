@@ -105,8 +105,6 @@ export default function CashFlowPage() {
     collapsedAccounts,
     getTopLevelAccounts,
     calculateAccountTotal,
-    calculateAccountTotalForMonth,
-    calculateAccountTotalForQuarter,
     collapseAllParentCategories,
     expandAllParentCategories,
     getParentAccounts,
@@ -155,20 +153,13 @@ export default function CashFlowPage() {
     };
 
     loadSavedReport();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reportId, currentCompany?.id]); // Only depend on reportId and currentCompany?.id
 
   // Account groups
   const revenueRows = getTopLevelAccounts("Revenue");
   const cogsRows = getTopLevelAccounts("COGS");
   const expenseRows = getTopLevelAccounts("Expense");
-
-  // Totals for cash flow calculations
-  const totalRevenue = revenueRows.reduce((sum, a) => sum + calculateAccountTotal(a), 0);
-  const totalCOGS = cogsRows.reduce((sum, a) => sum + calculateAccountTotal(a), 0);
-  const totalExpenses = expenseRows.reduce((sum, a) => sum + calculateAccountTotal(a), 0);
-
-  // Net Income: difference of Revenue, COGS, and Expenses (as per business requirements)
-  const netIncome = totalRevenue - totalCOGS - totalExpenses;
 
   // Get bank accounts for beginning and ending balance - specifically "Bank Account" type as per business requirements
   const bankAccounts = useMemo(() => {
@@ -780,11 +771,28 @@ export default function CashFlowPage() {
 
             return (
               <React.Fragment key={quarter}>
-                <TableCell isValue>{formatNumber(value)}</TableCell>
+                <TableCell
+                  className={`${categoryType ? "cursor-pointer hover:bg-slate-100" : ""}`}
+                  isValue
+                  onClick={
+                    categoryType && categoryName ? () => handleCellClick(categoryType, categoryName, quarter) : undefined
+                  }
+                >
+                  {formatNumber(value)}
+                </TableCell>
               </React.Fragment>
             );
           })}
-          <TableCell isValue>{formatNumber(totalValue)}</TableCell>
+          <TableCell onClick={() =>
+              setViewerModal({
+                isOpen: true,
+                category: {
+                  id: categoryType?.toUpperCase() + "_GROUP",
+                  name: categoryName || "",
+                  type: categoryType || "",
+                },
+              })
+            } isValue>{formatNumber(totalValue)}</TableCell>
         </>
       );
     } else {
@@ -792,7 +800,16 @@ export default function CashFlowPage() {
 
       return (
         <>
-          <TableCell isValue>{formatNumber(value)}</TableCell>
+          <TableCell onClick={() =>
+              setViewerModal({
+                isOpen: true,
+                category: {
+                  id: categoryType?.toUpperCase() + "_GROUP",
+                  name: categoryName || "",
+                  type: categoryType || "",
+                },
+              })
+            } isValue>{formatNumber(value)}</TableCell>
         </>
       );
     }
@@ -810,10 +827,80 @@ export default function CashFlowPage() {
         ? journalEntries.filter((tx) => getAllGroupAccountIds(categories, cogsRows).includes(tx.chart_account_id))
         : category.id === "EXPENSE_GROUP"
         ? journalEntries.filter((tx) => getAllGroupAccountIds(categories, expenseRows).includes(tx.chart_account_id))
+        : category.id === "NET_INCOME_GROUP" || category.id === "OPERATING_CHANGE_GROUP"
+        ? journalEntries.filter((tx) => 
+            getAllGroupAccountIds(categories, [...revenueRows, ...cogsRows, ...expenseRows]).includes(tx.chart_account_id)
+          )
+        : category.id === "INVESTING_CHANGE_GROUP"
+        ? journalEntries.filter((tx) => 
+            categories.filter(cat => cat.type === "Asset").some(asset => getAllAccountIds(categories, asset).includes(tx.chart_account_id))
+          )
+        : category.id === "INCREASE_IN_ASSETS_GROUP"
+        ? journalEntries.filter((tx) => 
+            categories.filter(cat => cat.type === "Asset").some(asset => getAllAccountIds(categories, asset).includes(tx.chart_account_id)) &&
+            Number(tx.debit) > 0
+          )
+        : category.id === "DECREASE_IN_ASSETS_GROUP"
+        ? journalEntries.filter((tx) => 
+            categories.filter(cat => cat.type === "Asset").some(asset => getAllAccountIds(categories, asset).includes(tx.chart_account_id)) &&
+            Number(tx.credit) > 0
+          )
+        : category.id === "FINANCING_CHANGE_GROUP"
+        ? journalEntries.filter((tx) => 
+            categories.filter(cat => ["Liability", "Credit Card", "Equity"].includes(cat.type)).some(account => getAllAccountIds(categories, account).includes(tx.chart_account_id))
+          )
+        : category.id === "INCREASE_IN_CREDIT_CARDS_GROUP"
+        ? journalEntries.filter((tx) => 
+            categories.filter(cat => cat.type === "Credit Card").some(account => getAllAccountIds(categories, account).includes(tx.chart_account_id)) &&
+            Number(tx.credit) > 0
+          )
+        : category.id === "DECREASE_IN_CREDIT_CARDS_GROUP"
+        ? journalEntries.filter((tx) => 
+            categories.filter(cat => cat.type === "Credit Card").some(account => getAllAccountIds(categories, account).includes(tx.chart_account_id)) &&
+            Number(tx.debit) > 0
+          )
+        : category.id === "INCREASE_IN_LIABILITIES_GROUP"
+        ? journalEntries.filter((tx) => 
+            categories.filter(cat => cat.type === "Liability").some(account => getAllAccountIds(categories, account).includes(tx.chart_account_id)) &&
+            Number(tx.credit) > 0
+          )
+        : category.id === "DECREASE_IN_LIABILITIES_GROUP"
+        ? journalEntries.filter((tx) => 
+            categories.filter(cat => cat.type === "Liability").some(account => getAllAccountIds(categories, account).includes(tx.chart_account_id)) &&
+            Number(tx.debit) > 0
+          )
+        : category.id === "OWNER_INVESTMENT_GROUP"
+        ? journalEntries.filter((tx) => 
+            categories.filter(cat => cat.type === "Equity").some(account => getAllAccountIds(categories, account).includes(tx.chart_account_id)) &&
+            Number(tx.credit) > 0
+          )
+        : category.id === "OWNER_WITHDRAWAL_GROUP"
+        ? journalEntries.filter((tx) => 
+            categories.filter(cat => cat.type === "Equity").some(account => getAllAccountIds(categories, account).includes(tx.chart_account_id)) &&
+            Number(tx.debit) > 0
+          )
         : journalEntries.filter((tx) => getAllAccountIds(categories, category).includes(tx.chart_account_id));
 
     if (viewerModal.selectedMonth) {
-      transactions = transactions.filter((tx) => tx.date.startsWith(viewerModal.selectedMonth!));
+      // Handle both monthly (YYYY-MM) and quarterly (YYYY-QN) filtering
+      if (viewerModal.selectedMonth.includes('-Q')) {
+        // Quarterly filtering: convert quarter to date range
+        const [year, quarter] = viewerModal.selectedMonth.split('-Q');
+        const quarterNum = parseInt(quarter);
+        const startMonth = (quarterNum - 1) * 3 + 1;
+        const endMonth = quarterNum * 3;
+        
+        transactions = transactions.filter((tx) => {
+          const txDate = new Date(tx.date);
+          const txYear = txDate.getFullYear();
+          const txMonth = txDate.getMonth() + 1; // getMonth() is 0-indexed
+          
+          return txYear === parseInt(year) && txMonth >= startMonth && txMonth <= endMonth;
+        });
+      } else {
+        // Monthly filtering: filter by YYYY-MM prefix
+        transactions = transactions.filter((tx) => tx.date.startsWith(viewerModal.selectedMonth!));
+      }
     }
 
     return transactions;
@@ -834,13 +921,53 @@ export default function CashFlowPage() {
         type: specificAccount.type,
       };
     } else {
-      // For category groups like "Revenue", "COGS", "Expenses"
+      // For category groups like "Revenue", "COGS", "Expenses", "Net Income", Asset changes
       // Use consistent ID format like in PnL page (REVENUE_GROUP, COGS_GROUP, EXPENSE_GROUP)
-      const groupId = categoryType.toUpperCase() + "_GROUP";
+      let groupId;
+      let categoryTypeForGroup;
+      
+      if (categoryType === "NET_INCOME") {
+        groupId = "NET_INCOME_GROUP";
+        categoryTypeForGroup = "Operating";
+      } else if (categoryType === "OPERATING_CHANGE") {
+        groupId = "OPERATING_CHANGE_GROUP";
+        categoryTypeForGroup = "Operating";
+      } else if (categoryType === "INCREASE_IN_ASSETS") {
+        groupId = "INCREASE_IN_ASSETS_GROUP";
+        categoryTypeForGroup = "Asset";
+      } else if (categoryType === "DECREASE_IN_ASSETS") {
+        groupId = "DECREASE_IN_ASSETS_GROUP";
+        categoryTypeForGroup = "Asset";
+      } else if (categoryType === "INVESTING_CHANGE") {
+        groupId = "INVESTING_CHANGE_GROUP";
+        categoryTypeForGroup = "Investing";
+      } else if (categoryType === "INCREASE_IN_CREDIT_CARDS") {
+        groupId = "INCREASE_IN_CREDIT_CARDS_GROUP";
+        categoryTypeForGroup = "Credit Card";
+      } else if (categoryType === "DECREASE_IN_CREDIT_CARDS") {
+        groupId = "DECREASE_IN_CREDIT_CARDS_GROUP";
+        categoryTypeForGroup = "Credit Card";
+      } else if (categoryType === "INCREASE_IN_LIABILITIES") {
+        groupId = "INCREASE_IN_LIABILITIES_GROUP";
+        categoryTypeForGroup = "Liability";
+      } else if (categoryType === "DECREASE_IN_LIABILITIES") {
+        groupId = "DECREASE_IN_LIABILITIES_GROUP";
+        categoryTypeForGroup = "Liability";
+      } else if (categoryType === "OWNER_INVESTMENT") {
+        groupId = "OWNER_INVESTMENT_GROUP";
+        categoryTypeForGroup = "Equity";
+      } else if (categoryType === "OWNER_WITHDRAWAL") {
+        groupId = "OWNER_WITHDRAWAL_GROUP";
+        categoryTypeForGroup = "Equity";
+      } else {
+        groupId = categoryType.toUpperCase() + "_GROUP";
+        categoryTypeForGroup = categoryType;
+      }
+      
       category = {
         id: groupId,
         name: categoryName,
-        type: categoryType,
+        type: categoryTypeForGroup,
       };
     }
 
@@ -1073,6 +1200,7 @@ export default function CashFlowPage() {
                               category: { id: "REVENUE_GROUP", name: "Revenue", type: "Revenue" },
                             })
                           }
+                          style={{ paddingLeft: "28px" }}
                         >
                           Revenue
                         </TableCell>
@@ -1095,6 +1223,7 @@ export default function CashFlowPage() {
                               category: { id: "COGS_GROUP", name: "Cost of Goods Sold", type: "COGS" },
                             })
                           }
+                          style={{ paddingLeft: "28px" }}
                         >
                           Cost of Goods Sold
                         </TableCell>
@@ -1118,6 +1247,7 @@ export default function CashFlowPage() {
                               category: { id: "EXPENSE_GROUP", name: "Expenses", type: "Expense" },
                             })
                           }
+                          style={{ paddingLeft: "28px" }}
                         >
                           Expenses
                         </TableCell>
@@ -1132,61 +1262,41 @@ export default function CashFlowPage() {
                       </TableRow>
 
                       {/* Net Income */}
-                      <TableRow>
-                        <TableCell isLineItem>Net Income</TableCell>
-                        {isMonthlyView ? (
-                          <>
-                            {getMonthsInRange(startDate, endDate).map((month) => (
-                              <React.Fragment key={month}>
-                                <TableCell isValue>
-                                  {formatNumber(
-                                    revenueRows.reduce((sum, a) => sum + calculateAccountTotalForMonth(a, month), 0) -
-                                      cogsRows.reduce((sum, a) => sum + calculateAccountTotalForMonth(a, month), 0) -
-                                      expenseRows.reduce((sum, a) => sum + calculateAccountTotalForMonth(a, month), 0)
-                                  )}
-                                </TableCell>
-                              </React.Fragment>
-                            ))}
-                            <TableCell isValue>{formatNumber(netIncome)}</TableCell>
-                          </>
-                        ) : isQuarterlyView ? (
-                          <>
-                            {getQuartersInRange(startDate, endDate).map((quarter) => (
-                              <React.Fragment key={quarter}>
-                                <TableCell isValue>
-                                  {formatNumber(
-                                    revenueRows.reduce(
-                                      (sum, a) => sum + calculateAccountTotalForQuarter(a, quarter),
-                                      0
-                                    ) -
-                                      cogsRows.reduce(
-                                        (sum, a) => sum + calculateAccountTotalForQuarter(a, quarter),
-                                        0
-                                      ) -
-                                      expenseRows.reduce(
-                                        (sum, a) => sum + calculateAccountTotalForQuarter(a, quarter),
-                                        0
-                                      )
-                                  )}
-                                </TableCell>
-                              </React.Fragment>
-                            ))}
-                            <TableCell isValue>{formatNumber(netIncome)}</TableCell>
-                          </>
-                        ) : (
-                          <>
-                            <TableCell isValue>{formatNumber(netIncome)}</TableCell>
-                          </>
-                        )}
-                      </TableRow>
-                      {/* Operating Change - equal to Net Income as per business requirements */}
-                      <TableRow isSummaryLineItem>
-                        <TableCell isLineItem>Operating Change</TableCell>
+                      <TableRow className="cursor-pointer">
+                        <TableCell 
+                          isLineItem 
+                          style={{ paddingLeft: "28px" }}
+                          onClick={() => setViewerModal({
+                            isOpen: true,
+                            category: { id: "NET_INCOME_GROUP", name: "Net Income", type: "Operating" }
+                          })}
+                        >
+                          Net Income
+                        </TableCell>
                         {renderPeriodCells(
                           (periodStart, periodEnd) =>
                             calculateOperatingActivitiesForPeriod(periodStart, periodEnd).netIncome,
                           undefined,
-                          "Operating",
+                          "NET_INCOME",
+                          "Net Income"
+                        )}
+                      </TableRow>
+                      {/* Operating Change - equal to Net Income as per business requirements */}
+                      <TableRow isSummaryLineItem className="cursor-pointer">
+                        <TableCell 
+                          isLineItem
+                          onClick={() => setViewerModal({
+                            isOpen: true,
+                            category: { id: "OPERATING_CHANGE_GROUP", name: "Operating Change", type: "Operating" }
+                          })}
+                        >
+                          Operating Change
+                        </TableCell>
+                        {renderPeriodCells(
+                          (periodStart, periodEnd) =>
+                            calculateOperatingActivitiesForPeriod(periodStart, periodEnd).netIncome,
+                          undefined,
+                          "OPERATING_CHANGE",
                           "Operating Change"
                         )}
                       </TableRow>
@@ -1220,34 +1330,51 @@ export default function CashFlowPage() {
                       </TableRow>
 
                       {/* Increase in Assets */}
-                      <TableRow>
-                        <TableCell isLineItem>Increase in Assets</TableCell>
+                      <TableRow className="cursor-pointer">
+                        <TableCell isLineItem style={{ paddingLeft: "28px" }} onClick={() => setViewerModal({
+                          isOpen: true,
+                          category: { id: "INCREASE_IN_ASSETS_GROUP", name: "Increase in Assets", type: "Investing" }
+                        })}>Increase in Assets</TableCell>
                         {renderPeriodCells(
                           (periodStart, periodEnd) =>
                             -calculateInvestingActivitiesForPeriod(periodStart, periodEnd).increaseInAssets,
                           undefined,
-                          "Asset",
+                          "INCREASE_IN_ASSETS",
                           "Increase in Assets"
                         )}
                       </TableRow>
 
                       {/* Decrease in Assets */}
-                      <TableRow>
-                        <TableCell isLineItem>Decrease in Assets</TableCell>
+                      <TableRow className="cursor-pointer">
+                        <TableCell isLineItem style={{ paddingLeft: "28px" }} onClick={() => setViewerModal({
+                          isOpen: true,
+                          category: { id: "DECREASE_IN_ASSETS_GROUP", name: "Decrease in Assets", type: "Investing" }
+                        })}>Decrease in Assets</TableCell>
                         {renderPeriodCells(
                           (periodStart, periodEnd) =>
                             calculateInvestingActivitiesForPeriod(periodStart, periodEnd).decreaseInAssets,
                           undefined,
-                          "Asset",
+                          "DECREASE_IN_ASSETS",
                           "Decrease in Assets"
                         )}
                       </TableRow>
 
-                      <TableRow isSummaryLineItem>
-                        <TableCell isLineItem>Investing Change</TableCell>
+                      <TableRow isSummaryLineItem className="cursor-pointer">
+                        <TableCell 
+                          isLineItem
+                          onClick={() => setViewerModal({
+                            isOpen: true,
+                            category: { id: "INVESTING_CHANGE_GROUP", name: "Investing Change", type: "Investing" }
+                          })}
+                        >
+                          Investing Change
+                        </TableCell>
                         {renderPeriodCells(
                           (periodStart, periodEnd) =>
-                            calculateInvestingActivitiesForPeriod(periodStart, periodEnd).netInvestingChange
+                            calculateInvestingActivitiesForPeriod(periodStart, periodEnd).netInvestingChange,
+                          undefined,
+                          "INVESTING_CHANGE",
+                          "Investing Change"
                         )}
                       </TableRow>
 
@@ -1280,84 +1407,110 @@ export default function CashFlowPage() {
                       </TableRow>
 
                       {/* Increase in Credit Cards */}
-                      <TableRow>
-                        <TableCell isLineItem>Increase in Credit Cards</TableCell>
+                      <TableRow className="cursor-pointer">
+                        <TableCell isLineItem style={{ paddingLeft: "28px" }} onClick={() => setViewerModal({
+                          isOpen: true,
+                          category: { id: "INCREASE_IN_CREDIT_CARDS_GROUP", name: "Increase in Credit Cards", type: "Financing" }
+                        })}>Increase in Credit Cards</TableCell>
                         {renderPeriodCells(
                           (periodStart, periodEnd) =>
                             calculateFinancingActivitiesForPeriod(periodStart, periodEnd).increaseInCreditCards,
                           undefined,
-                          "Credit Card",
+                          "INCREASE_IN_CREDIT_CARDS",
                           "Increase in Credit Cards"
                         )}
                       </TableRow>
 
                       {/* Decrease in Credit Cards */}
-                      <TableRow>
-                        <TableCell isLineItem>Decrease in Credit Cards</TableCell>
+                      <TableRow className="cursor-pointer">
+                        <TableCell isLineItem style={{ paddingLeft: "28px" }} onClick={() => setViewerModal({
+                          isOpen: true,
+                          category: { id: "DECREASE_IN_CREDIT_CARDS_GROUP", name: "Decrease in Credit Cards", type: "Financing" }
+                        })}>Decrease in Credit Cards</TableCell>
                         {renderPeriodCells(
                           (periodStart, periodEnd) =>
                             -calculateFinancingActivitiesForPeriod(periodStart, periodEnd).decreaseInCreditCards,
                           undefined,
-                          "Credit Card",
+                          "DECREASE_IN_CREDIT_CARDS",
                           "Decrease in Credit Cards"
                         )}
                       </TableRow>
 
                       {/* Increase in Liabilities */}
-                      <TableRow>
-                        <TableCell isLineItem>Increase in Liabilities</TableCell>
+                      <TableRow className="cursor-pointer">
+                        <TableCell isLineItem style={{ paddingLeft: "28px" }} onClick={() => setViewerModal({
+                          isOpen: true,
+                          category: { id: "INCREASE_IN_LIABILITIES_GROUP", name: "Increase in Liabilities", type: "Financing" }
+                        })}>Increase in Liabilities</TableCell>
                         {renderPeriodCells(
                           (periodStart, periodEnd) =>
                             calculateFinancingActivitiesForPeriod(periodStart, periodEnd).increaseInLiabilities,
                           undefined,
-                          "Liability",
+                          "INCREASE_IN_LIABILITIES",
                           "Increase in Liabilities"
                         )}
                       </TableRow>
 
                       {/* Decrease in Liabilities */}
-                      <TableRow>
-                        <TableCell isLineItem>Decrease in Liabilities</TableCell>
+                      <TableRow className="cursor-pointer">
+                        <TableCell isLineItem style={{ paddingLeft: "28px" }} onClick={() => setViewerModal({
+                          isOpen: true,
+                          category: { id: "DECREASE_IN_LIABILITIES_GROUP", name: "Decrease in Liabilities", type: "Financing" }
+                        })}>Decrease in Liabilities</TableCell>
                         {renderPeriodCells(
                           (periodStart, periodEnd) =>
                             -calculateFinancingActivitiesForPeriod(periodStart, periodEnd).decreaseInLiabilities,
                           undefined,
-                          "Liability",
+                          "DECREASE_IN_LIABILITIES",
                           "Decrease in Liabilities"
                         )}
                       </TableRow>
 
                       {/* Owner Investment */}
-                      <TableRow>
-                        <TableCell isLineItem>Owner Investment</TableCell>
+                      <TableRow className="cursor-pointer">
+                        <TableCell isLineItem style={{ paddingLeft: "28px" }} onClick={() => setViewerModal({
+                          isOpen: true,
+                          category: { id: "OWNER_INVESTMENT_GROUP", name: "Owner Investment", type: "Financing" }
+                        })}>Owner Investment</TableCell>
                         {renderPeriodCells(
                           (periodStart, periodEnd) =>
                             calculateFinancingActivitiesForPeriod(periodStart, periodEnd).ownerInvestment,
                           undefined,
-                          "Equity",
+                          "OWNER_INVESTMENT",
                           "Owner Investment"
                         )}
                       </TableRow>
 
                       {/* Owner Withdrawal */}
-                      <TableRow>
-                        <TableCell isLineItem>Owner Withdrawal</TableCell>
+                      <TableRow className="cursor-pointer">
+                        <TableCell isLineItem style={{ paddingLeft: "28px" }} onClick={() => setViewerModal({
+                          isOpen: true,
+                          category: { id: "OWNER_WITHDRAWAL_GROUP", name: "Owner Withdrawal", type: "Financing" }
+                        })}>Owner Withdrawal</TableCell>
                         {renderPeriodCells(
                           (periodStart, periodEnd) =>
                             -calculateFinancingActivitiesForPeriod(periodStart, periodEnd).ownerWithdrawal,
                           undefined,
-                          "Equity",
+                          "OWNER_WITHDRAWAL",
                           "Owner Withdrawal"
                         )}
                       </TableRow>
                       {/* Financing Change */}
-                      <TableRow isSummaryLineItem>
-                        <TableCell isLineItem>Financing Change</TableCell>
+                      <TableRow isSummaryLineItem className="cursor-pointer">
+                        <TableCell 
+                          isLineItem
+                          onClick={() => setViewerModal({
+                            isOpen: true,
+                            category: { id: "FINANCING_CHANGE_GROUP", name: "Financing Change", type: "Financing" }
+                          })}
+                        >
+                          Financing Change
+                        </TableCell>
                         {renderPeriodCells(
                           (periodStart, periodEnd) =>
                             calculateFinancingActivitiesForPeriod(periodStart, periodEnd).netFinancingChange,
                           undefined,
-                          "Financing",
+                          "FINANCING_CHANGE",
                           "Financing Change"
                         )}
                       </TableRow>

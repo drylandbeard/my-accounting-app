@@ -14,7 +14,7 @@ import ManualJeModal, { EditJournalModalState as ManualJeModalState, NewJournalE
 import { useSearchParams } from "next/navigation";
 
 // Shared imports
-import { Account, Category, Transaction, ViewerModalState } from "../_types";
+import { Category, Transaction, ViewerModalState } from "../_types";
 import {
   formatDateForDisplay,
   formatNumber,
@@ -150,6 +150,7 @@ export default function PnLPage() {
     };
 
     loadSavedReport();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reportId, currentCompany?.id]);
 
   // Account groups

@@ -14,7 +14,7 @@ import ManualJeModal, { EditJournalModalState as ManualJeModalState, NewJournalE
 import { useSearchParams } from "next/navigation";
 
 // Shared imports
-import { Account, Category, Transaction, ViewerModalState } from "../_types";
+import { Category, Transaction, ViewerModalState } from "../_types";
 import {
   formatDateForDisplay,
   formatNumber,
@@ -109,7 +109,7 @@ export default function BalanceSheetPage() {
     companyId: currentCompany?.id || null,
     startDate: "1900-01-01", // Get all historical data
     endDate: asOfDate,
-    accountTypes: ["Asset", "Liability", "Equity", "Revenue", "COGS", "Expense"],
+    accountTypes: ["Asset", "Liability", "Equity", "Revenue", "COGS", "Expense", "Bank Account", "Credit Card"],
   });
 
   const {
@@ -199,7 +199,7 @@ export default function BalanceSheetPage() {
 
   // Balance sheet specific account calculation (override the default P&L calculation)
   const calculateBalanceSheetAccountTotal = (category: Category): number => {
-    if (category.type === "Asset") {
+    if (category.type === "Asset" || category.type === "Bank Account") {
       const totalDebits = journalEntries
         .filter((tx) => tx.chart_account_id === category.id)
         .reduce((sum, tx) => sum + Number(tx.debit), 0);
@@ -207,7 +207,7 @@ export default function BalanceSheetPage() {
         .filter((tx) => tx.chart_account_id === category.id)
         .reduce((sum, tx) => sum + Number(tx.credit), 0);
       return totalDebits - totalCredits;
-    } else if (category.type === "Liability" || category.type === "Equity") {
+    } else if (category.type === "Liability" || category.type === "Credit Card" || category.type === "Equity") {
       const totalCredits = journalEntries
         .filter((tx) => tx.chart_account_id === category.id)
         .reduce((sum, tx) => sum + Number(tx.credit), 0);
@@ -226,11 +226,11 @@ export default function BalanceSheetPage() {
       (tx) => tx.chart_account_id === category.id && tx.date <= endOfMonth
     );
 
-    if (category.type === "Asset") {
+    if (category.type === "Asset" || category.type === "Bank Account") {
       const totalDebits = monthTransactions.reduce((sum, tx) => sum + Number(tx.debit), 0);
       const totalCredits = monthTransactions.reduce((sum, tx) => sum + Number(tx.credit), 0);
       return totalDebits - totalCredits;
-    } else if (category.type === "Liability" || category.type === "Equity") {
+    } else if (category.type === "Liability" || category.type === "Credit Card" || category.type === "Equity") {
       const totalCredits = monthTransactions.reduce((sum, tx) => sum + Number(tx.credit), 0);
       const totalDebits = monthTransactions.reduce((sum, tx) => sum + Number(tx.debit), 0);
       return totalCredits - totalDebits;
@@ -247,11 +247,11 @@ export default function BalanceSheetPage() {
       (tx) => tx.chart_account_id === category.id && tx.date <= endOfQuarter
     );
 
-    if (category.type === "Asset") {
+    if (category.type === "Asset" || category.type === "Bank Account") {
       const totalDebits = quarterTransactions.reduce((sum, tx) => sum + Number(tx.debit), 0);
       const totalCredits = quarterTransactions.reduce((sum, tx) => sum + Number(tx.credit), 0);
       return totalDebits - totalCredits;
-    } else if (category.type === "Liability" || category.type === "Equity") {
+    } else if (category.type === "Liability" || category.type === "Credit Card" || category.type === "Equity") {
       const totalCredits = quarterTransactions.reduce((sum, tx) => sum + Number(tx.credit), 0);
       const totalDebits = quarterTransactions.reduce((sum, tx) => sum + Number(tx.debit), 0);
       return totalCredits - totalDebits;
@@ -290,8 +290,8 @@ export default function BalanceSheetPage() {
   };
 
   // Account groups for balance sheet
-  const assetAccounts = getTopLevelAccounts("Asset");
-  const liabilityAccounts = getTopLevelAccounts("Liability");
+  const assetAccounts = [...getTopLevelAccounts("Asset"), ...getTopLevelAccounts("Bank Account")];
+  const liabilityAccounts = [...getTopLevelAccounts("Liability"), ...getTopLevelAccounts("Credit Card")];
   const equityAccounts = getTopLevelAccounts("Equity");
 
   // P&L accounts for retained earnings calculation

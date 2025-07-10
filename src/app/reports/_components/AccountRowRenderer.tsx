@@ -62,9 +62,9 @@ export const AccountRowRenderer: React.FC<AccountRowRendererProps> = ({
   formatPercentageForAccount,
 }) => {
   const subaccounts = categories.filter(
-    (category) =>
-      category.parent_id === category.id &&
-      journalEntries.some((tx) => getAllAccountIds(categories, category).includes(tx.chart_account_id))
+    (subCategory) =>
+      subCategory.parent_id === category.id &&
+      journalEntries.some((tx) => getAllAccountIds(categories, subCategory).includes(tx.chart_account_id))
   );
   const isParent = subaccounts.length > 0;
   const isCollapsed = collapsedAccounts.has(category.id);

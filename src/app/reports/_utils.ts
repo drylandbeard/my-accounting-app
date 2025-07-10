@@ -233,9 +233,48 @@ export const getMonthsInRange = (startDate: string, endDate: string): string[] =
 };
 
 export const formatMonth = (monthStr: string): string => {
+  if (!monthStr || typeof monthStr !== 'string') {
+    return "";
+  }
+  
+  // Handle quarter strings that might accidentally be passed
+  if (monthStr.includes('-Q')) {
+    const [year, quarter] = monthStr.split('-Q');
+    const quarterNum = parseInt(quarter);
+    if (quarterNum >= 1 && quarterNum <= 4) {
+      return `Q${quarterNum} ${year}`;
+    }
+    return monthStr;
+  }
+  
+  // Validate YYYY-MM format
+  if (!monthStr.match(/^\d{4}-\d{2}$/)) {
+    return monthStr; // Return original if not in expected format
+  }
+  
   const [year, month] = monthStr.split("-");
-  const date = new Date(parseInt(year), parseInt(month) - 1, 1);
-  return format(date, "MMM yyyy");
+  const yearNum = parseInt(year);
+  const monthNum = parseInt(month);
+  
+  // Validate year and month ranges
+  if (isNaN(yearNum) || isNaN(monthNum) || monthNum < 1 || monthNum > 12) {
+    return monthStr; // Return original if invalid
+  }
+  
+  try {
+    const date = new Date(yearNum, monthNum - 1, 1);
+    
+    // Check if date is valid using date-fns
+    if (!isValid(date)) {
+      return monthStr;
+    }
+    
+    return format(date, "MMM yyyy");
+  } catch (error) {
+    console.error("Error formatting month:", error);
+    // Return original string if formatting fails
+    return monthStr;
+  }
 };
 
 // Transaction helpers
