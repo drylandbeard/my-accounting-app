@@ -921,14 +921,16 @@ export default function GatewayPage() {
               {companies.length > 0 ? (
                 <div className="space-y-4 w-2xl mx-auto">
                   {/* Add Company Button */}
-                  <div className="flex justify-start">
-                    <button
-                      onClick={() => setIsCompanyModalOpen(true)}
-                      className="flex items-center gap-2 px-2 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 transition-colors hover:cursor-pointer"
-                    >
-                      Add Company
-                    </button>
-                  </div>
+                  {companies.some((userCompany) => userCompany.access_type !== "granted") && (
+                    <div className="flex justify-start">
+                      <button
+                        onClick={() => setIsCompanyModalOpen(true)}
+                        className="flex items-center gap-2 px-2 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 transition-colors hover:cursor-pointer"
+                      >
+                        Add Company
+                      </button>
+                    </div>
+                  )}
 
                   {/* Search Bar */}
                   <div className="w-full">
@@ -952,9 +954,12 @@ export default function GatewayPage() {
                           <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                             Description
                           </th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                            Role
-                          </th>
+                          {/* Only show Role column if at least one company is not access_type granted */}
+                          {companies.some((userCompany) => userCompany.access_type !== "granted") && (
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                              Role
+                            </th>
+                          )}
                           <th className="px-4 py-3 text-right text-xs font-medium text-gray-700 uppercase tracking-wider">
                             Action
                           </th>
@@ -981,9 +986,12 @@ export default function GatewayPage() {
                             <td className="px-4 py-3 text-left text-sm text-gray-600">
                               {userCompany.companies.description || "-"}
                             </td>
-                            <td className="px-4 py-3 text-left text-sm text-gray-600">
-                              {userCompany.role}
-                            </td>
+                            {/* Only show Role cell if at least one company is not access_type granted */}
+                            {companies.some((uc) => uc.access_type !== "granted") && (
+                              <td className="px-4 py-3 text-left text-sm text-gray-600">
+                                {userCompany.access_type !== "granted" ? userCompany.role : ""}
+                              </td>
+                            )}
                             <td className="px-4 py-3 text-left">
                               <button
                                 onClick={() => handleCompanySelect(userCompany.companies)}
@@ -1154,4 +1162,4 @@ export default function GatewayPage() {
       </main>
     </>
   );
-} 
+}
