@@ -6,6 +6,19 @@ import {
   clearChatSession 
 } from '@/lib/ai/chat-actions';
 
+// Database message type with snake_case field names
+interface DatabaseMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  has_confirmation: boolean;
+  pending_action: unknown;
+  is_error: boolean;
+  error_details: string | null;
+  created_at: string;
+  message_order: number;
+}
+
 /**
  * Custom hook for managing AI chat history
  * Handles real-time synchronization between localStorage and database
@@ -72,24 +85,24 @@ export function useChatHistory(companyId: string | null, userId: string | null) 
       if (result.success && result.data) {
         const { session, messages: dbMessages } = result.data as {
           session: { id: string };
-          messages: Message[];
+          messages: DatabaseMessage[];
         };
         
         setSessionId(session.id);
         
         if (dbMessages.length > 0) {
           // Convert database messages to component format and sort by message_order
-          const formattedMessages = dbMessages
-            .map(msg => ({
+          const formattedMessages: Message[] = dbMessages
+            .map((msg: DatabaseMessage) => ({
               id: msg.id,
               role: msg.role,
               content: msg.content,
-              showConfirmation: msg.showConfirmation,
-              pendingAction: msg.pendingAction,
-              isError: msg.isError,
-              errorDetails: msg.errorDetails,
-              createdAt: msg.createdAt,
-              messageOrder: msg.messageOrder
+              showConfirmation: msg.has_confirmation,
+              pendingAction: msg.pending_action as Message['pendingAction'],
+              isError: msg.is_error,
+              errorDetails: msg.error_details || undefined,
+              createdAt: new Date(msg.created_at),
+              messageOrder: msg.message_order
             }))
             .sort((a, b) => (a.messageOrder || 0) - (b.messageOrder || 0));
           
