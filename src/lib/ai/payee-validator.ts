@@ -3,6 +3,17 @@ import { PayeeValidationContext, ValidationResult, PayeeError } from './types';
 /**
  * Comprehensive payee validation utilities
  * Handles all edge cases and provides intelligent suggestions
+ * 
+ * MULTI-LAYER VALIDATION APPROACH:
+ * 1. Client-side validation (this class) - Uses fresh data from ensureFreshPayeeData()
+ * 2. Server-side validation (API routes) - Final check against live database
+ * 3. Database constraints - Ultimate safeguard with unique constraints
+ * 
+ * This approach prevents validation loopholes by:
+ * - Refreshing data before validation to minimize stale data issues
+ * - Providing immediate feedback to users with client-side checks
+ * - Ensuring data integrity with server-side validation
+ * - Handling race conditions gracefully with proper error messages
  */
 
 export class PayeeValidator {
@@ -62,7 +73,9 @@ export class PayeeValidator {
       return { isValid: false, errors, warnings, suggestions };
     }
 
-    // Check for exact duplicates
+    // Check for exact duplicates in the current dataset
+    // Note: This is client-side validation based on fresh data from ensureFreshPayeeData()
+    // Server-side validation will also check for duplicates as a final safeguard
     const exactMatch = context.existingPayees.find(
       p => p.name.toLowerCase() === trimmedName.toLowerCase()
     );
@@ -72,7 +85,8 @@ export class PayeeValidator {
       suggestions.push(
         `Use the existing payee "${exactMatch.name}"`,
         `Try "${trimmedName} Inc" or "${trimmedName} LLC"`,
-        `Add a qualifier like "${trimmedName} (New)"`
+        `Add a qualifier like "${trimmedName} (New)"`,
+        'Note: If this seems incorrect, the data might have been updated by another user'
       );
       return { isValid: false, errors, warnings, suggestions };
     }

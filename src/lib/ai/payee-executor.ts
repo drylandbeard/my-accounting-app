@@ -53,8 +53,8 @@ export class PayeeExecutor {
         };
       }
 
-      // Get current payees for validation
-      const existingPayees = this.payeesStore.payees || [];
+      // Get fresh payees from database for validation to prevent stale data issues
+      const existingPayees = await this.ensureFreshPayeeData();
       
       // Map operation names to validator-expected names
       const operationMapping: Record<string, 'create' | 'update' | 'delete'> = {
@@ -131,8 +131,8 @@ export class PayeeExecutor {
         };
       }
 
-      // Get current payees for validation
-      const existingPayees = this.payeesStore.payees || [];
+      // Get fresh payees from database for validation to prevent stale data issues
+      const existingPayees = await this.ensureFreshPayeeData();
       
       // Create validation context
       const validationContext: PayeeValidationContext = {
@@ -226,9 +226,10 @@ export class PayeeExecutor {
       if (!result) {
         const errorMsg = this.payeesStore.error || 'Unknown error occurred';
         
-        // Handle specific error cases
+        // Handle specific error cases with more robust duplicate detection
         if (errorMsg.toLowerCase().includes('duplicate') || 
-            errorMsg.toLowerCase().includes('already exists')) {
+            errorMsg.toLowerCase().includes('already exists') ||
+            errorMsg.toLowerCase().includes('unique constraint')) {
           return {
             success: false,
             message: `Payee "${name}" already exists`,
@@ -236,7 +237,23 @@ export class PayeeExecutor {
             suggestions: [
               `Use the existing payee "${name}"`,
               `Try "${name} Inc" or "${name} LLC"`,
-              `Add a qualifier like "${name} (New)"`
+              `Add a qualifier like "${name} (New)"`,
+              'Check spelling - the payee might exist with slight variations'
+            ]
+          };
+        }
+        
+        // Handle validation errors
+        if (errorMsg.toLowerCase().includes('validation') ||
+            errorMsg.toLowerCase().includes('invalid')) {
+          return {
+            success: false,
+            message: `Invalid payee name "${name}": ${errorMsg}`,
+            error: 'validation_error',
+            suggestions: [
+              'Use only alphanumeric characters and common punctuation',
+              'Ensure the name is not empty and under 255 characters',
+              ...suggestions
             ]
           };
         }
@@ -411,6 +428,24 @@ export class PayeeExecutor {
       };
     } catch (error) {
       return this.handleUnexpectedError(error, 'delete_payee', params);
+    }
+  }
+
+  /**
+   * Ensures fresh payee data by refreshing from database
+   * This prevents validation loopholes with stale store data
+   */
+  private async ensureFreshPayeeData(): Promise<Array<{ id: string; name: string; company_id: string }>> {
+    try {
+      console.log('🔄 Refreshing payees from database for validation');
+      // Always refresh payees from database to ensure latest data
+      await this.payeesStore.refreshPayees();
+      console.log(`✅ Fresh payee data loaded: ${this.payeesStore.payees?.length || 0} payees`);
+      return this.payeesStore.payees || [];
+    } catch (error) {
+      console.warn('⚠️ Failed to refresh payees, using cached data:', error);
+      // Fallback to cached data if refresh fails
+      return this.payeesStore.payees || [];
     }
   }
 
