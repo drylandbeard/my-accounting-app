@@ -133,9 +133,24 @@ export async function addChatMessage(
     isError?: boolean;
     errorDetails?: string;
     metadata?: Record<string, unknown>;
+    messageOrder?: number;
   }
 ): Promise<ChatHistoryResult> {
   try {
+    // Get the next message order if not provided
+    let messageOrder = options?.messageOrder;
+    if (messageOrder === undefined) {
+      const { data: maxOrderResult } = await supabase
+        .from('ai_chat_messages')
+        .select('message_order')
+        .eq('session_id', sessionId)
+        .order('message_order', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      
+      messageOrder = (maxOrderResult?.message_order || 0) + 1;
+    }
+
     const { data, error } = await supabase
       .from('ai_chat_messages')
       .insert({
@@ -146,7 +161,8 @@ export async function addChatMessage(
         pending_action: options?.pendingAction || null,
         is_error: options?.isError || false,
         error_details: options?.errorDetails || null,
-        metadata: options?.metadata || {}
+        metadata: options?.metadata || {},
+        message_order: messageOrder
       })
       .select()
       .single();
@@ -366,8 +382,9 @@ export async function saveChatState(
     // Clear existing messages
     await clearChatSession(session.id);
 
-    // Add all messages
-    for (const message of messages) {
+    // Add all messages with proper ordering
+    for (let i = 0; i < messages.length; i++) {
+      const message = messages[i];
       await addChatMessage(
         session.id,
         message.role,
@@ -377,7 +394,8 @@ export async function saveChatState(
           pendingAction: message.pendingAction,
           isError: message.isError,
           errorDetails: message.errorDetails,
-          metadata: {}
+          metadata: {},
+          messageOrder: i + 1 // Ensure proper ordering starting from 1
         }
       );
     }

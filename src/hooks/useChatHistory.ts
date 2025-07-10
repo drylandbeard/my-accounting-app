@@ -8,7 +8,7 @@ import {
 
 /**
  * Custom hook for managing AI chat history
- * Handles localStorage fallback and database persistence
+ * Handles real-time synchronization between localStorage and database
  */
 export function useChatHistory(companyId: string | null, userId: string | null) {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -27,31 +27,35 @@ export function useChatHistory(companyId: string | null, userId: string | null) 
         setMessages(parsedMessages);
       } else {
         // Initialize with welcome message
-        setMessages([{
-          role: 'assistant',
+        const welcomeMessage = {
+          role: 'assistant' as const,
           content: 'How can I help?'
-        }]);
+        };
+        setMessages([welcomeMessage]);
+        localStorage.setItem('aiChatMessages', JSON.stringify([welcomeMessage]));
       }
     } catch (error) {
       console.error('Error loading from localStorage:', error);
       localStorage.removeItem('aiChatMessages');
-      setMessages([{
-        role: 'assistant',
+      const welcomeMessage = {
+        role: 'assistant' as const,
         content: 'How can I help?'
-      }]);
+      };
+      setMessages([welcomeMessage]);
+      localStorage.setItem('aiChatMessages', JSON.stringify([welcomeMessage]));
     }
   }, []);
 
   /**
-   * Saves chat history to localStorage
+   * Saves chat history to localStorage immediately
    */
-  const saveToLocalStorage = useCallback(() => {
+  const saveToLocalStorage = useCallback((messagesToSave: Message[]) => {
     try {
-      localStorage.setItem('aiChatMessages', JSON.stringify(messages));
+      localStorage.setItem('aiChatMessages', JSON.stringify(messagesToSave));
     } catch (error) {
       console.error('Error saving to localStorage:', error);
     }
-  }, [messages]);
+  }, []);
 
   /**
    * Loads chat history from database
@@ -74,25 +78,32 @@ export function useChatHistory(companyId: string | null, userId: string | null) 
         setSessionId(session.id);
         
         if (dbMessages.length > 0) {
-          // Convert database messages to component format
-          const formattedMessages = dbMessages.map(msg => ({
-            id: msg.id,
-            role: msg.role,
-            content: msg.content,
-            showConfirmation: msg.showConfirmation,
-            pendingAction: msg.pendingAction,
-            isError: msg.isError,
-            errorDetails: msg.errorDetails,
-            createdAt: msg.createdAt,
-            messageOrder: msg.messageOrder
-          }));
+          // Convert database messages to component format and sort by message_order
+          const formattedMessages = dbMessages
+            .map(msg => ({
+              id: msg.id,
+              role: msg.role,
+              content: msg.content,
+              showConfirmation: msg.showConfirmation,
+              pendingAction: msg.pendingAction,
+              isError: msg.isError,
+              errorDetails: msg.errorDetails,
+              createdAt: msg.createdAt,
+              messageOrder: msg.messageOrder
+            }))
+            .sort((a, b) => (a.messageOrder || 0) - (b.messageOrder || 0));
+          
           setMessages(formattedMessages);
+          // Sync to localStorage immediately
+          saveToLocalStorage(formattedMessages);
         } else {
           // Initialize with welcome message
-          setMessages([{
-            role: 'assistant',
+          const welcomeMessage = {
+            role: 'assistant' as const,
             content: 'How can I help?'
-          }]);
+          };
+          setMessages([welcomeMessage]);
+          saveToLocalStorage([welcomeMessage]);
         }
       } else {
         throw new Error(result.error || 'Failed to load chat history');
@@ -106,22 +117,22 @@ export function useChatHistory(companyId: string | null, userId: string | null) 
     } finally {
       setIsLoading(false);
     }
-  }, [companyId, userId, loadFromLocalStorage]);
+  }, [companyId, userId, loadFromLocalStorage, saveToLocalStorage]);
 
   /**
    * Saves chat history to database
    */
-  const saveToDatabase = useCallback(async () => {
-    if (!companyId || !userId || messages.length === 0) return;
+  const saveToDatabase = useCallback(async (messagesToSave: Message[]) => {
+    if (!companyId || !userId || messagesToSave.length === 0) return;
 
     try {
-      await saveChatState(companyId, userId, messages);
+      await saveChatState(companyId, userId, messagesToSave);
     } catch (error) {
       console.error('Error saving chat state:', error);
       // Fallback to localStorage
-      saveToLocalStorage();
+      saveToLocalStorage(messagesToSave);
     }
-  }, [companyId, userId, messages, saveToLocalStorage]);
+  }, [companyId, userId, saveToLocalStorage]);
 
   // Load initial messages
   useEffect(() => {
@@ -134,22 +145,24 @@ export function useChatHistory(companyId: string | null, userId: string | null) 
     loadFromDatabase();
   }, [companyId, userId, loadFromDatabase, loadFromLocalStorage]);
 
-  // Save messages to database when they change
+  // Save messages to both localStorage and database immediately when they change
   useEffect(() => {
     if (messages.length === 0) return;
     
+    // Save to localStorage immediately for instant sync
+    saveToLocalStorage(messages);
+    
+    // Save to database with debounce
     const saveTimer = setTimeout(() => {
       if (companyId && userId) {
-        saveToDatabase();
-      } else {
-        saveToLocalStorage();
+        saveToDatabase(messages);
       }
-    }, 1000); // Debounce saves
+    }, 1000); // Debounce database saves
 
     return () => clearTimeout(saveTimer);
   }, [messages, companyId, userId, saveToDatabase, saveToLocalStorage]);
 
-    // Log chat history to console for debugging
+  // Log chat history to console for debugging
   useEffect(() => {
     console.log('chat_history:', messages);
   }, [messages]);
@@ -197,11 +210,13 @@ export function useChatHistory(companyId: string | null, userId: string | null) 
     }
 
     // Reset to welcome message
-    setMessages([{
-      role: 'assistant',
+    const welcomeMessage = {
+      role: 'assistant' as const,
       content: 'How can I help?'
-    }]);
-  }, [companyId, userId, sessionId]);
+    };
+    setMessages([welcomeMessage]);
+    saveToLocalStorage([welcomeMessage]);
+  }, [companyId, userId, sessionId, saveToLocalStorage]);
 
   /**
    * Forces a refresh from the database

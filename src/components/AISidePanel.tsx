@@ -85,10 +85,47 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    // Use a small delay to ensure DOM has updated
+    const scrollTimeout = setTimeout(() => {
+      if (messagesEndRef.current) {
+        messagesEndRef.current.scrollIntoView({ 
+          behavior: "smooth", 
+          block: "end" 
+        });
+      }
+    }, 100);
+
+    return () => clearTimeout(scrollTimeout);
+  }, [messages]);
+
+  // Also scroll immediately when new messages are added (for instant feedback)
+  useEffect(() => {
+    if (messagesEndRef.current && messages.length > 0) {
+      // Immediate scroll for the latest message
+      const latestMessage = messages[messages.length - 1];
+      if (latestMessage?.content === "Thinking..." || latestMessage?.content === "Processing...") {
+        messagesEndRef.current.scrollIntoView({ 
+          behavior: "smooth", 
+          block: "end" 
+        });
+      }
     }
   }, [messages]);
+
+  // Scroll to bottom when panel opens and has messages
+  useEffect(() => {
+    if (isOpen && messages.length > 0 && messagesEndRef.current) {
+      // Small delay to ensure panel animation is complete
+      const openScrollTimeout = setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ 
+          behavior: "smooth", 
+          block: "end" 
+        });
+      }, 350); // Wait for panel transition to complete
+
+      return () => clearTimeout(openScrollTimeout);
+    }
+  }, [isOpen, messages.length]);
 
   // Panel resize handlers
   const handleResizeStart = (e: React.MouseEvent) => {
@@ -144,12 +181,13 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
     };
     addMessage(userMsg);
 
-    // Add thinking message
+    // Add thinking message and get its index
     const thinkingMsg: Message = {
       role: "assistant",
       content: "Thinking...",
     };
     addMessage(thinkingMsg);
+    const thinkingMessageIndex = messages.length + 1; // +1 for the user message we just added
 
     try {
       // Process with AI Handler
@@ -161,10 +199,10 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
 
       if (result.success && result.response) {
         // Replace thinking message with AI response
-        updateMessage(messages.length + 1, result.response);
+        updateMessage(thinkingMessageIndex, result.response);
       } else {
         // Show error message
-        updateMessage(messages.length + 1, {
+        updateMessage(thinkingMessageIndex, {
           role: "assistant",
           content: `❌ ${result.error || 'Sorry, there was an error processing your request.'}`,
           isError: true
@@ -172,7 +210,7 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
       }
     } catch (error) {
       console.error('Error processing message:', error);
-      updateMessage(messages.length + 1, {
+      updateMessage(thinkingMessageIndex, {
         role: "assistant",
         content: "❌ Sorry, there was an error contacting the AI service.",
         isError: true
@@ -198,14 +236,22 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
       pendingAction: undefined 
     });
 
+    // Add processing message and get its index
+    const processingMsg: Message = {
+      role: "assistant",
+      content: "Processing...",
+    };
+    addMessage(processingMsg);
+    const processingMessageIndex = messages.length + 1; // +1 for the "Confirmed" message we just added
+
     setIsProcessing(true);
 
     try {
       // Execute the action
       const result = await aiHandler.executeAction(message.pendingAction);
       
-      // Add result message
-      addMessage({
+      // Replace processing message with result
+      updateMessage(processingMessageIndex, {
         role: "assistant",
         content: result
       });
@@ -214,7 +260,8 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
       await refreshPayeesFromStore();
     } catch (error) {
       console.error('Error executing action:', error);
-      addMessage({
+      // Replace processing message with error
+      updateMessage(processingMessageIndex, {
         role: "assistant",
         content: `❌ Failed to execute action: ${error instanceof Error ? error.message : 'Unknown error'}`,
         isError: true
@@ -283,7 +330,7 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
         {/* Messages */}
         <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 bg-white">
           <div className="space-y-4">
-            {messages.map((message, index) => (
+            {messages.map((message: Message, index: number) => (
               <div key={index} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
                 <div
                   className={`rounded-lg px-4 py-3 max-w-[85%] border ${
@@ -299,7 +346,19 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
                       message.role === "user" ? "font-medium" : "font-normal"
                     }`}
                   >
-                    {message.content}
+                    {/* Show animated dots for thinking/processing messages */}
+                    {(message.content === "Thinking..." || message.content === "Processing...") ? (
+                      <div className="flex items-center space-x-1">
+                        <span>{message.content.replace("...", "")}</span>
+                        <div className="flex space-x-1">
+                          <div className="w-1 h-1 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                          <div className="w-1 h-1 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                          <div className="w-1 h-1 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                        </div>
+                      </div>
+                    ) : (
+                      message.content
+                    )}
                   </div>
 
                   {/* Confirmation buttons */}
