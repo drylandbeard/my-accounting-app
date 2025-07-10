@@ -527,6 +527,7 @@ export class AIHandler {
       /proceed with these/i,
       /proceed with that/i,
       /proceed with this/i,
+      /would you like to/i,
       /would you like me to/i,
       /should I proceed/i,
       /continue with/i,

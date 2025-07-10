@@ -149,10 +149,25 @@ export function useChatHistory(companyId: string | null, userId: string | null) 
     return () => clearTimeout(saveTimer);
   }, [messages, companyId, userId, saveToDatabase, saveToLocalStorage]);
 
+    // Log chat history to console for debugging
+  useEffect(() => {
+    console.log('chat_history:', messages);
+  }, [messages]);
+
   /**
    * Adds a new message to the chat
    */
   const addMessage = useCallback((message: Message) => {
+    // Log user inputs and AI responses with confirmation details
+    if (message.role === 'user' || message.role === 'assistant') {
+      console.log('chat:', { 
+        role: message.role, 
+        content: message.content,
+        showConfirmation: message.showConfirmation,
+        pendingAction: message.pendingAction
+      });
+    }
+    
     setMessages(prev => [...prev, message]);
   }, []);
 
