@@ -30,12 +30,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Parse request body
-    const { name, email } = await request.json();
+    const { firstName, lastName, email } = await request.json();
 
     // Validate input
-    if (!name || !email) {
+    if (!firstName || !lastName || !email) {
       return NextResponse.json(
-        { error: "Name and email are required" },
+        { error: "First name, last name, and email are required" },
         { status: 400 }
       );
     }
@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Send team invitation
-    const result = await sendAccountantTeamInvitation(name, email, userId);
+    const result = await sendAccountantTeamInvitation(firstName, lastName, email, userId);
 
     if (result.error) {
       return NextResponse.json(

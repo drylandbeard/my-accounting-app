@@ -44,7 +44,7 @@ export async function GET(
     // Verify that the member is part of this accountant's team
     const { data: teamMember, error: teamMemberError } = await supabase
       .from("accountant_members_list")
-      .select("id, user_id, name, email")
+      .select("id, user_id, first_name, last_name, email")
       .eq("accountant_id", userId)
       .eq("id", memberId)
       .eq("is_active", true)
@@ -61,7 +61,8 @@ export async function GET(
       return NextResponse.json({
         teamMember: {
           id: teamMember.id,
-          name: teamMember.name,
+          firstName: teamMember.first_name,
+          lastName: teamMember.last_name,
           email: teamMember.email,
           hasUserAccount: false
         },
@@ -136,7 +137,8 @@ export async function GET(
       teamMember: {
         id: teamMember.id,
         userId: teamMember.user_id,
-        name: teamMember.name,
+        firstName: teamMember.first_name,
+        lastName: teamMember.last_name,
         email: teamMember.email,
         hasUserAccount: true
       },

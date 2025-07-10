@@ -29,10 +29,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Parse request body
-    const { memberId, memberUserId, name, email, companyAccess } = await request.json();
+    const { memberId, memberUserId, firstName, lastName, email, companyAccess } = await request.json();
 
     // Validate input
-    if (!memberId || !memberUserId || !name || !email || !Array.isArray(companyAccess)) {
+    if (!memberId || !memberUserId || !firstName || !lastName || !email || !Array.isArray(companyAccess)) {
       return NextResponse.json(
         { error: "All fields are required" },
         { status: 400 }
@@ -60,7 +60,8 @@ export async function POST(request: NextRequest) {
     const { error: updateMemberError } = await supabase
       .from("accountant_members_list")
       .update({
-        name: name.trim(),
+        first_name: firstName.trim(),
+        last_name: lastName.trim(),
         email: email.trim(),
         updated_at: new Date().toISOString()
       })
@@ -78,6 +79,8 @@ export async function POST(request: NextRequest) {
     const { error: updateUserError } = await supabase
       .from("users")
       .update({
+        first_name: firstName.trim(),
+        last_name: lastName.trim(),
         email: email.trim(),
         updated_at: new Date().toISOString()
       })

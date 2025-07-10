@@ -17,7 +17,8 @@ interface CompanyModalProps {
 
 interface TeamMember {
   id: string;
-  name: string;
+  firstName: string;
+  lastName: string;
   email: string;
   is_access_enabled: boolean;
   userId?: string; // The actual user_id for API calls
@@ -26,7 +27,7 @@ interface TeamMember {
 interface TeamMemberModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onAddTeamMember: (name: string, email: string) => Promise<void>;
+  onAddTeamMember: (firstName: string, lastName: string, email: string) => Promise<void>;
 }
 
 interface ManageMemberModalProps {
@@ -138,19 +139,21 @@ function CompanyModal({ isOpen, onClose, onCreateCompany }: CompanyModalProps) {
 }
 
 function TeamMemberModal({ isOpen, onClose, onAddTeamMember }: TeamMemberModalProps) {
-  const [name, setName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [isAdding, setIsAdding] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !email.trim()) return;
+    if (!firstName.trim() || !lastName.trim() || !email.trim()) return;
 
     setIsAdding(true);
 
     try {
-      await onAddTeamMember(name.trim(), email.trim());
-      setName("");
+      await onAddTeamMember(firstName.trim(), lastName.trim(), email.trim());
+      setFirstName("");
+      setLastName("");
       setEmail("");
       toast.success("Team member invited successfully!");
       onClose();
@@ -180,14 +183,28 @@ function TeamMemberModal({ isOpen, onClose, onAddTeamMember }: TeamMemberModalPr
           <div className="space-y-3">
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">
-                Name *
+                First Name *
               </label>
               <input
                 type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
                 className="w-full px-2 py-1 border border-gray-300 rounded-md text-gray-900 placeholder-gray-500 focus:border-black focus:outline-none focus:ring-black text-sm"
-                placeholder="Enter full name"
+                placeholder="Enter first name"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                Last Name *
+              </label>
+              <input
+                type="text"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                className="w-full px-2 py-1 border border-gray-300 rounded-md text-gray-900 placeholder-gray-500 focus:border-black focus:outline-none focus:ring-black text-sm"
+                placeholder="Enter last name"
                 required
               />
             </div>
@@ -217,7 +234,7 @@ function TeamMemberModal({ isOpen, onClose, onAddTeamMember }: TeamMemberModalPr
             </button>
             <button
               type="submit"
-              disabled={isAdding || !name.trim() || !email.trim()}
+              disabled={isAdding || !firstName.trim() || !lastName.trim() || !email.trim()}
               className="px-3 py-1 text-sm font-medium text-white bg-black rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {isAdding ? "Adding..." : "Add"}
@@ -230,7 +247,8 @@ function TeamMemberModal({ isOpen, onClose, onAddTeamMember }: TeamMemberModalPr
 }
 
 function ManageMemberModal({ isOpen, onClose, member, onMemberChanged }: ManageMemberModalProps) {
-  const [name, setName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [companyAccess, setCompanyAccess] = useState<CompanyAccess[]>([]);
   const [memberUserId, setMemberUserId] = useState<string | null>(null);
@@ -277,7 +295,8 @@ function ManageMemberModal({ isOpen, onClose, member, onMemberChanged }: ManageM
   // Initialize form when modal opens
   useEffect(() => {
     if (isOpen && member) {
-      setName(member.name);
+      setFirstName(member.firstName);
+      setLastName(member.lastName);
       setEmail(member.email);
       fetchMemberData();
     }
@@ -303,7 +322,8 @@ function ManageMemberModal({ isOpen, onClose, member, onMemberChanged }: ManageM
       const payload = {
         memberId: member.id,
         memberUserId: memberUserId,
-        name: name.trim(),
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
         email: email.trim(),
         companyAccess: companyAccess.map(comp => ({
           companyId: comp.company.id,
@@ -335,7 +355,7 @@ function ManageMemberModal({ isOpen, onClose, member, onMemberChanged }: ManageM
     // Use toast for confirmation - we can use a promise-based approach
     toast.promise(
       new Promise<void>((resolve, reject) => {
-        const confirmRemove = confirm(`Are you sure you want to remove ${member.name} from your team? This action cannot be undone.`);
+        const confirmRemove = confirm(`Are you sure you want to remove ${member.firstName} ${member.lastName} from your team? This action cannot be undone.`);
         if (!confirmRemove) {
           reject(new Error("Cancelled"));
           return;
@@ -366,7 +386,7 @@ function ManageMemberModal({ isOpen, onClose, member, onMemberChanged }: ManageM
       }),
       {
         loading: 'Removing member...',
-        success: `${member.name} has been removed from your team`,
+        success: `${member.firstName} ${member.lastName} has been removed from your team`,
         error: (err) => err.message === "Cancelled" ? "" : err.message || "Failed to remove member",
       }
     );
@@ -404,34 +424,47 @@ function ManageMemberModal({ isOpen, onClose, member, onMemberChanged }: ManageM
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Name
+                    First Name
                   </label>
                   <input
                     type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 focus:border-black focus:outline-none focus:ring-black text-sm"
                     disabled={!memberUserId}
                   />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Email
+                    Last Name
                   </label>
                   <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    type="text"
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 focus:border-black focus:outline-none focus:ring-black text-sm"
                     disabled={!memberUserId}
                   />
                 </div>
               </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Email
+                </label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 focus:border-black focus:outline-none focus:ring-black text-sm"
+                  disabled={!memberUserId}
+                />
+              </div>
 
               {!memberUserId ? (
                 <div className="text-center py-4 bg-yellow-50 border border-yellow-200 rounded-md">
                   <p className="text-yellow-800 text-sm">
-                    {member.name} hasn&apos;t accepted their team invitation yet.
+                    {member.firstName} {member.lastName} hasn&apos;t accepted their team invitation yet.
                     <br />
                     Company access and details can be managed once they complete their account setup.
                   </p>
@@ -518,7 +551,7 @@ function ManageMemberModal({ isOpen, onClose, member, onMemberChanged }: ManageM
             </button>
             <button
               onClick={handleSave}
-              disabled={isSaving || !memberUserId || !name.trim() || !email.trim()}
+              disabled={isSaving || !memberUserId || !firstName.trim() || !lastName.trim() || !email.trim()}
               className="px-4 py-2 text-sm font-medium text-white bg-black rounded-md hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {isSaving ? "Saving..." : "Save"}
@@ -547,6 +580,11 @@ export default function GatewayPage() {
   // Profile form states
   const [emailForm, setEmailForm] = useState({
     email: user?.email || "",
+    isUpdating: false
+  });
+  const [nameForm, setNameForm] = useState({
+    firstName: user?.first_name || "",
+    lastName: user?.last_name || "",
     isUpdating: false
   });
   const [passwordForm, setPasswordForm] = useState({
@@ -591,10 +629,13 @@ export default function GatewayPage() {
     // Check if email changed
     const emailChanged = emailForm.email !== user.email;
     
+    // Check if name changed
+    const nameChanged = nameForm.firstName !== (user.first_name || "") || nameForm.lastName !== (user.last_name || "");
+    
     // Check if password fields are filled
     const passwordChanged = passwordForm.currentPassword || passwordForm.newPassword || passwordForm.confirmPassword;
 
-    if (!emailChanged && !passwordChanged) {
+    if (!emailChanged && !nameChanged && !passwordChanged) {
       return; // No changes to save
     }
 
@@ -620,15 +661,32 @@ export default function GatewayPage() {
 
     // Set updating state
     if (emailChanged) setEmailForm(prev => ({ ...prev, isUpdating: true }));
+    if (nameChanged) setNameForm(prev => ({ ...prev, isUpdating: true }));
     if (passwordChanged) setPasswordForm(prev => ({ ...prev, isUpdating: true }));
 
     try {
+      // Update name if changed
+      if (nameChanged) {
+        const nameResult = await api.post("/api/user/update-profile", { 
+          first_name: nameForm.firstName,
+          last_name: nameForm.lastName
+        });
+        if (!nameResult.ok) {
+          toast.error("Failed to update name");
+          setNameForm(prev => ({ ...prev, isUpdating: false }));
+          if (emailChanged) setEmailForm(prev => ({ ...prev, isUpdating: false }));
+          if (passwordChanged) setPasswordForm(prev => ({ ...prev, isUpdating: false }));
+          return;
+        }
+      }
+
       // Update email if changed
       if (emailChanged) {
         const emailResult = await api.post("/api/user/update-email", { email: emailForm.email });
         if (!emailResult.ok) {
           toast.error("Failed to update email");
           setEmailForm(prev => ({ ...prev, isUpdating: false }));
+          if (nameChanged) setNameForm(prev => ({ ...prev, isUpdating: false }));
           if (passwordChanged) setPasswordForm(prev => ({ ...prev, isUpdating: false }));
           return;
         }
@@ -644,14 +702,28 @@ export default function GatewayPage() {
           toast.error("Failed to update password");
           setPasswordForm(prev => ({ ...prev, isUpdating: false }));
           if (emailChanged) setEmailForm(prev => ({ ...prev, isUpdating: false }));
+          if (nameChanged) setNameForm(prev => ({ ...prev, isUpdating: false }));
           return;
         }
       }
 
       // Success - reset form and exit edit mode
-      if (emailChanged || passwordChanged) {
+      if (emailChanged || nameChanged || passwordChanged) {
+        // Update user in auth store if name changed
+        if (nameChanged) {
+          useAuthStore.setState(state => ({
+            ...state,
+            user: state.user ? {
+              ...state.user,
+              first_name: nameForm.firstName,
+              last_name: nameForm.lastName
+            } : null
+          }));
+        }
+        
         toast.success("Profile updated successfully!");
         setEmailForm(prev => ({ ...prev, isUpdating: false }));
+        setNameForm(prev => ({ ...prev, isUpdating: false }));
         setPasswordForm({
           currentPassword: "",
           newPassword: "",
@@ -664,6 +736,7 @@ export default function GatewayPage() {
       const errorMessage = error instanceof Error ? error.message : "Failed to update profile";
       toast.error(errorMessage);
       setEmailForm(prev => ({ ...prev, isUpdating: false }));
+      setNameForm(prev => ({ ...prev, isUpdating: false }));
       setPasswordForm(prev => ({ ...prev, isUpdating: false }));
     }
   };
@@ -674,6 +747,11 @@ export default function GatewayPage() {
     if (!showAccountSection && user) {
       setEmailForm({
         email: user.email,
+        isUpdating: false
+      });
+      setNameForm({
+        firstName: user.first_name || "",
+        lastName: user.last_name || "",
         isUpdating: false
       });
       setPasswordForm({
@@ -693,11 +771,11 @@ export default function GatewayPage() {
     router.push('/transactions');
   };
 
-  const handleAddTeamMember = async (name: string, email: string) => {
+  const handleAddTeamMember = async (firstName: string, lastName: string, email: string) => {
     if (!user) throw new Error("User not found");
 
     // Use the authenticated API to invite team member
-    const response = await api.post("/api/accountant/invite-member", { name, email });
+    const response = await api.post("/api/accountant/invite-member", { firstName, lastName, email });
 
     const result = await response.json();
     
@@ -762,6 +840,38 @@ export default function GatewayPage() {
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Account Details</h3>
               
               <div className="space-y-4 text-left">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    First Name
+                  </label>
+                  <input
+                    type="text"
+                    value={nameForm.firstName}
+                    onChange={(e) => setNameForm(prev => ({ ...prev, firstName: e.target.value }))}
+                    disabled={!isEditingProfile}
+                    className={`w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 focus:border-black focus:outline-none focus:ring-black ${
+                      !isEditingProfile ? "bg-gray-50 text-gray-500" : ""
+                    }`}
+                    placeholder="Enter first name"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Last Name
+                  </label>
+                  <input
+                    type="text"
+                    value={nameForm.lastName}
+                    onChange={(e) => setNameForm(prev => ({ ...prev, lastName: e.target.value }))}
+                    disabled={!isEditingProfile}
+                    className={`w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 focus:border-black focus:outline-none focus:ring-black ${
+                      !isEditingProfile ? "bg-gray-50 text-gray-500" : ""
+                    }`}
+                    placeholder="Enter last name"
+                  />
+                </div>
+                
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Email Address
@@ -840,6 +950,11 @@ export default function GatewayPage() {
                       onClick={() => {
                         setIsEditingProfile(false);
                         setEmailForm(prev => ({ ...prev, email: user.email }));
+                        setNameForm({
+                          firstName: user.first_name || "",
+                          lastName: user.last_name || "",
+                          isUpdating: false
+                        });
                         setPasswordForm({
                           currentPassword: "",
                           newPassword: "",
@@ -853,10 +968,10 @@ export default function GatewayPage() {
                     </button>
                     <button
                       onClick={handleUpdateProfile}
-                      disabled={emailForm.isUpdating || passwordForm.isUpdating}
+                      disabled={emailForm.isUpdating || nameForm.isUpdating || passwordForm.isUpdating}
                       className="flex-1 px-4 py-2 text-sm font-medium text-white bg-black rounded-md hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      {emailForm.isUpdating || passwordForm.isUpdating ? "Saving..." : "Save"}
+                      {emailForm.isUpdating || nameForm.isUpdating || passwordForm.isUpdating ? "Saving..." : "Save"}
                     </button>
                   </div>
                 ) : (
@@ -1036,7 +1151,8 @@ export default function GatewayPage() {
                       {teamMembers
                         .filter((member) => 
                           member.email.toLowerCase().includes(teamSearchQuery.toLowerCase()) ||
-                          member.name.toLowerCase().includes(teamSearchQuery.toLowerCase())
+                          member.firstName.toLowerCase().includes(teamSearchQuery.toLowerCase()) ||
+                          member.lastName.toLowerCase().includes(teamSearchQuery.toLowerCase())
                         )
                         .map((member) => (
                         <tr key={member.id} className="hover:bg-gray-50">
@@ -1044,7 +1160,7 @@ export default function GatewayPage() {
                             {member.email}
                           </td>
                           <td className="px-4 py-3 text-left text-sm text-gray-600">
-                            {member.name}
+                            {member.firstName} {member.lastName}
                           </td>
                           <td className="px-4 py-3 text-left text-sm text-gray-600">
                             <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
@@ -1070,7 +1186,8 @@ export default function GatewayPage() {
                       {teamMembers
                         .filter((member) => 
                           member.email.toLowerCase().includes(teamSearchQuery.toLowerCase()) ||
-                          member.name.toLowerCase().includes(teamSearchQuery.toLowerCase())
+                          member.firstName.toLowerCase().includes(teamSearchQuery.toLowerCase()) ||
+                          member.lastName.toLowerCase().includes(teamSearchQuery.toLowerCase())
                         )
                         .length === 0 && teamSearchQuery && (
                         <tr>

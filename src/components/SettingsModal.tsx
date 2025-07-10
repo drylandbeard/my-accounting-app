@@ -14,6 +14,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const { user } = useAuthStore();
   
   const [email, setEmail] = useState(user?.email || "");
+  const [firstName, setFirstName] = useState(user?.first_name || "");
+  const [lastName, setLastName] = useState(user?.last_name || "");
   const [role, setRole] = useState<"Owner" | "Member" | "Accountant">(user?.role || "Owner");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -26,6 +28,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   useEffect(() => {
     if (isOpen && user) {
       setEmail(user.email);
+      setFirstName(user.first_name || "");
+      setLastName(user.last_name || "");
       setRole(user.role);
       setCurrentPassword("");
       setNewPassword("");
@@ -43,6 +47,30 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     setSuccess("");
 
     try {
+      // Update first name if changed
+      if (firstName !== (user.first_name || "")) {
+        const firstNameResponse = await api.post("/api/user/update-profile", { 
+          first_name: firstName 
+        });
+        
+        if (!firstNameResponse.ok) {
+          const errorData = await firstNameResponse.json();
+          throw new Error(errorData.error || "Failed to update first name");
+        }
+      }
+
+      // Update last name if changed
+      if (lastName !== (user.last_name || "")) {
+        const lastNameResponse = await api.post("/api/user/update-profile", { 
+          last_name: lastName 
+        });
+        
+        if (!lastNameResponse.ok) {
+          const errorData = await lastNameResponse.json();
+          throw new Error(errorData.error || "Failed to update last name");
+        }
+      }
+
       // Update email if changed
       if (email !== user.email) {
         const emailResponse = await api.post("/api/user/update-email", { email });
@@ -92,6 +120,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         user: user ? {
           ...user,
           email,
+          first_name: firstName,
+          last_name: lastName,
           role: role as "Owner" | "Member" | "Accountant"
         } : null
       }));
@@ -115,6 +145,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
   const hasChanges = () => {
     return email !== user?.email || 
+           firstName !== (user?.first_name || "") ||
+           lastName !== (user?.last_name || "") ||
            role !== user?.role || 
            newPassword.length > 0;
   };
@@ -148,6 +180,30 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               {success}
             </div>
           )}
+
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">
+              First Name
+            </label>
+            <input
+              type="text"
+              value={firstName}
+              onChange={(e) => setFirstName(e.target.value)}
+              className="w-full px-2 py-1 border border-gray-300 rounded-md text-sm focus:border-black focus:outline-none focus:ring-black"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">
+              Last Name
+            </label>
+            <input
+              type="text"
+              value={lastName}
+              onChange={(e) => setLastName(e.target.value)}
+              className="w-full px-2 py-1 border border-gray-300 rounded-md text-sm focus:border-black focus:outline-none focus:ring-black"
+            />
+          </div>
 
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">

@@ -846,12 +846,13 @@ export async function resendVerificationEmail(email: string) {
  * Send accountant team member invitation
  */
 export async function sendAccountantTeamInvitation(
-  name: string,
+  firstName: string,
+  lastName: string,
   email: string, 
   accountantId: string
 ) {
   try {
-    console.log("🔍 sendAccountantTeamInvitation - Starting process:", { name, email, accountantId });
+    console.log("🔍 sendAccountantTeamInvitation - Starting process:", { firstName, lastName, email, accountantId });
     
     // Get accountant details first to check email
     const { data: accountant, error: accountantError } = await supabase
@@ -887,7 +888,8 @@ export async function sendAccountantTeamInvitation(
       .from("accountant_members_list")
       .insert({
         accountant_id: accountantId,
-        name,
+        first_name: firstName,
+        last_name: lastName,
         email,
         is_active: true,
         is_access_enabled: false // Will be set to true when they accept invitation

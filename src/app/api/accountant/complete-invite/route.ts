@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
     // Get the team member details
     const { data: teamMember, error: teamMemberError } = await supabase
       .from("accountant_members_list")
-      .select("id, name, email, accountant_id")
+      .select("id, first_name, last_name, email, accountant_id")
       .eq("id", invitationToken.accountant_member_id)
       .single();
 
@@ -70,7 +70,8 @@ export async function POST(request: NextRequest) {
     }
 
     const email = teamMember.email;
-    const name = teamMember.name;
+    const firstName = teamMember.first_name;
+    const lastName = teamMember.last_name;
 
     // Create user account
     const passwordHash = await hashPassword(password);
@@ -78,7 +79,8 @@ export async function POST(request: NextRequest) {
       .from("users")
       .insert({
         email,
-        name,
+        first_name: firstName,
+        last_name: lastName,
         password_hash: passwordHash,
         role: "Member", // Team members are "Member" role
         is_access_enabled: true

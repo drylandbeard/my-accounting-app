@@ -46,7 +46,8 @@ export async function GET(request: NextRequest) {
     // Transform the data to match the expected format
     const transformedTeamMembers = (teamMembers || []).map((tm: { 
       id: string; 
-      name: string;
+      first_name: string;
+      last_name: string;
       email: string;
       is_active: boolean; 
       is_access_enabled: boolean;
@@ -55,7 +56,8 @@ export async function GET(request: NextRequest) {
       return {
         id: tm.id,
         email: tm.email,
-        name: tm.name,
+        firstName: tm.first_name,
+        lastName: tm.last_name,
         is_access_enabled: tm.is_access_enabled,
         created_at: tm.created_at
       };
