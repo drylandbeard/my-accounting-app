@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
 import NavBar from "@/components/NavBar";
+import { showSuccessToast, showErrorToast } from "@/components/ui/toast";
 import { toast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
 
@@ -62,10 +63,10 @@ function CompanyModal({ isOpen, onClose, onCreateCompany }: CompanyModalProps) {
       await onCreateCompany(name.trim(), description.trim());
       setName("");
       setDescription("");
-      toast.success("Company created successfully!");
+      showSuccessToast("Company created successfully!");
       onClose();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to create company");
+      showErrorToast(err instanceof Error ? err.message : "Failed to create company");
     } finally {
       setIsCreating(false);
     }
@@ -155,10 +156,10 @@ function TeamMemberModal({ isOpen, onClose, onAddTeamMember }: TeamMemberModalPr
       setFirstName("");
       setLastName("");
       setEmail("");
-      toast.success("Team member invited successfully!");
+      showSuccessToast("Team member invited successfully!");
       onClose();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to add team member");
+      showErrorToast(err instanceof Error ? err.message : "Failed to add team member");
     } finally {
       setIsAdding(false);
     }
@@ -282,11 +283,11 @@ function ManageMemberModal({ isOpen, onClose, member, onMemberChanged }: ManageM
         setCompanyAccess(companyAccessList);
       } else {
         const errorData = await response.json();
-        toast.error(errorData.error || "Failed to fetch member data");
+        showErrorToast(errorData.error || "Failed to fetch member data");
       }
     } catch (error) {
       console.error("Error fetching member data:", error);
-      toast.error("Failed to fetch member data");
+      showErrorToast("Failed to fetch member data");
     } finally {
       setIsLoading(false);
     }
@@ -334,16 +335,16 @@ function ManageMemberModal({ isOpen, onClose, member, onMemberChanged }: ManageM
       const response = await api.post("/api/accountant/save-member", payload);
 
       if (response.ok) {
-        toast.success("Member saved successfully!");
+        showSuccessToast("Member saved successfully!");
         onMemberChanged(); // Notify parent to refresh team list
         onClose(); // Close modal
       } else {
         const errorData = await response.json();
-        toast.error(errorData.error || "Failed to save member");
+        showErrorToast(errorData.error || "Failed to save member");
       }
     } catch (error) {
       console.error("Error saving member:", error);
-      toast.error("Failed to save member");
+      showErrorToast("Failed to save member");
     } finally {
       setIsSaving(false);
     }
@@ -642,19 +643,19 @@ export default function GatewayPage() {
     // Validate password if being changed
     if (passwordChanged) {
       if (!passwordForm.currentPassword) {
-        toast.error("Current password is required");
+        showErrorToast("Current password is required");
         return;
       }
       if (!passwordForm.newPassword) {
-        toast.error("New password is required");
+        showErrorToast("New password is required");
         return;
       }
       if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-        toast.error("New passwords do not match");
+        showErrorToast("New passwords do not match");
         return;
       }
       if (passwordForm.newPassword.length < 6) {
-        toast.error("Password must be at least 6 characters long");
+        showErrorToast("Password must be at least 6 characters long");
         return;
       }
     }
@@ -672,7 +673,7 @@ export default function GatewayPage() {
           last_name: nameForm.lastName
         });
         if (!nameResult.ok) {
-          toast.error("Failed to update name");
+          showErrorToast("Failed to update name");
           setNameForm(prev => ({ ...prev, isUpdating: false }));
           if (emailChanged) setEmailForm(prev => ({ ...prev, isUpdating: false }));
           if (passwordChanged) setPasswordForm(prev => ({ ...prev, isUpdating: false }));
@@ -684,7 +685,7 @@ export default function GatewayPage() {
       if (emailChanged) {
         const emailResult = await api.post("/api/user/update-email", { email: emailForm.email });
         if (!emailResult.ok) {
-          toast.error("Failed to update email");
+          showErrorToast("Failed to update email");
           setEmailForm(prev => ({ ...prev, isUpdating: false }));
           if (nameChanged) setNameForm(prev => ({ ...prev, isUpdating: false }));
           if (passwordChanged) setPasswordForm(prev => ({ ...prev, isUpdating: false }));
@@ -699,7 +700,7 @@ export default function GatewayPage() {
           newPassword: passwordForm.newPassword,
         });
         if (!passwordResult.ok) {
-          toast.error("Failed to update password");
+          showErrorToast("Failed to update password");
           setPasswordForm(prev => ({ ...prev, isUpdating: false }));
           if (emailChanged) setEmailForm(prev => ({ ...prev, isUpdating: false }));
           if (nameChanged) setNameForm(prev => ({ ...prev, isUpdating: false }));
@@ -721,7 +722,7 @@ export default function GatewayPage() {
           }));
         }
         
-        toast.success("Profile updated successfully!");
+        showSuccessToast("Profile updated successfully!");
         setEmailForm(prev => ({ ...prev, isUpdating: false }));
         setNameForm(prev => ({ ...prev, isUpdating: false }));
         setPasswordForm({
@@ -734,7 +735,7 @@ export default function GatewayPage() {
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Failed to update profile";
-      toast.error(errorMessage);
+      showErrorToast(errorMessage);
       setEmailForm(prev => ({ ...prev, isUpdating: false }));
       setNameForm(prev => ({ ...prev, isUpdating: false }));
       setPasswordForm(prev => ({ ...prev, isUpdating: false }));

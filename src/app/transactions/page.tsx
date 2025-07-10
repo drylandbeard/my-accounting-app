@@ -34,7 +34,7 @@ import {
   compareAmounts,
   isPositiveAmount,
 } from "@/lib/financial";
-import { showSuccessToast, showErrorToast } from '@/lib/utils';
+import { showSuccessToast, showErrorToast } from '@/components/ui/toast';
 
 // @dnd-kit imports
 import {

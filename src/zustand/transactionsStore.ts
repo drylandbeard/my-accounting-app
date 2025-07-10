@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { api } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 import { FinancialAmount } from '@/lib/financial';
-import { showSuccessToast, showErrorToast } from '@/lib/utils';
+import { showSuccessToast, showErrorToast } from '@/components/ui/toast';
 
 // Enhanced error handling types
 export interface StoreError {
