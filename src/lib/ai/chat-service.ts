@@ -1,4 +1,4 @@
-import { ChatMessage, OpenAIResponse } from './types';
+import { ChatMessage, OpenAIResponse, PayeeOperation, OperationResult } from './types';
 
 /**
  * AI Chat Service
@@ -130,6 +130,61 @@ OPERATION GUIDELINES:
 REMEMBER: Chat history is unreliable and outdated. Only trust the CURRENT PAYEES list above.
 
 FINAL OVERRIDE: If there is ANY conflict between chat history and the current payees list above, ALWAYS trust the current payees list. The list above is the absolute truth.`;
+  }
+
+  /**
+   * Gets enhanced system prompt for different response types
+   */
+  getEnhancedSystemPrompt(
+    payees: Array<{ name: string }>, 
+    responseType: 'vague_prompt' | 'validation_error',
+    validationDetails?: {
+      operation: string;
+      errors: string[];
+      warnings: string[];
+      suggestions: string[];
+    }
+  ): string {
+    const basePrompt = this.getPayeeSystemPrompt(payees);
+    
+    if (responseType === 'vague_prompt') {
+      return `${basePrompt}
+
+SPECIAL INSTRUCTION: The user's message is vague and needs clarification.
+Respond in a helpful, conversational way asking for the specific information needed.
+Be friendly and guide them on what details to provide.
+Do not use function calls - just provide a helpful clarification response.
+
+Examples of what to ask for:
+- For creating payees: Ask for the complete payee name
+- For updating payees: Ask for both the current name and new name
+- For deleting payees: Ask for the specific payee name to delete
+
+Keep the response concise but helpful.`;
+    }
+    
+    if (responseType === 'validation_error' && validationDetails) {
+      return `${basePrompt}
+
+SPECIAL INSTRUCTION: A validation error occurred for operation "${validationDetails.operation}".
+Respond in a conversational, helpful way explaining the issue and providing suggestions.
+Do not use function calls - just provide a helpful error explanation.
+
+VALIDATION DETAILS:
+Operation: ${validationDetails.operation}
+Errors: ${validationDetails.errors.join('; ')}
+Warnings: ${validationDetails.warnings.join('; ')}
+Suggestions: ${validationDetails.suggestions.join('; ')}
+
+Transform these technical details into a friendly, conversational response that:
+1. Explains what went wrong in simple terms
+2. Provides the suggestions in a helpful way
+3. Encourages the user to try again with the corrected information
+
+Keep it conversational and encouraging.`;
+    }
+    
+    return basePrompt;
   }
 
   /**
@@ -300,5 +355,73 @@ FINAL OVERRIDE: If there is ANY conflict between chat history and the current pa
    */
   private delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Gets system prompt for action response generation
+   */
+  getActionResponsePrompt(
+    payees: Array<{ name: string }>,
+    responseType: 'confirmation' | 'operation_success' | 'operation_failure' | 'batch_success' | 'batch_failure' | 'execution_error',
+    staticMessage: string,
+    context?: Record<string, unknown>
+  ): string {
+    const baseInfo = `You are an AI assistant helping with payee management.
+
+CURRENT PAYEES: ${payees.length} payees total
+${payees.length > 0 ? payees.map(p => `- ${p.name}`).join('\n') : '(No payees exist yet)'}
+
+TASK: Transform the following technical message into a conversational, friendly response.
+Original message: "${staticMessage}"
+
+GUIDELINES:
+- Be conversational and friendly
+- Remove technical jargon
+- Make it sound natural and helpful
+- Keep it concise but informative
+- Don't use emojis
+- Maintain the same essential information`;
+
+    switch (responseType) {
+      case 'confirmation':
+        return `${baseInfo}
+
+Transform this into a friendly acknowledgment that encourages the user to continue.`;
+
+      case 'operation_success':
+        const operation = context?.operation as string || 'operation';
+        const result = context?.result as OperationResult;
+        return `${baseInfo}
+
+This was a successful ${operation} operation.
+${result?.data ? `Additional context: ${JSON.stringify(result.data)}` : ''}
+
+Transform this into a celebratory but professional success message.`;
+
+      case 'operation_failure':
+        return `${baseInfo}
+
+This was a failed operation. Transform this into a helpful, encouraging message that guides the user on what to do next.`;
+
+      case 'batch_success':
+        const operations = context?.operations as PayeeOperation[] || [];
+        return `${baseInfo}
+
+This was a successful batch operation with ${operations.length} operations.
+Transform this into a satisfying completion message that summarizes what was accomplished.`;
+
+      case 'batch_failure':
+        return `${baseInfo}
+
+This was a failed batch operation. Transform this into a helpful message that explains what went wrong and encourages trying again.`;
+
+      case 'execution_error':
+        return `${baseInfo}
+
+This was an unexpected error. Transform this into a supportive message that apologizes for the issue and suggests next steps.`;
+
+      default:
+        return baseInfo;
+    }
   }
 }

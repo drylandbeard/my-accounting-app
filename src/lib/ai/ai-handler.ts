@@ -57,15 +57,9 @@ export class AIHandler {
     error?: string;
   }> {
     try {
-      // Check for vague prompts
+      // Check for vague prompts - route through AI for dynamic response
       if (this.isVaguePrompt(userMessage)) {
-        return {
-          success: true,
-          response: {
-            role: 'assistant',
-            content: this.handleVaguePrompt(userMessage)
-          }
-        };
+        return await this.generateAIResponse(userMessage, existingMessages, payees, 'vague_prompt');
       }
 
       // Prepare messages for OpenAI
@@ -103,7 +97,21 @@ export class AIHandler {
         }
       );
 
-      return this.processOpenAIResponse(response);
+      const processedResponse = this.processOpenAIResponse(response);
+      
+      // Check if the response contains validation errors and convert to AI response
+      if (processedResponse.response?.isError || !processedResponse.success) {
+        // Extract validation details from error message and generate AI response
+        const errorContent = processedResponse.response?.content || 'Validation failed';
+        return await this.generateValidationErrorResponseFromMessage(
+          userMessage,
+          existingMessages,
+          payees,
+          errorContent
+        );
+      }
+
+      return processedResponse;
     } catch (error) {
       console.error('Error processing user message:', error);
       return {
@@ -114,19 +122,23 @@ export class AIHandler {
   }
 
   /**
-   * Executes a confirmed action
+   * Executes a confirmed action and generates AI response
    */
   async executeAction(action: Record<string, unknown>): Promise<string> {
     try {
       // Handle text confirmations that were converted to actual actions
       if (action.action === 'text_confirmation') {
-        return '✅ Confirmed! Please try your request again with the specific action.';
+        return await this.generateActionResponseWithAI('Confirmed! Please try your request again with the specific action.', 'confirmation');
       }
       
       if (action.action === 'batch_execute') {
         const operations = action.operations as PayeeOperation[];
         const result = await this.payeeExecutor.executeBatchOperations(operations);
-        return this.formatBatchResult(result);
+        return await this.generateActionResponseWithAI(
+          this.formatBatchResult(result), 
+          result.success ? 'batch_success' : 'batch_failure',
+          { result, operations }
+        );
       }
 
       // Single operation
@@ -136,10 +148,18 @@ export class AIHandler {
         action
       );
 
-      return this.formatOperationResult(result, operationName);
+      return await this.generateActionResponseWithAI(
+        this.formatOperationResult(result, operationName),
+        result.success ? 'operation_success' : 'operation_failure',
+        { result, operation: operationName, action }
+      );
     } catch (error) {
       console.error('Error executing action:', error);
-      return `❌ Failed to execute action: ${error instanceof Error ? error.message : 'Unknown error'}`;
+      return await this.generateActionResponseWithAI(
+        `Failed to execute action: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        'execution_error',
+        { error }
+      );
     }
   }
 
@@ -228,10 +248,10 @@ export class AIHandler {
       }
     });
 
-    // If there are validation errors, return them immediately
+    // If there are validation errors, return them with error flag
     if (validationErrors.length > 0) {
       return {
-        success: true,
+        success: false,
         response: {
           role: 'assistant',
           content: `I found some issues with your request:\n\n${validationErrors.join('\n')}\n\nPlease correct these issues and try again.`,
@@ -297,8 +317,9 @@ export class AIHandler {
     if (functionName) {
       const validation = this.validateOperationArgs(functionName, args);
       if (!validation.isValid) {
+        // Return validation error marker - will be handled by caller with AI response
         return {
-          success: true,
+          success: false,
           response: {
             role: 'assistant',
             content: validation.errorMessage || 'Operation is invalid',
@@ -466,25 +487,6 @@ export class AIHandler {
   /**
    * Handles vague prompts with helpful clarifications
    */
-  private handleVaguePrompt(userMessage: string): string {
-    if (/add|create|new/i.test(userMessage) && /payee/i.test(userMessage)) {
-      return "I'd be happy to create a new payee for you. Could you please provide:\n\n" +
-        "1. The complete name for the payee\n" +
-        "2. Any additional details about the payee if relevant";
-    } else if (/delete|remove/i.test(userMessage)) {
-      return "I'd be happy to delete that payee for you, but I need to know:\n\n" +
-        "1. The complete name of the payee you want to delete\n" +
-        "2. Are you sure you want to permanently remove it?";
-    } else if (/update|change|modify|rename/i.test(userMessage)) {
-      return "I'd be happy to make that change, but I need more specifics:\n\n" +
-        "1. The exact name of the payee you want to change\n" +
-        "2. What would you like to rename it to?";
-    }
-    
-    return "I'd be happy to help with that, but I need a bit more information. " +
-      "Could you please be more specific about what you'd like me to do?";
-  }
-
   /**
    * Validates operation arguments before creating confirmation message
    */
@@ -618,5 +620,200 @@ export class AIHandler {
     
     // Default to generic confirmation if we can't extract specific action
     return { needsConfirmation: true, pendingAction };
+  }
+
+  /**
+   * Generates an AI response for special cases (vague prompts, validation errors, etc.)
+   */
+  private async generateAIResponse(
+    userMessage: string,
+    existingMessages: Message[],
+    payees: Array<{ name: string }>,
+    responseType: 'vague_prompt' | 'validation_error',
+    validationDetails?: {
+      operation: string;
+      errors: string[];
+      warnings: string[];
+      suggestions: string[];
+    }
+  ): Promise<{
+    success: boolean;
+    response?: Message;
+    error?: string;
+  }> {
+    try {
+      // Prepare enhanced system prompt for different response types
+      const systemPrompt = this.chatService.getEnhancedSystemPrompt(payees, responseType, validationDetails);
+      
+      // For special responses, include minimal context to avoid confusion
+      const recentMessages = existingMessages.slice(-2);
+      
+      const chatMessages: ChatMessage[] = [
+        { role: 'system', content: systemPrompt },
+        ...recentMessages.map(m => ({ role: m.role, content: m.content })),
+        { role: 'user', content: userMessage }
+      ];
+
+      // Get AI response without tools for clarification/validation responses
+      const response = await this.chatService.sendChatCompletion(
+        chatMessages,
+        {
+          model: 'gpt-4o-mini-2024-07-18',
+          temperature: 0.3,
+          maxTokens: 256
+          // No tools for clarification responses
+        }
+      );
+
+      const aiMessage = response.choices?.[0]?.message?.content;
+      if (!aiMessage) {
+        throw new Error('No response content received from AI');
+      }
+
+      return {
+        success: true,
+        response: {
+          role: 'assistant',
+          content: aiMessage
+        }
+      };
+    } catch (error) {
+      console.error('Error generating AI response:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+
+  /**
+   * Generates an AI response for validation errors
+   */
+  private async generateValidationErrorResponse(
+    userMessage: string,
+    existingMessages: Message[],
+    payees: Array<{ name: string }>,
+    operation: string,
+    validationDetails: {
+      operation: string;
+      errors: string[];
+      warnings: string[];
+      suggestions: string[];
+    }
+  ): Promise<{
+    success: boolean;
+    response?: Message;
+    error?: string;
+  }> {
+    return await this.generateAIResponse(
+      userMessage, 
+      existingMessages, 
+      payees, 
+      'validation_error', 
+      validationDetails
+    );
+  }
+
+  /**
+   * Generates an AI response for validation errors from error messages
+   */
+  private async generateValidationErrorResponseFromMessage(
+    userMessage: string,
+    existingMessages: Message[],
+    payees: Array<{ name: string }>,
+    errorMessage: string
+  ): Promise<{
+    success: boolean;
+    response?: Message;
+    error?: string;
+  }> {
+    // Parse the error message to extract validation details
+    const validationDetails = {
+      operation: 'payee_operation',
+      errors: [errorMessage],
+      warnings: [],
+      suggestions: this.extractSuggestionsFromErrorMessage(errorMessage)
+    };
+
+    return await this.generateAIResponse(
+      userMessage, 
+      existingMessages, 
+      payees, 
+      'validation_error', 
+      validationDetails
+    );
+  }
+
+  /**
+   * Extracts suggestions from error messages
+   */
+  private extractSuggestionsFromErrorMessage(errorMessage: string): string[] {
+    const suggestions: string[] = [];
+    
+    // Look for common patterns in error messages to provide helpful suggestions
+    if (errorMessage.includes('already exists')) {
+      suggestions.push('Try a different name or use the existing payee');
+      suggestions.push('Add a qualifier like "Inc", "LLC", or "(New)" to make it unique');
+    }
+    
+    if (errorMessage.includes('not found')) {
+      suggestions.push('Check the spelling of the payee name');
+      suggestions.push('Make sure the payee exists in your current list');
+    }
+    
+    if (errorMessage.includes('name is required')) {
+      suggestions.push('Please provide a complete payee name');
+    }
+    
+    if (errorMessage.includes('name cannot be empty')) {
+      suggestions.push('Please provide a non-empty payee name');
+    }
+    
+    return suggestions.length > 0 ? suggestions : ['Please check your input and try again'];
+  }
+
+  /**
+   * Generates AI response for action results
+   */
+  private async generateActionResponseWithAI(
+    staticMessage: string,
+    responseType: 'confirmation' | 'operation_success' | 'operation_failure' | 'batch_success' | 'batch_failure' | 'execution_error',
+    context?: Record<string, unknown>
+  ): Promise<string> {
+    try {
+      // Get current payees for context
+      const payees = this.payeesStore.payees || [];
+
+      // Create enhanced system prompt for action responses
+      const systemPrompt = this.chatService.getActionResponsePrompt(payees, responseType, staticMessage, context);
+      
+      const chatMessages: ChatMessage[] = [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: 'Generate a conversational response for this action result.' }
+      ];
+
+      // Get AI response
+      const response = await this.chatService.sendChatCompletion(
+        chatMessages,
+        {
+          model: 'gpt-4o-mini-2024-07-18',
+          temperature: 0.4,
+          maxTokens: 128
+          // No tools for action responses
+        }
+      );
+
+      const aiMessage = response.choices?.[0]?.message?.content?.trim();
+      if (aiMessage) {
+        return aiMessage;
+      }
+      
+      // Fallback to static message if AI fails
+      return staticMessage;
+    } catch (error) {
+      console.error('Error generating AI action response:', error);
+      // Fallback to static message if AI fails
+      return staticMessage;
+    }
   }
 }
