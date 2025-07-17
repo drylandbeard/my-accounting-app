@@ -25,6 +25,7 @@ import {
   PaginationPrevious,
   PaginationEllipsis,
 } from '@/components/ui/pagination';
+import { DatePicker } from '@/components/ui/date-picker';
 
 // Define types specific to the journal table
 
@@ -852,19 +853,17 @@ export default function JournalTablePage() {
             />
             <div className="flex gap-2 items-center">
               <label className="text-xs whitespace-nowrap">Start Date:</label>
-              <input
-                type="date"
+              <DatePicker
                 value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="border px-2 py-1 text-xs"
+                onChange={(date) => setStartDate(date ? date.toISOString().split('T')[0] : '')}
+                className="px-2 h-7 text-xs"
               />
               <label className="text-xs whitespace-nowrap">End Date:</label>
-              <input
-                type="date"
+              <DatePicker
                 value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="border px-2 py-1 text-xs"
-              />
+                onChange={(date) => setEndDate(date ? date.toISOString().split('T')[0] : '')}
+                className="px-2 h-7 text-xs"
+              />  
             </div>
           </div>
 

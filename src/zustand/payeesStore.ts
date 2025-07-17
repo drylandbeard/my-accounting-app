@@ -257,9 +257,11 @@ export const usePayeesStore = create<PayeesState>((set, get) => ({
     }
     
     try {
+      // Capture original payees before optimistic delete
+      const { payees: originalPayees } = get();
+      const updatedPayees = originalPayees.filter((payee) => payee.id !== payeeId);
+      
       // Optimistic delete
-      const { payees } = get();
-      const updatedPayees = payees.filter((payee) => payee.id !== payeeId);
       set({ payees: updatedPayees, error: null });
       
       // Call the API route
@@ -271,7 +273,7 @@ export const usePayeesStore = create<PayeesState>((set, get) => ({
         const errorData = await response.json();
         console.error('API error deleting payee:', errorData.error);
         // Revert optimistic delete
-        set({ payees, error: errorData.error || 'Failed to delete payee' });
+        set({ payees: originalPayees, error: errorData.error || 'Failed to delete payee' });
         return false;
       }
       
@@ -288,9 +290,9 @@ export const usePayeesStore = create<PayeesState>((set, get) => ({
       return true;
     } catch (err) {
       console.error('Error in deletePayee:', err);
-      // Revert optimistic delete
-      const { payees } = get();
-      set({ payees, error: 'Failed to delete payee' });
+      // Revert optimistic delete by refreshing from API
+      get().refreshPayees();
+      set({ error: 'Failed to delete payee' });
       return false;
     }
   },

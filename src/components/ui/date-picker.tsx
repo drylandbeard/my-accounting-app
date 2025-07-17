@@ -18,6 +18,7 @@ interface DatePickerProps {
   id?: string;
   label?: string;
   max?: Date;
+  required?: boolean;
 }
 
 function formatDate(date: Date | undefined) {
@@ -42,6 +43,7 @@ export function DatePicker({
   className,
   id,
   max,
+  required = false,
 }: DatePickerProps) {
   const [open, setOpen] = React.useState(false);
 
@@ -157,6 +159,7 @@ export function DatePicker({
             setOpen(true);
           }
         }}
+        required={required}
       />
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>

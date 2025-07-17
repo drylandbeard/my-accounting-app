@@ -10,6 +10,8 @@ import Papa from "papaparse";
 import { v4 as uuidv4 } from "uuid";
 import { X, Download, Plus } from "lucide-react";
 import { Select } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
+import { showSuccessToast, showErrorToast } from "@/components/ui/toast";
 import {
   Pagination,
   PaginationContent,
@@ -101,6 +103,7 @@ type MergeModalState = {
   targetCategoryId: string | null;
   isLoading: boolean;
   error: string | null;
+  searchTerm: string;
 };
 
 type RenameMergeModalState = {
@@ -133,6 +136,7 @@ export default function ChartOfAccountsPage() {
 
   const {
     payees,
+    isLoading: payeesLoading,
     error: payeesError,
     highlightedPayeeIds,
     lastActionPayeeId,
@@ -226,6 +230,7 @@ export default function ChartOfAccountsPage() {
     targetCategoryId: null,
     isLoading: false,
     error: null,
+    searchTerm: "",
   });
 
   // Rename merge modal state
@@ -693,19 +698,35 @@ export default function ChartOfAccountsPage() {
   };
 
   const handleDeletePayee = async (id: string) => {
+    console.log("Delete payee button clicked for ID:", id);
+    
     // Show confirmation dialog before deleting
     const payeeToDelete = payees.find((payee) => payee.id === id);
     const payeeName = payeeToDelete?.name || "this payee";
 
+    console.log("Found payee to delete:", payeeName);
+
     if (!window.confirm(`Are you sure you want to delete "${payeeName}"? This action cannot be undone.`)) {
+      console.log("User cancelled delete operation");
       return;
     }
 
-    const success = await deletePayee(id);
-    if (success) {
-      setEditingPayeeId(null);
-    } else {
-      alert(payeesError || "Failed to delete payee. Please try again.");
+    try {
+      console.log("Attempting to delete payee with ID:", id);
+      const success = await deletePayee(id);
+      
+      if (success) {
+        setEditingPayeeId(null);
+        showSuccessToast(`Payee "${payeeName}" deleted successfully`);
+        console.log("Payee deleted successfully");
+      } else {
+        const errorMessage = payeesError || "Failed to delete payee. Please try again.";
+        console.error("Delete payee failed:", errorMessage);
+        showErrorToast(errorMessage);
+      }
+    } catch (error) {
+      console.error("Error deleting payee:", error);
+      showErrorToast("An unexpected error occurred while deleting the payee. Please try again.");
     }
   };
 
@@ -720,6 +741,7 @@ export default function ChartOfAccountsPage() {
   };
 
   const handleEditPayee = (payee: Payee) => {
+    console.log("Edit payee clicked for:", payee.name, "ID:", payee.id);
     setEditingPayeeId(payee.id);
     setEditPayeeName(payee.name);
   };
@@ -923,7 +945,17 @@ export default function ChartOfAccountsPage() {
         return;
       }
 
+      // Check if clicking on Save or Delete buttons - don't auto-save in these cases
+      if (target.tagName === 'BUTTON') {
+        const buttonText = target.textContent?.trim();
+        if (buttonText === 'Save' || buttonText === 'Delete') {
+          console.log("Clicked on action button, not auto-saving:", buttonText);
+          return;
+        }
+      }
+
       // Otherwise, save the changes
+      console.log("Auto-saving payee changes due to click outside");
       handleUpdatePayee();
     };
 
@@ -1010,6 +1042,7 @@ export default function ChartOfAccountsPage() {
           targetCategoryId: null,
           isLoading: false,
           error: null,
+          searchTerm: "",
         });
 
         // Refresh parent options for form dropdowns
@@ -1045,7 +1078,7 @@ export default function ChartOfAccountsPage() {
   };
 
   const downloadPayeesTemplate = () => {
-    const csvContent = "Name\nVendor 1\nVendor 2\nClient 1\nClient 2";
+    const csvContent = "Name\nOffice Depot\nAT&T Business\nAmazon Business\nStaples\nFedEx\nUPS\nMicrosoft Corporation\nGoogle Workspace\nCity Water & Power\nWaste Management Inc.";
     const blob = new Blob([csvContent], { type: "text/csv" });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -1762,7 +1795,7 @@ export default function ChartOfAccountsPage() {
               <thead className="bg-gray-100">
                 <tr>
                   <th
-                    className="border p-1 text-center font-semibold cursor-pointer hover:bg-gray-200"
+                    className="border p-1 text-center font-semibold cursor-pointer hover:bg-gray-200 w-4/5"
                     onClick={() => handlePayeeSort("name")}
                   >
                     Name {payeeSortConfig.key === "name" && (payeeSortConfig.direction === "asc" ? "↑" : "↓")}
@@ -1771,7 +1804,16 @@ export default function ChartOfAccountsPage() {
                 </tr>
               </thead>
               <tbody>
-                {displayedPayees.length > 0 ? (
+                {payeesLoading ? (
+                  <tr>
+                    <td colSpan={2} className="text-center p-6">
+                      <div className="flex items-center justify-center flex-col">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-900"></div>
+                        <span className="ml-2 text-xs text-gray-500">Loading payees...</span>
+                      </div>
+                    </td>
+                  </tr>
+                ) : displayedPayees.length > 0 ? (
                   displayedPayees.map((payee) => (
                     <tr
                       key={payee.id}
@@ -1954,53 +1996,58 @@ export default function ChartOfAccountsPage() {
 
           {/* Categories Table */}
           <div className="bg-white rounded shadow-sm" ref={categoriesTableRef}>
-            {loading ? (
-              <div className="p-4 text-center text-gray-500 text-xs">Loading...</div>
-            ) : (
-              <table className="w-full border-collapse border border-gray-300 text-xs table-fixed">
-                <colgroup>
-                  <col className="w-auto" />
-                  <col className="w-32" />
-                  <col className="w-40" />
-                  <col className="w-24" />
-                </colgroup>
-                <thead className="bg-gray-100">
+            <table className="w-full border-collapse border border-gray-300 text-xs table-fixed">
+              <colgroup>
+                <col className="w-auto" />
+                <col className="w-32" />
+                <col className="w-40" />
+                <col className="w-24" />
+              </colgroup>
+              <thead className="bg-gray-100">
+                <tr>
+                  <th
+                    className="border p-1 text-center font-semibold cursor-pointer hover:bg-gray-200"
+                    onClick={() => handleCategorySort("name")}
+                  >
+                    Name {categorySortConfig.key === "name" && (categorySortConfig.direction === "asc" ? "↑" : "↓")}
+                  </th>
+                  <th
+                    className="border p-1 text-center font-semibold cursor-pointer hover:bg-gray-200"
+                    onClick={() => handleCategorySort("type")}
+                  >
+                    Type {categorySortConfig.key === "type" && (categorySortConfig.direction === "asc" ? "↑" : "↓")}
+                  </th>
+                  <th
+                    className="border p-1 text-center font-semibold cursor-pointer hover:bg-gray-200"
+                    onClick={() => handleCategorySort("parent")}
+                  >
+                    Parent{" "}
+                    {categorySortConfig.key === "parent" && (categorySortConfig.direction === "asc" ? "↑" : "↓")}
+                  </th>
+                  <th className="border p-1 text-center font-semibold">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
                   <tr>
-                    <th
-                      className="border p-1 text-center font-semibold cursor-pointer hover:bg-gray-200"
-                      onClick={() => handleCategorySort("name")}
-                    >
-                      Name {categorySortConfig.key === "name" && (categorySortConfig.direction === "asc" ? "↑" : "↓")}
-                    </th>
-                    <th
-                      className="border p-1 text-center font-semibold cursor-pointer hover:bg-gray-200"
-                      onClick={() => handleCategorySort("type")}
-                    >
-                      Type {categorySortConfig.key === "type" && (categorySortConfig.direction === "asc" ? "↑" : "↓")}
-                    </th>
-                    <th
-                      className="border p-1 text-center font-semibold cursor-pointer hover:bg-gray-200"
-                      onClick={() => handleCategorySort("parent")}
-                    >
-                      Parent{" "}
-                      {categorySortConfig.key === "parent" && (categorySortConfig.direction === "asc" ? "↑" : "↓")}
-                    </th>
-                    <th className="border p-1 text-center font-semibold">Actions</th>
+                    <td colSpan={4} className="text-center p-6">
+                      <div className="flex items-center justify-center flex-col">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-900"></div>
+                        <span className="ml-2 text-xs text-gray-500">Loading categories...</span>
+                      </div>
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {displayedCategories.length > 0 ? (
-                    renderAccounts(displayedCategories)
-                  ) : (
-                    <tr>
-                      <td colSpan={4} className="text-center p-2 text-gray-500 text-xs">
-                        No categories found.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            )}
+                ) : displayedCategories.length > 0 ? (
+                  renderAccounts(displayedCategories)
+                ) : (
+                  <tr>
+                    <td colSpan={4} className="text-center p-2 text-gray-500 text-xs">
+                      No categories found.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
 
           {/* Categories Pagination */}
@@ -3040,6 +3087,7 @@ export default function ChartOfAccountsPage() {
                     targetCategoryId: null,
                     isLoading: false,
                     error: null,
+                    searchTerm: "",
                   })
                 }
                 className="text-gray-500 hover:text-gray-700"
@@ -3140,6 +3188,23 @@ export default function ChartOfAccountsPage() {
                       </span>
                     )}
                   </h3>
+                  
+                  {/* Search Bar */}
+                  <div className="mb-3">
+                    <input
+                      type="text"
+                      placeholder="Search categories..."
+                      value={mergeModal.searchTerm}
+                      onChange={(e) =>
+                        setMergeModal((prev) => ({
+                          ...prev,
+                          searchTerm: e.target.value,
+                        }))
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  
                   <div className="border rounded-lg overflow-hidden max-h-64 overflow-y-auto">
                     <table className="min-w-full divide-y divide-gray-200">
                       <thead className="bg-gray-50 sticky top-0">
@@ -3205,6 +3270,20 @@ export default function ChartOfAccountsPage() {
                                 .filter(Boolean)
                             );
                             return selectedTypes.size === 0 || selectedTypes.has(acc.type);
+                          })
+                          .filter((acc) => {
+                            // Filter by search term
+                            if (!mergeModal.searchTerm.trim()) return true;
+                            const searchLower = mergeModal.searchTerm.toLowerCase();
+                            const parentCategory = acc.parent_id
+                              ? accounts.find((parent) => parent.id === acc.parent_id)
+                              : null;
+                            
+                            return (
+                              acc.name.toLowerCase().includes(searchLower) ||
+                              acc.type.toLowerCase().includes(searchLower) ||
+                              (parentCategory && parentCategory.name.toLowerCase().includes(searchLower))
+                            );
                           })
                           .map((category) => {
                             const parentCategory = category.parent_id
@@ -3332,7 +3411,8 @@ export default function ChartOfAccountsPage() {
                     )}
                   </div>
                   <div className="flex space-x-3">
-                    <button
+                    <Button
+                      variant="outline"
                       onClick={() =>
                         setMergeModal({
                           isOpen: false,
@@ -3340,21 +3420,18 @@ export default function ChartOfAccountsPage() {
                           targetCategoryId: null,
                           isLoading: false,
                           error: null,
+                          searchTerm: "",
                         })
                       }
-                      className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 border border-gray-300 rounded"
                     >
                       Cancel
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       onClick={handleMergeCategories}
                       disabled={mergeModal.selectedCategories.size < 2 || !mergeModal.targetCategoryId}
-                      className="px-4 py-2 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      {mergeModal.selectedCategories.size > 0 && mergeModal.targetCategoryId
-                        ? `Merge ${mergeModal.selectedCategories.size} Categories`
-                        : "Merge Categories"}
-                    </button>
+                      Merge
+                    </Button>
                   </div>
                 </div>
               </div>

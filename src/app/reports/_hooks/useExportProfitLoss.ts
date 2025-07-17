@@ -680,7 +680,7 @@ export const useExportProfitLoss = (params: UseExportProfitLossParams) => {
       // Set column widths
       worksheet.getColumn("A").width = 35;
       for (let i = 2; i <= totalColumns; i++) {
-        worksheet.getColumn(i).width = 15;
+        worksheet.getColumn(i).width = 20; // Increased from 15 to 20 to accommodate larger numbers
       }
 
       // Add footer

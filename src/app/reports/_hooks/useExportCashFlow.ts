@@ -121,16 +121,36 @@ export const useExportCashFlow = (params: UseExportCashFlowParams) => {
 
       let currentRow = 1;
 
+      // Calculate total columns for proper merging
+      let totalColumns = 2; // Default for yearly view
+      if (isMonthlyView) {
+        const months = getMonthsInRange(startDate, endDate);
+        totalColumns = months.length + 2; // months + label column + total column
+      } else if (isQuarterlyView) {
+        const quarters = getQuartersInRange(startDate, endDate);
+        totalColumns = quarters.length + 2; // quarters + label column + total column
+      }
+
+      const getColumnLetter = (colNumber: number): string => {
+        let result = '';
+        while (colNumber > 0) {
+          colNumber--;
+          result = String.fromCharCode(65 + (colNumber % 26)) + result;
+          colNumber = Math.floor(colNumber / 26);
+        }
+        return result;
+      };
+
       // Company name
       if (currentCompany) {
-        worksheet.mergeCells(`A${currentRow}:B${currentRow}`);
+        worksheet.mergeCells(`A${currentRow}:${getColumnLetter(totalColumns)}${currentRow}`);
         worksheet.getCell(`A${currentRow}`).value = currentCompany.name;
         worksheet.getCell(`A${currentRow}`).style = companyStyle;
         currentRow++;
       }
 
       // Title
-      worksheet.mergeCells(`A${currentRow}:B${currentRow}`);
+      worksheet.mergeCells(`A${currentRow}:${getColumnLetter(totalColumns)}${currentRow}`);
       worksheet.getCell(`A${currentRow}`).value = "Cash Flow Statement";
       worksheet.getCell(`A${currentRow}`).style = {
         font: { size: 10 },
@@ -139,7 +159,7 @@ export const useExportCashFlow = (params: UseExportCashFlowParams) => {
       currentRow++;
 
       // Date range
-      worksheet.mergeCells(`A${currentRow}:B${currentRow}`);
+      worksheet.mergeCells(`A${currentRow}:${getColumnLetter(totalColumns)}${currentRow}`);
       worksheet.getCell(`A${currentRow}`).value = `${formatDateForDisplay(startDate)} to ${formatDateForDisplay(
         endDate
       )}`;
@@ -425,7 +445,33 @@ export const useExportCashFlow = (params: UseExportCashFlowParams) => {
 
       // Set column widths
       worksheet.getColumn(1).width = 50;
-      worksheet.getColumn(2).width = 15;
+      
+      // Set width for all number columns to accommodate larger values
+      if (isMonthlyView) {
+        const months = getMonthsInRange(startDate, endDate);
+        for (let i = 2; i <= months.length + 2; i++) {
+          worksheet.getColumn(i).width = 25; // Increased to accommodate large numbers
+        }
+      } else if (isQuarterlyView) {
+        const quarters = getQuartersInRange(startDate, endDate);
+        for (let i = 2; i <= quarters.length + 2; i++) {
+          worksheet.getColumn(i).width = 25; // Increased to accommodate large numbers
+        }
+      } else {
+        worksheet.getColumn(2).width = 25; // Increased to accommodate large numbers
+      }
+
+      // Add footer
+      currentRow += 3;
+      const today = new Date();
+      worksheet.mergeCells(`A${currentRow}:${getColumnLetter(totalColumns)}${currentRow}`);
+      worksheet.getCell(`A${currentRow}`).value = `switch | ${currentCompany?.name} | ${formatDateForDisplay(
+        today.toISOString().split("T")[0]
+      )} ${today.toLocaleTimeString()}`;
+      worksheet.getCell(`A${currentRow}`).style = {
+        font: { size: 9, color: { argb: "FF666666" } },
+        alignment: { horizontal: "center" as const },
+      };
 
       // Generate and download the file
       const buffer = await workbook.xlsx.writeBuffer();

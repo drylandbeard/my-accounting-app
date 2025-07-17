@@ -818,7 +818,7 @@ export default function BalanceSheetPage() {
                       {/* Assets Section */}
                       <TableRow isSummaryLineItem>
                         <TableCell colSpan={getTotalColumns()} isLineItem>
-                          ASSETS
+                          Assets
                         </TableCell>
                       </TableRow>
                       {assetAccounts.map((account) => renderAccountRow(account))}
@@ -833,7 +833,7 @@ export default function BalanceSheetPage() {
                           })
                         }
                       >
-                        <TableCell isLineItem>TOTAL ASSETS</TableCell>
+                        <TableCell isLineItem>Total Assets</TableCell>
                         {isMonthlyView ? (
                           <>
                             {getMonthsInRange(startDate, asOfDate).map((month) => (
@@ -883,7 +883,7 @@ export default function BalanceSheetPage() {
                       {/* Liabilities Section */}
                       <TableRow isSummaryLineItem>
                         <TableCell colSpan={getTotalColumns()} isLineItem>
-                          LIABILITIES
+                          Liabilities
                         </TableCell>
                       </TableRow>
                       {liabilityAccounts.map((account) => renderAccountRow(account))}
@@ -903,7 +903,7 @@ export default function BalanceSheetPage() {
                           })
                         }
                       >
-                        <TableCell isLineItem>TOTAL LIABILITIES</TableCell>
+                        <TableCell isLineItem>Total Liabilities</TableCell>
                         {isMonthlyView ? (
                           <>
                             {getMonthsInRange(startDate, asOfDate).map((month) => (
@@ -981,7 +981,7 @@ export default function BalanceSheetPage() {
                       {/* Equity Section */}
                       <TableRow isSummaryLineItem>
                         <TableCell colSpan={getTotalColumns()} isLineItem>
-                          EQUITY
+                          Equity
                         </TableCell>
                       </TableRow>
                       {equityAccounts.map((account) => renderAccountRow(account))}
@@ -1054,7 +1054,7 @@ export default function BalanceSheetPage() {
                           })
                         }
                       >
-                        <TableCell isLineItem>TOTAL EQUITY</TableCell>
+                        <TableCell isLineItem>Total Equity</TableCell>
                         {isMonthlyView ? (
                           <>
                             {getMonthsInRange(startDate, asOfDate).map((month) => (
@@ -1131,7 +1131,7 @@ export default function BalanceSheetPage() {
 
                       {/* Total Liabilities & Equity */}
                       <TableRow isSummaryLineItem>
-                        <TableCell isLineItem>TOTAL LIABILITIES & EQUITY</TableCell>
+                        <TableCell isLineItem>Total Liabilities & Equity</TableCell>
                         {isMonthlyView ? (
                           <>
                             {getMonthsInRange(startDate, asOfDate).map((month) => (

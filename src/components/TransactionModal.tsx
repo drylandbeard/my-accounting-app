@@ -1,6 +1,7 @@
 import React from 'react';
 import { X, Loader2 } from 'lucide-react';
 import Select from 'react-select';
+import { DatePicker } from './ui/date-picker';
 
 export type JournalEntryLine = {
   id: string;
@@ -143,10 +144,9 @@ export default function TransactionModal({
             <div className="mb-4 grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Date</label>
-                <input
-                  type="date"
-                  value={modalState.editEntry.date}
-                  onChange={(e) => onDateChange(e.target.value)}
+                <DatePicker
+                  value={modalState.editEntry.date ? new Date(modalState.editEntry.date) : ""}
+                  onChange={(date) => onDateChange(date ? date.toISOString().split('T')[0] : '')}
                   className="border px-3 py-2 rounded text-sm w-full"
                   required
                 />

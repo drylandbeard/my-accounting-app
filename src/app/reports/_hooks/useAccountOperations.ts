@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Account, Category, Transaction } from "../_types";
+import { Category, Transaction } from "../_types";
 import { getSubaccounts, hasTransactions } from "../_utils";
 
 interface UseAccountOperationsProps {
