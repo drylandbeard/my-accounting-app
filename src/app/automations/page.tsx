@@ -81,10 +81,12 @@ export default function AutomationsPage() {
   // State for payee automations
   const [payeeAutomations, setPayeeAutomations] = useState<PayeeAutomation[]>([]);
   const [payeeSearch, setPayeeSearch] = useState("");
+  const [isLoadingPayeeAutomations, setIsLoadingPayeeAutomations] = useState(false);
 
   // State for category automations
   const [categoryAutomations, setCategoryAutomations] = useState<CategoryAutomation[]>([]);
   const [categorySearch, setCategorySearch] = useState("");
+  const [isLoadingCategoryAutomations, setIsLoadingCategoryAutomations] = useState(false);
 
   // Available payees for dropdown
   const [availablePayees, setAvailablePayees] = useState<Payee[]>([]);
@@ -219,6 +221,7 @@ export default function AutomationsPage() {
   const fetchPayeeAutomations = async () => {
     if (!hasCompanyContext) return;
 
+    setIsLoadingPayeeAutomations(true);
     try {
       const { data, error } = await supabase
         .from("automations")
@@ -250,12 +253,15 @@ export default function AutomationsPage() {
       console.error("Error fetching payee automations:", error);
       // Fallback to empty array if database connection fails
       setPayeeAutomations([]);
+    } finally {
+      setIsLoadingPayeeAutomations(false);
     }
   };
 
   const fetchCategoryAutomations = async () => {
     if (!hasCompanyContext) return;
 
+    setIsLoadingCategoryAutomations(true);
     try {
       const { data, error } = await supabase
         .from("automations")
@@ -287,6 +293,8 @@ export default function AutomationsPage() {
       console.error("Error fetching category automations:", error);
       // Fallback to empty array if database connection fails
       setCategoryAutomations([]);
+    } finally {
+      setIsLoadingCategoryAutomations(false);
     }
   };
 
@@ -443,9 +451,9 @@ export default function AutomationsPage() {
           return;
         }
 
-        // Update local state
-        setPayeeAutomations((prev) =>
-          prev.map((automation) =>
+        // Update local state with alphabetical sorting
+        setPayeeAutomations((prev) => {
+          const updated = prev.map((automation) =>
             automation.id === payeeAutomationModal.editingId
               ? {
                   ...automation,
@@ -455,8 +463,9 @@ export default function AutomationsPage() {
                   payee_name: payeeAutomationModal.action.trim(),
                 }
               : automation
-          )
-        );
+          );
+          return updated.sort((a, b) => a.name.localeCompare(b.name));
+        });
       } else {
         // Create new automation
         const { data, error } = await supabase
@@ -480,7 +489,7 @@ export default function AutomationsPage() {
           return;
         }
 
-        // Add to local state
+        // Add to local state with alphabetical sorting
         const newAutomation: PayeeAutomation = {
           id: data.id,
           name: data.name,
@@ -491,7 +500,10 @@ export default function AutomationsPage() {
           enabled: data.enabled,
           auto_add: data.auto_add || false,
         };
-        setPayeeAutomations((prev) => [...prev, newAutomation]);
+        setPayeeAutomations((prev) => {
+          const updated = [...prev, newAutomation];
+          return updated.sort((a, b) => a.name.localeCompare(b.name));
+        });
       }
 
       setPayeeAutomationModal({
@@ -558,9 +570,9 @@ export default function AutomationsPage() {
           return;
         }
 
-        // Update local state
-        setCategoryAutomations((prev) =>
-          prev.map((automation) =>
+        // Update local state with alphabetical sorting
+        setCategoryAutomations((prev) => {
+          const updated = prev.map((automation) =>
             automation.id === categoryAutomationModal.editingId
               ? {
                   ...automation,
@@ -571,8 +583,9 @@ export default function AutomationsPage() {
                   auto_add: categoryAutomationModal.autoAdd,
                 }
               : automation
-          )
-        );
+          );
+          return updated.sort((a, b) => a.name.localeCompare(b.name));
+        });
       } else {
         // Create new automation
         const { data, error } = await supabase
@@ -597,7 +610,7 @@ export default function AutomationsPage() {
           return;
         }
 
-        // Add to local state
+        // Add to local state with alphabetical sorting
         const newAutomation: CategoryAutomation = {
           id: data.id,
           name: data.name,
@@ -608,7 +621,10 @@ export default function AutomationsPage() {
           enabled: data.enabled,
           auto_add: data.auto_add || false,
         };
-        setCategoryAutomations((prev) => [...prev, newAutomation]);
+        setCategoryAutomations((prev) => {
+          const updated = [...prev, newAutomation];
+          return updated.sort((a, b) => a.name.localeCompare(b.name));
+        });
       }
 
       setCategoryAutomationModal({
@@ -1002,15 +1018,17 @@ export default function AutomationsPage() {
         // Check if they have different actions
         const uniqueActions = new Set(rules.map((r) => r.category_name.toLowerCase()));
         if (uniqueActions.size > 1) {
+          // Sort rules alphabetically by name to determine priority
+          const sortedRules = [...rules].sort((a, b) => a.name.localeCompare(b.name));
           conflicts.push({
             type: "category",
-            conflictingRules: rules.map((rule) => ({
+            conflictingRules: sortedRules.map((rule) => ({
               id: rule.id,
               name: rule.name,
               condition: formatConditionDisplay(rule.condition_type, rule.condition_value),
               action: rule.category_name,
             })),
-            description: formatConditionDisplay(rules[0].condition_type, rules[0].condition_value),
+            description: formatConditionDisplay(sortedRules[0].condition_type, sortedRules[0].condition_value),
           });
         }
       }
@@ -1031,15 +1049,17 @@ export default function AutomationsPage() {
         // Check if they have different actions
         const uniqueActions = new Set(rules.map((r) => r.payee_name.toLowerCase()));
         if (uniqueActions.size > 1) {
+          // Sort rules alphabetically by name to determine priority
+          const sortedRules = [...rules].sort((a, b) => a.name.localeCompare(b.name));
           conflicts.push({
             type: "payee",
-            conflictingRules: rules.map((rule) => ({
+            conflictingRules: sortedRules.map((rule) => ({
               id: rule.id,
               name: rule.name,
               condition: formatConditionDisplay(rule.condition_type, rule.condition_value),
               action: rule.payee_name,
             })),
-            description: formatConditionDisplay(rules[0].condition_type, rules[0].condition_value),
+            description: formatConditionDisplay(sortedRules[0].condition_type, sortedRules[0].condition_value),
           });
         }
       }
@@ -1140,7 +1160,16 @@ export default function AutomationsPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredPayeeAutomations.length > 0 ? (
+                {isLoadingPayeeAutomations ? (
+                  <tr>
+                    <td colSpan={4} className="text-center p-6">
+                      <div className="flex items-center justify-center flex-col">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-900"></div>
+                        <div className="ml-2 text-xs text-gray-500">Loading payee automations...</div>
+                      </div>
+                    </td>
+                  </tr>
+                ) : filteredPayeeAutomations.length > 0 ? (
                   filteredPayeeAutomations.map((automation) => (
                     <tr key={automation.id}>
                       <td className="border p-1 text-xs">{automation.name}</td>
@@ -1228,7 +1257,16 @@ export default function AutomationsPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredCategoryAutomations.length > 0 ? (
+                {isLoadingCategoryAutomations ? (
+                  <tr>
+                    <td colSpan={5} className="text-center p-6">
+                      <div className="flex items-center justify-center flex-col">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-900"></div>
+                        <div className="ml-2 text-xs text-gray-500">Loading category automations...</div>
+                      </div>
+                    </td>
+                  </tr>
+                ) : filteredCategoryAutomations.length > 0 ? (
                   filteredCategoryAutomations.map((automation) => (
                     <tr key={automation.id}>
                       <td className="border p-1 text-xs">{automation.name}</td>
