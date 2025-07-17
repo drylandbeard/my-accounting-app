@@ -2,6 +2,7 @@ import React from 'react';
 import { X } from 'lucide-react';
 import Select from 'react-select';
 import { isZeroAmount } from '@/lib/financial';
+import { DatePicker } from './ui/date-picker';
 
 // Types
 export type JournalEntryLine = {
@@ -129,10 +130,9 @@ export default function ManualJeModal({
             <div className="mb-4 grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Date</label>
-                <input
-                  type="date"
-                  value={newEntry.date}
-                  onChange={(e) => setNewEntry(prev => ({ ...prev, date: e.target.value }))}
+                <DatePicker
+                  value={newEntry.date ? new Date(newEntry.date) : ""}
+                  onChange={(date) => setNewEntry(prev => ({ ...prev, date: date ? date.toISOString().split('T')[0] : '' }))}
                   className="border px-3 py-2 rounded text-sm w-full"
                   required
                 />
@@ -377,12 +377,11 @@ export default function ManualJeModal({
             <div className="mb-4 grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Date</label>
-                <input
-                  type="date"
-                  value={editModal.editEntry.date}
-                  onChange={(e) => setEditModal(prev => ({
+                <DatePicker
+                  value={editModal.editEntry.date ? new Date(editModal.editEntry.date) : ""}
+                  onChange={(date) => setEditModal(prev => ({
                     ...prev,
-                    editEntry: { ...prev.editEntry, date: e.target.value }
+                    editEntry: { ...prev.editEntry, date: date ? date.toISOString().split('T')[0] : '' }
                   }))}
                   className="border px-3 py-2 rounded text-sm w-full"
                   required
