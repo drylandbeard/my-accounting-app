@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { api } from "@/lib/api";
 import { X, Plus, CreditCard, Trash, ArrowRight, AlertTriangle } from "lucide-react";
+import { Select } from "@/components/ui/select";
 
 interface CompanyMember {
   id: string;
@@ -167,15 +168,50 @@ function AddMemberModal({ isOpen, onClose, onAddMember }: AddMemberModalProps) {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Role *</label>
-              <select
-                value={role}
-                onChange={(e) => setRole(e.target.value as "Owner" | "Member" | "Accountant")}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 focus:border-black focus:outline-none focus:ring-black"
-              >
-                <option value="Owner">Owner</option>
-                <option value="Member">Member</option>
-                <option value="Accountant">Accountant</option>
-              </select>
+              <Select
+                value={{ value: role, label: role }}
+                onChange={(newValue) => {
+                  const selectedOption = newValue as { value: string; label: string } | null;
+                  setRole(selectedOption?.value as "Owner" | "Member" | "Accountant");
+                }}
+                options={[
+                  { value: "Owner", label: "Owner" },
+                  { value: "Member", label: "Member" },
+                  { value: "Accountant", label: "Accountant" }
+                ]}
+                styles={{
+                  control: (base) => ({
+                      ...base,
+                      minHeight: "32px",
+                      height: "41px",
+                      fontSize: "14px",
+                      border: "1px solid #d1d5db",
+                      borderRadius: "6px",
+                      padding: "0 8px",
+                      boxShadow: "none",
+                      "&:hover": {
+                        borderColor: "#d1d5db",
+                      },
+                    }),
+                    valueContainer: (base) => ({
+                      ...base,
+                      padding: "0",
+                    }),
+                    input: (base) => ({
+                      ...base,
+                      margin: "0",
+                      padding: "0",
+                    }),
+                    indicatorsContainer: (base) => ({
+                      ...base,
+                      height: "41px",
+                    }),
+                    dropdownIndicator: (base) => ({
+                      ...base,
+                      padding: "0 4px",
+                    }),
+                }}
+              />
             </div>
           </div>
 
@@ -253,19 +289,43 @@ function TransferOwnershipModal({ isOpen, onClose, members, onTransferOwnership 
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Select New Owner *</label>
-              <select
-                value={selectedMemberId}
-                onChange={(e) => setSelectedMemberId(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 focus:border-black focus:outline-none focus:ring-black"
-                required
-              >
-                <option value="">Choose a team member...</option>
-                {nonOwnerMembers.map((member) => (
-                  <option key={member.id} value={member.id}>
-                    {member.email} ({member.role})
-                  </option>
-                ))}
-              </select>
+              <Select
+                value={selectedMemberId ? { value: selectedMemberId, label: nonOwnerMembers.find(m => m.id === selectedMemberId)?.email + ` (${nonOwnerMembers.find(m => m.id === selectedMemberId)?.role})` || '' } : null}
+                onChange={(newValue) => {
+                  const selectedOption = newValue as { value: string; label: string } | null;
+                  setSelectedMemberId(selectedOption?.value || "");
+                }}
+                options={[
+                  { value: "", label: "Choose a team member...", isDisabled: true },
+                  ...nonOwnerMembers.map((member) => ({
+                    value: member.id,
+                    label: `${member.email} (${member.role})`
+                  }))
+                ]}
+                placeholder="Choose a team member..."
+                isClearable={false}
+                isDisabled={nonOwnerMembers.length === 0}
+                styles={{
+                  control: (base) => ({
+                    ...base,
+                    minHeight: '38px',
+                    height: '38px',
+                    fontSize: '0.875rem',
+                    borderColor: '#d1d5db',
+                    '&:hover': {
+                      borderColor: '#d1d5db'
+                    },
+                    '&:focus-within': {
+                      borderColor: '#000',
+                      boxShadow: '0 0 0 1px #000'
+                    }
+                  }),
+                  valueContainer: (base) => ({
+                    ...base,
+                    padding: '2px 12px'
+                  })
+                }}
+              />
               {nonOwnerMembers.length === 0 && (
                 <p className="text-sm text-gray-500 mt-1">
                   No other team members available. Add members first before transferring ownership.

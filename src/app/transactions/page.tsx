@@ -54,6 +54,7 @@ import {
 } from "@dnd-kit/sortable";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { DatePicker } from "@/components/ui/date-picker";
 
 // Use Transaction type from store
 type Transaction = StoreTransaction;
@@ -3453,13 +3454,27 @@ export default function TransactionsPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
-                  <input
-                    type="date"
+                  <DatePicker
                     value={journalEntryModal.date}
+                    onChange={(date) =>
+                      setJournalEntryModal((prev) => ({
+                        ...prev,
+                        date: date ? date.toISOString().split('T')[0] : '',
+                      }))
+                    }
+                    className="w-full h-7 px-2 py-1 rounded"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                  <input
+                    type="text"
+                    value={journalEntryModal.description}
                     onChange={(e) =>
                       setJournalEntryModal((prev) => ({
                         ...prev,
-                        date: e.target.value,
+                        description: e.target.value,
                       }))
                     }
                     className="w-full border px-2 py-1 rounded"
@@ -3744,8 +3759,7 @@ export default function TransactionsPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
-                  <input
-                    type="date"
+                  <DatePicker
                     value={editJournalEntryModal.entry.date}
                     onChange={(e) =>
                       setEditJournalEntryModal((prev) => ({
@@ -3753,7 +3767,7 @@ export default function TransactionsPage() {
                         entry: prev.entry
                           ? {
                               ...prev.entry,
-                              date: e.target.value,
+                              date: e ? e.toISOString().split('T')[0] : '' ,
                             }
                           : null,
                       }))
@@ -4641,13 +4655,12 @@ export default function TransactionsPage() {
                       </div>
                       <div className="ml-7">
                         <label className="block text-sm text-gray-600 mb-1">Start Date</label>
-                        <input
-                          type="date"
+                        <DatePicker
                           value={account.startDate}
-                          max={new Date().toISOString().split("T")[0]}
+                          max={new Date()}
                           onChange={(e) => {
                             const newAccounts = [...accountSelectionModal.accounts];
-                            newAccounts[index].startDate = e.target.value;
+                            newAccounts[index].startDate = e ? e.toISOString().split('T')[0] : '' ;
                             setAccountSelectionModal((prev) => ({
                               ...prev,
                               accounts: newAccounts,
