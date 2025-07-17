@@ -473,11 +473,11 @@ export const useExportBalanceSheet = (params: UseExportBalanceSheetParams) => {
       };
 
       // Add Assets section
-      addAccountRows(assetAccounts, "ASSETS");
+      addAccountRows(assetAccounts, "Assets");
 
       // Total Assets
       colIndex = 1;
-      worksheet.getCell(currentRow, colIndex++).value = "TOTAL ASSETS";
+      worksheet.getCell(currentRow, colIndex++).value = "Total Assets";
       worksheet.getCell(currentRow, 1).style = totalStyle;
 
       if (isMonthlyView) {
@@ -541,11 +541,11 @@ export const useExportBalanceSheet = (params: UseExportBalanceSheetParams) => {
       currentRow++;
 
       // Add Liabilities section
-      addAccountRows(liabilityAccounts, "LIABILITIES");
+      addAccountRows(liabilityAccounts, "Liabilities");
 
       // Total Liabilities
       colIndex = 1;
-      worksheet.getCell(currentRow, colIndex++).value = "TOTAL LIABILITIES";
+      worksheet.getCell(currentRow, colIndex++).value = "Total Liabilities";
       worksheet.getCell(currentRow, 1).style = totalStyle;
 
       if (isMonthlyView) {
@@ -616,7 +616,7 @@ export const useExportBalanceSheet = (params: UseExportBalanceSheetParams) => {
       currentRow++;
 
       // Add Equity section
-      addAccountRows(equityAccounts, "EQUITY");
+      addAccountRows(equityAccounts, "Equity");
 
       // Retained Earnings
       colIndex = 1;
@@ -690,7 +690,7 @@ export const useExportBalanceSheet = (params: UseExportBalanceSheetParams) => {
 
       // Total Equity
       colIndex = 1;
-      worksheet.getCell(currentRow, colIndex++).value = "TOTAL EQUITY";
+      worksheet.getCell(currentRow, colIndex++).value = "Total Equity";
       worksheet.getCell(currentRow, 1).style = totalStyle;
 
       if (isMonthlyView) {
@@ -764,7 +764,7 @@ export const useExportBalanceSheet = (params: UseExportBalanceSheetParams) => {
 
       // Total Liabilities & Equity
       colIndex = 1;
-      worksheet.getCell(currentRow, colIndex++).value = "TOTAL LIABILITIES & EQUITY";
+      worksheet.getCell(currentRow, colIndex++).value = "Total Liabilities & Equity";
       worksheet.getCell(currentRow, 1).style = totalStyle;
 
       if (isMonthlyView) {
@@ -849,7 +849,7 @@ export const useExportBalanceSheet = (params: UseExportBalanceSheetParams) => {
       // Set column widths
       worksheet.getColumn("A").width = 35;
       for (let i = 2; i <= totalColumns; i++) {
-        worksheet.getColumn(i).width = 15;
+        worksheet.getColumn(i).width = 20; // Increased from 15 to 20 to accommodate larger numbers
       }
 
       // Add footer
