@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { useAuthStore } from "@/zustand/authStore";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Plus, FileText, TrendingUp, DollarSign, BarChart3, Eye, Trash2, Edit2 } from "lucide-react";
+import { FileText, TrendingUp, DollarSign, BarChart3, Eye, Trash2, Edit2, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { EditReportModal } from "@/app/reports/_components/EditReportModal";
@@ -27,7 +27,7 @@ interface SavedReport {
 export default function ReportsPage() {
   const { currentCompany } = useAuthStore();
   const [savedReports, setSavedReports] = useState<SavedReport[]>([]);
-  const [hasCompanySelected, setHasCompanySelected] = useState(false);
+  const [hasCompanySelected, setHasCompanySelected] = useState(!!currentCompany?.id);
   const [loading, setLoading] = useState(true);
   const [editModal, setEditModal] = useState<{
     isOpen: boolean;
@@ -200,19 +200,23 @@ export default function ReportsPage() {
           <div>
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-sm">
-                  <Plus className="w-5 h-5" />
+                <CardTitle className="text-sm">
                   Created Reports
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 {loading || !hasCompanySelected ? (
                   <div className="text-center py-8">
-                    <div className="text-sm text-gray-600">
-                      {hasCompanySelected
-                        ? "Loading saved reports..."
-                        : "Please select a company to view saved reports"}
-                    </div>
+                    {hasCompanySelected ? (
+                      <div className="flex flex-col items-center gap-3">
+                        <Loader2 className="w-4 h-4 text-gray-400 animate-spin" />
+                        <div className="text-sm text-gray-600">Loading saved reports...</div>
+                      </div>
+                    ) : (
+                      <div className="text-sm text-gray-600">
+                        Please select a company to view saved reports
+                      </div>
+                    )}
                   </div>
                 ) : savedReports.length === 0 ? (
                   <div className="text-center py-8">
