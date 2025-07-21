@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { X } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 interface SaveReportModalProps {
   isOpen: boolean;
@@ -28,12 +29,6 @@ export function SaveReportModal({ isOpen, onClose, onSave, reportType, isLoading
     onSave(reportName.trim());
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Escape") {
-      onClose();
-    }
-  };
-
   const handleClose = () => {
     setReportName("");
     onClose();
@@ -55,23 +50,16 @@ export function SaveReportModal({ isOpen, onClose, onSave, reportType, isLoading
   };
 
   return (
-    <div
-      className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50"
-      onKeyDown={handleKeyDown}
+    <Dialog
+      open={isOpen}
+      onOpenChange={handleClose}
     >
-      <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
-        <div className="flex justify-between items-center px-6 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900">Save {getReportDisplayName(reportType)} Report</h3>
-          <button
-            onClick={handleClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
-            disabled={isLoading}
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+      <DialogContent className="min-w-[400px] w-full">
+        <DialogHeader>
+          <DialogTitle>Save {getReportDisplayName(reportType)} Report</DialogTitle>
+        </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="px-6 py-4">
+        <form onSubmit={handleSubmit}>
           <div className="mb-4">
             <label className="block text-sm font-medium text-gray-700 mb-2">Report Name</label>
             <input
@@ -95,7 +83,7 @@ export function SaveReportModal({ isOpen, onClose, onSave, reportType, isLoading
             </Button>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

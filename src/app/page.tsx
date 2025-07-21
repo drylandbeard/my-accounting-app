@@ -4,11 +4,12 @@ import { useAuthStore } from "@/zustand/authStore";
 import { api } from "@/lib/api";
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { X } from "lucide-react";
 import NavBar from "@/components/NavBar";
 import { showSuccessToast, showErrorToast } from "@/components/ui/toast";
 import { toast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Loader2 } from "lucide-react";
 
 interface CompanyModalProps {
   isOpen: boolean;
@@ -72,22 +73,14 @@ function CompanyModal({ isOpen, onClose, onCreateCompany }: CompanyModalProps) {
     }
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-80 mx-4">
-        <div className="flex justify-between items-center px-4 py-3 border-b border-gray-200">
-          <h2 className="text-sm font-semibold text-gray-900">Add New Company</h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="w-80 max-w-80">
+        <DialogHeader>
+          <DialogTitle>Add New Company</DialogTitle>
+        </DialogHeader>
         
-        <form onSubmit={handleSubmit} className="px-4 py-4">
+        <form onSubmit={handleSubmit}>
           <div className="space-y-3">
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">
@@ -134,8 +127,8 @@ function CompanyModal({ isOpen, onClose, onCreateCompany }: CompanyModalProps) {
             </button>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -165,20 +158,12 @@ function TeamMemberModal({ isOpen, onClose, onAddTeamMember }: TeamMemberModalPr
     }
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-80 mx-4">
-        <div className="flex justify-between items-center px-4 py-3 border-b border-gray-200">
-          <h2 className="text-sm font-semibold text-gray-900">Add Team Member</h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="w-80 max-w-80">
+        <DialogHeader>
+          <DialogTitle>Add Team Member</DialogTitle>
+        </DialogHeader>
         
         <form onSubmit={handleSubmit} className="px-4 py-4">
           <div className="space-y-3">
@@ -242,8 +227,8 @@ function TeamMemberModal({ isOpen, onClose, onAddTeamMember }: TeamMemberModalPr
             </button>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -393,29 +378,21 @@ function ManageMemberModal({ isOpen, onClose, member, onMemberChanged }: ManageM
     );
   };
 
-  if (!isOpen || !member) return null;
+  if (!member) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[80vh] overflow-hidden">
-        <div className="flex justify-between items-center px-6 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900">
-            Manage Member
-          </h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="w-full max-w-2xl max-h-[80vh] overflow-hidden">
+        <DialogHeader>
+          <DialogTitle>Manage Member</DialogTitle>
+        </DialogHeader>
         
         <div className="p-6 overflow-y-auto max-h-[calc(80vh-180px)]">
           {isLoading ? (
             <div className="flex items-center justify-center py-8">
               <div className="w-6 h-6 relative">
                 <div className="w-6 h-6 border-2 border-gray-200 rounded-full"></div>
-                <div className="w-6 h-6 border-2 border-black border-t-transparent rounded-full animate-spin absolute top-0 left-0"></div>
+                <Loader2 className="h-4 w-4 animate-spin" />
               </div>
               <span className="ml-2 text-gray-600">Loading member data...</span>
             </div>
@@ -559,8 +536,8 @@ function ManageMemberModal({ isOpen, onClose, member, onMemberChanged }: ManageM
             </button>
           </div>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

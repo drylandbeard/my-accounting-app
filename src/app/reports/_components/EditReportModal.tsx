@@ -4,11 +4,11 @@ import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { X, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { api } from "@/lib/api";
 import { DatePicker } from "@/components/ui/date-picker";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 interface SavedReport {
   id: string;
@@ -203,15 +203,12 @@ export const EditReportModal: React.FC<EditReportModalProps> = ({ report, isOpen
   };
 
   return (
-    <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50">
-      <Card className="w-full max-w-lg mx-4">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
-          <CardTitle className="text-lg font-semibold">Edit {getReportTypeLabel(report.type)} Report</CardTitle>
-          <Button variant="ghost" size="sm" onClick={onClose} className="h-6 w-6 p-0">
-            <X className="h-4 w-4" />
-          </Button>
-        </CardHeader>
-        <CardContent className="space-y-4">
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit {getReportTypeLabel(report.type)} Report</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
           {/* Report Name */}
           <div className="space-y-2">
             <Label htmlFor="reportName">Report Name</Label>
@@ -407,8 +404,8 @@ export const EditReportModal: React.FC<EditReportModalProps> = ({ report, isOpen
               )}
             </Button>
           </div>
-        </CardContent>
-      </Card>
-    </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 };

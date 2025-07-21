@@ -6,8 +6,9 @@ import { useState, useEffect, useRef } from "react";
 import { useAuthStore } from "@/zustand/authStore";
 import { api } from "@/lib/api";
 
-import { X, Settings, User, LogOut, PanelRight } from "lucide-react";
+import { Settings, User, LogOut, PanelRight } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 interface CompanyModalProps {
   isOpen: boolean;
@@ -40,17 +41,12 @@ function CompanyModal({ isOpen, onClose, onCreateCompany }: CompanyModalProps) {
     }
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-80 mx-4">
-        <div className="flex justify-between items-center px-4 py-3 border-b border-gray-200">
-          <h2 className="text-sm font-semibold text-gray-900">Add New Company</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="w-80 max-w-80">
+        <DialogHeader>
+          <DialogTitle>Add New Company</DialogTitle>
+        </DialogHeader>
 
         <form onSubmit={handleSubmit} className="px-4 py-4">
           <div className="space-y-3">
@@ -95,8 +91,8 @@ function CompanyModal({ isOpen, onClose, onCreateCompany }: CompanyModalProps) {
             </button>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -397,17 +393,12 @@ function EditCompanyModal({ isOpen, onClose, company, onUpdateCompany }: EditCom
     }
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-80 mx-4">
-        <div className="flex justify-between items-center px-4 py-3 border-b border-gray-200">
-          <h2 className="text-sm font-semibold text-gray-900">Edit Company</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="w-80 max-w-80">
+        <DialogHeader>
+          <DialogTitle>Edit Company</DialogTitle>
+        </DialogHeader>
 
         <form onSubmit={handleSubmit} className="px-4 py-4">
           <div className="space-y-3">
@@ -452,7 +443,7 @@ function EditCompanyModal({ isOpen, onClose, company, onUpdateCompany }: EditCom
             </button>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

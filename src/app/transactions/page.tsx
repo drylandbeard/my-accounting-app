@@ -5,7 +5,7 @@ import { usePlaidLink } from "react-plaid-link";
 
 import Papa from 'papaparse'
 import { v4 as uuidv4 } from 'uuid'
-import { X, Loader2 } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import Select from 'react-select'
 import TransactionModal, { 
   type EditJournalModalState
@@ -25,6 +25,7 @@ import {
   PaginationPrevious,
   PaginationEllipsis,
 } from "@/components/ui/pagination";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
   FinancialAmount,
   formatAmount,
@@ -2629,7 +2630,7 @@ export default function TransactionsPage() {
           >
             {isSyncing ? (
               <div className="flex items-center space-x-1">
-                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-gray-400" />
+                <Loader2 className="h-3 w-3 animate-spin" />
                 <span>Updating...</span>
               </div>
             ) : (
@@ -2704,27 +2705,22 @@ export default function TransactionsPage() {
 
       {/* Import Modal */}
       {importModal.isOpen && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50 p-4">
-          <div className="bg-white rounded-lg p-6 w-[720px] max-h-[90vh] shadow-xl flex flex-col">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Import Transactions</h2>
-              <button
-                onClick={() => setImportModal((prev) => ({ ...prev, isOpen: false }))}
-                className="text-gray-500 hover:text-gray-700"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+        <Dialog
+          open={importModal.isOpen}
+          onOpenChange={(open) => !open && setImportModal((prev) => ({ ...prev, isOpen: false }))}
+        >
+          <DialogContent className="min-w-[720px] max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Import Transactions</DialogTitle>
+            </DialogHeader>
 
             {importModal.error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded mb-4">
-                {importModal.error}
-              </div>
+              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded">{importModal.error}</div>
             )}
 
             {importModal.isLoading ? (
               <div className="flex items-center justify-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+                <Loader2 className="h-8 w-8 animate-spin" />
               </div>
             ) : (
               <div className="space-y-1">
@@ -2918,10 +2914,10 @@ export default function TransactionsPage() {
                                   {tx.description}
                                 </td>
                                 <td className="px-4 py-2 text-sm text-gray-900 text-right w-8">
-                                  {tx.amount && parseFloat(tx.amount) !== 0 
+                                  {tx.amount && parseFloat(tx.amount) !== 0
                                     ? (parseFloat(tx.amount) < 0 
-                                        ? `-${formatAmount(Math.abs(parseFloat(tx.amount)).toString())}` 
-                                        : formatAmount(tx.amount)
+                                      ? `-${formatAmount(Math.abs(parseFloat(tx.amount)).toString())}`
+                                      : formatAmount(tx.amount)
                                       )
                                     : "—"
                                   }
@@ -2940,8 +2936,8 @@ export default function TransactionsPage() {
                                     const amount = parseFloat(tx.amount || "0");
                                     return sum + amount;
                                   }, 0);
-                                  return total < 0 
-                                    ? `-${formatAmount(Math.abs(total).toString())}` 
+                                  return total < 0
+                                    ? `-${formatAmount(Math.abs(total).toString())}`
                                     : formatAmount(total.toString());
                                 })()}
                               </td>
@@ -2995,10 +2991,10 @@ export default function TransactionsPage() {
                                 }));
 
                                 // Show success message
-                                showSuccessToast(`Successfully imported ${
-                                  result.count || selectedTransactions.length
-                                } transactions!`);
-                                
+                                showSuccessToast(
+                                  `Successfully imported ${result.count || selectedTransactions.length} transactions!`
+                                );
+
                                 // Note: Automations will be triggered automatically by the main automation effect
                                 // when it detects the new imported transactions
                               } else {
@@ -3026,29 +3022,20 @@ export default function TransactionsPage() {
                 )}
               </div>
             )}
-          </div>
-        </div>
+          </DialogContent>
+        </Dialog>
       )}
 
       {/* Account Edit Modal */}
       {accountEditModal.isOpen && accountEditModal.account && (
-        <div
-          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
-          onClick={() => setAccountEditModal({ isOpen: false, account: null, newName: "" })}
+        <Dialog
+          open={accountEditModal.isOpen}
+          onOpenChange={(open) => !open && setAccountEditModal({ isOpen: false, account: null, newName: "" })}
         >
-          <div
-            className="bg-white rounded-lg p-6 w-[400px] overflow-y-auto shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Edit Account Name</h2>
-              <button
-                onClick={() => setAccountEditModal({ isOpen: false, account: null, newName: "" })}
-                className="text-gray-500 hover:text-gray-700 text-xl"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+          <DialogContent className="w-[400px]">
+            <DialogHeader>
+              <DialogTitle>Edit Account Name</DialogTitle>
+            </DialogHeader>
 
             <div className="space-y-4">
               <div>
@@ -3075,39 +3062,23 @@ export default function TransactionsPage() {
                 Update
               </button>
             </div>
-          </div>
-        </div>
+          </DialogContent>
+        </Dialog>
       )}
 
       {/* New Category Modal */}
       {newCategoryModal.isOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 flex items-center justify-center h-full z-100"
-          onClick={() =>
+        <Dialog
+          open={newCategoryModal.isOpen}
+          onOpenChange={(open) =>
+            !open &&
             setNewCategoryModal({ isOpen: false, name: "", type: "Expense", parent_id: null, transactionId: null })
           }
         >
-          <div
-            className="bg-white rounded-lg p-6 w-[400px] overflow-y-auto shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Add New Category</h2>
-              <button
-                onClick={() =>
-                  setNewCategoryModal({
-                    isOpen: false,
-                    name: "",
-                    type: "Expense",
-                    parent_id: null,
-                    transactionId: null,
-                  })
-                }
-                className="text-gray-500 hover:text-gray-700 text-xl"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+          <DialogContent className="w-[400px]">
+            <DialogHeader>
+              <DialogTitle>Add New Category</DialogTitle>
+            </DialogHeader>
 
             <div className="space-y-4">
               <div>
@@ -3186,29 +3157,20 @@ export default function TransactionsPage() {
                 Create
               </button>
             </div>
-          </div>
-        </div>
+          </DialogContent>
+        </Dialog>
       )}
 
       {/* New Payee Modal */}
       {newPayeeModal.isOpen && (
-        <div
-          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
-          onClick={() => setNewPayeeModal({ isOpen: false, name: "", transactionId: null })}
+        <Dialog
+          open={newPayeeModal.isOpen}
+          onOpenChange={(open) => !open && setNewPayeeModal({ isOpen: false, name: "", transactionId: null })}
         >
-          <div
-            className="bg-white rounded-lg p-6 w-[400px] overflow-y-auto shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Add New Payee</h2>
-              <button
-                onClick={() => setNewPayeeModal({ isOpen: false, name: "", transactionId: null })}
-                className="text-gray-500 hover:text-gray-700 text-xl"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+          <DialogContent className="w-[400px]">
+            <DialogHeader>
+              <DialogTitle>Add New Payee</DialogTitle>
+            </DialogHeader>
 
             <div className="space-y-4">
               <div>
@@ -3236,26 +3198,22 @@ export default function TransactionsPage() {
                 Create
               </button>
             </div>
-          </div>
-        </div>
+          </DialogContent>
+        </Dialog>
       )}
 
       {/* Manual Account Modal */}
       {manualAccountModal.isOpen && (
-        <div
-          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
-          onClick={() => setManualAccountModal({ isOpen: false, name: "", type: "Asset", startingBalance: "0" })}
+        <Dialog
+          open={manualAccountModal.isOpen}
+          onOpenChange={(open) =>
+            !open && setManualAccountModal({ isOpen: false, name: "", type: "Asset", startingBalance: "0" })
+          }
         >
-          <div className="bg-white rounded-lg p-6 w-[400px] shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Add Manual Account</h2>
-              <button
-                onClick={() => setManualAccountModal({ isOpen: false, name: "", type: "Asset", startingBalance: "0" })}
-                className="text-gray-500 hover:text-gray-700 text-xl"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+          <DialogContent className="w-[400px]">
+            <DialogHeader>
+              <DialogTitle>Add Manual Account</DialogTitle>
+            </DialogHeader>
 
             <div className="space-y-4">
               <div>
@@ -3347,36 +3305,24 @@ export default function TransactionsPage() {
                 Create
               </button>
             </div>
-          </div>
-        </div>
+          </DialogContent>
+        </Dialog>
       )}
 
       {/* Account Names Modal */}
       {accountNamesModal.isOpen && (
-        <div
-          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
-          onClick={() =>
+        <Dialog
+          open={accountNamesModal.isOpen}
+          onOpenChange={(open) =>
+            !open &&
             setAccountNamesModal({ isOpen: false, accounts: [], accountToDelete: null, deleteConfirmation: "" })
           }
         >
-          <div
-            className="bg-white rounded-lg p-6 w-[400px] overflow-y-auto shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex justify-between items-center mb-4">
-              <div>
-                <h2 className="text-lg font-semibold">Edit Accounts</h2>
-                <p className="text-sm text-gray-600">Drag accounts to reorder them</p>
-              </div>
-              <button
-                onClick={() =>
-                  setAccountNamesModal({ isOpen: false, accounts: [], accountToDelete: null, deleteConfirmation: "" })
-                }
-                className="text-gray-500 hover:text-gray-700 text-xl"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+          <DialogContent className="w-[400px] max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Edit Accounts</DialogTitle>
+              <p className="text-sm text-gray-600">Drag accounts to reorder them</p>
+            </DialogHeader>
 
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleAccountDragEnd}>
               <SortableContext
@@ -3432,23 +3378,20 @@ export default function TransactionsPage() {
                 Save
               </button>
             </div>
-          </div>
-        </div>
+          </DialogContent>
+        </Dialog>
       )}
 
       {/* Transaction Modal */}
       {journalEntryModal.isOpen && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50">
-          <div className="bg-white p-6 rounded-lg w-[800px] overflow-y-auto shadow-xl">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Add Transaction</h2>
-              <button
-                onClick={() => setJournalEntryModal((prev) => ({ ...prev, isOpen: false }))}
-                className="text-gray-500 hover:text-gray-700 text-xl"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+        <Dialog
+          open={journalEntryModal.isOpen}
+          onOpenChange={(open) => !open && setJournalEntryModal((prev) => ({ ...prev, isOpen: false }))}
+        >
+          <DialogContent className="w-[800px] max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Add Transaction</DialogTitle>
+            </DialogHeader>
 
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
@@ -3665,23 +3608,20 @@ export default function TransactionsPage() {
                 Save
               </button>
             </div>
-          </div>
-        </div>
+          </DialogContent>
+        </Dialog>
       )}
 
       {/* Past Journal Entries Modal */}
       {pastJournalEntriesModal.isOpen && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50">
-          <div className="bg-white p-6 rounded-lg w-[800px] overflow-y-auto shadow-xl">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Past Journal Entries</h2>
-              <button
-                onClick={() => setPastJournalEntriesModal((prev) => ({ ...prev, isOpen: false }))}
-                className="text-gray-500 hover:text-gray-700 text-xl"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+        <Dialog
+          open={pastJournalEntriesModal.isOpen}
+          onOpenChange={(open) => !open && setPastJournalEntriesModal((prev) => ({ ...prev, isOpen: false }))}
+        >
+          <DialogContent className="w-[800px] max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Past Journal Entries</DialogTitle>
+            </DialogHeader>
 
             <div className="mb-4">
               <input
@@ -3737,23 +3677,20 @@ export default function TransactionsPage() {
                 </div>
               )}
             </div>
-          </div>
-        </div>
+          </DialogContent>
+        </Dialog>
       )}
 
       {/* Edit Transaction Modal */}
       {editJournalEntryModal.isOpen && editJournalEntryModal.entry && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50">
-          <div className="bg-white p-6 rounded-lg w-[800px] overflow-y-auto shadow-xl">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Edit Transaction</h2>
-              <button
-                onClick={() => setEditJournalEntryModal({ isOpen: false, entry: null })}
-                className="text-gray-500 hover:text-gray-700 text-xl"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+        <Dialog
+          open={editJournalEntryModal.isOpen}
+          onOpenChange={(open) => !open && setEditJournalEntryModal({ isOpen: false, entry: null })}
+        >
+          <DialogContent className="w-[800px] max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Edit Transaction</DialogTitle>
+            </DialogHeader>
 
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
@@ -3985,14 +3922,14 @@ export default function TransactionsPage() {
                 Delete
               </button>
             </div>
-          </div>
-        </div>
+          </DialogContent>
+        </Dialog>
       )}
 
       {/* Auto-add indicator */}
       {isAutoAddRunning && (
         <div className="fixed top-6 right-6 z-50 px-4 py-2 bg-blue-100 text-blue-800 border border-blue-300 rounded-lg shadow-lg flex items-center space-x-2">
-          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600" />
+          <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
           <span className="text-sm font-medium">Automation running...</span>
         </div>
       )}
@@ -4112,13 +4049,13 @@ export default function TransactionsPage() {
                   >
                     Received {toAddSortConfig.key === "received" && (toAddSortConfig.direction === "asc" ? "↑" : "↓")}
                   </th>
-                  <th 
+                  <th
                     className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
                     onClick={() => handleSort("payee", "toAdd")}
                   >
                     Payee {toAddSortConfig.key === "payee" && (toAddSortConfig.direction === "asc" ? "↑" : "↓")}
                   </th>
-                  <th 
+                  <th
                     className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
                     onClick={() => handleSort("category", "toAdd")}
                   >
@@ -4146,7 +4083,7 @@ export default function TransactionsPage() {
                       }}
                       className="hover:bg-gray-50"
                     >
-                      <td 
+                      <td
                         className="border p-1 w-8 text-center cursor-pointer"
                         onClick={(e) => {
                           e.stopPropagation(); // Prevent row click handler
@@ -4430,7 +4367,7 @@ export default function TransactionsPage() {
             <table className="w-full border-collapse border border-gray-300">
               <thead className="bg-gray-100">
                 <tr>
-                  <th 
+                  <th
                     className="border p-1 w-8 text-center cursor-pointer"
                     onClick={(e) => {
                       e.stopPropagation();
@@ -4479,13 +4416,13 @@ export default function TransactionsPage() {
                   >
                     Received {addedSortConfig.key === "received" && (addedSortConfig.direction === "asc" ? "↑" : "↓")}
                   </th>
-                  <th 
+                  <th
                     className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
                     onClick={() => handleSort("payee", "added")}
                   >
                     Payee {addedSortConfig.key === "payee" && (addedSortConfig.direction === "asc" ? "↑" : "↓")}
                   </th>
-                  <th 
+                  <th
                     className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
                     onClick={() => handleSort("category", "added")}
                   >
@@ -4516,7 +4453,7 @@ export default function TransactionsPage() {
                       }}
                       className="hover:bg-gray-50"
                     >
-                      <td 
+                      <td
                         className="border p-1 w-8 text-center cursor-pointer"
                         onClick={(e) => {
                           e.stopPropagation(); // Prevent row click handler
@@ -4609,18 +4546,16 @@ export default function TransactionsPage() {
 
       {/* Account Selection Modal */}
       {accountSelectionModal.isOpen && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50 p-4">
-          <div className="bg-white rounded-lg p-6 w-[600px] max-h-[90vh] overflow-y-auto shadow-xl flex flex-col">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Link Accounts</h2>
-              <button
-                onClick={() => setAccountSelectionModal({ isOpen: false, accounts: [] })}
-                className="text-gray-500 hover:text-gray-700 text-xl"
-                disabled={importProgress.isImporting}
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+        <Dialog
+          open={accountSelectionModal.isOpen}
+          onOpenChange={(open) =>
+            !open && !importProgress.isImporting && setAccountSelectionModal({ isOpen: false, accounts: [] })
+          }
+        >
+          <DialogContent className="w-[600px] max-h-[90vh] flex flex-col">
+            <DialogHeader>
+              <DialogTitle>Link Accounts</DialogTitle>
+            </DialogHeader>
 
             <p className="text-sm text-gray-600 mb-4">
               Select the accounts you want to link and choose a start date for importing transactions.
@@ -4712,8 +4647,8 @@ export default function TransactionsPage() {
                 </p>
               </div>
             )}
-          </div>
-        </div>
+          </DialogContent>
+        </Dialog>
       )}
 
       {/* Transaction Modal - Updated to match manual-je format */}
@@ -4733,7 +4668,7 @@ export default function TransactionsPage() {
         onRemoveLine={removeEditJournalLine}
         onSave={saveJournalEntryChanges}
         onDateChange={(date) => setEditJournalModal(prev => ({
-          ...prev,
+            ...prev,
           editEntry: { ...prev.editEntry, date }
         }))}
         onAccountChange={handleEditAccountChange}

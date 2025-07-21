@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { CheckCircle, XCircle, Users } from "lucide-react";
+import { CheckCircle, XCircle, Users, Loader2 } from "lucide-react";
 import { api } from "@/lib/api";
 
 interface AccountantInvitationData {
@@ -158,7 +158,7 @@ export default function AcceptAccountantInvitePage() {
         return (
           <div className="w-8 h-8 relative">
             <div className="w-8 h-8 border-2 border-gray-200 rounded-full"></div>
-            <div className="w-8 h-8 border-2 border-black border-t-transparent rounded-full animate-spin absolute top-0 left-0"></div>
+            <Loader2 className="h-8 w-8 animate-spin" />
           </div>
         );
     }
@@ -253,7 +253,7 @@ export default function AcceptAccountantInvitePage() {
             <div className="flex justify-center">
               <div className="w-6 h-6 relative">
                 <div className="w-6 h-6 border-2 border-green-100 rounded-full"></div>
-                <div className="w-6 h-6 border-2 border-green-500 border-t-transparent rounded-full animate-spin absolute top-0 left-0"></div>
+                <Loader2 className="h-6 w-6 animate-spin text-green-500" />
               </div>
             </div>
             <p className="text-xs text-gray-500 mt-3">Redirecting you to sign in...</p>

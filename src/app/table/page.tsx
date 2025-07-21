@@ -30,6 +30,7 @@ import {
   PaginationEllipsis,
 } from '@/components/ui/pagination';
 import { DatePicker } from '@/components/ui/date-picker';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 // Define types specific to the journal table
 
@@ -1256,24 +1257,11 @@ export default function JournalTablePage() {
       )}
       
       {/* Add Journal Entry Modal */}
-      {showAddModal && (
-        <div 
-          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
-          onClick={() => setShowAddModal(false)}
-        >
-          <div 
-            className="bg-white rounded-lg p-6 w-[800px] overflow-y-auto shadow-xl"
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Add Journal Entry</h2>
-              <button
-                onClick={() => setShowAddModal(false)}
-                className="text-gray-500 hover:text-gray-700 text-xl"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+      <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
+        <DialogContent className="w-[800px] max-w-[800px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Add Journal Entry</DialogTitle>
+          </DialogHeader>
             
             {/* Date and Account selectors */}
             <div className="mb-4 grid grid-cols-2 gap-4">
@@ -1433,29 +1421,19 @@ export default function JournalTablePage() {
                 {saving ? 'Saving...' : 'Save'}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+          </DialogContent>
+      </Dialog>
 
       {/* New Category Modal */}
-      {newCategoryModal.isOpen && (
-        <div 
-          className="fixed inset-0 bg-black/50 flex items-center justify-center h-full z-100"
-          onClick={() => setNewCategoryModal({ isOpen: false, name: '', type: 'Expense', parent_id: null, lineId: null })}
-        >
-          <div 
-            className="bg-white rounded-lg p-6 w-[400px] overflow-y-auto shadow-xl"
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Add New Category</h2>
-              <button
-                onClick={() => setNewCategoryModal({ isOpen: false, name: '', type: 'Expense', parent_id: null, lineId: null })}
-                className="text-gray-500 hover:text-gray-700 text-xl"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+      <Dialog open={newCategoryModal.isOpen} onOpenChange={(open) => {
+        if (!open) {
+          setNewCategoryModal({ isOpen: false, name: '', type: 'Expense', parent_id: null, lineId: null });
+        }
+      }}>
+        <DialogContent className="w-[400px] max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>Add New Category</DialogTitle>
+          </DialogHeader>
 
             <div className="space-y-4">
               <div>
@@ -1531,9 +1509,8 @@ export default function JournalTablePage() {
                 Create
               </button>
             </div>
-          </div>
-        </div>
-      )}
+          </DialogContent>
+      </Dialog>
 
       {/* Transaction Modal */}
       <TransactionModal

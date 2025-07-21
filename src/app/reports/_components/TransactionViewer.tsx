@@ -6,6 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Category, Transaction, ViewerModalState } from "../_types";
 import { formatDateForDisplay, formatNumber, getTransactionDisplayAmount, formatMonth } from "../_utils";
 import ExcelJS from "exceljs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 interface TransactionViewerProps {
   viewerModal: ViewerModalState;
@@ -156,50 +157,46 @@ export const TransactionViewer: React.FC<TransactionViewerProps> = ({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg w-[800px] max-h-[80vh] flex flex-col">
-        <div className="p-4 border-b flex justify-between items-center">
-          <h2 className="text-lg font-semibold">
+    <Dialog open={viewerModal.isOpen} onOpenChange={() => setViewerModal({ isOpen: false, category: null })}>
+      <DialogContent className="min-w-[80%] max-h-[80vh] overflow-y-scroll">
+        <DialogHeader className="flex-row justify-between items-center">
+          <DialogTitle className="text-lg font-semibold">
             {viewerModal.category?.name} Transactions
             {viewerModal.selectedMonth && ` for ${formatMonth(viewerModal.selectedMonth)}`}
-          </h2>
-          <div className="flex items-center gap-4">
-            {selectedCategoryTransactions.length > 0 && (
-              <button
-                onClick={exportModalTransactions}
-                className="border px-3 py-1 rounded text-xs flex items-center space-x-1 bg-gray-100 hover:bg-gray-200"
-              >
-                <Download className="w-4 h-4" />
-              </button>
-            )}
+          </DialogTitle>
+          {selectedCategoryTransactions.length > 0 && (
             <button
-              onClick={() => setViewerModal({ isOpen: false, category: null })}
-              className="text-gray-500 hover:text-gray-700"
+              onClick={exportModalTransactions}
+              className="border px-3 py-1 rounded text-xs flex items-center space-x-1 bg-gray-100 hover:bg-gray-200 mr-5"
             >
-              ×
+              <Download className="w-4 h-4" />
             </button>
-          </div>
-        </div>
-        <div className="p-4 overflow-auto">
+          )}
+        </DialogHeader>
+        <div className="overflow-auto">
           <Table className="w-full text-xs">
             <TableHeader className="bg-gray-50">
               <TableRow>
-                <TableHead className="text-left p-2">Date</TableHead>
-                <TableHead className="text-left p-2">Description</TableHead>
-                <TableHead className="text-left p-2">Category</TableHead>
-                <TableHead className="text-left p-2">Source</TableHead>
-                <TableHead className="text-right p-2">Amount</TableHead>
+                <TableHead className="text-left p-2 w-20">Date</TableHead>
+                <TableHead className="text-left p-2 w-auto">Description</TableHead>
+                <TableHead className="text-left p-2 w-32">Category</TableHead>
+                <TableHead className="text-left p-2 w-20">Source</TableHead>
+                <TableHead className="text-right p-2 w-20">Amount</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {selectedCategoryTransactions.map((tx) => (
-                <TableRow 
-                  key={tx.id} 
-                  className={`${onTransactionClick ? 'cursor-pointer hover:bg-gray-100' : 'hover:bg-gray-50'}`}
+                <TableRow
+                  key={tx.id}
+                  className={`${onTransactionClick ? "cursor-pointer hover:bg-gray-100" : "hover:bg-gray-50"}`}
                   onClick={() => onTransactionClick && onTransactionClick(tx)}
                 >
                   <TableCell className="p-2">{tx.date}</TableCell>
-                  <TableCell className="p-2">{tx.description}</TableCell>
+                  <TableCell className="p-2 w-auto max-w-0">
+                    <div className="truncate cursor-default" title={tx.description}>
+                      {tx.description}
+                    </div>
+                  </TableCell>
                   <TableCell className="p-2">
                     {viewerModal.category ? getCategoryName(tx, viewerModal.category) : ""}
                   </TableCell>
@@ -238,7 +235,7 @@ export const TransactionViewer: React.FC<TransactionViewerProps> = ({
             <div className="text-gray-500 text-center py-4">No transactions to show.</div>
           )}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 };
