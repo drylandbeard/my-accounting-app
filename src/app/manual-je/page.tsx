@@ -26,6 +26,8 @@ import {
   PaginationEllipsis,
 } from '@/components/ui/pagination';
 import { DatePicker } from '@/components/ui/date-picker';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 
 // Define types specific to the journal table
 
@@ -975,24 +977,17 @@ export default function JournalTablePage() {
       />
 
       {/* New Category Modal */}
-      {newCategoryModal.isOpen && (
-        <div 
-          className="fixed inset-0 bg-black/20 flex items-center justify-center h-full z-150"
-          onClick={() => setNewCategoryModal({ isOpen: false, name: '', type: 'Expense', parent_id: null, lineId: null })}
+        <Dialog 
+          open={newCategoryModal.isOpen}
+          onOpenChange={() => setNewCategoryModal({ isOpen: false, name: '', type: 'Expense', parent_id: null, lineId: null })}
         >
-          <div 
-            className="bg-white rounded-lg p-6 w-[400px] overflow-y-auto shadow-xl"
+          <DialogContent 
+            className="min-w-[400px]"
             onClick={e => e.stopPropagation()}
           >
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Add New Category</h2>
-              <button
-                onClick={() => setNewCategoryModal({ isOpen: false, name: '', type: 'Expense', parent_id: null, lineId: null })}
-                className="text-gray-500 hover:text-gray-700 text-xl"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+            <DialogHeader>
+              <DialogTitle className="text-lg font-semibold">Add New Category</DialogTitle>
+            </DialogHeader>
 
             <div className="space-y-4">
               <div>
@@ -1060,17 +1055,15 @@ export default function JournalTablePage() {
               </div>
             </div>
 
-            <div className="flex justify-end mt-6">
-              <button
+            <div className="flex justify-end">
+              <Button
                 onClick={() => handleCreateCategory()}
-                className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
               >
                 Create
-              </button>
+              </Button>
             </div>
-          </div>
-        </div>
-      )}
+          </DialogContent>
+        </Dialog>
     </div>
   );
 } 

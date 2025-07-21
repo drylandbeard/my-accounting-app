@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { api } from "@/lib/api";
 import { X, Plus, CreditCard, Trash, ArrowRight, AlertTriangle } from "lucide-react";
 import { Select } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 interface CompanyMember {
   id: string;
@@ -48,16 +49,13 @@ function EditCompanyModal({ isOpen, onClose, company, onUpdateCompany }: EditCom
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-96 mx-4">
-        <div className="flex justify-between items-center px-6 py-4 border-b border-gray-200">
-          <h2 className="text-base font-semibold text-gray-900">Edit Company Info</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="w-96">
+        <DialogHeader>
+          <DialogTitle>Edit Company Info</DialogTitle>
+        </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="px-6 py-4">
+        <form onSubmit={handleSubmit}>
           <div className="space-y-4">
             {error && (
               <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm">{error}</div>
@@ -100,8 +98,8 @@ function EditCompanyModal({ isOpen, onClose, company, onUpdateCompany }: EditCom
             </button>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -139,16 +137,13 @@ function AddMemberModal({ isOpen, onClose, onAddMember }: AddMemberModalProps) {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-96 mx-4">
-        <div className="flex justify-between items-center px-6 py-4 border-b border-gray-200">
-          <h2 className="text-base font-semibold text-gray-900">Add Team Member</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="w-96">
+        <DialogHeader>
+          <DialogTitle>Add Team Member</DialogTitle>
+        </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="px-6 py-4">
+        <form onSubmit={handleSubmit}>
           <div className="space-y-4">
             {error && (
               <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm">{error}</div>
@@ -228,8 +223,8 @@ function AddMemberModal({ isOpen, onClose, onAddMember }: AddMemberModalProps) {
             </button>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -264,19 +259,14 @@ function TransferOwnershipModal({ isOpen, onClose, members, onTransferOwnership 
     }
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-96 mx-4">
-        <div className="flex justify-between items-center px-6 py-4 border-b border-gray-200">
-          <h2 className="text-base font-semibold text-gray-900">Transfer Ownership</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="w-96">
+        <DialogHeader>
+          <DialogTitle>Transfer Ownership</DialogTitle>
+        </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="px-6 py-4">
+        <form onSubmit={handleSubmit}>
           <div className="space-y-4">
             {error && (
               <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm">{error}</div>
@@ -347,8 +337,8 @@ function TransferOwnershipModal({ isOpen, onClose, members, onTransferOwnership 
             </button>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -373,24 +363,19 @@ function ConfirmationModal({
   cancelText = "Cancel",
   confirmButtonStyle = "primary",
 }: ConfirmationModalProps) {
-  if (!isOpen) return null;
-
   const confirmButtonClasses =
     confirmButtonStyle === "danger"
       ? "px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 transition-colors"
       : "px-4 py-2 text-sm font-medium text-white bg-black rounded-md hover:bg-gray-800 transition-colors";
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-96 mx-4">
-        <div className="flex justify-between items-center px-6 py-4 border-b border-gray-200">
-          <h2 className="text-base font-semibold text-gray-900">{title}</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="w-96">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+        </DialogHeader>
 
-        <div className="px-6 py-4">
+        <div>
           <p className="text-sm text-gray-700">{message}</p>
 
           <div className="flex justify-end gap-3 mt-6">
@@ -402,8 +387,8 @@ function ConfirmationModal({
             </button>
           </div>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -444,22 +429,17 @@ function DeleteCompanyModal({ isOpen, onClose, companyName, onDeleteCompany }: D
     onClose();
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-96 mx-4">
-        <div className="flex justify-between items-center px-6 py-4 border-b border-gray-200">
-          <div className="flex items-center gap-2">
+    <Dialog open={isOpen} onOpenChange={handleClose}>
+      <DialogContent className="w-96">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
             <AlertTriangle className="w-5 h-5 text-red-600" />
-            <h2 className="text-base font-semibold text-gray-900">Delete Company</h2>
-          </div>
-          <button onClick={handleClose} className="text-gray-400 hover:text-gray-600 transition-colors">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+            Delete Company
+          </DialogTitle>
+        </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="px-6 py-4">
+        <form onSubmit={handleSubmit}>
           <div className="space-y-4">
             {error && (
               <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm">{error}</div>
@@ -509,8 +489,8 @@ function DeleteCompanyModal({ isOpen, onClose, companyName, onDeleteCompany }: D
             </button>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
