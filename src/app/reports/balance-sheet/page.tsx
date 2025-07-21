@@ -8,8 +8,14 @@ import { usePayeesStore } from "@/zustand/payeesStore";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import TransactionModal, { EditJournalModalState as TransactionModalState, JournalEntryLine } from "@/components/TransactionModal";
-import ManualJeModal, { EditJournalModalState as ManualJeModalState, NewJournalEntry } from "@/components/ManualJeModal";
+import TransactionModal, {
+  EditJournalModalState as TransactionModalState,
+  JournalEntryLine,
+} from "@/components/TransactionModal";
+import ManualJeModal, {
+  EditJournalModalState as ManualJeModalState,
+  NewJournalEntry,
+} from "@/components/ManualJeModal";
 
 import { useSearchParams } from "next/navigation";
 
@@ -35,18 +41,21 @@ import { TransactionViewer } from "../_components/TransactionViewer";
 import { AccountRowRenderer } from "../_components/AccountRowRenderer";
 import { SaveReportModal } from "../_components/SaveReportModal";
 import { api } from "@/lib/api";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 export default function BalanceSheetPage() {
   const { currentCompany } = useAuthStore();
   const hasCompanyContext = !!currentCompany;
-  
+
   // Store hooks for modal functionality
   const { accounts: bankAccounts } = useTransactionsStore();
   const { categories: storeCategories, addCategory } = useCategoriesStore();
   const { payees } = usePayeesStore();
-  
+
   // Modal states
-  const [editJournalModal, setEditJournalModal] = useState<TransactionModalState & { selectedAccountId?: string; selectedAccountCategoryId?: string }>({
+  const [editJournalModal, setEditJournalModal] = useState<
+    TransactionModalState & { selectedAccountId?: string; selectedAccountCategoryId?: string }
+  >({
     isOpen: false,
     isLoading: false,
     saving: false,
@@ -59,7 +68,7 @@ export default function BalanceSheetPage() {
       lines: [],
     },
   });
-  
+
   const [editManualModal, setEditManualModal] = useState<ManualJeModalState>({
     isOpen: false,
     referenceNumber: "",
@@ -72,7 +81,7 @@ export default function BalanceSheetPage() {
     saving: false,
     error: null,
   });
-  
+
   const [newCategoryModal, setNewCategoryModal] = useState({
     isOpen: false,
     name: "",
@@ -402,30 +411,41 @@ export default function BalanceSheetPage() {
         saving: false,
         error: null,
       });
-      
+
       // Fetch manual journal entry details
       try {
         const { data: manualEntries, error } = await supabase
-          .from('manual_journal_entries')
-          .select('*')
-          .eq('reference_number', transaction.transaction_id)
-          .eq('company_id', currentCompany?.id);
+          .from("manual_journal_entries")
+          .select("*")
+          .eq("reference_number", transaction.transaction_id)
+          .eq("company_id", currentCompany?.id);
 
         if (error) throw error;
 
         if (manualEntries && manualEntries.length > 0) {
           // For manual journal entries, each row is a separate line in the journal entry
           // Can be 2 lines (normal) or 3+ lines (split)
-          const lines = manualEntries.map((entry: { description: string; chart_account_id: string; payee_id?: string; debit: number; credit: number }, index: number) => ({
-            id: (index + 1).toString(),
-            description: entry.description,
-            categoryId: entry.chart_account_id,
-            payeeId: entry.payee_id || "",
-            debit: entry.debit.toString(),
-            credit: entry.credit.toString(),
-          }));
+          const lines = manualEntries.map(
+            (
+              entry: {
+                description: string;
+                chart_account_id: string;
+                payee_id?: string;
+                debit: number;
+                credit: number;
+              },
+              index: number
+            ) => ({
+              id: (index + 1).toString(),
+              description: entry.description,
+              categoryId: entry.chart_account_id,
+              payeeId: entry.payee_id || "",
+              debit: entry.debit.toString(),
+              credit: entry.credit.toString(),
+            })
+          );
 
-          setEditManualModal(prev => ({
+          setEditManualModal((prev) => ({
             ...prev,
             editEntry: {
               ...prev.editEntry,
@@ -434,7 +454,7 @@ export default function BalanceSheetPage() {
           }));
         }
       } catch (error) {
-        console.error('Error fetching manual journal entry:', error);
+        console.error("Error fetching manual journal entry:", error);
       }
     } else {
       // Open TransactionModal for regular journal entries
@@ -451,36 +471,41 @@ export default function BalanceSheetPage() {
           lines: [],
         },
       });
-      
+
       // Fetch journal entry details
       try {
         const { data: journalEntries, error } = await supabase
-          .from('journal')
-          .select('*')
-          .eq('transaction_id', transaction.transaction_id)
-          .eq('company_id', currentCompany?.id);
+          .from("journal")
+          .select("*")
+          .eq("transaction_id", transaction.transaction_id)
+          .eq("company_id", currentCompany?.id);
 
         if (error) throw error;
 
         if (journalEntries && journalEntries.length > 0) {
           // Get the transaction data to find the corresponding account
           const { data: transactionData } = await supabase
-            .from('transactions')
-            .select('corresponding_category_id, plaid_account_id')
-            .eq('id', transaction.transaction_id)
+            .from("transactions")
+            .select("corresponding_category_id, plaid_account_id")
+            .eq("id", transaction.transaction_id)
             .single();
-          
-          // Map all journal entries to lines (TransactionModal will handle filtering)
-          const lines = journalEntries.map((entry: { description: string; chart_account_id: string; debit: number; credit: number }, index: number) => ({
-            id: (index + 1).toString(),
-            description: entry.description,
-            categoryId: entry.chart_account_id,
-            payeeId: "", // Journal entries don't have payee_id directly
-            debit: entry.debit.toString(),
-            credit: entry.credit.toString(),
-          }));
 
-          setEditJournalModal(prev => ({
+          // Map all journal entries to lines (TransactionModal will handle filtering)
+          const lines = journalEntries.map(
+            (
+              entry: { description: string; chart_account_id: string; debit: number; credit: number },
+              index: number
+            ) => ({
+              id: (index + 1).toString(),
+              description: entry.description,
+              categoryId: entry.chart_account_id,
+              payeeId: "", // Journal entries don't have payee_id directly
+              debit: entry.debit.toString(),
+              credit: entry.credit.toString(),
+            })
+          );
+
+          setEditJournalModal((prev) => ({
             ...prev,
             isLoading: false,
             selectedAccountId: transactionData?.plaid_account_id || null,
@@ -491,14 +516,14 @@ export default function BalanceSheetPage() {
             },
           }));
         } else {
-          setEditJournalModal(prev => ({ ...prev, isLoading: false }));
+          setEditJournalModal((prev) => ({ ...prev, isLoading: false }));
         }
       } catch (error) {
-        console.error('Error fetching journal entry:', error);
-        setEditJournalModal(prev => ({ 
-          ...prev, 
-          isLoading: false, 
-          error: 'Failed to load transaction details' 
+        console.error("Error fetching journal entry:", error);
+        setEditJournalModal((prev) => ({
+          ...prev,
+          isLoading: false,
+          error: "Failed to load transaction details",
         }));
       }
     }
@@ -530,14 +555,17 @@ export default function BalanceSheetPage() {
       ...prev,
       editEntry: {
         ...prev.editEntry,
-        lines: [...prev.editEntry.lines, {
-          id: newLineId,
-          description: "",
-          categoryId: "",
-          payeeId: "",
-          debit: "0.00",
-          credit: "0.00",
-        }],
+        lines: [
+          ...prev.editEntry.lines,
+          {
+            id: newLineId,
+            description: "",
+            categoryId: "",
+            payeeId: "",
+            debit: "0.00",
+            credit: "0.00",
+          },
+        ],
       },
     }));
   };
@@ -1267,7 +1295,7 @@ export default function BalanceSheetPage() {
           onTransactionClick={handleTransactionClick}
         />
       )}
-      
+
       {/* Transaction Modals */}
       {editJournalModal.isOpen && (
         <TransactionModal
@@ -1285,7 +1313,9 @@ export default function BalanceSheetPage() {
           onSave={handleSaveJournalEntry}
           onDateChange={(date) => setEditJournalModal((prev) => ({ ...prev, editEntry: { ...prev.editEntry, date } }))}
           onAccountChange={() => {}}
-          onOpenCategoryModal={(lineId) => setNewCategoryModal({ isOpen: true, name: "", type: "Asset", parent_id: null, lineId })}
+          onOpenCategoryModal={(lineId) =>
+            setNewCategoryModal({ isOpen: true, name: "", type: "Asset", parent_id: null, lineId })
+          }
           calculateTotals={calculateTotals}
         />
       )}
@@ -1313,62 +1343,68 @@ export default function BalanceSheetPage() {
           removeEditJournalLine={() => {}}
           calculateEditTotals={() => ({ totalDebits: 0, totalCredits: 0 })}
           handleSaveEditEntry={async () => {}}
-          categoryOptions={storeCategories.map(c => ({ value: c.id, label: c.name }))}
+          categoryOptions={storeCategories.map((c) => ({ value: c.id, label: c.name }))}
           payees={payees}
           setNewCategoryModal={setNewCategoryModal}
         />
       )}
 
       {/* New Category Modal */}
-      {newCategoryModal.isOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg max-w-md w-full mx-4">
-            <h3 className="text-lg font-semibold mb-4">Create New Category</h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Category Name</label>
-                <input
-                  type="text"
-                  value={newCategoryModal.name}
-                  onChange={(e) => setNewCategoryModal(prev => ({ ...prev, name: e.target.value }))}
-                  className="w-full border border-gray-300 rounded px-3 py-2"
-                  placeholder="Enter category name"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Type</label>
-                <select
-                  value={newCategoryModal.type}
-                  onChange={(e) => setNewCategoryModal(prev => ({ ...prev, type: e.target.value }))}
-                  className="w-full border border-gray-300 rounded px-3 py-2"
-                >
-                  <option value="Asset">Asset</option>
-                  <option value="Liability">Liability</option>
-                  <option value="Equity">Equity</option>
-                  <option value="Revenue">Revenue</option>
-                  <option value="COGS">COGS</option>
-                  <option value="Expense">Expense</option>
-                </select>
-              </div>
-              <div className="flex justify-end space-x-2">
-                <button
-                  onClick={() => setNewCategoryModal({ isOpen: false, name: "", type: "Asset", parent_id: null, lineId: null })}
-                  className="px-4 py-2 border border-gray-300 rounded text-gray-700 hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleCreateCategory}
-                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                  disabled={!newCategoryModal.name.trim()}
-                >
-                  Create
-                </button>
-              </div>
+      <Dialog
+        open={newCategoryModal.isOpen}
+        onOpenChange={() => setNewCategoryModal({ ...newCategoryModal, isOpen: false })}
+      >
+        <DialogContent className="max-w-md w-full">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-semibold mb-4">Create New Category</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">Category Name</label>
+              <input
+                type="text"
+                value={newCategoryModal.name}
+                onChange={(e) => setNewCategoryModal((prev) => ({ ...prev, name: e.target.value }))}
+                className="w-full border border-gray-300 rounded px-3 py-2"
+                placeholder="Enter category name"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Type</label>
+              <select
+                value={newCategoryModal.type}
+                onChange={(e) => setNewCategoryModal((prev) => ({ ...prev, type: e.target.value }))}
+                className="w-full border border-gray-300 rounded px-3 py-2"
+              >
+                <option value="Asset">Asset</option>
+                <option value="Liability">Liability</option>
+                <option value="Equity">Equity</option>
+                <option value="Revenue">Revenue</option>
+                <option value="COGS">COGS</option>
+                <option value="Expense">Expense</option>
+              </select>
+            </div>
+            <div className="flex justify-end space-x-2">
+              <button
+                onClick={() =>
+                  setNewCategoryModal({ isOpen: false, name: "", type: "Asset", parent_id: null, lineId: null })
+                }
+                className="px-4 py-2 border border-gray-300 rounded text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateCategory}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                disabled={!newCategoryModal.name.trim()}
+              >
+                Create
+              </button>
             </div>
           </div>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
