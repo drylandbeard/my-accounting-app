@@ -5,6 +5,7 @@ import { useAuthStore } from '@/zustand/authStore';
 import { useTransactionsStore, type JournalTableEntry } from '@/zustand/transactionsStore';
 import { useCategoriesStore, type Category } from '@/zustand/categoriesStore';
 import { usePayeesStore } from '@/zustand/payeesStore';
+import { X } from 'lucide-react';
 import Select from 'react-select';
 import TransactionModal, { 
   type EditJournalModalState, 
