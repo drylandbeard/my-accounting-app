@@ -3,6 +3,8 @@ import { X } from 'lucide-react';
 import Select from 'react-select';
 import { isZeroAmount } from '@/lib/financial';
 import { DatePicker } from './ui/date-picker';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
+import { Button } from './ui/button';
 
 // Types
 export type JournalEntryLine = {
@@ -107,27 +109,20 @@ export default function ManualJeModal({
   return (
     <>
       {/* Add Journal Entry Modal */}
-      {showAddModal && (
-        <div 
-          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
-          onClick={() => setShowAddModal(false)}
+        <Dialog 
+          open={showAddModal}
+          onOpenChange={() => setShowAddModal(false)}
         >
-          <div 
-            className="bg-white rounded-lg p-6 w-[80%] overflow-y-auto shadow-xl"
+          <DialogContent 
+            className="min-w-[80%]"
             onClick={e => e.stopPropagation()}
           >
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Add Journal Entry</h2>
-              <button
-                onClick={() => setShowAddModal(false)}
-                className="text-gray-500 hover:text-gray-700 text-xl"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+            <DialogHeader>
+              <DialogTitle>Add Journal Entry</DialogTitle>
+            </DialogHeader>
             
             {/* Date and JE Name selectors */}
-            <div className="mb-4 grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Date</label>
                 <DatePicker
@@ -323,7 +318,7 @@ export default function ManualJeModal({
               </table>
             </div>
             
-            <div className="flex justify-between items-center mt-4">
+            <div className="flex justify-between items-center">
               <button
                 onClick={addJournalLine}
                 className="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded border"
@@ -343,38 +338,31 @@ export default function ManualJeModal({
                 {saving ? 'Saving...' : !isBalanced ? 'Must Balance' : 'Save'}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+          </DialogContent>
+        </Dialog>
 
       {/* Edit Journal Entry Modal */}
       {editModal.isOpen && (
-        <div 
-          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
-          onClick={() => setEditModal(prev => ({ ...prev, isOpen: false }))}
+        <Dialog 
+          open={editModal.isOpen}
+          onOpenChange={() => setEditModal(prev => ({ ...prev, isOpen: false }))}
         >
-          <div 
-            className="bg-white rounded-lg p-6 w-[80%] overflow-y-auto shadow-xl"
+          <DialogContent 
+            className="min-w-[80%]"
             onClick={e => e.stopPropagation()}
           >
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Edit Journal Entry</h2>
-              <button
-                onClick={() => setEditModal(prev => ({ ...prev, isOpen: false }))}
-                className="text-gray-500 hover:text-gray-700 text-xl"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+            <DialogHeader>
+              <DialogTitle>Edit Journal Entry</DialogTitle>
+            </DialogHeader>
             
             {editModal.error && (
-              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-red-700">
+              <div className="p-3 bg-red-50 border border-red-200 rounded text-red-700">
                 {editModal.error}
               </div>
             )}
             
             {/* Date and JE Name selectors */}
-            <div className="mb-4 grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Date</label>
                 <DatePicker
@@ -594,7 +582,7 @@ export default function ManualJeModal({
               </table>
             </div>
             
-            <div className="flex justify-between items-center mt-4">
+            <div className="flex justify-between items-center">
               <button
                 onClick={addEditJournalLine}
                 className="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded border"
@@ -603,13 +591,13 @@ export default function ManualJeModal({
               </button>
               
               <div className="flex space-x-3">
-                <button
+                <Button
                   onClick={handleSaveEditEntry}
                   disabled={editModal.saving || (() => {
                     const { totalDebits, totalCredits } = calculateEditTotals();
                     return Math.abs(totalDebits - totalCredits) >= 0.01;
                   })()}
-                  className={`px-4 py-2 text-sm rounded disabled:opacity-50 ${
+                  className={`disabled:opacity-50 ${
                     (() => {
                       const { totalDebits, totalCredits } = calculateEditTotals();
                       const isBalanced = Math.abs(totalDebits - totalCredits) < 0.01;
@@ -624,11 +612,11 @@ export default function ManualJeModal({
                     const isBalanced = Math.abs(totalDebits - totalCredits) < 0.01;
                     return !isBalanced ? 'Must Balance' : 'Save';
                   })()}
-                </button>
+                </Button>
               </div>
             </div>
-          </div>
-        </div>
+          </DialogContent>
+        </Dialog>
       )}
     </>
   );

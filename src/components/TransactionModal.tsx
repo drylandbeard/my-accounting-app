@@ -2,6 +2,7 @@ import React from 'react';
 import { X, Loader2 } from 'lucide-react';
 import Select from 'react-select';
 import { DatePicker } from './ui/date-picker';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 
 export type JournalEntryLine = {
   id: string;
@@ -107,28 +108,22 @@ export default function TransactionModal({
   const canRemoveLines = categoryLines.length > 1;
 
   return (
-    <div 
-      className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
-      onClick={onClose}
+    <Dialog
+      open={modalState.isOpen}
+      onOpenChange={onClose}
     >
-      <div 
-        className="bg-white rounded-lg p-8 w-[80%] overflow-y-auto shadow-xl relative"
+      <DialogContent 
+        className="min-w-[80%]"
         onClick={e => e.stopPropagation()}
       >
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-semibold">
+        <DialogHeader>
+          <DialogTitle className="text-lg font-semibold">
             {isToAddTable ? 'Add Transaction' : 'Edit Transaction'}
-          </h2>
-          <button
-            onClick={onClose}
-            className="text-gray-500 hover:text-gray-700 text-xl"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+          </DialogTitle>
+        </DialogHeader>
         
         {modalState.error && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-red-700">
+          <div className="p-3 bg-red-50 border border-red-200 rounded text-red-700">
             {modalState.error}
           </div>
         )}
@@ -141,7 +136,7 @@ export default function TransactionModal({
         ) : (
           <>
             {/* Date and Source/Account selectors */}
-            <div className="mb-4 grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Date</label>
                 <DatePicker
@@ -355,7 +350,7 @@ export default function TransactionModal({
               </table>
             </div>
             
-            <div className="flex justify-between items-center mt-4">
+            <div className="flex justify-between items-center">
               <button
                 onClick={onAddLine}
                 className="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded border"
@@ -383,7 +378,7 @@ export default function TransactionModal({
             </div>
           </>
         )}
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 } 
