@@ -8,10 +8,16 @@ import { usePayeesStore } from "@/zustand/payeesStore";
 
 import Papa from "papaparse";
 import { v4 as uuidv4 } from "uuid";
-import { X, Download, Plus } from "lucide-react";
+import { Download, Plus } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { showSuccessToast, showErrorToast } from "@/components/ui/toast";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Pagination,
   PaginationContent,
@@ -699,7 +705,7 @@ export default function ChartOfAccountsPage() {
 
   const handleDeletePayee = async (id: string) => {
     console.log("Delete payee button clicked for ID:", id);
-    
+
     // Show confirmation dialog before deleting
     const payeeToDelete = payees.find((payee) => payee.id === id);
     const payeeName = payeeToDelete?.name || "this payee";
@@ -714,7 +720,7 @@ export default function ChartOfAccountsPage() {
     try {
       console.log("Attempting to delete payee with ID:", id);
       const success = await deletePayee(id);
-      
+
       if (success) {
         setEditingPayeeId(null);
         showSuccessToast(`Payee "${payeeName}" deleted successfully`);
@@ -946,9 +952,9 @@ export default function ChartOfAccountsPage() {
       }
 
       // Check if clicking on Save or Delete buttons - don't auto-save in these cases
-      if (target.tagName === 'BUTTON') {
+      if (target.tagName === "BUTTON") {
         const buttonText = target.textContent?.trim();
-        if (buttonText === 'Save' || buttonText === 'Delete') {
+        if (buttonText === "Save" || buttonText === "Delete") {
           console.log("Clicked on action button, not auto-saving:", buttonText);
           return;
         }
@@ -1078,7 +1084,8 @@ export default function ChartOfAccountsPage() {
   };
 
   const downloadPayeesTemplate = () => {
-    const csvContent = "Name\nOffice Depot\nAT&T Business\nAmazon Business\nStaples\nFedEx\nUPS\nMicrosoft Corporation\nGoogle Workspace\nCity Water & Power\nWaste Management Inc.";
+    const csvContent =
+      "Name\nOffice Depot\nAT&T Business\nAmazon Business\nStaples\nFedEx\nUPS\nMicrosoft Corporation\nGoogle Workspace\nCity Water & Power\nWaste Management Inc.";
     const blob = new Blob([csvContent], { type: "text/csv" });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -1790,9 +1797,9 @@ export default function ChartOfAccountsPage() {
           </div>
 
           {/* Payees Table */}
-          <div className="bg-white rounded shadow-sm">
+          <div className="bg-white rounded shadow-sm max-h-[calc(100vh-250px)] overflow-y-auto">
             <table className="w-full border-collapse border border-gray-300 text-xs">
-              <thead className="bg-gray-100">
+              <thead className="bg-gray-100 sticky top-0">
                 <tr>
                   <th
                     className="border p-1 text-center font-semibold cursor-pointer hover:bg-gray-200 w-4/5"
@@ -1995,7 +2002,7 @@ export default function ChartOfAccountsPage() {
           </div>
 
           {/* Categories Table */}
-          <div className="bg-white rounded shadow-sm" ref={categoriesTableRef}>
+          <div className="bg-white rounded shadow-sm max-h-[calc(100vh-250px)] overflow-y-auto" ref={categoriesTableRef}>
             <table className="w-full border-collapse border border-gray-300 text-xs table-fixed">
               <colgroup>
                 <col className="w-auto" />
@@ -2003,7 +2010,7 @@ export default function ChartOfAccountsPage() {
                 <col className="w-40" />
                 <col className="w-24" />
               </colgroup>
-              <thead className="bg-gray-100">
+              <thead className="bg-gray-100 sticky top-0">
                 <tr>
                   <th
                     className="border p-1 text-center font-semibold cursor-pointer hover:bg-gray-200"
@@ -2021,8 +2028,7 @@ export default function ChartOfAccountsPage() {
                     className="border p-1 text-center font-semibold cursor-pointer hover:bg-gray-200"
                     onClick={() => handleCategorySort("parent")}
                   >
-                    Parent{" "}
-                    {categorySortConfig.key === "parent" && (categorySortConfig.direction === "asc" ? "↑" : "↓")}
+                    Parent {categorySortConfig.key === "parent" && (categorySortConfig.direction === "asc" ? "↑" : "↓")}
                   </th>
                   <th className="border p-1 text-center font-semibold">Actions</th>
                 </tr>
@@ -2065,1380 +2071,1342 @@ export default function ChartOfAccountsPage() {
       </div>
 
       {/* Payee Import Modal */}
-      {payeeImportModal.isOpen && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50">
-          <div className="bg-white rounded-lg p-6 w-[600px] overflow-y-auto shadow-xl">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Import Payees</h2>
-              <button
-                onClick={() =>
-                  setPayeeImportModal((prev) => ({
-                    ...prev,
-                    isOpen: false,
-                  }))
-                }
-                className="text-gray-500 hover:text-gray-700"
-              >
-                <X className="w-4 h-4" />
-              </button>
+      <Dialog
+        open={payeeImportModal.isOpen}
+        onOpenChange={(isOpen) => setPayeeImportModal({ ...payeeImportModal, isOpen })}
+      >
+        <DialogContent className="min-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>Import Payees</DialogTitle>
+          </DialogHeader>
+
+          {payeeImportModal.error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded">
+              {payeeImportModal.error}
             </div>
+          )}
 
-            {payeeImportModal.error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded mb-4">
-                {payeeImportModal.error}
-              </div>
-            )}
-
-            {payeeImportModal.isLoading ? (
-              <div className="flex items-center justify-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
-              </div>
-            ) : (
-              <div className="space-y-1">
-                {payeeImportModal.step === "upload" && (
-                  <>
-                    <div className="space-y-4">
-                      <div className="space-y-3">
-                        <div className="flex justify-between items-center">
-                          <h3 className="text-sm font-medium text-gray-700">Upload CSV File</h3>
-                          <button
-                            onClick={downloadPayeesTemplate}
-                            className="text-sm text-gray-600 hover:text-gray-800"
-                          >
-                            Download Template
-                          </button>
-                        </div>
-
-                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                          <h4 className="text-sm font-medium text-blue-800 mb-2">CSV Format Instructions:</h4>
-                          <ul className="text-sm text-blue-700 space-y-1">
-                            <li>
-                              • <strong>Name:</strong> Payee name (required)
-                            </li>
-                          </ul>
-                        </div>
-                      </div>
-                      <div
-                        className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center transition-colors duration-200 hover:border-gray-400"
-                        onDragOver={handleDragOver}
-                        onDrop={handlePayeeDrop}
-                      >
-                        <input
-                          type="file"
-                          accept=".csv"
-                          onChange={handlePayeeFileUpload}
-                          className="hidden"
-                          id="payee-csv-upload"
-                        />
-                        <label
-                          htmlFor="payee-csv-upload"
-                          className="cursor-pointer inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+          {payeeImportModal.isLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {payeeImportModal.step === "upload" && (
+                <>
+                  <div className="space-y-4">
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center">
+                        <h3 className="text-sm font-medium text-gray-700">Upload CSV File</h3>
+                        <Button
+                          variant="ghost"
+                          onClick={downloadPayeesTemplate}
+                          className="text-sm text-gray-600 hover:text-gray-800"
                         >
-                          Choose CSV File
-                        </label>
-                        <p className="mt-2 text-sm text-gray-500">
-                          Drag and drop your CSV file here, or click to browse
-                        </p>
+                          Download Template
+                        </Button>
+                      </div>
+
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                        <h4 className="text-sm font-medium text-blue-800 mb-2">CSV Format Instructions:</h4>
+                        <ul className="text-sm text-blue-700 space-y-1">
+                          <li>
+                            • <strong>Name:</strong> Payee name (required)
+                          </li>
+                        </ul>
                       </div>
                     </div>
+                    <div
+                      className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center transition-colors duration-200 hover:border-gray-400"
+                      onDragOver={handleDragOver}
+                      onDrop={handlePayeeDrop}
+                    >
+                      <input
+                        type="file"
+                        accept=".csv"
+                        onChange={handlePayeeFileUpload}
+                        className="hidden"
+                        id="payee-csv-upload"
+                      />
+                      <label
+                        htmlFor="payee-csv-upload"
+                        className="cursor-pointer inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                      >
+                        Choose CSV File
+                      </label>
+                      <p className="mt-2 text-sm text-gray-500">Drag and drop your CSV file here, or click to browse</p>
+                    </div>
+                  </div>
+                  <div className="flex justify-end space-x-2 mt-4">
+                    <Button
+                      variant="outline"
+                      onClick={() =>
+                        setPayeeImportModal((prev) => ({
+                          ...prev,
+                          isOpen: false,
+                        }))
+                      }
+                      className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </>
+              )}
+              {payeeImportModal.step === "review" && (
+                <>
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                      <h3 className="text-sm font-medium text-gray-700">Review Payees</h3>
+                    </div>
+                    <div className="border rounded-lg overflow-hidden">
+                      <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-8">
+                              <input
+                                type="checkbox"
+                                checked={
+                                  payeeImportModal.csvData.length > 0 &&
+                                  payeeImportModal.selectedPayees.size === payeeImportModal.csvData.length
+                                }
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setPayeeImportModal((prev) => ({
+                                      ...prev,
+                                      selectedPayees: new Set(payeeImportModal.csvData.map((payee) => payee.id)),
+                                    }));
+                                  } else {
+                                    setPayeeImportModal((prev) => ({
+                                      ...prev,
+                                      selectedPayees: new Set(),
+                                    }));
+                                  }
+                                }}
+                                className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                              />
+                            </th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Name
+                            </th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Status
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                          {payeeImportModal.csvData.map((payee) => (
+                            <tr key={payee.id} className={payee.isValid === false ? "bg-red-50" : ""}>
+                              <td className="px-4 py-2 whitespace-nowrap w-8 text-left">
+                                <input
+                                  type="checkbox"
+                                  checked={payeeImportModal.selectedPayees.has(payee.id)}
+                                  disabled={payee.isValid === false}
+                                  onChange={(e) => {
+                                    const newSelected = new Set(payeeImportModal.selectedPayees);
+                                    if (e.target.checked) {
+                                      newSelected.add(payee.id);
+                                    } else {
+                                      newSelected.delete(payee.id);
+                                    }
+                                    setPayeeImportModal((prev) => ({
+                                      ...prev,
+                                      selectedPayees: newSelected,
+                                    }));
+                                  }}
+                                  className="rounded border-gray-300 text-gray-900 focus:ring-gray-900 disabled:opacity-50"
+                                />
+                              </td>
+                              <td className="px-4 py-2 text-sm text-gray-900">{payee.name}</td>
+                              <td className="px-4 py-2 text-sm">
+                                {payee.isValid === false ? (
+                                  <div className="flex items-center space-x-1">
+                                    <span className="w-2 h-2 bg-red-400 rounded-full flex-shrink-0"></span>
+                                    <span className="text-red-700 text-xs">{payee.validationMessage}</span>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center space-x-1">
+                                    <span className="w-2 h-2 bg-green-400 rounded-full"></span>
+                                    <span className="text-green-700 text-xs">Valid</span>
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <div className="text-sm font-medium">
+                      {payeeImportModal.selectedPayees.size > 0 && (
+                        <span className="text-gray-600">{payeeImportModal.selectedPayees.size} selected</span>
+                      )}
+                    </div>
                     <div className="flex justify-end space-x-2 mt-4">
-                      <button
+                      <Button
+                        variant="outline"
                         onClick={() =>
                           setPayeeImportModal((prev) => ({
                             ...prev,
-                            isOpen: false,
+                            step: "upload",
                           }))
                         }
-                        className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
                       >
-                        Cancel
-                      </button>
+                        Back
+                      </Button>
+                      <Button
+                        onClick={async () => {
+                          setPayeeImportModal((prev) => ({
+                            ...prev,
+                            isLoading: true,
+                            error: null,
+                          }));
+                          try {
+                            if (!currentCompany) {
+                              throw new Error("No company selected. Please select a company first.");
+                            }
+
+                            const selectedPayees = payeeImportModal.csvData.filter((payee) =>
+                              payeeImportModal.selectedPayees.has(payee.id)
+                            );
+
+                            if (selectedPayees.length === 0) {
+                              throw new Error("No payees selected for import.");
+                            }
+
+                            // Filter out invalid payees
+                            const validPayees = selectedPayees.filter((payee) => payee.isValid !== false);
+                            const invalidPayees = selectedPayees.filter((payee) => payee.isValid === false);
+
+                            if (invalidPayees.length > 0 && validPayees.length > 0) {
+                              const proceed = window.confirm(
+                                `${invalidPayees.length} selected payee${
+                                  invalidPayees.length === 1 ? "" : "s"
+                                } already exist or have validation errors and will be skipped.\n\n` +
+                                  `Only ${validPayees.length} valid payee${
+                                    validPayees.length === 1 ? "" : "s"
+                                  } will be imported.\n\n` +
+                                  `Click OK to proceed with valid payees only, or Cancel to go back.`
+                              );
+
+                              if (!proceed) {
+                                setPayeeImportModal((prev) => ({
+                                  ...prev,
+                                  isLoading: false,
+                                }));
+                                return;
+                              }
+                            } else if (validPayees.length === 0) {
+                              throw new Error(
+                                "All selected payees already exist or have validation errors. Please select only valid payees."
+                              );
+                            }
+
+                            const payeesToInsert = validPayees.map((payee) => ({
+                              name: payee.name,
+                              company_id: currentCompany.id,
+                            }));
+
+                            const { error } = await supabase.from("payees").insert(payeesToInsert);
+
+                            if (error) {
+                              throw new Error(error.message);
+                            }
+
+                            setPayeeImportModal({
+                              isOpen: false,
+                              step: "upload",
+                              csvData: [],
+                              isLoading: false,
+                              error: null,
+                              selectedPayees: new Set(),
+                            });
+
+                            // Payees refreshed automatically by store
+                          } catch (error) {
+                            setPayeeImportModal((prev) => ({
+                              ...prev,
+                              isLoading: false,
+                              error:
+                                error instanceof Error ? error.message : "Failed to import payees. Please try again.",
+                            }));
+                          }
+                        }}
+                      >
+                        Import Payees
+                      </Button>
                     </div>
-                  </>
-                )}
-                {payeeImportModal.step === "review" && (
-                  <>
-                    <div className="space-y-4">
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Category Import Modal */}
+      <Dialog
+        open={categoryImportModal.isOpen}
+        onOpenChange={(open) => setCategoryImportModal((prev) => ({ ...prev, isOpen: open }))}
+      >
+        <DialogContent className="min-w-[600px] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Import Categories</DialogTitle>
+          </DialogHeader>
+
+          {categoryImportModal.error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded">
+              {categoryImportModal.error}
+            </div>
+          )}
+
+          {categoryImportModal.isLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {categoryImportModal.step === "upload" && (
+                <>
+                  <div className="space-y-4">
+                    <div className="space-y-3">
                       <div className="flex justify-between items-center">
-                        <h3 className="text-sm font-medium text-gray-700">Review Payees</h3>
+                        <h3 className="text-sm font-medium text-gray-700">Upload CSV File</h3>
+                        <Button
+                          variant="ghost"
+                          onClick={downloadCategoriesTemplate}
+                          className="text-sm text-gray-600 hover:text-gray-800"
+                        >
+                          Download Template
+                        </Button>
                       </div>
-                      <div className="border rounded-lg overflow-hidden">
-                        <table className="min-w-full divide-y divide-gray-200">
-                          <thead className="bg-gray-50">
-                            <tr>
-                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-8">
+
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                        <h4 className="text-sm font-medium text-blue-800 mb-2">CSV Format Instructions:</h4>
+                        <ul className="text-sm text-blue-700 space-y-1">
+                          <li>
+                            • <strong>Name:</strong> Category name (required)
+                          </li>
+                          <li>
+                            • <strong>Type:</strong> One of: {ACCOUNT_TYPES.join(", ")}
+                          </li>
+                          <li>
+                            • <strong>Parent:</strong> Name of parent category (optional)
+                          </li>
+                        </ul>
+                      </div>
+                    </div>
+                    <div
+                      className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center transition-colors duration-200 hover:border-gray-400"
+                      onDragOver={handleDragOver}
+                      onDrop={handleCategoryDrop}
+                    >
+                      <input
+                        type="file"
+                        accept=".csv"
+                        onChange={handleCategoryFileUpload}
+                        className="hidden"
+                        id="category-csv-upload"
+                      />
+                      <label
+                        htmlFor="category-csv-upload"
+                        className="cursor-pointer inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                      >
+                        Choose CSV File
+                      </label>
+                      <p className="mt-2 text-sm text-gray-500">Drag and drop your CSV file here, or click to browse</p>
+                    </div>
+                  </div>
+                  <div className="flex justify-end space-x-2 mt-4">
+                    <Button
+                      variant="outline"
+                      onClick={() =>
+                        setCategoryImportModal((prev) => ({
+                          ...prev,
+                          isOpen: false,
+                        }))
+                      }
+                      className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </>
+              )}
+              {categoryImportModal.step === "review" && (
+                <>
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                      <h3 className="text-sm font-medium text-gray-700">Review Categories</h3>
+                    </div>
+
+                    {/* Missing parents warning and options */}
+                    {categoryImportModal.csvData.some((cat) => cat.needsParentCreation) && (
+                      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                        <h4 className="text-sm font-medium text-yellow-800 mb-2">Missing Parent Categories Detected</h4>
+                        <p className="text-sm text-yellow-700 mb-3">
+                          Some categories reference parent categories that don&apos;t exist in your system.
+                        </p>
+                        <label className="flex items-center space-x-2">
+                          <input
+                            type="checkbox"
+                            checked={categoryImportModal.autoCreateMissing}
+                            onChange={(e) =>
+                              setCategoryImportModal((prev) => ({
+                                ...prev,
+                                autoCreateMissing: e.target.checked,
+                              }))
+                            }
+                            className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                          />
+                          <span className="text-sm text-yellow-700">
+                            Automatically create missing parent categories during import (with same type as child)
+                          </span>
+                        </label>
+                      </div>
+                    )}
+
+                    {/* Parent dependency warning */}
+                    {(() => {
+                      const dependencyCheck = validateParentDependencies(
+                        categoryImportModal.csvData,
+                        categoryImportModal.selectedCategories
+                      );
+
+                      return (
+                        !dependencyCheck.isValid && (
+                          <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
+                            <h4 className="text-sm font-medium text-orange-800 mb-2">Parent Dependencies Required</h4>
+                            <p className="text-sm text-orange-700 mb-2">
+                              Some selected categories have parents that are also in this CSV but not selected for
+                              import:
+                            </p>
+                            <ul className="text-sm text-orange-700 list-disc list-inside">
+                              {dependencyCheck.missingParents.map((parentName) => (
+                                <li key={parentName}>
+                                  <strong>{parentName}</strong> - Must be selected to import its children
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )
+                      );
+                    })()}
+                    <div className="border rounded-lg overflow-hidden max-h-96 overflow-y-auto">
+                      <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-50 sticky top-0">
+                          <tr>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-8">
+                              <input
+                                type="checkbox"
+                                checked={
+                                  categoryImportModal.csvData.length > 0 &&
+                                  categoryImportModal.selectedCategories.size === categoryImportModal.csvData.length
+                                }
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    // Select all categories
+                                    setCategoryImportModal((prev) => ({
+                                      ...prev,
+                                      selectedCategories: new Set(categoryImportModal.csvData.map((cat) => cat.id)),
+                                    }));
+                                  } else {
+                                    // Deselect all categories
+                                    setCategoryImportModal((prev) => ({
+                                      ...prev,
+                                      selectedCategories: new Set(),
+                                    }));
+                                  }
+                                }}
+                                className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                              />
+                            </th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Name
+                            </th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Type
+                            </th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Parent
+                            </th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Status
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                          {categoryImportModal.csvData.map((category) => (
+                            <tr
+                              key={category.id}
+                              className={`${
+                                category.needsParentCreation && !categoryImportModal.autoCreateMissing
+                                  ? "bg-yellow-50"
+                                  : !category.isValid
+                                  ? "bg-red-50"
+                                  : ""
+                              }`}
+                            >
+                              <td className="px-4 py-2 whitespace-nowrap w-8 text-left">
                                 <input
                                   type="checkbox"
-                                  checked={
-                                    payeeImportModal.csvData.length > 0 &&
-                                    payeeImportModal.selectedPayees.size === payeeImportModal.csvData.length
-                                  }
+                                  checked={categoryImportModal.selectedCategories.has(category.id)}
                                   onChange={(e) => {
+                                    const newSelected = new Set(categoryImportModal.selectedCategories);
                                     if (e.target.checked) {
-                                      setPayeeImportModal((prev) => ({
-                                        ...prev,
-                                        selectedPayees: new Set(payeeImportModal.csvData.map((payee) => payee.id)),
-                                      }));
+                                      newSelected.add(category.id);
+
+                                      // Auto-select parent if it's in the CSV
+                                      if (category.parentName) {
+                                        const parentInCsv = categoryImportModal.csvData.find(
+                                          (cat) => cat.name.toLowerCase() === category.parentName!.toLowerCase()
+                                        );
+                                        if (parentInCsv) {
+                                          newSelected.add(parentInCsv.id);
+                                        }
+                                      }
                                     } else {
-                                      setPayeeImportModal((prev) => ({
-                                        ...prev,
-                                        selectedPayees: new Set(),
-                                      }));
+                                      newSelected.delete(category.id);
+
+                                      // Auto-deselect children if this is a parent
+                                      const childrenInCsv = categoryImportModal.csvData.filter(
+                                        (cat) =>
+                                          cat.parentName && cat.parentName.toLowerCase() === category.name.toLowerCase()
+                                      );
+                                      childrenInCsv.forEach((child) => {
+                                        newSelected.delete(child.id);
+                                      });
                                     }
+                                    setCategoryImportModal((prev) => ({
+                                      ...prev,
+                                      selectedCategories: newSelected,
+                                    }));
                                   }}
                                   className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
                                 />
-                              </th>
-                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Name
-                              </th>
-                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Status
-                              </th>
-                            </tr>
-                          </thead>
-                          <tbody className="bg-white divide-y divide-gray-200">
-                            {payeeImportModal.csvData.map((payee) => (
-                              <tr key={payee.id} className={payee.isValid === false ? "bg-red-50" : ""}>
-                                <td className="px-4 py-2 whitespace-nowrap w-8 text-left">
-                                  <input
-                                    type="checkbox"
-                                    checked={payeeImportModal.selectedPayees.has(payee.id)}
-                                    disabled={payee.isValid === false}
-                                    onChange={(e) => {
-                                      const newSelected = new Set(payeeImportModal.selectedPayees);
-                                      if (e.target.checked) {
-                                        newSelected.add(payee.id);
-                                      } else {
-                                        newSelected.delete(payee.id);
-                                      }
-                                      setPayeeImportModal((prev) => ({
-                                        ...prev,
-                                        selectedPayees: newSelected,
-                                      }));
-                                    }}
-                                    className="rounded border-gray-300 text-gray-900 focus:ring-gray-900 disabled:opacity-50"
-                                  />
-                                </td>
-                                <td className="px-4 py-2 text-sm text-gray-900">{payee.name}</td>
-                                <td className="px-4 py-2 text-sm">
-                                  {payee.isValid === false ? (
+                              </td>
+                              <td className="px-4 py-2 text-sm text-gray-900">{category.name}</td>
+                              <td className="px-4 py-2 text-sm text-gray-900">{category.type}</td>
+                              <td className="px-4 py-2 text-sm text-gray-900">{category.parentName || "-"}</td>
+                              <td className="px-4 py-2 text-sm">
+                                {!category.isValid ? (
+                                  <div className="flex items-center space-x-1">
+                                    <span className="w-2 h-2 bg-red-400 rounded-full flex-shrink-0"></span>
+                                    <span className="text-red-700 text-xs">{category.validationMessage}</span>
+                                  </div>
+                                ) : category.needsParentCreation ? (
+                                  categoryImportModal.autoCreateMissing ? (
                                     <div className="flex items-center space-x-1">
-                                      <span className="w-2 h-2 bg-red-400 rounded-full"></span>
-                                      <span className="text-red-700 text-xs">{payee.validationMessage}</span>
+                                      <span className="w-2 h-2 bg-blue-400 rounded-full"></span>
+                                      <span className="text-blue-700 text-xs">Will create parent</span>
                                     </div>
                                   ) : (
                                     <div className="flex items-center space-x-1">
-                                      <span className="w-2 h-2 bg-green-400 rounded-full"></span>
-                                      <span className="text-green-700 text-xs">Valid</span>
+                                      <span className="w-2 h-2 bg-orange-400 rounded-full"></span>
+                                      <span className="text-orange-700 text-xs">Missing parent</span>
                                     </div>
-                                  )}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
+                                  )
+                                ) : (
+                                  <div className="flex items-center space-x-1">
+                                    <span className="w-2 h-2 bg-green-400 rounded-full"></span>
+                                    <span className="text-green-700 text-xs">Valid</span>
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
-                    <div className="flex justify-between items-center">
-                      <div className="text-sm font-medium">
-                        {payeeImportModal.selectedPayees.size > 0 && (
-                          <span className="text-gray-600">{payeeImportModal.selectedPayees.size} selected</span>
-                        )}
-                      </div>
-                      <div className="flex justify-end space-x-2 mt-4">
-                        <button
-                          onClick={() =>
-                            setPayeeImportModal((prev) => ({
-                              ...prev,
-                              step: "upload",
-                            }))
-                          }
-                          className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
-                        >
-                          Back
-                        </button>
-                        <button
-                          onClick={async () => {
-                            setPayeeImportModal((prev) => ({
-                              ...prev,
-                              isLoading: true,
-                              error: null,
-                            }));
-                            try {
-                              if (!currentCompany) {
-                                throw new Error("No company selected. Please select a company first.");
-                              }
-
-                              const selectedPayees = payeeImportModal.csvData.filter((payee) =>
-                                payeeImportModal.selectedPayees.has(payee.id)
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <div className="text-sm font-medium">
+                      {categoryImportModal.selectedCategories.size > 0 && (
+                        <>
+                          <span className="text-gray-600">{categoryImportModal.selectedCategories.size} selected</span>
+                          {!categoryImportModal.autoCreateMissing &&
+                            (() => {
+                              const selectedCategories = categoryImportModal.csvData.filter((cat) =>
+                                categoryImportModal.selectedCategories.has(cat.id)
                               );
+                              const validCount = selectedCategories.filter(
+                                (cat) => cat.isValid && !cat.needsParentCreation
+                              ).length;
+                              const invalidCount = selectedCategories.filter(
+                                (cat) => !cat.isValid || cat.needsParentCreation
+                              ).length;
 
-                              if (selectedPayees.length === 0) {
-                                throw new Error("No payees selected for import.");
-                              }
-
-                              // Filter out invalid payees
-                              const validPayees = selectedPayees.filter((payee) => payee.isValid !== false);
-                              const invalidPayees = selectedPayees.filter((payee) => payee.isValid === false);
-
-                              if (invalidPayees.length > 0 && validPayees.length > 0) {
-                                const proceed = window.confirm(
-                                  `${invalidPayees.length} selected payee${
-                                    invalidPayees.length === 1 ? "" : "s"
-                                  } already exist or have validation errors and will be skipped.\n\n` +
-                                    `Only ${validPayees.length} valid payee${
-                                      validPayees.length === 1 ? "" : "s"
-                                    } will be imported.\n\n` +
-                                    `Click OK to proceed with valid payees only, or Cancel to go back.`
-                                );
-
-                                if (!proceed) {
-                                  setPayeeImportModal((prev) => ({
-                                    ...prev,
-                                    isLoading: false,
-                                  }));
-                                  return;
-                                }
-                              } else if (validPayees.length === 0) {
-                                throw new Error(
-                                  "All selected payees already exist or have validation errors. Please select only valid payees."
-                                );
-                              }
-
-                              const payeesToInsert = validPayees.map((payee) => ({
-                                name: payee.name,
-                                company_id: currentCompany.id,
-                              }));
-
-                              const { error } = await supabase.from("payees").insert(payeesToInsert);
-
-                              if (error) {
-                                throw new Error(error.message);
-                              }
-
-                              setPayeeImportModal({
-                                isOpen: false,
-                                step: "upload",
-                                csvData: [],
-                                isLoading: false,
-                                error: null,
-                                selectedPayees: new Set(),
-                              });
-
-                              // Payees refreshed automatically by store
-                            } catch (error) {
-                              setPayeeImportModal((prev) => ({
-                                ...prev,
-                                isLoading: false,
-                                error:
-                                  error instanceof Error ? error.message : "Failed to import payees. Please try again.",
-                              }));
-                            }
-                          }}
-                          className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
-                        >
-                          Import Payees
-                        </button>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Category Import Modal */}
-      {categoryImportModal.isOpen && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50">
-          <div className="bg-white rounded-lg p-6 w-[600px] overflow-y-auto shadow-xl">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Import Categories</h2>
-              <button
-                onClick={() =>
-                  setCategoryImportModal((prev) => ({
-                    ...prev,
-                    isOpen: false,
-                  }))
-                }
-                className="text-gray-500 hover:text-gray-700"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {categoryImportModal.error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded mb-4">
-                {categoryImportModal.error}
-              </div>
-            )}
-
-            {categoryImportModal.isLoading ? (
-              <div className="flex items-center justify-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
-              </div>
-            ) : (
-              <div className="space-y-1">
-                {categoryImportModal.step === "upload" && (
-                  <>
-                    <div className="space-y-4">
-                      <div className="space-y-3">
-                        <div className="flex justify-between items-center">
-                          <h3 className="text-sm font-medium text-gray-700">Upload CSV File</h3>
-                          <button
-                            onClick={downloadCategoriesTemplate}
-                            className="text-sm text-gray-600 hover:text-gray-800"
-                          >
-                            Download Template
-                          </button>
-                        </div>
-
-                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                          <h4 className="text-sm font-medium text-blue-800 mb-2">CSV Format Instructions:</h4>
-                          <ul className="text-sm text-blue-700 space-y-1">
-                            <li>
-                              • <strong>Name:</strong> Category name (required)
-                            </li>
-                            <li>
-                              • <strong>Type:</strong> One of: {ACCOUNT_TYPES.join(", ")}
-                            </li>
-                            <li>
-                              • <strong>Parent:</strong> Name of parent category (optional)
-                            </li>
-                          </ul>
-                        </div>
-                      </div>
-                      <div
-                        className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center transition-colors duration-200 hover:border-gray-400"
-                        onDragOver={handleDragOver}
-                        onDrop={handleCategoryDrop}
-                      >
-                        <input
-                          type="file"
-                          accept=".csv"
-                          onChange={handleCategoryFileUpload}
-                          className="hidden"
-                          id="category-csv-upload"
-                        />
-                        <label
-                          htmlFor="category-csv-upload"
-                          className="cursor-pointer inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
-                        >
-                          Choose CSV File
-                        </label>
-                        <p className="mt-2 text-sm text-gray-500">
-                          Drag and drop your CSV file here, or click to browse
-                        </p>
-                      </div>
+                              return invalidCount > 0 ? (
+                                <span className="text-red-600 ml-2">
+                                  ({validCount} will import, {invalidCount} will skip)
+                                </span>
+                              ) : null;
+                            })()}
+                        </>
+                      )}
                     </div>
                     <div className="flex justify-end space-x-2 mt-4">
                       <button
                         onClick={() =>
                           setCategoryImportModal((prev) => ({
                             ...prev,
-                            isOpen: false,
+                            step: "upload",
                           }))
                         }
                         className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
                       >
-                        Cancel
+                        Back
                       </button>
-                    </div>
-                  </>
-                )}
-                {categoryImportModal.step === "review" && (
-                  <>
-                    <div className="space-y-4">
-                      <div className="flex justify-between items-center">
-                        <h3 className="text-sm font-medium text-gray-700">Review Categories</h3>
-                      </div>
+                      <button
+                        onClick={async () => {
+                          setCategoryImportModal((prev) => ({
+                            ...prev,
+                            isLoading: true,
+                            error: null,
+                          }));
+                          try {
+                            if (!currentCompany) {
+                              throw new Error("No company selected. Please select a company first.");
+                            }
 
-                      {/* Missing parents warning and options */}
-                      {categoryImportModal.csvData.some((cat) => cat.needsParentCreation) && (
-                        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-                          <h4 className="text-sm font-medium text-yellow-800 mb-2">
-                            Missing Parent Categories Detected
-                          </h4>
-                          <p className="text-sm text-yellow-700 mb-3">
-                            Some categories reference parent categories that don&apos;t exist in your system.
-                          </p>
-                          <label className="flex items-center space-x-2">
-                            <input
-                              type="checkbox"
-                              checked={categoryImportModal.autoCreateMissing}
-                              onChange={(e) =>
-                                setCategoryImportModal((prev) => ({
-                                  ...prev,
-                                  autoCreateMissing: e.target.checked,
-                                }))
-                              }
-                              className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
-                            />
-                            <span className="text-sm text-yellow-700">
-                              Automatically create missing parent categories during import (with same type as child)
-                            </span>
-                          </label>
-                        </div>
-                      )}
+                            const selectedCategories = categoryImportModal.csvData.filter((cat) =>
+                              categoryImportModal.selectedCategories.has(cat.id)
+                            );
 
-                      {/* Parent dependency warning */}
-                      {(() => {
-                        const dependencyCheck = validateParentDependencies(
-                          categoryImportModal.csvData,
-                          categoryImportModal.selectedCategories
-                        );
+                            if (selectedCategories.length === 0) {
+                              throw new Error("No categories selected for import.");
+                            }
 
-                        return (
-                          !dependencyCheck.isValid && (
-                            <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
-                              <h4 className="text-sm font-medium text-orange-800 mb-2">Parent Dependencies Required</h4>
-                              <p className="text-sm text-orange-700 mb-2">
-                                Some selected categories have parents that are also in this CSV but not selected for
-                                import:
-                              </p>
-                              <ul className="text-sm text-orange-700 list-disc list-inside">
-                                {dependencyCheck.missingParents.map((parentName) => (
-                                  <li key={parentName}>
-                                    <strong>{parentName}</strong> - Must be selected to import its children
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          )
-                        );
-                      })()}
-                      <div className="border rounded-lg overflow-hidden">
-                        <table className="min-w-full divide-y divide-gray-200">
-                          <thead className="bg-gray-50">
-                            <tr>
-                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-8">
-                                <input
-                                  type="checkbox"
-                                  checked={
-                                    categoryImportModal.csvData.length > 0 &&
-                                    categoryImportModal.selectedCategories.size === categoryImportModal.csvData.length
-                                  }
-                                  onChange={(e) => {
-                                    if (e.target.checked) {
-                                      // Select all categories
-                                      setCategoryImportModal((prev) => ({
-                                        ...prev,
-                                        selectedCategories: new Set(categoryImportModal.csvData.map((cat) => cat.id)),
-                                      }));
-                                    } else {
-                                      // Deselect all categories
-                                      setCategoryImportModal((prev) => ({
-                                        ...prev,
-                                        selectedCategories: new Set(),
-                                      }));
-                                    }
-                                  }}
-                                  className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
-                                />
-                              </th>
-                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Name
-                              </th>
-                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Type
-                              </th>
-                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Parent
-                              </th>
-                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Status
-                              </th>
-                            </tr>
-                          </thead>
-                          <tbody className="bg-white divide-y divide-gray-200">
-                            {categoryImportModal.csvData.map((category) => (
-                              <tr
-                                key={category.id}
-                                className={`${
-                                  category.needsParentCreation && !categoryImportModal.autoCreateMissing
-                                    ? "bg-yellow-50"
-                                    : !category.isValid
-                                    ? "bg-red-50"
-                                    : ""
-                                }`}
-                              >
-                                <td className="px-4 py-2 whitespace-nowrap w-8 text-left">
-                                  <input
-                                    type="checkbox"
-                                    checked={categoryImportModal.selectedCategories.has(category.id)}
-                                    onChange={(e) => {
-                                      const newSelected = new Set(categoryImportModal.selectedCategories);
-                                      if (e.target.checked) {
-                                        newSelected.add(category.id);
+                            // Check for parent dependencies
+                            const dependencyCheck = validateParentDependencies(
+                              categoryImportModal.csvData,
+                              categoryImportModal.selectedCategories
+                            );
 
-                                        // Auto-select parent if it's in the CSV
-                                        if (category.parentName) {
-                                          const parentInCsv = categoryImportModal.csvData.find(
-                                            (cat) => cat.name.toLowerCase() === category.parentName!.toLowerCase()
-                                          );
-                                          if (parentInCsv) {
-                                            newSelected.add(parentInCsv.id);
-                                          }
-                                        }
-                                      } else {
-                                        newSelected.delete(category.id);
-
-                                        // Auto-deselect children if this is a parent
-                                        const childrenInCsv = categoryImportModal.csvData.filter(
-                                          (cat) =>
-                                            cat.parentName &&
-                                            cat.parentName.toLowerCase() === category.name.toLowerCase()
-                                        );
-                                        childrenInCsv.forEach((child) => {
-                                          newSelected.delete(child.id);
-                                        });
-                                      }
-                                      setCategoryImportModal((prev) => ({
-                                        ...prev,
-                                        selectedCategories: newSelected,
-                                      }));
-                                    }}
-                                    className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
-                                  />
-                                </td>
-                                <td className="px-4 py-2 text-sm text-gray-900">{category.name}</td>
-                                <td className="px-4 py-2 text-sm text-gray-900">{category.type}</td>
-                                <td className="px-4 py-2 text-sm text-gray-900">{category.parentName || "-"}</td>
-                                <td className="px-4 py-2 text-sm">
-                                  {!category.isValid ? (
-                                    <div className="flex items-center space-x-1">
-                                      <span className="w-2 h-2 bg-red-400 rounded-full"></span>
-                                      <span className="text-red-700 text-xs">{category.validationMessage}</span>
-                                    </div>
-                                  ) : category.needsParentCreation ? (
-                                    categoryImportModal.autoCreateMissing ? (
-                                      <div className="flex items-center space-x-1">
-                                        <span className="w-2 h-2 bg-blue-400 rounded-full"></span>
-                                        <span className="text-blue-700 text-xs">Will create parent</span>
-                                      </div>
-                                    ) : (
-                                      <div className="flex items-center space-x-1">
-                                        <span className="w-2 h-2 bg-orange-400 rounded-full"></span>
-                                        <span className="text-orange-700 text-xs">Missing parent</span>
-                                      </div>
-                                    )
-                                  ) : (
-                                    <div className="flex items-center space-x-1">
-                                      <span className="w-2 h-2 bg-green-400 rounded-full"></span>
-                                      <span className="text-green-700 text-xs">Valid</span>
-                                    </div>
-                                  )}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <div className="text-sm font-medium">
-                        {categoryImportModal.selectedCategories.size > 0 && (
-                          <>
-                            <span className="text-gray-600">
-                              {categoryImportModal.selectedCategories.size} selected
-                            </span>
-                            {!categoryImportModal.autoCreateMissing &&
-                              (() => {
-                                const selectedCategories = categoryImportModal.csvData.filter((cat) =>
-                                  categoryImportModal.selectedCategories.has(cat.id)
-                                );
-                                const validCount = selectedCategories.filter(
-                                  (cat) => cat.isValid && !cat.needsParentCreation
-                                ).length;
-                                const invalidCount = selectedCategories.filter(
-                                  (cat) => !cat.isValid || cat.needsParentCreation
-                                ).length;
-
-                                return invalidCount > 0 ? (
-                                  <span className="text-red-600 ml-2">
-                                    ({validCount} will import, {invalidCount} will skip)
-                                  </span>
-                                ) : null;
-                              })()}
-                          </>
-                        )}
-                      </div>
-                      <div className="flex justify-end space-x-2 mt-4">
-                        <button
-                          onClick={() =>
-                            setCategoryImportModal((prev) => ({
-                              ...prev,
-                              step: "upload",
-                            }))
-                          }
-                          className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
-                        >
-                          Back
-                        </button>
-                        <button
-                          onClick={async () => {
-                            setCategoryImportModal((prev) => ({
-                              ...prev,
-                              isLoading: true,
-                              error: null,
-                            }));
-                            try {
-                              if (!currentCompany) {
-                                throw new Error("No company selected. Please select a company first.");
-                              }
-
-                              const selectedCategories = categoryImportModal.csvData.filter((cat) =>
-                                categoryImportModal.selectedCategories.has(cat.id)
+                            if (!dependencyCheck.isValid) {
+                              throw new Error(
+                                `Cannot import: The following parent categories are in the CSV but not selected: ${dependencyCheck.missingParents.join(
+                                  ", "
+                                )}. Please select them or deselect their children.`
                               );
+                            }
 
-                              if (selectedCategories.length === 0) {
-                                throw new Error("No categories selected for import.");
-                              }
+                            // If auto-create is enabled, create missing parent categories first
+                            if (categoryImportModal.autoCreateMissing) {
+                              const missingParents = new Set<string>();
 
-                              // Check for parent dependencies
-                              const dependencyCheck = validateParentDependencies(
-                                categoryImportModal.csvData,
-                                categoryImportModal.selectedCategories
-                              );
+                              selectedCategories.forEach((cat) => {
+                                if (cat.needsParentCreation && cat.parentName) {
+                                  missingParents.add(cat.parentName);
+                                }
+                              });
 
-                              if (!dependencyCheck.isValid) {
-                                throw new Error(
-                                  `Cannot import: The following parent categories are in the CSV but not selected: ${dependencyCheck.missingParents.join(
-                                    ", "
-                                  )}. Please select them or deselect their children.`
-                                );
-                              }
-
-                              // If auto-create is enabled, create missing parent categories first
-                              if (categoryImportModal.autoCreateMissing) {
-                                const missingParents = new Set<string>();
-
-                                selectedCategories.forEach((cat) => {
-                                  if (cat.needsParentCreation && cat.parentName) {
-                                    missingParents.add(cat.parentName);
-                                  }
+                              // Create missing parent categories with same type as child
+                              if (missingParents.size > 0) {
+                                const parentsToCreate = Array.from(missingParents).map((parentName) => {
+                                  // Find a child category to get the type
+                                  const childWithThisParent = selectedCategories.find(
+                                    (cat) => cat.parentName === parentName
+                                  );
+                                  return {
+                                    name: parentName,
+                                    type: childWithThisParent?.type || "Expense", // Default to Expense if can't determine
+                                    parent_id: null, // These are parent categories
+                                    company_id: currentCompany.id,
+                                  };
                                 });
-
-                                // Create missing parent categories with same type as child
-                                if (missingParents.size > 0) {
-                                  const parentsToCreate = Array.from(missingParents).map((parentName) => {
-                                    // Find a child category to get the type
-                                    const childWithThisParent = selectedCategories.find(
-                                      (cat) => cat.parentName === parentName
-                                    );
-                                    return {
-                                      name: parentName,
-                                      type: childWithThisParent?.type || "Expense", // Default to Expense if can't determine
-                                      parent_id: null, // These are parent categories
-                                      company_id: currentCompany.id,
-                                    };
-                                  });
-
-                                  const { error: parentError } = await supabase
-                                    .from("chart_of_accounts")
-                                    .insert(parentsToCreate);
-
-                                  if (parentError) {
-                                    throw new Error(`Failed to create parent categories: ${parentError.message}`);
-                                  }
-
-                                  // Refresh accounts list to get the newly created parents
-                                  await refreshCategories();
-                                }
-                              } else {
-                                // If not auto-creating, filter out categories that need parent creation or are invalid
-                                const validCategories = selectedCategories.filter(
-                                  (cat) => cat.isValid && !cat.needsParentCreation
-                                );
-                                const invalidCategories = selectedCategories.filter(
-                                  (cat) => !cat.isValid || cat.needsParentCreation
-                                );
-
-                                if (invalidCategories.length > 0 && validCategories.length > 0) {
-                                  // Mixed selection - show confirmation
-                                  const proceed = window.confirm(
-                                    `${invalidCategories.length} selected categor${
-                                      invalidCategories.length === 1 ? "y" : "ies"
-                                    } reference missing parents or have validation errors and will be skipped.\n\n` +
-                                      `Only ${validCategories.length} valid categor${
-                                        validCategories.length === 1 ? "y" : "ies"
-                                      } will be imported.\n\n` +
-                                      `Click OK to proceed with valid categories only, or Cancel to go back and enable auto-creation.`
-                                  );
-
-                                  if (!proceed) {
-                                    // User cancelled, stop the import process
-                                    setCategoryImportModal((prev) => ({
-                                      ...prev,
-                                      isLoading: false,
-                                    }));
-                                    return;
-                                  }
-                                } else if (validCategories.length === 0) {
-                                  // All selected categories are invalid
-                                  throw new Error(
-                                    "All selected categories reference missing parents or have validation errors. Enable 'Auto-create missing parents' or select only valid categories."
-                                  );
-                                }
-
-                                // Update selectedCategories to only include valid ones
-                                selectedCategories.splice(0, selectedCategories.length, ...validCategories);
-                              }
-
-                              // Sort categories to import parents before children
-                              const sortCategoriesByDependency = (
-                                categories: CategoryImportData[]
-                              ): CategoryImportData[] => {
-                                const sorted: CategoryImportData[] = [];
-                                const remaining = [...categories];
-                                const processing = new Set<string>();
-
-                                const addCategoryToSorted = (cat: CategoryImportData) => {
-                                  if (processing.has(cat.id)) return; // Avoid circular dependencies
-                                  processing.add(cat.id);
-
-                                  // If category has a parent in the import list, add parent first
-                                  if (cat.parentName) {
-                                    const parentInImport = remaining.find(
-                                      (c) => c.name.toLowerCase() === cat.parentName!.toLowerCase() && c.id !== cat.id
-                                    );
-                                    if (parentInImport && !sorted.includes(parentInImport)) {
-                                      addCategoryToSorted(parentInImport);
-                                    }
-                                  }
-
-                                  // Add this category if not already added
-                                  if (!sorted.includes(cat)) {
-                                    sorted.push(cat);
-                                  }
-                                  processing.delete(cat.id);
-                                };
-
-                                // Add all categories, respecting dependencies
-                                for (const cat of remaining) {
-                                  addCategoryToSorted(cat);
-                                }
-
-                                return sorted;
-                              };
-
-                              const orderedCategories = sortCategoriesByDependency(selectedCategories);
-
-                              // Split categories into parents and children for two-phase import
-                              const parentCategories = orderedCategories.filter((cat) => !cat.parentName);
-                              const childCategories = orderedCategories.filter((cat) => cat.parentName);
-
-                              // Phase 1: Import parent categories first
-                              if (parentCategories.length > 0) {
-                                const parentCategoriesToInsert = parentCategories.map((cat) => ({
-                                  name: cat.name,
-                                  type: cat.type,
-                                  parent_id: null, // Parents have no parent
-                                  company_id: currentCompany.id,
-                                }));
 
                                 const { error: parentError } = await supabase
                                   .from("chart_of_accounts")
-                                  .insert(parentCategoriesToInsert);
+                                  .insert(parentsToCreate);
+
                                 if (parentError) {
-                                  throw new Error(`Failed to import parent categories: ${parentError.message}`);
+                                  throw new Error(`Failed to create parent categories: ${parentError.message}`);
                                 }
 
-                                // Refresh accounts list to get newly created parents
+                                // Refresh accounts list to get the newly created parents
                                 await refreshCategories();
                               }
+                            } else {
+                              // If not auto-creating, filter out categories that need parent creation or are invalid
+                              const validCategories = selectedCategories.filter(
+                                (cat) => cat.isValid && !cat.needsParentCreation
+                              );
+                              const invalidCategories = selectedCategories.filter(
+                                (cat) => !cat.isValid || cat.needsParentCreation
+                              );
 
-                              // Phase 2: Import child categories with proper parent_id resolution
-                              if (childCategories.length > 0) {
-                                const childCategoriesToInsert = await Promise.all(
-                                  childCategories.map(async (cat) => {
-                                    let parent_id = cat.parent_id;
-
-                                    // If we have a parentName but no parent_id, look it up (including newly created parents)
-                                    if (cat.parentName && !parent_id) {
-                                      // Get fresh accounts list that includes newly created parents
-                                      const { data: freshAccounts } = await supabase
-                                        .from("chart_of_accounts")
-                                        .select("*")
-                                        .eq("company_id", currentCompany.id);
-
-                                      if (freshAccounts) {
-                                        const parentAccount = freshAccounts.find(
-                                          (acc) => acc.name.toLowerCase() === cat.parentName!.toLowerCase()
-                                        );
-                                        parent_id = parentAccount?.id || null;
-                                      }
-                                    }
-
-                                    return {
-                                      name: cat.name,
-                                      type: cat.type,
-                                      parent_id,
-                                      company_id: currentCompany.id,
-                                    };
-                                  })
+                              if (invalidCategories.length > 0 && validCategories.length > 0) {
+                                // Mixed selection - show confirmation
+                                const proceed = window.confirm(
+                                  `${invalidCategories.length} selected categor${
+                                    invalidCategories.length === 1 ? "y" : "ies"
+                                  } reference missing parents or have validation errors and will be skipped.\n\n` +
+                                    `Only ${validCategories.length} valid categor${
+                                      validCategories.length === 1 ? "y" : "ies"
+                                    } will be imported.\n\n` +
+                                    `Click OK to proceed with valid categories only, or Cancel to go back and enable auto-creation.`
                                 );
 
-                                const { error: childError } = await supabase
-                                  .from("chart_of_accounts")
-                                  .insert(childCategoriesToInsert);
-                                if (childError) {
-                                  throw new Error(`Failed to import child categories: ${childError.message}`);
+                                if (!proceed) {
+                                  // User cancelled, stop the import process
+                                  setCategoryImportModal((prev) => ({
+                                    ...prev,
+                                    isLoading: false,
+                                  }));
+                                  return;
                                 }
+                              } else if (validCategories.length === 0) {
+                                // All selected categories are invalid
+                                throw new Error(
+                                  "All selected categories reference missing parents or have validation errors. Enable 'Auto-create missing parents' or select only valid categories."
+                                );
                               }
 
-                              setCategoryImportModal({
-                                isOpen: false,
-                                step: "upload",
-                                csvData: [],
-                                isLoading: false,
-                                error: null,
-                                selectedCategories: new Set(),
-                                autoCreateMissing: false,
-                              });
-
-                              await fetchParentOptions();
-                            } catch (error) {
-                              setCategoryImportModal((prev) => ({
-                                ...prev,
-                                isLoading: false,
-                                error:
-                                  error instanceof Error
-                                    ? error.message
-                                    : "Failed to import categories. Please try again.",
-                              }));
+                              // Update selectedCategories to only include valid ones
+                              selectedCategories.splice(0, selectedCategories.length, ...validCategories);
                             }
-                          }}
-                          className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
-                        >
-                          Import Categories
-                        </button>
-                      </div>
+
+                            // Sort categories to import parents before children
+                            const sortCategoriesByDependency = (
+                              categories: CategoryImportData[]
+                            ): CategoryImportData[] => {
+                              const sorted: CategoryImportData[] = [];
+                              const remaining = [...categories];
+                              const processing = new Set<string>();
+
+                              const addCategoryToSorted = (cat: CategoryImportData) => {
+                                if (processing.has(cat.id)) return; // Avoid circular dependencies
+                                processing.add(cat.id);
+
+                                // If category has a parent in the import list, add parent first
+                                if (cat.parentName) {
+                                  const parentInImport = remaining.find(
+                                    (c) => c.name.toLowerCase() === cat.parentName!.toLowerCase() && c.id !== cat.id
+                                  );
+                                  if (parentInImport && !sorted.includes(parentInImport)) {
+                                    addCategoryToSorted(parentInImport);
+                                  }
+                                }
+
+                                // Add this category if not already added
+                                if (!sorted.includes(cat)) {
+                                  sorted.push(cat);
+                                }
+                                processing.delete(cat.id);
+                              };
+
+                              // Add all categories, respecting dependencies
+                              for (const cat of remaining) {
+                                addCategoryToSorted(cat);
+                              }
+
+                              return sorted;
+                            };
+
+                            const orderedCategories = sortCategoriesByDependency(selectedCategories);
+
+                            // Split categories into parents and children for two-phase import
+                            const parentCategories = orderedCategories.filter((cat) => !cat.parentName);
+                            const childCategories = orderedCategories.filter((cat) => cat.parentName);
+
+                            // Phase 1: Import parent categories first
+                            if (parentCategories.length > 0) {
+                              const parentCategoriesToInsert = parentCategories.map((cat) => ({
+                                name: cat.name,
+                                type: cat.type,
+                                parent_id: null, // Parents have no parent
+                                company_id: currentCompany.id,
+                              }));
+
+                              const { error: parentError } = await supabase
+                                .from("chart_of_accounts")
+                                .insert(parentCategoriesToInsert);
+                              if (parentError) {
+                                throw new Error(`Failed to import parent categories: ${parentError.message}`);
+                              }
+
+                              // Refresh accounts list to get newly created parents
+                              await refreshCategories();
+                            }
+
+                            // Phase 2: Import child categories with proper parent_id resolution
+                            if (childCategories.length > 0) {
+                              const childCategoriesToInsert = await Promise.all(
+                                childCategories.map(async (cat) => {
+                                  let parent_id = cat.parent_id;
+
+                                  // If we have a parentName but no parent_id, look it up (including newly created parents)
+                                  if (cat.parentName && !parent_id) {
+                                    // Get fresh accounts list that includes newly created parents
+                                    const { data: freshAccounts } = await supabase
+                                      .from("chart_of_accounts")
+                                      .select("*")
+                                      .eq("company_id", currentCompany.id);
+
+                                    if (freshAccounts) {
+                                      const parentAccount = freshAccounts.find(
+                                        (acc) => acc.name.toLowerCase() === cat.parentName!.toLowerCase()
+                                      );
+                                      parent_id = parentAccount?.id || null;
+                                    }
+                                  }
+
+                                  return {
+                                    name: cat.name,
+                                    type: cat.type,
+                                    parent_id,
+                                    company_id: currentCompany.id,
+                                  };
+                                })
+                              );
+
+                              const { error: childError } = await supabase
+                                .from("chart_of_accounts")
+                                .insert(childCategoriesToInsert);
+                              if (childError) {
+                                throw new Error(`Failed to import child categories: ${childError.message}`);
+                              }
+                            }
+
+                            setCategoryImportModal({
+                              isOpen: false,
+                              step: "upload",
+                              csvData: [],
+                              isLoading: false,
+                              error: null,
+                              selectedCategories: new Set(),
+                              autoCreateMissing: false,
+                            });
+
+                            await fetchParentOptions();
+                          } catch (error) {
+                            setCategoryImportModal((prev) => ({
+                              ...prev,
+                              isLoading: false,
+                              error:
+                                error instanceof Error
+                                  ? error.message
+                                  : "Failed to import categories. Please try again.",
+                            }));
+                          }
+                        }}
+                        className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
+                      >
+                        Import Categories
+                      </button>
                     </div>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Rename Merge Modal */}
-      {renameMergeModal.isOpen && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50">
-          <div className="bg-white rounded-lg p-6 w-[500px] shadow-xl">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Category Name Conflict</h2>
-              <button
-                onClick={() =>
-                  setRenameMergeModal({
-                    isOpen: false,
-                    originalCategory: null,
-                    existingCategory: null,
-                    isLoading: false,
-                    error: null,
-                  })
-                }
-                className="text-gray-500 hover:text-gray-700"
-              >
-                <X className="w-4 h-4" />
-              </button>
+      <Dialog
+        open={renameMergeModal.isOpen}
+        onOpenChange={(open) =>
+          setRenameMergeModal((prev) => ({
+            ...prev,
+            isOpen: open,
+            originalCategory: null,
+            existingCategory: null,
+            isLoading: false,
+            error: null,
+          }))
+        }
+      >
+        <DialogContent className="min-w-[700px]">
+          <DialogHeader>
+            <DialogTitle>Category Name Conflict</DialogTitle>
+          </DialogHeader>
+
+          {renameMergeModal.error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded">
+              {renameMergeModal.error}
             </div>
+          )}
 
-            {renameMergeModal.error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded mb-4">
-                {renameMergeModal.error}
+          {renameMergeModal.isLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <p className="text-gray-800 mb-2">
+                  A category named <strong>&quot;{renameMergeModal.existingCategory?.name}&quot;</strong> already
+                  exists.
+                </p>
+                <p className="text-gray-700">
+                  Would you like to merge <strong>&quot;{renameMergeModal.originalCategory?.name}&quot;</strong> into
+                  the existing category?
+                </p>
               </div>
-            )}
 
-            {renameMergeModal.isLoading ? (
-              <div className="flex items-center justify-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h4 className="text-sm font-medium text-blue-800 mb-2">This merge will:</h4>
+                <ul className="text-sm text-blue-700 space-y-1">
+                  <li>
+                    • Move all transactions from &quot;{renameMergeModal.originalCategory?.name}&quot; to &quot;
+                    {renameMergeModal.existingCategory?.name}&quot;
+                  </li>
+                  <li>
+                    • Move all journal entries from &quot;{renameMergeModal.originalCategory?.name}&quot; to &quot;
+                    {renameMergeModal.existingCategory?.name}&quot;
+                  </li>
+                  <li>
+                    • Move all subcategories from &quot;{renameMergeModal.originalCategory?.name}&quot; to &quot;
+                    {renameMergeModal.existingCategory?.name}&quot;
+                  </li>
+                  <li>• Update all automation rules to use &quot;{renameMergeModal.existingCategory?.name}&quot;</li>
+                  <li>• Delete &quot;{renameMergeModal.originalCategory?.name}&quot;</li>
+                  <li>
+                    • Keep the type and properties of &quot;{renameMergeModal.existingCategory?.name}&quot; (
+                    {renameMergeModal.existingCategory?.type})
+                  </li>
+                </ul>
               </div>
-            ) : (
-              <div className="space-y-4">
+
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                <p className="text-sm text-red-700 font-medium">⚠️ This action cannot be undone.</p>
+              </div>
+
+              <div className="flex justify-end space-x-3 pt-2">
+                <Button
+                  variant="outline"
+                  onClick={() =>
+                    setRenameMergeModal({
+                      isOpen: false,
+                      originalCategory: null,
+                      existingCategory: null,
+                      isLoading: false,
+                      error: null,
+                    })
+                  }
+                  className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 border border-gray-300 rounded"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={async () => {
+                    if (
+                      !renameMergeModal.originalCategory ||
+                      !renameMergeModal.existingCategory ||
+                      !currentCompany?.id
+                    ) {
+                      return;
+                    }
+
+                    setRenameMergeModal((prev) => ({ ...prev, isLoading: true, error: null }));
+
+                    try {
+                      // Use the specific merge from rename method
+                      const success = await mergeFromRename(
+                        renameMergeModal.originalCategory.id,
+                        renameMergeModal.existingCategory.id,
+                        currentCompany.id
+                      );
+
+                      if (success) {
+                        // Close modal on success
+                        setRenameMergeModal({
+                          isOpen: false,
+                          originalCategory: null,
+                          existingCategory: null,
+                          isLoading: false,
+                          error: null,
+                        });
+
+                        // Refresh parent options
+                        await fetchParentOptions();
+                      } else {
+                        // Show error in modal
+                        setRenameMergeModal((prev) => ({
+                          ...prev,
+                          isLoading: false,
+                          error: categoriesError || "Failed to merge categories. Please try again.",
+                        }));
+                      }
+                    } catch (error) {
+                      console.error("Error during category merge:", error);
+                      setRenameMergeModal((prev) => ({
+                        ...prev,
+                        isLoading: false,
+                        error: "An unexpected error occurred during merge. Please try again.",
+                      }));
+                    }
+                  }}
+                >
+                  Merge
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Merge Categories Modal */}
+      <Dialog
+        open={mergeModal.isOpen}
+        onOpenChange={(open) =>
+          setMergeModal((prev) => ({
+            ...prev,
+            isOpen: open,
+            selectedCategories: new Set(),
+            targetCategoryId: null,
+            isLoading: false,
+            error: null,
+            searchTerm: "",
+          }))
+        }
+      >
+        <DialogContent className="min-w-[700px]">
+          <DialogHeader>
+            <DialogTitle>Merge Categories</DialogTitle>
+          </DialogHeader>
+
+          {mergeModal.error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded">
+              {mergeModal.error}
+            </div>
+          )}
+
+          {mergeModal.isLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+              <span className="ml-3 text-gray-600">Merging categories...</span>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {mergeModal.selectedCategories.size === 0 ? (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <h4 className="text-sm font-medium text-blue-800 mb-2">How Merging Works:</h4>
+                  <ul className="text-sm text-blue-700 space-y-1">
+                    <li>• Select 2 or more categories with the same type to merge</li>
+                    <li>• Choose which category to keep as the &quot;target&quot; (others will be deleted)</li>
+                    <li>• All subcategories from merged categories will be moved to the target</li>
+                    <li>• All transaction references will be updated to point to the target category</li>
+                    <li>• All journal entries will be updated to point to the target category</li>
+                    <li>• All automation rules will be updated to use the target category</li>
+                    <li>• Circular parent-child relationships are automatically prevented</li>
+                    <li>• If merging parent categories into a subcategory, it will become a parent</li>
+                  </ul>
+                </div>
+              ) : (
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                  <p className="text-gray-800 mb-2">
-                    A category named <strong>&quot;{renameMergeModal.existingCategory?.name}&quot;</strong> already
-                    exists.
-                  </p>
-                  <p className="text-gray-700">
-                    Would you like to merge <strong>&quot;{renameMergeModal.originalCategory?.name}&quot;</strong> into
-                    the existing category?
+                  <h4 className="text-sm font-medium text-yellow-800 mb-2">
+                    {mergeModal.selectedCategories.size} categories selected for merge
+                  </h4>
+                  <p className="text-sm text-yellow-700">
+                    {mergeModal.targetCategoryId
+                      ? `All selected categories will be merged into "${
+                          accounts.find((acc) => acc.id === mergeModal.targetCategoryId)?.name
+                        }".`
+                      : "Please select a target category using the radio buttons below."}
                   </p>
                 </div>
+              )}
 
+              {mergeModal.selectedCategories.size >= 2 && mergeModal.targetCategoryId && (
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                   <h4 className="text-sm font-medium text-blue-800 mb-2">This merge will:</h4>
                   <ul className="text-sm text-blue-700 space-y-1">
                     <li>
-                      • Move all transactions from &quot;{renameMergeModal.originalCategory?.name}&quot; to &quot;
-                      {renameMergeModal.existingCategory?.name}&quot;
+                      • Move all transactions to &quot;
+                      {accounts.find((acc) => acc.id === mergeModal.targetCategoryId)?.name}&quot;
                     </li>
                     <li>
-                      • Move all journal entries from &quot;{renameMergeModal.originalCategory?.name}&quot; to &quot;
-                      {renameMergeModal.existingCategory?.name}&quot;
+                      • Move all journal entries to &quot;
+                      {accounts.find((acc) => acc.id === mergeModal.targetCategoryId)?.name}&quot;
                     </li>
                     <li>
-                      • Move all subcategories from &quot;{renameMergeModal.originalCategory?.name}&quot; to &quot;
-                      {renameMergeModal.existingCategory?.name}&quot;
+                      • Move all subcategories to &quot;
+                      {accounts.find((acc) => acc.id === mergeModal.targetCategoryId)?.name}&quot;
                     </li>
-                    <li>• Update all automation rules to use &quot;{renameMergeModal.existingCategory?.name}&quot;</li>
-                    <li>• Delete &quot;{renameMergeModal.originalCategory?.name}&quot;</li>
                     <li>
-                      • Keep the type and properties of &quot;{renameMergeModal.existingCategory?.name}&quot; (
-                      {renameMergeModal.existingCategory?.type})
+                      • Update all automation rules to use &quot;
+                      {accounts.find((acc) => acc.id === mergeModal.targetCategoryId)?.name}&quot;
+                    </li>
+                    <li>
+                      • Delete{" "}
+                      {Array.from(mergeModal.selectedCategories)
+                        .filter((id) => id !== mergeModal.targetCategoryId)
+                        .map((id) => `"${accounts.find((acc) => acc.id === id)?.name}"`)
+                        .join(", ")}
+                    </li>
+                    <li>
+                      • Keep the type and properties of &quot;
+                      {accounts.find((acc) => acc.id === mergeModal.targetCategoryId)?.name}&quot;
                     </li>
                   </ul>
                 </div>
+              )}
 
+              {mergeModal.selectedCategories.size >= 2 && mergeModal.targetCategoryId && (
                 <div className="bg-red-50 border border-red-200 rounded-lg p-3">
                   <p className="text-sm text-red-700 font-medium">⚠️ This action cannot be undone.</p>
                 </div>
+              )}
 
-                <div className="flex justify-end space-x-3 pt-2">
-                  <button
+              <div>
+                <h3 className="text-sm font-medium text-gray-700 mb-2">
+                  Select Categories to Merge:
+                  {mergeModal.selectedCategories.size > 0 && (
+                    <span className="ml-2 text-xs text-gray-500">({mergeModal.selectedCategories.size} selected)</span>
+                  )}
+                </h3>
+
+                {/* Search Bar */}
+                <div className="mb-3">
+                  <input
+                    type="text"
+                    placeholder="Search categories..."
+                    value={mergeModal.searchTerm}
+                    onChange={(e) =>
+                      setMergeModal((prev) => ({
+                        ...prev,
+                        searchTerm: e.target.value,
+                      }))
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+
+                <div className="border rounded-lg overflow-hidden max-h-64 overflow-y-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50 sticky top-0">
+                      <tr>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-8">
+                          <input
+                            type="checkbox"
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                // Select all categories of the same type as first selection, or all if none selected
+                                const firstSelectedType =
+                                  mergeModal.selectedCategories.size > 0
+                                    ? accounts.find(
+                                        (acc) =>
+                                          Array.from(mergeModal.selectedCategories)[0] &&
+                                          acc.id === Array.from(mergeModal.selectedCategories)[0]
+                                      )?.type
+                                    : null;
+
+                                const categoriesToSelect = accounts
+                                  .filter((acc) => !firstSelectedType || acc.type === firstSelectedType)
+                                  .map((acc) => acc.id);
+
+                                setMergeModal((prev) => ({
+                                  ...prev,
+                                  selectedCategories: new Set(categoriesToSelect),
+                                  error: null,
+                                }));
+                              } else {
+                                setMergeModal((prev) => ({
+                                  ...prev,
+                                  selectedCategories: new Set(),
+                                  targetCategoryId: null,
+                                  error: null,
+                                }));
+                              }
+                            }}
+                            className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                          />
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Name
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Type
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Parent
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Keep
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {accounts
+                        .filter((acc) => {
+                          // Filter categories to show only those with same type as selected ones
+                          if (mergeModal.selectedCategories.size === 0) return true;
+                          const selectedTypes = new Set(
+                            Array.from(mergeModal.selectedCategories)
+                              .map((id) => accounts.find((acc) => acc.id === id)?.type)
+                              .filter(Boolean)
+                          );
+                          return selectedTypes.size === 0 || selectedTypes.has(acc.type);
+                        })
+                        .filter((acc) => {
+                          // Filter by search term
+                          if (!mergeModal.searchTerm.trim()) return true;
+                          const searchLower = mergeModal.searchTerm.toLowerCase();
+                          const parentCategory = acc.parent_id
+                            ? accounts.find((parent) => parent.id === acc.parent_id)
+                            : null;
+
+                          return (
+                            acc.name.toLowerCase().includes(searchLower) ||
+                            acc.type.toLowerCase().includes(searchLower) ||
+                            (parentCategory && parentCategory.name.toLowerCase().includes(searchLower))
+                          );
+                        })
+                        .map((category) => {
+                          const parentCategory = category.parent_id
+                            ? accounts.find((acc) => acc.id === category.parent_id)
+                            : null;
+
+                          const isSelected = mergeModal.selectedCategories.has(category.id);
+                          const isTarget = mergeModal.targetCategoryId === category.id;
+
+                          return (
+                            <tr
+                              key={category.id}
+                              className={`hover:bg-gray-50 ${
+                                isTarget ? "bg-green-50 border-l-4 border-green-400" : isSelected ? "bg-blue-50" : ""
+                              }`}
+                            >
+                              <td className="px-3 py-2 whitespace-nowrap w-8">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={(e) => {
+                                    const newSelected = new Set(mergeModal.selectedCategories);
+                                    if (e.target.checked) {
+                                      newSelected.add(category.id);
+                                    } else {
+                                      newSelected.delete(category.id);
+                                      // If unchecking target, clear target selection
+                                      if (mergeModal.targetCategoryId === category.id) {
+                                        setMergeModal((prev) => ({ ...prev, targetCategoryId: null }));
+                                      }
+                                    }
+                                    setMergeModal((prev) => ({
+                                      ...prev,
+                                      selectedCategories: newSelected,
+                                      error: null,
+                                    }));
+                                  }}
+                                  className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                                />
+                              </td>
+                              <td className="px-3 py-2 text-sm">
+                                <div className="flex items-center">
+                                  <span
+                                    style={{ paddingLeft: `${category.parent_id ? 16 : 0}px` }}
+                                    className={isTarget ? "font-semibold text-green-800" : "text-gray-900"}
+                                  >
+                                    {category.name}
+                                  </span>
+                                  {isTarget && (
+                                    <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                      Target
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="px-3 py-2 text-sm text-gray-900">
+                                <span className={isTarget ? "font-semibold text-green-800" : ""}>{category.type}</span>
+                              </td>
+                              <td className="px-3 py-2 text-sm text-gray-500">{parentCategory?.name || "—"}</td>
+                              <td className="px-3 py-2 whitespace-nowrap w-8 text-center">
+                                <input
+                                  type="radio"
+                                  name="targetCategory"
+                                  checked={isTarget}
+                                  disabled={!isSelected}
+                                  onChange={() => {
+                                    setMergeModal((prev) => ({
+                                      ...prev,
+                                      targetCategoryId: category.id,
+                                      error: null,
+                                    }));
+                                  }}
+                                  className="rounded border-gray-300 text-green-600 focus:ring-green-600 disabled:opacity-30"
+                                />
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {mergeModal.selectedCategories.size > 0 && (
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">Selected for Merge:</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {Array.from(mergeModal.selectedCategories).map((id) => {
+                      const category = accounts.find((acc) => acc.id === id);
+                      if (!category) return null;
+
+                      return (
+                        <span
+                          key={id}
+                          className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                            mergeModal.targetCategoryId === id
+                              ? "bg-green-100 text-green-800 border border-green-200"
+                              : "bg-blue-100 text-blue-800"
+                          }`}
+                        >
+                          {category.name}
+                          {mergeModal.targetCategoryId === id && " (Target)"}
+                        </span>
+                      );
+                    })}
+                  </div>
+                  {mergeModal.selectedCategories.size >= 2 && !mergeModal.targetCategoryId && (
+                    <p className="text-sm text-orange-600 mt-2">
+                      Please select which category to keep as the target using the radio buttons.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              <div className="flex justify-between items-center pt-2">
+                <div className="text-sm text-gray-600">
+                  {mergeModal.selectedCategories.size > 0 && mergeModal.targetCategoryId && (
+                    <span>
+                      Merging {mergeModal.selectedCategories.size - 1} categor
+                      {mergeModal.selectedCategories.size - 1 === 1 ? "y" : "ies"} into &quot;
+                      {accounts.find((acc) => acc.id === mergeModal.targetCategoryId)?.name}&quot;
+                    </span>
+                  )}
+                </div>
+                <div className="flex space-x-3">
+                  <Button
+                    variant="outline"
                     onClick={() =>
-                      setRenameMergeModal({
+                      setMergeModal({
                         isOpen: false,
-                        originalCategory: null,
-                        existingCategory: null,
+                        selectedCategories: new Set(),
+                        targetCategoryId: null,
                         isLoading: false,
                         error: null,
+                        searchTerm: "",
                       })
                     }
-                    className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 border border-gray-300 rounded"
                   >
                     Cancel
-                  </button>
-                  <button
-                    onClick={async () => {
-                      if (
-                        !renameMergeModal.originalCategory ||
-                        !renameMergeModal.existingCategory ||
-                        !currentCompany?.id
-                      ) {
-                        return;
-                      }
-
-                      setRenameMergeModal((prev) => ({ ...prev, isLoading: true, error: null }));
-
-                      try {
-                        // Use the specific merge from rename method
-                        const success = await mergeFromRename(
-                          renameMergeModal.originalCategory.id,
-                          renameMergeModal.existingCategory.id,
-                          currentCompany.id
-                        );
-
-                        if (success) {
-                          // Close modal on success
-                          setRenameMergeModal({
-                            isOpen: false,
-                            originalCategory: null,
-                            existingCategory: null,
-                            isLoading: false,
-                            error: null,
-                          });
-
-                          // Refresh parent options
-                          await fetchParentOptions();
-                        } else {
-                          // Show error in modal
-                          setRenameMergeModal((prev) => ({
-                            ...prev,
-                            isLoading: false,
-                            error: categoriesError || "Failed to merge categories. Please try again.",
-                          }));
-                        }
-                      } catch (error) {
-                        console.error("Error during category merge:", error);
-                        setRenameMergeModal((prev) => ({
-                          ...prev,
-                          isLoading: false,
-                          error: "An unexpected error occurred during merge. Please try again.",
-                        }));
-                      }
-                    }}
-                    className="px-4 py-2 text-sm bg-red-600 text-white rounded hover:bg-red-700"
+                  </Button>
+                  <Button
+                    onClick={handleMergeCategories}
+                    disabled={mergeModal.selectedCategories.size < 2 || !mergeModal.targetCategoryId}
                   >
-                    Merge Categories
-                  </button>
+                    Merge
+                  </Button>
                 </div>
               </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Merge Categories Modal */}
-      {mergeModal.isOpen && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50">
-          <div className="bg-white rounded-lg p-6 w-[700px] max-h-[80vh] overflow-y-auto shadow-xl">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Merge Categories</h2>
-              <button
-                onClick={() =>
-                  setMergeModal({
-                    isOpen: false,
-                    selectedCategories: new Set(),
-                    targetCategoryId: null,
-                    isLoading: false,
-                    error: null,
-                    searchTerm: "",
-                  })
-                }
-                className="text-gray-500 hover:text-gray-700"
-              >
-                <X className="w-4 h-4" />
-              </button>
             </div>
-
-            {mergeModal.error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded mb-4">
-                {mergeModal.error}
-              </div>
-            )}
-
-            {mergeModal.isLoading ? (
-              <div className="flex items-center justify-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
-                <span className="ml-3 text-gray-600">Merging categories...</span>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {mergeModal.selectedCategories.size === 0 ? (
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                    <h4 className="text-sm font-medium text-blue-800 mb-2">How Merging Works:</h4>
-                    <ul className="text-sm text-blue-700 space-y-1">
-                      <li>• Select 2 or more categories with the same type to merge</li>
-                      <li>• Choose which category to keep as the &quot;target&quot; (others will be deleted)</li>
-                      <li>• All subcategories from merged categories will be moved to the target</li>
-                      <li>• All transaction references will be updated to point to the target category</li>
-                      <li>• All journal entries will be updated to point to the target category</li>
-                      <li>• All automation rules will be updated to use the target category</li>
-                      <li>• Circular parent-child relationships are automatically prevented</li>
-                      <li>• If merging parent categories into a subcategory, it will become a parent</li>
-                    </ul>
-                  </div>
-                ) : (
-                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                    <h4 className="text-sm font-medium text-yellow-800 mb-2">
-                      {mergeModal.selectedCategories.size} categories selected for merge
-                    </h4>
-                    <p className="text-sm text-yellow-700">
-                      {mergeModal.targetCategoryId
-                        ? `All selected categories will be merged into "${
-                            accounts.find((acc) => acc.id === mergeModal.targetCategoryId)?.name
-                          }".`
-                        : "Please select a target category using the radio buttons below."}
-                    </p>
-                  </div>
-                )}
-
-                {mergeModal.selectedCategories.size >= 2 && mergeModal.targetCategoryId && (
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                    <h4 className="text-sm font-medium text-blue-800 mb-2">This merge will:</h4>
-                    <ul className="text-sm text-blue-700 space-y-1">
-                      <li>
-                        • Move all transactions to &quot;
-                        {accounts.find((acc) => acc.id === mergeModal.targetCategoryId)?.name}&quot;
-                      </li>
-                      <li>
-                        • Move all journal entries to &quot;
-                        {accounts.find((acc) => acc.id === mergeModal.targetCategoryId)?.name}&quot;
-                      </li>
-                      <li>
-                        • Move all subcategories to &quot;
-                        {accounts.find((acc) => acc.id === mergeModal.targetCategoryId)?.name}&quot;
-                      </li>
-                      <li>
-                        • Update all automation rules to use &quot;
-                        {accounts.find((acc) => acc.id === mergeModal.targetCategoryId)?.name}&quot;
-                      </li>
-                      <li>
-                        • Delete{" "}
-                        {Array.from(mergeModal.selectedCategories)
-                          .filter((id) => id !== mergeModal.targetCategoryId)
-                          .map((id) => `"${accounts.find((acc) => acc.id === id)?.name}"`)
-                          .join(", ")}
-                      </li>
-                      <li>
-                        • Keep the type and properties of &quot;
-                        {accounts.find((acc) => acc.id === mergeModal.targetCategoryId)?.name}&quot;
-                      </li>
-                    </ul>
-                  </div>
-                )}
-
-                {mergeModal.selectedCategories.size >= 2 && mergeModal.targetCategoryId && (
-                  <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                    <p className="text-sm text-red-700 font-medium">⚠️ This action cannot be undone.</p>
-                  </div>
-                )}
-
-                <div>
-                  <h3 className="text-sm font-medium text-gray-700 mb-2">
-                    Select Categories to Merge:
-                    {mergeModal.selectedCategories.size > 0 && (
-                      <span className="ml-2 text-xs text-gray-500">
-                        ({mergeModal.selectedCategories.size} selected)
-                      </span>
-                    )}
-                  </h3>
-                  
-                  {/* Search Bar */}
-                  <div className="mb-3">
-                    <input
-                      type="text"
-                      placeholder="Search categories..."
-                      value={mergeModal.searchTerm}
-                      onChange={(e) =>
-                        setMergeModal((prev) => ({
-                          ...prev,
-                          searchTerm: e.target.value,
-                        }))
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    />
-                  </div>
-                  
-                  <div className="border rounded-lg overflow-hidden max-h-64 overflow-y-auto">
-                    <table className="min-w-full divide-y divide-gray-200">
-                      <thead className="bg-gray-50 sticky top-0">
-                        <tr>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-8">
-                            <input
-                              type="checkbox"
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  // Select all categories of the same type as first selection, or all if none selected
-                                  const firstSelectedType =
-                                    mergeModal.selectedCategories.size > 0
-                                      ? accounts.find(
-                                          (acc) =>
-                                            Array.from(mergeModal.selectedCategories)[0] &&
-                                            acc.id === Array.from(mergeModal.selectedCategories)[0]
-                                        )?.type
-                                      : null;
-
-                                  const categoriesToSelect = accounts
-                                    .filter((acc) => !firstSelectedType || acc.type === firstSelectedType)
-                                    .map((acc) => acc.id);
-
-                                  setMergeModal((prev) => ({
-                                    ...prev,
-                                    selectedCategories: new Set(categoriesToSelect),
-                                    error: null,
-                                  }));
-                                } else {
-                                  setMergeModal((prev) => ({
-                                    ...prev,
-                                    selectedCategories: new Set(),
-                                    targetCategoryId: null,
-                                    error: null,
-                                  }));
-                                }
-                              }}
-                              className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
-                            />
-                          </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Name
-                          </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Type
-                          </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Parent
-                          </th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Keep
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="bg-white divide-y divide-gray-200">
-                        {accounts
-                          .filter((acc) => {
-                            // Filter categories to show only those with same type as selected ones
-                            if (mergeModal.selectedCategories.size === 0) return true;
-                            const selectedTypes = new Set(
-                              Array.from(mergeModal.selectedCategories)
-                                .map((id) => accounts.find((acc) => acc.id === id)?.type)
-                                .filter(Boolean)
-                            );
-                            return selectedTypes.size === 0 || selectedTypes.has(acc.type);
-                          })
-                          .filter((acc) => {
-                            // Filter by search term
-                            if (!mergeModal.searchTerm.trim()) return true;
-                            const searchLower = mergeModal.searchTerm.toLowerCase();
-                            const parentCategory = acc.parent_id
-                              ? accounts.find((parent) => parent.id === acc.parent_id)
-                              : null;
-                            
-                            return (
-                              acc.name.toLowerCase().includes(searchLower) ||
-                              acc.type.toLowerCase().includes(searchLower) ||
-                              (parentCategory && parentCategory.name.toLowerCase().includes(searchLower))
-                            );
-                          })
-                          .map((category) => {
-                            const parentCategory = category.parent_id
-                              ? accounts.find((acc) => acc.id === category.parent_id)
-                              : null;
-
-                            const isSelected = mergeModal.selectedCategories.has(category.id);
-                            const isTarget = mergeModal.targetCategoryId === category.id;
-
-                            return (
-                              <tr
-                                key={category.id}
-                                className={`hover:bg-gray-50 ${
-                                  isTarget ? "bg-green-50 border-l-4 border-green-400" : isSelected ? "bg-blue-50" : ""
-                                }`}
-                              >
-                                <td className="px-3 py-2 whitespace-nowrap w-8">
-                                  <input
-                                    type="checkbox"
-                                    checked={isSelected}
-                                    onChange={(e) => {
-                                      const newSelected = new Set(mergeModal.selectedCategories);
-                                      if (e.target.checked) {
-                                        newSelected.add(category.id);
-                                      } else {
-                                        newSelected.delete(category.id);
-                                        // If unchecking target, clear target selection
-                                        if (mergeModal.targetCategoryId === category.id) {
-                                          setMergeModal((prev) => ({ ...prev, targetCategoryId: null }));
-                                        }
-                                      }
-                                      setMergeModal((prev) => ({
-                                        ...prev,
-                                        selectedCategories: newSelected,
-                                        error: null,
-                                      }));
-                                    }}
-                                    className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
-                                  />
-                                </td>
-                                <td className="px-3 py-2 text-sm">
-                                  <div className="flex items-center">
-                                    <span
-                                      style={{ paddingLeft: `${category.parent_id ? 16 : 0}px` }}
-                                      className={isTarget ? "font-semibold text-green-800" : "text-gray-900"}
-                                    >
-                                      {category.name}
-                                    </span>
-                                    {isTarget && (
-                                      <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                        Target
-                                      </span>
-                                    )}
-                                  </div>
-                                </td>
-                                <td className="px-3 py-2 text-sm text-gray-900">
-                                  <span className={isTarget ? "font-semibold text-green-800" : ""}>
-                                    {category.type}
-                                  </span>
-                                </td>
-                                <td className="px-3 py-2 text-sm text-gray-500">{parentCategory?.name || "—"}</td>
-                                <td className="px-3 py-2 whitespace-nowrap w-8 text-center">
-                                  <input
-                                    type="radio"
-                                    name="targetCategory"
-                                    checked={isTarget}
-                                    disabled={!isSelected}
-                                    onChange={() => {
-                                      setMergeModal((prev) => ({
-                                        ...prev,
-                                        targetCategoryId: category.id,
-                                        error: null,
-                                      }));
-                                    }}
-                                    className="rounded border-gray-300 text-green-600 focus:ring-green-600 disabled:opacity-30"
-                                  />
-                                </td>
-                              </tr>
-                            );
-                          })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                {mergeModal.selectedCategories.size > 0 && (
-                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
-                    <h4 className="text-sm font-medium text-gray-700 mb-2">Selected for Merge:</h4>
-                    <div className="flex flex-wrap gap-2">
-                      {Array.from(mergeModal.selectedCategories).map((id) => {
-                        const category = accounts.find((acc) => acc.id === id);
-                        if (!category) return null;
-
-                        return (
-                          <span
-                            key={id}
-                            className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                              mergeModal.targetCategoryId === id
-                                ? "bg-green-100 text-green-800 border border-green-200"
-                                : "bg-blue-100 text-blue-800"
-                            }`}
-                          >
-                            {category.name}
-                            {mergeModal.targetCategoryId === id && " (Target)"}
-                          </span>
-                        );
-                      })}
-                    </div>
-                    {mergeModal.selectedCategories.size >= 2 && !mergeModal.targetCategoryId && (
-                      <p className="text-sm text-orange-600 mt-2">
-                        Please select which category to keep as the target using the radio buttons.
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                <div className="flex justify-between items-center pt-2">
-                  <div className="text-sm text-gray-600">
-                    {mergeModal.selectedCategories.size > 0 && mergeModal.targetCategoryId && (
-                      <span>
-                        Merging {mergeModal.selectedCategories.size - 1} categor
-                        {mergeModal.selectedCategories.size - 1 === 1 ? "y" : "ies"} into &quot;
-                        {accounts.find((acc) => acc.id === mergeModal.targetCategoryId)?.name}&quot;
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex space-x-3">
-                    <Button
-                      variant="outline"
-                      onClick={() =>
-                        setMergeModal({
-                          isOpen: false,
-                          selectedCategories: new Set(),
-                          targetCategoryId: null,
-                          isLoading: false,
-                          error: null,
-                          searchTerm: "",
-                        })
-                      }
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      onClick={handleMergeCategories}
-                      disabled={mergeModal.selectedCategories.size < 2 || !mergeModal.targetCategoryId}
-                    >
-                      Merge
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

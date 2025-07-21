@@ -6,7 +6,10 @@ import { supabase } from "../../lib/supabase";
 import { Select } from "@/components/ui/select";
 import Papa from "papaparse";
 import { v4 as uuidv4 } from "uuid";
-import { X, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
+import { Dialog, DialogHeader } from "@/components/ui/dialog";
+import { DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 
 type PayeeAutomation = {
   id: string;
@@ -1303,1182 +1306,1094 @@ export default function AutomationsPage() {
       </div>
 
       {/* Payee Automation Modal */}
-      {payeeAutomationModal.isOpen && (
-        <div
-          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
-          onClick={() =>
-            setPayeeAutomationModal({
-              isOpen: false,
-              isEditing: false,
-              editingId: null,
-              name: "",
-              condition: "",
-              conditionType: "contains",
-              action: "",
-              transactionType: "All",
-              autoAdd: false,
-            })
-          }
-        >
-          <div className="bg-white rounded-lg p-6 w-[500px] shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">
-                {payeeAutomationModal.isEditing ? "Edit Payee Automation" : "Create Payee Automation"}
-              </h2>
-              <button
-                onClick={() =>
-                  setPayeeAutomationModal({
-                    isOpen: false,
-                    isEditing: false,
-                    editingId: null,
-                    name: "",
-                    condition: "",
-                    conditionType: "contains",
-                    action: "",
-                    transactionType: "All",
-                    autoAdd: false,
-                  })
-                }
-                className="text-gray-500 hover:text-gray-700 text-xl"
-              >
-                ×
-              </button>
+      <Dialog
+        open={payeeAutomationModal.isOpen}
+        onOpenChange={() =>
+          setPayeeAutomationModal({
+            isOpen: false,
+            isEditing: false,
+            editingId: null,
+            name: "",
+            condition: "",
+            conditionType: "contains",
+            action: "",
+            transactionType: "All",
+            autoAdd: false,
+          })
+        }
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {payeeAutomationModal.isEditing ? "Edit Payee Automation" : "Create Payee Automation"}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                What do you want to call this rule? *
+              </label>
+              <input
+                type="text"
+                value={payeeAutomationModal.name}
+                onChange={(e) => {
+                  setPayeeAutomationModal((prev) => ({
+                    ...prev,
+                    name: e.target.value,
+                  }));
+                  // Clear error when user starts typing
+                  if (payeeModalErrors.name) {
+                    setPayeeModalErrors((prev) => ({
+                      ...prev,
+                      name: false,
+                    }));
+                  }
+                }}
+                className={`w-full border px-2 py-1 rounded ${
+                  payeeModalErrors.name ? "border-red-500" : "border-gray-300"
+                }`}
+                placeholder="Enter rule name"
+              />
+              {payeeModalErrors.name && <p className="text-xs text-red-500 mt-1">Rule name is required</p>}
             </div>
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  What do you want to call this rule? *
-                </label>
-                <input
-                  type="text"
-                  value={payeeAutomationModal.name}
-                  onChange={(e) => {
-                    setPayeeAutomationModal((prev) => ({
-                      ...prev,
-                      name: e.target.value,
-                    }));
-                    // Clear error when user starts typing
-                    if (payeeModalErrors.name) {
-                      setPayeeModalErrors((prev) => ({
-                        ...prev,
-                        name: false,
-                      }));
-                    }
-                  }}
-                  className={`w-full border px-2 py-1 rounded ${
-                    payeeModalErrors.name ? "border-red-500" : "border-gray-300"
-                  }`}
-                  placeholder="Enter rule name"
-                />
-                {payeeModalErrors.name && <p className="text-xs text-red-500 mt-1">Rule name is required</p>}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Condition Type</label>
-                <Select
-                  options={conditionTypeOptions}
-                  value={conditionTypeOptions.find((opt) => opt.value === payeeAutomationModal.conditionType)}
-                  onChange={(selectedOption) => {
-                    const option = selectedOption as SelectOption | null;
-                    setPayeeAutomationModal((prev) => ({
-                      ...prev,
-                      conditionType: option?.value || "contains",
-                    }));
-                  }}
-                  isSearchable={false}
-                  styles={{
-                    control: (base) => ({
-                      ...base,
-                      minHeight: "32px",
-                      height: "32px",
-                      fontSize: "14px",
-                      border: "1px solid #d1d5db",
-                      borderRadius: "6px",
-                      padding: "0 8px",
-                      boxShadow: "none",
-                      "&:hover": {
-                        borderColor: "#d1d5db",
-                      },
-                    }),
-                    valueContainer: (base) => ({
-                      ...base,
-                      padding: "0",
-                    }),
-                    input: (base) => ({
-                      ...base,
-                      margin: "0",
-                      padding: "0",
-                    }),
-                    indicatorsContainer: (base) => ({
-                      ...base,
-                      height: "32px",
-                    }),
-                    dropdownIndicator: (base) => ({
-                      ...base,
-                      padding: "0 4px",
-                    }),
-                  }}
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Description *</label>
-                <input
-                  type="text"
-                  value={payeeAutomationModal.condition}
-                  onChange={(e) => {
-                    setPayeeAutomationModal((prev) => ({
-                      ...prev,
-                      condition: e.target.value,
-                    }));
-                    // Clear error when user starts typing
-                    if (payeeModalErrors.condition) {
-                      setPayeeModalErrors((prev) => ({
-                        ...prev,
-                        condition: false,
-                      }));
-                    }
-                  }}
-                  className={`w-full border px-2 py-1 rounded ${
-                    payeeModalErrors.condition ? "border-red-500" : "border-gray-300"
-                  }`}
-                  placeholder="Enter description to match"
-                />
-                {payeeModalErrors.condition && <p className="text-xs text-red-500 mt-1">Description is required</p>}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Then Assign *</label>
-                <Select
-                  options={payeeOptions}
-                  value={payeeOptions.find((opt) => opt.value === payeeAutomationModal.action) || payeeOptions[0]}
-                  onChange={(selectedOption) => {
-                    const option = selectedOption as SelectOption | null;
-                    if (option?.value === "add_new") {
-                      setNewPayeeModal({
-                        isOpen: true,
-                        name: "",
-                        automationType: "payee",
-                      });
-                    } else {
-                      setPayeeAutomationModal((prev) => ({
-                        ...prev,
-                        action: option?.value || "",
-                      }));
-                      // Clear error when user selects a value
-                      if (payeeModalErrors.action && option?.value) {
-                        setPayeeModalErrors((prev) => ({
-                          ...prev,
-                          action: false,
-                        }));
-                      }
-                    }
-                  }}
-                  isSearchable
-                  placeholder="Select a payee..."
-                  styles={{
-                    control: (base) => ({
-                      ...base,
-                      minHeight: "32px",
-                      height: "32px",
-                      fontSize: "14px",
-                      border: `1px solid ${payeeModalErrors.action ? "#ef4444" : "#d1d5db"}`,
-                      borderRadius: "6px",
-                      padding: "0 8px",
-                      boxShadow: "none",
-                      "&:hover": {
-                        borderColor: payeeModalErrors.action ? "#ef4444" : "#d1d5db",
-                      },
-                    }),
-                    valueContainer: (base) => ({
-                      ...base,
-                      padding: "0",
-                    }),
-                    input: (base) => ({
-                      ...base,
-                      margin: "0",
-                      padding: "0",
-                    }),
-                    indicatorsContainer: (base) => ({
-                      ...base,
-                      height: "32px",
-                    }),
-                    dropdownIndicator: (base) => ({
-                      ...base,
-                      padding: "0 4px",
-                    }),
-                  }}
-                />
-                {payeeModalErrors.action && (
-                  <p className="text-xs text-red-500 mt-1">Please select a payee to assign</p>
-                )}
-                {availablePayees.length === 0 && !payeeModalErrors.action && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    No payees available. Create payees in the Categories page first.
-                  </p>
-                )}
-              </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Condition Type</label>
+              <Select
+                options={conditionTypeOptions}
+                value={conditionTypeOptions.find((opt) => opt.value === payeeAutomationModal.conditionType)}
+                onChange={(selectedOption) => {
+                  const option = selectedOption as SelectOption | null;
+                  setPayeeAutomationModal((prev) => ({
+                    ...prev,
+                    conditionType: option?.value || "contains",
+                  }));
+                }}
+                isSearchable={false}
+                styles={{
+                  control: (base) => ({
+                    ...base,
+                    minHeight: "32px",
+                    height: "32px",
+                    fontSize: "14px",
+                    border: "1px solid #d1d5db",
+                    borderRadius: "6px",
+                    padding: "0 8px",
+                    boxShadow: "none",
+                    "&:hover": {
+                      borderColor: "#d1d5db",
+                    },
+                  }),
+                  valueContainer: (base) => ({
+                    ...base,
+                    padding: "0",
+                  }),
+                  input: (base) => ({
+                    ...base,
+                    margin: "0",
+                    padding: "0",
+                  }),
+                  indicatorsContainer: (base) => ({
+                    ...base,
+                    height: "32px",
+                  }),
+                  dropdownIndicator: (base) => ({
+                    ...base,
+                    padding: "0 4px",
+                  }),
+                }}
+              />
             </div>
 
-            <div className="flex justify-between items-center mt-6">
-              {payeeAutomationModal.isEditing && payeeAutomationModal.editingId && (
-                <button
-                  onClick={() => {
-                    if (
-                      payeeAutomationModal.editingId &&
-                      window.confirm("Are you sure you want to delete this automation? This action cannot be undone.")
-                    ) {
-                      handleDeletePayeeAutomation(payeeAutomationModal.editingId);
-                      setPayeeAutomationModal({
-                        isOpen: false,
-                        isEditing: false,
-                        editingId: null,
-                        name: "",
-                        condition: "",
-                        conditionType: "contains",
-                        action: "",
-                        transactionType: "All",
-                        autoAdd: false,
-                      });
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Description *</label>
+              <input
+                type="text"
+                value={payeeAutomationModal.condition}
+                onChange={(e) => {
+                  setPayeeAutomationModal((prev) => ({
+                    ...prev,
+                    condition: e.target.value,
+                  }));
+                  // Clear error when user starts typing
+                  if (payeeModalErrors.condition) {
+                    setPayeeModalErrors((prev) => ({
+                      ...prev,
+                      condition: false,
+                    }));
+                  }
+                }}
+                className={`w-full border px-2 py-1 rounded ${
+                  payeeModalErrors.condition ? "border-red-500" : "border-gray-300"
+                }`}
+                placeholder="Enter description to match"
+              />
+              {payeeModalErrors.condition && <p className="text-xs text-red-500 mt-1">Description is required</p>}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Then Assign *</label>
+              <Select
+                options={payeeOptions}
+                value={payeeOptions.find((opt) => opt.value === payeeAutomationModal.action) || payeeOptions[0]}
+                onChange={(selectedOption) => {
+                  const option = selectedOption as SelectOption | null;
+                  if (option?.value === "add_new") {
+                    setNewPayeeModal({
+                      isOpen: true,
+                      name: "",
+                      automationType: "payee",
+                    });
+                  } else {
+                    setPayeeAutomationModal((prev) => ({
+                      ...prev,
+                      action: option?.value || "",
+                    }));
+                    // Clear error when user selects a value
+                    if (payeeModalErrors.action && option?.value) {
+                      setPayeeModalErrors((prev) => ({
+                        ...prev,
+                        action: false,
+                      }));
                     }
-                  }}
-                  className="px-4 py-2 text-sm bg-red-600 text-white rounded hover:bg-red-700"
-                >
-                  Delete
-                </button>
+                  }
+                }}
+                isSearchable
+                placeholder="Select a payee..."
+                styles={{
+                  control: (base) => ({
+                    ...base,
+                    minHeight: "32px",
+                    height: "32px",
+                    fontSize: "14px",
+                    border: `1px solid ${payeeModalErrors.action ? "#ef4444" : "#d1d5db"}`,
+                    borderRadius: "6px",
+                    padding: "0 8px",
+                    boxShadow: "none",
+                    "&:hover": {
+                      borderColor: payeeModalErrors.action ? "#ef4444" : "#d1d5db",
+                    },
+                  }),
+                  valueContainer: (base) => ({
+                    ...base,
+                    padding: "0",
+                  }),
+                  input: (base) => ({
+                    ...base,
+                    margin: "0",
+                    padding: "0",
+                  }),
+                  indicatorsContainer: (base) => ({
+                    ...base,
+                    height: "32px",
+                  }),
+                  dropdownIndicator: (base) => ({
+                    ...base,
+                    padding: "0 4px",
+                  }),
+                }}
+              />
+              {payeeModalErrors.action && <p className="text-xs text-red-500 mt-1">Please select a payee to assign</p>}
+              {availablePayees.length === 0 && !payeeModalErrors.action && (
+                <p className="text-xs text-gray-500 mt-1">
+                  No payees available. Create payees in the Categories page first.
+                </p>
               )}
-              <div className="flex gap-2">
-                <button
-                  onClick={createOrUpdatePayeeAutomation}
-                  className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
-                >
-                  {payeeAutomationModal.isEditing ? "Save" : "Create"}
-                </button>
-              </div>
             </div>
           </div>
-        </div>
-      )}
+
+          <div className="flex justify-between items-center mt-6">
+            {payeeAutomationModal.isEditing && payeeAutomationModal.editingId && (
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  if (
+                    payeeAutomationModal.editingId &&
+                    window.confirm("Are you sure you want to delete this automation? This action cannot be undone.")
+                  ) {
+                    handleDeletePayeeAutomation(payeeAutomationModal.editingId);
+                    setPayeeAutomationModal({
+                      isOpen: false,
+                      isEditing: false,
+                      editingId: null,
+                      name: "",
+                      condition: "",
+                      conditionType: "contains",
+                      action: "",
+                      transactionType: "All",
+                      autoAdd: false,
+                    });
+                  }
+                }}
+              >
+                Delete
+              </Button>
+            )}
+            <div className="flex gap-2 w-full justify-end">
+              <Button onClick={createOrUpdatePayeeAutomation}>
+                {payeeAutomationModal.isEditing ? "Save" : "Create"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Category Automation Modal */}
-      {categoryAutomationModal.isOpen && (
-        <div
-          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
-          onClick={() =>
-            setCategoryAutomationModal({
-              isOpen: false,
-              isEditing: false,
-              editingId: null,
-              name: "",
-              condition: "",
-              conditionType: "contains",
-              action: "",
-              transactionType: "All",
-              autoAdd: false,
-            })
-          }
-        >
-          <div className="bg-white rounded-lg p-6 w-[500px] shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">
-                {categoryAutomationModal.isEditing ? "Edit Category Automation" : "Create Category Automation"}
-              </h2>
-              <button
-                onClick={() =>
-                  setCategoryAutomationModal({
-                    isOpen: false,
-                    isEditing: false,
-                    editingId: null,
-                    name: "",
-                    condition: "",
-                    conditionType: "contains",
-                    action: "",
-                    transactionType: "All",
-                    autoAdd: false,
-                  })
-                }
-                className="text-gray-500 hover:text-gray-700 text-xl"
-              >
-                ×
-              </button>
-            </div>
+      <Dialog
+        open={categoryAutomationModal.isOpen}
+        onOpenChange={() =>
+          setCategoryAutomationModal({
+            isOpen: false,
+            isEditing: false,
+            editingId: null,
+            name: "",
+            condition: "",
+            conditionType: "contains",
+            action: "",
+            transactionType: "All",
+            autoAdd: false,
+          })
+        }
+      >
+        <DialogContent className="min-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>
+              {categoryAutomationModal.isEditing ? "Edit Category Automation" : "Create Category Automation"}
+            </DialogTitle>
+          </DialogHeader>
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  What do you want to call this rule? *
-                </label>
-                <input
-                  type="text"
-                  value={categoryAutomationModal.name}
-                  onChange={(e) => {
-                    setCategoryAutomationModal((prev) => ({
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                What do you want to call this rule? *
+              </label>
+              <input
+                type="text"
+                value={categoryAutomationModal.name}
+                onChange={(e) => {
+                  setCategoryAutomationModal((prev) => ({
+                    ...prev,
+                    name: e.target.value,
+                  }));
+                  // Clear error when user starts typing
+                  if (categoryModalErrors.name) {
+                    setCategoryModalErrors((prev) => ({
                       ...prev,
-                      name: e.target.value,
+                      name: false,
                     }));
-                    // Clear error when user starts typing
-                    if (categoryModalErrors.name) {
-                      setCategoryModalErrors((prev) => ({
-                        ...prev,
-                        name: false,
-                      }));
-                    }
-                  }}
-                  className={`w-full border px-2 py-1 rounded ${
-                    categoryModalErrors.name ? "border-red-500" : "border-gray-300"
-                  }`}
-                  placeholder="Enter rule name"
-                />
-                {categoryModalErrors.name && <p className="text-xs text-red-500 mt-1">Rule name is required</p>}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Condition Type</label>
-                <Select
-                  options={conditionTypeOptions}
-                  value={conditionTypeOptions.find((opt) => opt.value === categoryAutomationModal.conditionType)}
-                  onChange={(selectedOption) => {
-                    const option = selectedOption as SelectOption | null;
-                    setCategoryAutomationModal((prev) => ({
-                      ...prev,
-                      conditionType: option?.value || "contains",
-                    }));
-                  }}
-                  isSearchable={false}
-                  styles={{
-                    control: (base) => ({
-                      ...base,
-                      minHeight: "32px",
-                      height: "32px",
-                      fontSize: "14px",
-                      border: "1px solid #d1d5db",
-                      borderRadius: "6px",
-                      padding: "0 8px",
-                      boxShadow: "none",
-                      "&:hover": {
-                        borderColor: "#d1d5db",
-                      },
-                    }),
-                    valueContainer: (base) => ({
-                      ...base,
-                      padding: "0",
-                    }),
-                    input: (base) => ({
-                      ...base,
-                      margin: "0",
-                      padding: "0",
-                    }),
-                    indicatorsContainer: (base) => ({
-                      ...base,
-                      height: "32px",
-                    }),
-                    dropdownIndicator: (base) => ({
-                      ...base,
-                      padding: "0 4px",
-                    }),
-                  }}
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Description *</label>
-                <input
-                  type="text"
-                  value={categoryAutomationModal.condition}
-                  onChange={(e) => {
-                    setCategoryAutomationModal((prev) => ({
-                      ...prev,
-                      condition: e.target.value,
-                    }));
-                    // Clear error when user starts typing
-                    if (categoryModalErrors.condition) {
-                      setCategoryModalErrors((prev) => ({
-                        ...prev,
-                        condition: false,
-                      }));
-                    }
-                  }}
-                  className={`w-full border px-2 py-1 rounded ${
-                    categoryModalErrors.condition ? "border-red-500" : "border-gray-300"
-                  }`}
-                  placeholder="Enter description to match"
-                />
-                {categoryModalErrors.condition && <p className="text-xs text-red-500 mt-1">Description is required</p>}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Then Assign *</label>
-                <Select
-                  options={categoryOptions}
-                  value={
-                    categoryOptions.find((opt) => opt.value === categoryAutomationModal.action) || categoryOptions[0]
                   }
-                  onChange={(selectedOption) => {
-                    const option = selectedOption as SelectOption | null;
-                    if (option?.value === "add_new") {
-                      setNewCategoryModal({
-                        isOpen: true,
-                        name: "",
-                        type: "Expense",
-                        parent_id: null,
-                        automationType: "category",
-                      });
-                    } else {
-                      setCategoryAutomationModal((prev) => ({
-                        ...prev,
-                        action: option?.value || "",
-                      }));
-                      // Clear error when user selects a value
-                      if (categoryModalErrors.action && option?.value) {
-                        setCategoryModalErrors((prev) => ({
-                          ...prev,
-                          action: false,
-                        }));
-                      }
-                    }
-                  }}
-                  isSearchable
-                  placeholder="Select a category..."
-                  styles={{
-                    control: (base) => ({
-                      ...base,
-                      minHeight: "32px",
-                      height: "32px",
-                      fontSize: "14px",
-                      border: `1px solid ${categoryModalErrors.action ? "#ef4444" : "#d1d5db"}`,
-                      borderRadius: "6px",
-                      padding: "0 8px",
-                      boxShadow: "none",
-                      "&:hover": {
-                        borderColor: categoryModalErrors.action ? "#ef4444" : "#d1d5db",
-                      },
-                    }),
-                    valueContainer: (base) => ({
-                      ...base,
-                      padding: "0",
-                    }),
-                    input: (base) => ({
-                      ...base,
-                      margin: "0",
-                      padding: "0",
-                    }),
-                    indicatorsContainer: (base) => ({
-                      ...base,
-                      height: "32px",
-                    }),
-                    dropdownIndicator: (base) => ({
-                      ...base,
-                      padding: "0 4px",
-                    }),
-                  }}
-                />
-                {categoryModalErrors.action && (
-                  <p className="text-xs text-red-500 mt-1">Please select a category to assign</p>
-                )}
-                {availableCategories.length === 0 && !categoryModalErrors.action && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    No categories available. Create categories in the Categories page first.
-                  </p>
-                )}
-              </div>
-
-              <div>
-                <label className="flex items-center space-x-2">
-                  <input
-                    type="checkbox"
-                    checked={categoryAutomationModal.autoAdd}
-                    onChange={(e) => {
-                      setCategoryAutomationModal((prev) => ({
-                        ...prev,
-                        autoAdd: e.target.checked,
-                      }));
-                    }}
-                    className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
-                  />
-                  <span className="text-sm font-medium text-gray-700">
-                    Automatically add to Added table when category is set
-                  </span>
-                </label>
-                <p className="text-xs text-gray-500 mt-1">
-                  When enabled, transactions matching this automation will be automatically moved from &quot;To
-                  Add&quot; to &quot;Added&quot; since a category is required for adding transactions.
-                </p>
-              </div>
+                }}
+                className={`w-full border px-2 py-1 rounded ${
+                  categoryModalErrors.name ? "border-red-500" : "border-gray-300"
+                }`}
+                placeholder="Enter rule name"
+              />
+              {categoryModalErrors.name && <p className="text-xs text-red-500 mt-1">Rule name is required</p>}
             </div>
 
-            <div className="flex justify-between items-center mt-6">
-              {categoryAutomationModal.isEditing && categoryAutomationModal.editingId && (
-                <button
-                  onClick={() => {
-                    if (
-                      categoryAutomationModal.editingId &&
-                      window.confirm("Are you sure you want to delete this automation? This action cannot be undone.")
-                    ) {
-                      handleDeleteCategoryAutomation(categoryAutomationModal.editingId);
-                      setCategoryAutomationModal({
-                        isOpen: false,
-                        isEditing: false,
-                        editingId: null,
-                        name: "",
-                        condition: "",
-                        conditionType: "contains",
-                        action: "",
-                        transactionType: "All",
-                        autoAdd: false,
-                      });
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Condition Type</label>
+              <Select
+                options={conditionTypeOptions}
+                value={conditionTypeOptions.find((opt) => opt.value === categoryAutomationModal.conditionType)}
+                onChange={(selectedOption) => {
+                  const option = selectedOption as SelectOption | null;
+                  setCategoryAutomationModal((prev) => ({
+                    ...prev,
+                    conditionType: option?.value || "contains",
+                  }));
+                }}
+                isSearchable={false}
+                styles={{
+                  control: (base) => ({
+                    ...base,
+                    minHeight: "32px",
+                    height: "32px",
+                    fontSize: "14px",
+                    border: "1px solid #d1d5db",
+                    borderRadius: "6px",
+                    padding: "0 8px",
+                    boxShadow: "none",
+                    "&:hover": {
+                      borderColor: "#d1d5db",
+                    },
+                  }),
+                  valueContainer: (base) => ({
+                    ...base,
+                    padding: "0",
+                  }),
+                  input: (base) => ({
+                    ...base,
+                    margin: "0",
+                    padding: "0",
+                  }),
+                  indicatorsContainer: (base) => ({
+                    ...base,
+                    height: "32px",
+                  }),
+                  dropdownIndicator: (base) => ({
+                    ...base,
+                    padding: "0 4px",
+                  }),
+                }}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Description *</label>
+              <input
+                type="text"
+                value={categoryAutomationModal.condition}
+                onChange={(e) => {
+                  setCategoryAutomationModal((prev) => ({
+                    ...prev,
+                    condition: e.target.value,
+                  }));
+                  // Clear error when user starts typing
+                  if (categoryModalErrors.condition) {
+                    setCategoryModalErrors((prev) => ({
+                      ...prev,
+                      condition: false,
+                    }));
+                  }
+                }}
+                className={`w-full border px-2 py-1 rounded ${
+                  categoryModalErrors.condition ? "border-red-500" : "border-gray-300"
+                }`}
+                placeholder="Enter description to match"
+              />
+              {categoryModalErrors.condition && <p className="text-xs text-red-500 mt-1">Description is required</p>}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Then Assign *</label>
+              <Select
+                options={categoryOptions}
+                value={
+                  categoryOptions.find((opt) => opt.value === categoryAutomationModal.action) || categoryOptions[0]
+                }
+                onChange={(selectedOption) => {
+                  const option = selectedOption as SelectOption | null;
+                  if (option?.value === "add_new") {
+                    setNewCategoryModal({
+                      isOpen: true,
+                      name: "",
+                      type: "Expense",
+                      parent_id: null,
+                      automationType: "category",
+                    });
+                  } else {
+                    setCategoryAutomationModal((prev) => ({
+                      ...prev,
+                      action: option?.value || "",
+                    }));
+                    // Clear error when user selects a value
+                    if (categoryModalErrors.action && option?.value) {
+                      setCategoryModalErrors((prev) => ({
+                        ...prev,
+                        action: false,
+                      }));
                     }
-                  }}
-                  className="px-4 py-2 text-sm bg-red-600 text-white rounded hover:bg-red-700"
-                >
-                  Delete
-                </button>
+                  }
+                }}
+                isSearchable
+                placeholder="Select a category..."
+                styles={{
+                  control: (base) => ({
+                    ...base,
+                    minHeight: "32px",
+                    height: "32px",
+                    fontSize: "14px",
+                    border: `1px solid ${categoryModalErrors.action ? "#ef4444" : "#d1d5db"}`,
+                    borderRadius: "6px",
+                    padding: "0 8px",
+                    boxShadow: "none",
+                    "&:hover": {
+                      borderColor: categoryModalErrors.action ? "#ef4444" : "#d1d5db",
+                    },
+                  }),
+                  valueContainer: (base) => ({
+                    ...base,
+                    padding: "0",
+                  }),
+                  input: (base) => ({
+                    ...base,
+                    margin: "0",
+                    padding: "0",
+                  }),
+                  indicatorsContainer: (base) => ({
+                    ...base,
+                    height: "32px",
+                  }),
+                  dropdownIndicator: (base) => ({
+                    ...base,
+                    padding: "0 4px",
+                  }),
+                }}
+              />
+              {categoryModalErrors.action && (
+                <p className="text-xs text-red-500 mt-1">Please select a category to assign</p>
               )}
-              <div className="flex gap-2">
-                <button
-                  onClick={createOrUpdateCategoryAutomation}
-                  className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
-                >
-                  {categoryAutomationModal.isEditing ? "Save" : "Create"}
-                </button>
-              </div>
+              {availableCategories.length === 0 && !categoryModalErrors.action && (
+                <p className="text-xs text-gray-500 mt-1">
+                  No categories available. Create categories in the Categories page first.
+                </p>
+              )}
+            </div>
+
+            <div>
+              <label className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  checked={categoryAutomationModal.autoAdd}
+                  onChange={(e) => {
+                    setCategoryAutomationModal((prev) => ({
+                      ...prev,
+                      autoAdd: e.target.checked,
+                    }));
+                  }}
+                  className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                />
+                <span className="text-sm font-medium text-gray-700">
+                  Automatically add to Added table when category is set
+                </span>
+              </label>
+              <p className="text-xs text-gray-500 mt-1">
+                When enabled, transactions matching this automation will be automatically moved from &quot;To Add&quot;
+                to &quot;Added&quot; since a category is required for adding transactions.
+              </p>
             </div>
           </div>
-        </div>
-      )}
+
+          <div className="flex justify-between items-center mt-6">
+            {categoryAutomationModal.isEditing && categoryAutomationModal.editingId && (
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  if (
+                    categoryAutomationModal.editingId &&
+                    window.confirm("Are you sure you want to delete this automation? This action cannot be undone.")
+                  ) {
+                    handleDeleteCategoryAutomation(categoryAutomationModal.editingId);
+                    setCategoryAutomationModal({
+                      isOpen: false,
+                      isEditing: false,
+                      editingId: null,
+                      name: "",
+                      condition: "",
+                      conditionType: "contains",
+                      action: "",
+                      transactionType: "All",
+                      autoAdd: false,
+                    });
+                  }
+                }}
+              >
+                Delete
+              </Button>
+            )}
+            <div className="flex gap-2 w-full justify-end">
+              <Button onClick={() => createOrUpdateCategoryAutomation()}>
+                {categoryAutomationModal.isEditing ? "Save" : "Create"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Automation Import Modal */}
-      {automationImportModal.isOpen && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50">
-          <div className="bg-white rounded-lg p-6 w-[600px] overflow-y-auto shadow-xl">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Import Automations</h2>
-              <button
-                onClick={() =>
-                  setAutomationImportModal((prev) => ({
-                    ...prev,
-                    isOpen: false,
-                  }))
-                }
-                className="text-gray-500 hover:text-gray-700"
-              >
-                <X className="w-4 h-4" />
-              </button>
+      <Dialog
+        open={automationImportModal.isOpen}
+        onOpenChange={() =>
+          setAutomationImportModal((prev) => ({
+            ...prev,
+            isOpen: false,
+          }))
+        }
+      >
+        <DialogContent className="min-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>Import Automations</DialogTitle>
+          </DialogHeader>
+
+          {automationImportModal.error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded mb-4">
+              {automationImportModal.error}
             </div>
+          )}
 
-            {automationImportModal.error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded mb-4">
-                {automationImportModal.error}
-              </div>
-            )}
-
-            {automationImportModal.isLoading ? (
-              <div className="flex items-center justify-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
-              </div>
-            ) : (
-              <div className="space-y-1">
-                {automationImportModal.step === "upload" && (
-                  <>
-                    <div className="space-y-4">
-                      <div className="space-y-3">
-                        <div className="flex justify-between items-center">
-                          <h3 className="text-sm font-medium text-gray-700">Upload CSV File</h3>
-                          <button
-                            onClick={downloadAutomationTemplate}
-                            className="text-sm text-gray-600 hover:text-gray-800"
-                          >
-                            Download Template
-                          </button>
-                        </div>
-
-                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                          <h4 className="text-sm font-medium text-blue-800 mb-2">CSV Format Instructions:</h4>
-                          <ul className="text-sm text-blue-700 space-y-1">
-                            <li>
-                              • <strong>Name:</strong> Automation rule name (required)
-                            </li>
-                            <li>
-                              • <strong>Type:</strong> Either &quot;payee&quot; or &quot;category&quot; (required)
-                            </li>
-                            <li>
-                              • <strong>Condition Type:</strong> One of: contains, is_exactly (required)
-                            </li>
-                            <li>
-                              • <strong>Condition Value:</strong> Text to match in transaction description (required)
-                            </li>
-                            <li>
-                              • <strong>Action Value:</strong> Payee name or category name to assign (required)
-                            </li>
-                          </ul>
-                        </div>
+          {automationImportModal.isLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {automationImportModal.step === "upload" && (
+                <>
+                  <div className="space-y-4">
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center">
+                        <h3 className="text-sm font-medium text-gray-700">Upload CSV File</h3>
+                        <Button variant="ghost" onClick={downloadAutomationTemplate}>
+                          Download Template
+                        </Button>
                       </div>
-                      <div
-                        className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center transition-colors duration-200 hover:border-gray-400"
-                        onDragOver={handleDragOver}
-                        onDrop={handleAutomationDrop}
-                      >
-                        <input
-                          type="file"
-                          accept=".csv"
-                          onChange={handleAutomationFileUpload}
-                          className="hidden"
-                          id="automation-csv-upload"
-                        />
-                        <label
-                          htmlFor="automation-csv-upload"
-                          className="cursor-pointer inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
-                        >
-                          Choose CSV File
-                        </label>
-                        <p className="mt-2 text-sm text-gray-500">
-                          Drag and drop your CSV file here, or click to browse
-                        </p>
+
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                        <h4 className="text-sm font-medium text-blue-800 mb-2">CSV Format Instructions:</h4>
+                        <ul className="text-sm text-blue-700 space-y-1">
+                          <li>
+                            • <strong>Name:</strong> Automation rule name (required)
+                          </li>
+                          <li>
+                            • <strong>Type:</strong> Either &quot;payee&quot; or &quot;category&quot; (required)
+                          </li>
+                          <li>
+                            • <strong>Condition Type:</strong> One of: contains, is_exactly (required)
+                          </li>
+                          <li>
+                            • <strong>Condition Value:</strong> Text to match in transaction description (required)
+                          </li>
+                          <li>
+                            • <strong>Action Value:</strong> Payee name or category name to assign (required)
+                          </li>
+                        </ul>
                       </div>
                     </div>
+                    <div
+                      className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center transition-colors duration-200 hover:border-gray-400"
+                      onDragOver={handleDragOver}
+                      onDrop={handleAutomationDrop}
+                    >
+                      <input
+                        type="file"
+                        accept=".csv"
+                        onChange={handleAutomationFileUpload}
+                        className="hidden"
+                        id="automation-csv-upload"
+                      />
+                      <label
+                        htmlFor="automation-csv-upload"
+                        className="cursor-pointer inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                      >
+                        Choose CSV File
+                      </label>
+                      <p className="mt-2 text-sm text-gray-500">Drag and drop your CSV file here, or click to browse</p>
+                    </div>
+                  </div>
+                  <div className="flex justify-end space-x-2 mt-4">
+                    <Button
+                      variant="outline"
+                      onClick={() =>
+                        setAutomationImportModal((prev) => ({
+                          ...prev,
+                          isOpen: false,
+                        }))
+                      }
+                      className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </>
+              )}
+              {automationImportModal.step === "review" && (
+                <>
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                      <h3 className="text-sm font-medium text-gray-700">Review Automations</h3>
+                    </div>
+
+                    {/* Missing items warning and options */}
+                    {automationImportModal.csvData.some((auto) => auto.needsCreation) && (
+                      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                        <h4 className="text-sm font-medium text-yellow-800 mb-2">Missing References Detected</h4>
+                        <p className="text-sm text-yellow-700 mb-3">
+                          Some automations reference payees or categories that don&apos;t exist in your system.
+                        </p>
+                        <label className="flex items-center space-x-2">
+                          <input
+                            type="checkbox"
+                            checked={automationImportModal.autoCreateMissing}
+                            onChange={(e) =>
+                              setAutomationImportModal((prev) => ({
+                                ...prev,
+                                autoCreateMissing: e.target.checked,
+                              }))
+                            }
+                            className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                          />
+                          <span className="text-sm text-yellow-700">
+                            Automatically create missing payees and categories during import
+                          </span>
+                        </label>
+                      </div>
+                    )}
+                    <div className="border rounded-lg overflow-hidden">
+                      <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-8">
+                              <input
+                                type="checkbox"
+                                checked={
+                                  automationImportModal.csvData.length > 0 &&
+                                  automationImportModal.selectedAutomations.size ===
+                                    automationImportModal.csvData.length
+                                }
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setAutomationImportModal((prev) => ({
+                                      ...prev,
+                                      selectedAutomations: new Set(
+                                        automationImportModal.csvData.map((auto) => auto.id)
+                                      ),
+                                    }));
+                                  } else {
+                                    setAutomationImportModal((prev) => ({
+                                      ...prev,
+                                      selectedAutomations: new Set(),
+                                    }));
+                                  }
+                                }}
+                                className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                              />
+                            </th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Name
+                            </th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Type
+                            </th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Condition
+                            </th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Action
+                            </th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Status
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                          {automationImportModal.csvData.map((automation) => (
+                            <tr
+                              key={automation.id}
+                              className={`${
+                                automation.needsCreation && !automationImportModal.autoCreateMissing
+                                  ? "bg-yellow-50"
+                                  : ""
+                              }`}
+                            >
+                              <td className="px-4 py-2 whitespace-nowrap w-8 text-left">
+                                <input
+                                  type="checkbox"
+                                  checked={automationImportModal.selectedAutomations.has(automation.id)}
+                                  onChange={(e) => {
+                                    const newSelected = new Set(automationImportModal.selectedAutomations);
+                                    if (e.target.checked) {
+                                      newSelected.add(automation.id);
+                                    } else {
+                                      newSelected.delete(automation.id);
+                                    }
+                                    setAutomationImportModal((prev) => ({
+                                      ...prev,
+                                      selectedAutomations: newSelected,
+                                    }));
+                                  }}
+                                  className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                                />
+                              </td>
+                              <td className="px-4 py-2 text-sm text-gray-900">{automation.name}</td>
+                              <td className="px-4 py-2 text-sm text-gray-900">{automation.automation_type}</td>
+                              <td className="px-4 py-2 text-sm text-gray-900">
+                                {formatConditionDisplay(automation.condition_type, automation.condition_value)}
+                              </td>
+                              <td className="px-4 py-2 text-sm text-gray-900">
+                                {formatActionDisplay(
+                                  automation.automation_type as "payee" | "category",
+                                  automation.action_value
+                                )}
+                              </td>
+                              <td className="px-4 py-2 text-sm">
+                                {automation.needsCreation ? (
+                                  automationImportModal.autoCreateMissing ? (
+                                    <div className="flex items-center space-x-1">
+                                      <span className="w-2 h-2 bg-blue-400 rounded-full"></span>
+                                      <span className="text-blue-700 text-xs">
+                                        Will create {automation.automation_type}
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center space-x-1">
+                                      <span className="w-2 h-2 bg-red-400 rounded-full"></span>
+                                      <span className="text-red-700 text-xs">Will be skipped</span>
+                                    </div>
+                                  )
+                                ) : (
+                                  <div className="flex items-center space-x-1">
+                                    <span className="w-2 h-2 bg-green-400 rounded-full"></span>
+                                    <span className="text-green-700 text-xs">Valid</span>
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <div className="text-sm font-medium">
+                      {automationImportModal.selectedAutomations.size > 0 && (
+                        <>
+                          <span className="text-gray-600">
+                            {automationImportModal.selectedAutomations.size} selected
+                          </span>
+                          {!automationImportModal.autoCreateMissing &&
+                            (() => {
+                              const selectedAutomations = automationImportModal.csvData.filter((auto) =>
+                                automationImportModal.selectedAutomations.has(auto.id)
+                              );
+                              const validCount = selectedAutomations.filter((auto) => !auto.needsCreation).length;
+                              const invalidCount = selectedAutomations.filter((auto) => auto.needsCreation).length;
+
+                              return invalidCount > 0 ? (
+                                <span className="text-red-600 ml-2">
+                                  ({validCount} will import, {invalidCount} will skip)
+                                </span>
+                              ) : null;
+                            })()}
+                        </>
+                      )}
+                    </div>
                     <div className="flex justify-end space-x-2 mt-4">
-                      <button
+                      <Button
+                        variant="outline"
                         onClick={() =>
                           setAutomationImportModal((prev) => ({
                             ...prev,
-                            isOpen: false,
+                            step: "upload",
                           }))
                         }
                         className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
                       >
-                        Cancel
-                      </button>
-                    </div>
-                  </>
-                )}
-                {automationImportModal.step === "review" && (
-                  <>
-                    <div className="space-y-4">
-                      <div className="flex justify-between items-center">
-                        <h3 className="text-sm font-medium text-gray-700">Review Automations</h3>
-                      </div>
+                        Back
+                      </Button>
+                      <Button
+                        onClick={async () => {
+                          setAutomationImportModal((prev) => ({
+                            ...prev,
+                            isLoading: true,
+                            error: null,
+                          }));
+                          try {
+                            if (!currentCompany) {
+                              throw new Error("No company selected. Please select a company first.");
+                            }
 
-                      {/* Missing items warning and options */}
-                      {automationImportModal.csvData.some((auto) => auto.needsCreation) && (
-                        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-                          <h4 className="text-sm font-medium text-yellow-800 mb-2">Missing References Detected</h4>
-                          <p className="text-sm text-yellow-700 mb-3">
-                            Some automations reference payees or categories that don&apos;t exist in your system.
-                          </p>
-                          <label className="flex items-center space-x-2">
-                            <input
-                              type="checkbox"
-                              checked={automationImportModal.autoCreateMissing}
-                              onChange={(e) =>
-                                setAutomationImportModal((prev) => ({
-                                  ...prev,
-                                  autoCreateMissing: e.target.checked,
-                                }))
-                              }
-                              className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
-                            />
-                            <span className="text-sm text-yellow-700">
-                              Automatically create missing payees and categories during import
-                            </span>
-                          </label>
-                        </div>
-                      )}
-                      <div className="border rounded-lg overflow-hidden">
-                        <table className="min-w-full divide-y divide-gray-200">
-                          <thead className="bg-gray-50">
-                            <tr>
-                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-8">
-                                <input
-                                  type="checkbox"
-                                  checked={
-                                    automationImportModal.csvData.length > 0 &&
-                                    automationImportModal.selectedAutomations.size ===
-                                      automationImportModal.csvData.length
-                                  }
-                                  onChange={(e) => {
-                                    if (e.target.checked) {
-                                      setAutomationImportModal((prev) => ({
-                                        ...prev,
-                                        selectedAutomations: new Set(
-                                          automationImportModal.csvData.map((auto) => auto.id)
-                                        ),
-                                      }));
-                                    } else {
-                                      setAutomationImportModal((prev) => ({
-                                        ...prev,
-                                        selectedAutomations: new Set(),
-                                      }));
-                                    }
-                                  }}
-                                  className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
-                                />
-                              </th>
-                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Name
-                              </th>
-                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Type
-                              </th>
-                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Condition
-                              </th>
-                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Action
-                              </th>
-                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Status
-                              </th>
-                            </tr>
-                          </thead>
-                          <tbody className="bg-white divide-y divide-gray-200">
-                            {automationImportModal.csvData.map((automation) => (
-                              <tr
-                                key={automation.id}
-                                className={`${
-                                  automation.needsCreation && !automationImportModal.autoCreateMissing
-                                    ? "bg-yellow-50"
-                                    : ""
-                                }`}
-                              >
-                                <td className="px-4 py-2 whitespace-nowrap w-8 text-left">
-                                  <input
-                                    type="checkbox"
-                                    checked={automationImportModal.selectedAutomations.has(automation.id)}
-                                    onChange={(e) => {
-                                      const newSelected = new Set(automationImportModal.selectedAutomations);
-                                      if (e.target.checked) {
-                                        newSelected.add(automation.id);
-                                      } else {
-                                        newSelected.delete(automation.id);
-                                      }
-                                      setAutomationImportModal((prev) => ({
-                                        ...prev,
-                                        selectedAutomations: newSelected,
-                                      }));
-                                    }}
-                                    className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
-                                  />
-                                </td>
-                                <td className="px-4 py-2 text-sm text-gray-900">{automation.name}</td>
-                                <td className="px-4 py-2 text-sm text-gray-900">{automation.automation_type}</td>
-                                <td className="px-4 py-2 text-sm text-gray-900">
-                                  {formatConditionDisplay(automation.condition_type, automation.condition_value)}
-                                </td>
-                                <td className="px-4 py-2 text-sm text-gray-900">
-                                  {formatActionDisplay(
-                                    automation.automation_type as "payee" | "category",
-                                    automation.action_value
-                                  )}
-                                </td>
-                                <td className="px-4 py-2 text-sm">
-                                  {automation.needsCreation ? (
-                                    automationImportModal.autoCreateMissing ? (
-                                      <div className="flex items-center space-x-1">
-                                        <span className="w-2 h-2 bg-blue-400 rounded-full"></span>
-                                        <span className="text-blue-700 text-xs">
-                                          Will create {automation.automation_type}
-                                        </span>
-                                      </div>
-                                    ) : (
-                                      <div className="flex items-center space-x-1">
-                                        <span className="w-2 h-2 bg-red-400 rounded-full"></span>
-                                        <span className="text-red-700 text-xs">Will be skipped</span>
-                                      </div>
-                                    )
-                                  ) : (
-                                    <div className="flex items-center space-x-1">
-                                      <span className="w-2 h-2 bg-green-400 rounded-full"></span>
-                                      <span className="text-green-700 text-xs">Valid</span>
-                                    </div>
-                                  )}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <div className="text-sm font-medium">
-                        {automationImportModal.selectedAutomations.size > 0 && (
-                          <>
-                            <span className="text-gray-600">
-                              {automationImportModal.selectedAutomations.size} selected
-                            </span>
-                            {!automationImportModal.autoCreateMissing &&
-                              (() => {
-                                const selectedAutomations = automationImportModal.csvData.filter((auto) =>
-                                  automationImportModal.selectedAutomations.has(auto.id)
-                                );
-                                const validCount = selectedAutomations.filter((auto) => !auto.needsCreation).length;
-                                const invalidCount = selectedAutomations.filter((auto) => auto.needsCreation).length;
+                            const selectedAutomations = automationImportModal.csvData.filter((auto) =>
+                              automationImportModal.selectedAutomations.has(auto.id)
+                            );
 
-                                return invalidCount > 0 ? (
-                                  <span className="text-red-600 ml-2">
-                                    ({validCount} will import, {invalidCount} will skip)
-                                  </span>
-                                ) : null;
-                              })()}
-                          </>
-                        )}
-                      </div>
-                      <div className="flex justify-end space-x-2 mt-4">
-                        <button
-                          onClick={() =>
-                            setAutomationImportModal((prev) => ({
-                              ...prev,
-                              step: "upload",
-                            }))
-                          }
-                          className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
-                        >
-                          Back
-                        </button>
-                        <button
-                          onClick={async () => {
-                            setAutomationImportModal((prev) => ({
-                              ...prev,
-                              isLoading: true,
-                              error: null,
-                            }));
-                            try {
-                              if (!currentCompany) {
-                                throw new Error("No company selected. Please select a company first.");
-                              }
+                            if (selectedAutomations.length === 0) {
+                              throw new Error("No automations selected for import.");
+                            }
 
-                              const selectedAutomations = automationImportModal.csvData.filter((auto) =>
-                                automationImportModal.selectedAutomations.has(auto.id)
-                              );
+                            // If auto-create is enabled, create missing payees and categories first
+                            if (automationImportModal.autoCreateMissing) {
+                              const missingPayees = new Set<string>();
+                              const missingCategories = new Set<string>();
 
-                              if (selectedAutomations.length === 0) {
-                                throw new Error("No automations selected for import.");
-                              }
-
-                              // If auto-create is enabled, create missing payees and categories first
-                              if (automationImportModal.autoCreateMissing) {
-                                const missingPayees = new Set<string>();
-                                const missingCategories = new Set<string>();
-
-                                selectedAutomations.forEach((auto) => {
-                                  if (auto.needsCreation) {
-                                    if (auto.automation_type === "payee") {
-                                      missingPayees.add(auto.action_value);
-                                    } else if (auto.automation_type === "category") {
-                                      missingCategories.add(auto.action_value);
-                                    }
-                                  }
-                                });
-
-                                // Create missing payees
-                                if (missingPayees.size > 0) {
-                                  const payeesToCreate = Array.from(missingPayees).map((name) => ({
-                                    name,
-                                    company_id: currentCompany.id,
-                                  }));
-
-                                  const { error: payeeError } = await supabase.from("payees").insert(payeesToCreate);
-
-                                  if (payeeError) {
-                                    throw new Error(`Failed to create payees: ${payeeError.message}`);
+                              selectedAutomations.forEach((auto) => {
+                                if (auto.needsCreation) {
+                                  if (auto.automation_type === "payee") {
+                                    missingPayees.add(auto.action_value);
+                                  } else if (auto.automation_type === "category") {
+                                    missingCategories.add(auto.action_value);
                                   }
                                 }
-
-                                // Create missing categories as Expense type by default
-                                if (missingCategories.size > 0) {
-                                  const categoriesToCreate = Array.from(missingCategories).map((name) => ({
-                                    name,
-                                    type: "Expense", // Default to Expense type
-                                    company_id: currentCompany.id,
-                                  }));
-
-                                  const { error: categoryError } = await supabase
-                                    .from("chart_of_accounts")
-                                    .insert(categoriesToCreate);
-
-                                  if (categoryError) {
-                                    throw new Error(`Failed to create categories: ${categoryError.message}`);
-                                  }
-                                }
-                              } else {
-                                // If not auto-creating, check if there are invalid automations selected
-                                const validAutomations = selectedAutomations.filter((auto) => !auto.needsCreation);
-                                const invalidAutomations = selectedAutomations.filter((auto) => auto.needsCreation);
-
-                                if (invalidAutomations.length > 0 && validAutomations.length > 0) {
-                                  // Mixed selection - show confirmation
-                                  const proceed = window.confirm(
-                                    `${invalidAutomations.length} selected automation(s) reference missing payees/categories and will be skipped.\n\n` +
-                                      `Only ${validAutomations.length} valid automation(s) will be imported.\n\n` +
-                                      `Click OK to proceed with valid automations only, or Cancel to go back and enable auto-creation.`
-                                  );
-
-                                  if (!proceed) {
-                                    // User cancelled, stop the import process
-                                    setAutomationImportModal((prev) => ({
-                                      ...prev,
-                                      isLoading: false,
-                                    }));
-                                    return;
-                                  }
-                                } else if (validAutomations.length === 0) {
-                                  // All selected automations are invalid
-                                  throw new Error(
-                                    "All selected automations reference missing payees/categories. Enable 'Auto-create missing items' or select only valid automations."
-                                  );
-                                }
-
-                                // Update selectedAutomations to only include valid ones
-                                selectedAutomations.splice(0, selectedAutomations.length, ...validAutomations);
-                              }
-
-                              const automationsToInsert = selectedAutomations.map((auto) => ({
-                                name: auto.name,
-                                automation_type: auto.automation_type,
-                                condition_type: auto.condition_type,
-                                condition_value: auto.condition_value,
-                                action_value: auto.action_value,
-                                enabled: auto.enabled,
-                                company_id: currentCompany.id,
-                              }));
-
-                              const { error } = await supabase.from("automations").insert(automationsToInsert);
-
-                              if (error) {
-                                throw new Error(error.message);
-                              }
-
-                              setAutomationImportModal({
-                                isOpen: false,
-                                step: "upload",
-                                csvData: [],
-                                isLoading: false,
-                                error: null,
-                                selectedAutomations: new Set(),
-                                autoCreateMissing: false,
                               });
 
-                              // Refresh the automations lists
-                              fetchPayeeAutomations();
-                              fetchCategoryAutomations();
-                            } catch (error) {
-                              setAutomationImportModal((prev) => ({
-                                ...prev,
-                                isLoading: false,
-                                error:
-                                  error instanceof Error
-                                    ? error.message
-                                    : "Failed to import automations. Please try again.",
-                              }));
+                              // Create missing payees
+                              if (missingPayees.size > 0) {
+                                const payeesToCreate = Array.from(missingPayees).map((name) => ({
+                                  name,
+                                  company_id: currentCompany.id,
+                                }));
+
+                                const { error: payeeError } = await supabase.from("payees").insert(payeesToCreate);
+
+                                if (payeeError) {
+                                  throw new Error(`Failed to create payees: ${payeeError.message}`);
+                                }
+                              }
+
+                              // Create missing categories as Expense type by default
+                              if (missingCategories.size > 0) {
+                                const categoriesToCreate = Array.from(missingCategories).map((name) => ({
+                                  name,
+                                  type: "Expense", // Default to Expense type
+                                  company_id: currentCompany.id,
+                                }));
+
+                                const { error: categoryError } = await supabase
+                                  .from("chart_of_accounts")
+                                  .insert(categoriesToCreate);
+
+                                if (categoryError) {
+                                  throw new Error(`Failed to create categories: ${categoryError.message}`);
+                                }
+                              }
+                            } else {
+                              // If not auto-creating, check if there are invalid automations selected
+                              const validAutomations = selectedAutomations.filter((auto) => !auto.needsCreation);
+                              const invalidAutomations = selectedAutomations.filter((auto) => auto.needsCreation);
+
+                              if (invalidAutomations.length > 0 && validAutomations.length > 0) {
+                                // Mixed selection - show confirmation
+                                const proceed = window.confirm(
+                                  `${invalidAutomations.length} selected automation(s) reference missing payees/categories and will be skipped.\n\n` +
+                                    `Only ${validAutomations.length} valid automation(s) will be imported.\n\n` +
+                                    `Click OK to proceed with valid automations only, or Cancel to go back and enable auto-creation.`
+                                );
+
+                                if (!proceed) {
+                                  // User cancelled, stop the import process
+                                  setAutomationImportModal((prev) => ({
+                                    ...prev,
+                                    isLoading: false,
+                                  }));
+                                  return;
+                                }
+                              } else if (validAutomations.length === 0) {
+                                // All selected automations are invalid
+                                throw new Error(
+                                  "All selected automations reference missing payees/categories. Enable 'Auto-create missing items' or select only valid automations."
+                                );
+                              }
+
+                              // Update selectedAutomations to only include valid ones
+                              selectedAutomations.splice(0, selectedAutomations.length, ...validAutomations);
                             }
-                          }}
-                          className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
-                        >
-                          Import
-                        </button>
-                      </div>
+
+                            const automationsToInsert = selectedAutomations.map((auto) => ({
+                              name: auto.name,
+                              automation_type: auto.automation_type,
+                              condition_type: auto.condition_type,
+                              condition_value: auto.condition_value,
+                              action_value: auto.action_value,
+                              enabled: auto.enabled,
+                              company_id: currentCompany.id,
+                            }));
+
+                            const { error } = await supabase.from("automations").insert(automationsToInsert);
+
+                            if (error) {
+                              throw new Error(error.message);
+                            }
+
+                            setAutomationImportModal({
+                              isOpen: false,
+                              step: "upload",
+                              csvData: [],
+                              isLoading: false,
+                              error: null,
+                              selectedAutomations: new Set(),
+                              autoCreateMissing: false,
+                            });
+
+                            // Refresh the automations lists
+                            fetchPayeeAutomations();
+                            fetchCategoryAutomations();
+                          } catch (error) {
+                            setAutomationImportModal((prev) => ({
+                              ...prev,
+                              isLoading: false,
+                              error:
+                                error instanceof Error
+                                  ? error.message
+                                  : "Failed to import automations. Please try again.",
+                            }));
+                          }
+                        }}
+                      >
+                        Import
+                      </Button>
                     </div>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* New Category Modal */}
-      {newCategoryModal.isOpen && (
-        <div
-          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
-          onClick={() =>
-            setNewCategoryModal({ isOpen: false, name: "", type: "Expense", parent_id: null, automationType: null })
-          }
-        >
-          <div
-            className="bg-white rounded-lg p-6 w-[400px] overflow-y-auto shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Add New Category</h2>
-              <button
-                onClick={() =>
-                  setNewCategoryModal({
-                    isOpen: false,
-                    name: "",
-                    type: "Expense",
-                    parent_id: null,
-                    automationType: null,
-                  })
+      <Dialog
+        open={newCategoryModal.isOpen}
+        onOpenChange={() =>
+          setNewCategoryModal({ isOpen: false, name: "", type: "Expense", parent_id: null, automationType: null })
+        }
+      >
+        <DialogContent className="min-w-[400px]">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-semibold">Add New Category</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Category Name</label>
+              <input
+                type="text"
+                value={newCategoryModal.name}
+                onChange={(e) =>
+                  setNewCategoryModal((prev) => ({
+                    ...prev,
+                    name: e.target.value,
+                  }))
                 }
-                className="text-gray-500 hover:text-gray-700 text-xl"
-              >
-                ×
-              </button>
+                className="w-full border px-2 py-1 rounded"
+                placeholder="Enter category name"
+              />
             </div>
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Category Name</label>
-                <input
-                  type="text"
-                  value={newCategoryModal.name}
-                  onChange={(e) =>
-                    setNewCategoryModal((prev) => ({
-                      ...prev,
-                      name: e.target.value,
-                    }))
-                  }
-                  className="w-full border px-2 py-1 rounded"
-                  placeholder="Enter category name"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
-                <select
-                  value={newCategoryModal.type}
-                  onChange={(e) =>
-                    setNewCategoryModal((prev) => ({
-                      ...prev,
-                      type: e.target.value,
-                    }))
-                  }
-                  className="w-full border px-2 py-1 rounded"
-                >
-                  <option value="Expense">Expense</option>
-                  <option value="Revenue">Revenue</option>
-                  <option value="Asset">Asset</option>
-                  <option value="Liability">Liability</option>
-                  <option value="Equity">Equity</option>
-                  <option value="Bank Account">Bank Account</option>
-                  <option value="Credit Card">Credit Card</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Parent Account (Optional)</label>
-                <Select
-                  options={[
-                    { value: "", label: "None" },
-                    ...availableCategories
-                      .filter((c) => c.name) // Ensure we have a name
-                      .map((c) => ({ value: c.id, label: c.name })),
-                  ]}
-                  value={
-                    newCategoryModal.parent_id
-                      ? {
-                          value: newCategoryModal.parent_id,
-                          label: availableCategories.find((c) => c.id === newCategoryModal.parent_id)?.name || "",
-                        }
-                      : { value: "", label: "None" }
-                  }
-                  onChange={(selectedOption) => {
-                    const option = selectedOption as SelectOption | null;
-                    setNewCategoryModal((prev) => ({
-                      ...prev,
-                      parent_id: option?.value || null,
-                    }));
-                  }}
-                  isSearchable
-                  menuPortalTarget={document.body}
-                  styles={{
-                    control: (base) => ({
-                      ...base,
-                      minHeight: "34px",
-                      height: "34px",
-                      fontSize: "14px",
-                      border: "1px solid #d1d5db",
-                      borderRadius: "6px",
-                      padding: "0 8px",
-                      boxShadow: "none",
-                      "&:hover": {
-                        borderColor: "#d1d5db",
-                      },
-                    }),
-                    valueContainer: (base) => ({
-                      ...base,
-                      padding: "0",
-                    }),
-                    input: (base) => ({
-                      ...base,
-                      margin: "0",
-                      padding: "0",
-                    }),
-                    indicatorsContainer: (base) => ({
-                      ...base,
-                      height: "34px",
-                    }),
-                    dropdownIndicator: (base) => ({
-                      ...base,
-                      padding: "0 4px",
-                    }),
-                    menuPortal: (base) => ({ ...base, zIndex: 9999 }),
-                    menu: (base) => ({ ...base, zIndex: 9999 }),
-                  }}
-                />
-              </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
+              <select
+                value={newCategoryModal.type}
+                onChange={(e) =>
+                  setNewCategoryModal((prev) => ({
+                    ...prev,
+                    type: e.target.value,
+                  }))
+                }
+                className="w-full border px-2 py-1 rounded"
+              >
+                <option value="Expense">Expense</option>
+                <option value="Revenue">Revenue</option>
+                <option value="Asset">Asset</option>
+                <option value="Liability">Liability</option>
+                <option value="Equity">Equity</option>
+                <option value="Bank Account">Bank Account</option>
+                <option value="Credit Card">Credit Card</option>
+              </select>
             </div>
 
-            <div className="flex justify-end mt-6">
-              <button
-                onClick={handleCreateCategory}
-                className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
-              >
-                Create
-              </button>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Parent Account (Optional)</label>
+              <Select
+                options={[
+                  { value: "", label: "None" },
+                  ...availableCategories
+                    .filter((c) => c.name) // Ensure we have a name
+                    .map((c) => ({ value: c.id, label: c.name })),
+                ]}
+                value={
+                  newCategoryModal.parent_id
+                    ? {
+                        value: newCategoryModal.parent_id,
+                        label: availableCategories.find((c) => c.id === newCategoryModal.parent_id)?.name || "",
+                      }
+                    : { value: "", label: "None" }
+                }
+                onChange={(selectedOption) => {
+                  const option = selectedOption as SelectOption | null;
+                  setNewCategoryModal((prev) => ({
+                    ...prev,
+                    parent_id: option?.value || null,
+                  }));
+                }}
+                isSearchable
+                menuPortalTarget={document.body}
+                styles={{
+                  control: (base) => ({
+                    ...base,
+                    minHeight: "34px",
+                    height: "34px",
+                    fontSize: "14px",
+                    border: "1px solid #d1d5db",
+                    borderRadius: "6px",
+                    padding: "0 8px",
+                    boxShadow: "none",
+                    "&:hover": {
+                      borderColor: "#d1d5db",
+                    },
+                  }),
+                  valueContainer: (base) => ({
+                    ...base,
+                    padding: "0",
+                  }),
+                  input: (base) => ({
+                    ...base,
+                    margin: "0",
+                    padding: "0",
+                  }),
+                  indicatorsContainer: (base) => ({
+                    ...base,
+                    height: "34px",
+                  }),
+                  dropdownIndicator: (base) => ({
+                    ...base,
+                    padding: "0 4px",
+                  }),
+                  menuPortal: (base) => ({ ...base, zIndex: 9999 }),
+                  menu: (base) => ({ ...base, zIndex: 9999 }),
+                }}
+              />
             </div>
           </div>
-        </div>
-      )}
+
+          <div className="flex justify-end mt-6">
+            <Button
+              onClick={() => handleCreateCategory()}
+              className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
+            >
+              Create
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* New Payee Modal */}
-      {newPayeeModal.isOpen && (
-        <div
-          className="fixed inset-0 bg-black/70 flex items-center justify-center h-full z-50"
-          onClick={() => setNewPayeeModal({ isOpen: false, name: "", automationType: null })}
-        >
-          <div
-            className="bg-white rounded-lg p-6 w-[400px] overflow-y-auto shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Add New Payee</h2>
-              <button
-                onClick={() => setNewPayeeModal({ isOpen: false, name: "", automationType: null })}
-                className="text-gray-500 hover:text-gray-700 text-xl"
-              >
-                ×
-              </button>
-            </div>
+      <Dialog
+        open={newPayeeModal.isOpen}
+        onOpenChange={() => setNewPayeeModal({ isOpen: false, name: "", automationType: null })}
+      >
+        <DialogContent className="min-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>Add New Payee</DialogTitle>
+          </DialogHeader>
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Payee Name</label>
-                <input
-                  type="text"
-                  value={newPayeeModal.name}
-                  onChange={(e) =>
-                    setNewPayeeModal((prev) => ({
-                      ...prev,
-                      name: e.target.value,
-                    }))
-                  }
-                  className="w-full border px-2 py-1 rounded"
-                  placeholder="Enter payee name"
-                />
-              </div>
-            </div>
-
-            <div className="flex justify-end mt-6">
-              <button
-                onClick={handleCreatePayee}
-                className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
-              >
-                Create
-              </button>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Payee Name</label>
+              <input
+                type="text"
+                value={newPayeeModal.name}
+                onChange={(e) =>
+                  setNewPayeeModal((prev) => ({
+                    ...prev,
+                    name: e.target.value,
+                  }))
+                }
+                className="w-full border px-2 py-1 rounded"
+                placeholder="Enter payee name"
+              />
             </div>
           </div>
-        </div>
-      )}
+
+          <div className="flex justify-end mt-6">
+            <Button
+              onClick={handleCreatePayee}
+            >
+              Create
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
