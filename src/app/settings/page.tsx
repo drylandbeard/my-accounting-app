@@ -5,7 +5,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { api } from "@/lib/api";
-import { X, Plus, CreditCard, Trash, ArrowRight, AlertTriangle } from "lucide-react";
+import { Plus, CreditCard, Trash, ArrowRight, AlertTriangle } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
@@ -14,93 +14,6 @@ interface CompanyMember {
   email: string;
   role: "Owner" | "Member" | "Accountant";
   is_access_enabled: boolean;
-}
-
-interface EditCompanyModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  company: { id: string; name: string; description?: string };
-  onUpdateCompany: (updatedData: { name: string; description: string }) => Promise<void>;
-}
-
-function EditCompanyModal({ isOpen, onClose, company, onUpdateCompany }: EditCompanyModalProps) {
-  const [name, setName] = useState(company.name);
-  const [description, setDescription] = useState(company.description || "");
-  const [isUpdating, setIsUpdating] = useState(false);
-  const [error, setError] = useState("");
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim()) return;
-
-    setIsUpdating(true);
-    setError("");
-
-    try {
-      await onUpdateCompany({ name: name.trim(), description: description.trim() });
-      onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update company");
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
-  if (!isOpen) return null;
-
-  return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="w-96">
-        <DialogHeader>
-          <DialogTitle>Edit Company Info</DialogTitle>
-        </DialogHeader>
-
-        <form onSubmit={handleSubmit}>
-          <div className="space-y-4">
-            {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm">{error}</div>
-            )}
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Company Name *</label>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 placeholder-gray-500 focus:border-black focus:outline-none focus:ring-black"
-                placeholder="Enter company name"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Description (Optional)</label>
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={3}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 placeholder-gray-500 focus:border-black focus:outline-none focus:ring-black"
-                placeholder="Enter description"
-              />
-            </div>
-          </div>
-
-          <div className="flex justify-end gap-3 mt-6">
-            <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isUpdating || !name.trim()}
-              className="px-4 py-2 text-sm font-medium text-white bg-black rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {isUpdating ? "Updating..." : "Update"}
-            </button>
-          </div>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
 }
 
 interface AddMemberModalProps {
@@ -500,14 +413,14 @@ export default function SettingsPage() {
 
   // Team Members State
   const [companyMembers, setCompanyMembers] = useState<CompanyMember[]>([]);
-  const [editCompanyModal, setEditCompanyModal] = useState<{
-    isOpen: boolean;
-    company: { id: string; name: string; description?: string } | null;
-  }>({
-    isOpen: false,
-    company: null,
-  });
   const [addMemberModal, setAddMemberModal] = useState(false);
+
+  // Inline company editing state
+  const [isEditingCompany, setIsEditingCompany] = useState(false);
+  const [editCompanyName, setEditCompanyName] = useState(currentCompany?.name || "");
+  const [editCompanyDescription, setEditCompanyDescription] = useState(currentCompany?.description || "");
+  const [isUpdatingCompany, setIsUpdatingCompany] = useState(false);
+  const [companyUpdateError, setCompanyUpdateError] = useState("");
   const [transferOwnershipModal, setTransferOwnershipModal] = useState(false);
   const [deleteCompanyModal, setDeleteCompanyModal] = useState(false);
   const [confirmationModal, setConfirmationModal] = useState<{
@@ -534,6 +447,9 @@ export default function SettingsPage() {
   useEffect(() => {
     if (currentCompany) {
       fetchCompanyMembers(currentCompany.id);
+      // Update edit fields when currentCompany changes
+      setEditCompanyName(currentCompany.name);
+      setEditCompanyDescription(currentCompany.description || "");
     }
   }, [currentCompany]);
 
@@ -582,10 +498,32 @@ export default function SettingsPage() {
     }
   };
 
-  const handleUpdateCompany = async (updatedData: { name: string; description: string }) => {
-    if (!currentCompany || !user) return;
+  const handleInlineCompanyEdit = () => {
+    setIsEditingCompany(true);
+    setEditCompanyName(currentCompany?.name || "");
+    setEditCompanyDescription(currentCompany?.description || "");
+    setCompanyUpdateError("");
+  };
+
+  const handleCancelCompanyEdit = () => {
+    setIsEditingCompany(false);
+    setEditCompanyName(currentCompany?.name || "");
+    setEditCompanyDescription(currentCompany?.description || "");
+    setCompanyUpdateError("");
+  };
+
+  const handleSaveCompanyEdit = async () => {
+    if (!currentCompany || !editCompanyName.trim()) return;
+
+    setIsUpdatingCompany(true);
+    setCompanyUpdateError("");
 
     try {
+      const updatedData = { 
+        name: editCompanyName.trim(), 
+        description: editCompanyDescription.trim() 
+      };
+
       // Use API endpoint for better security and validation
       const response = await api.put("/api/company/update", updatedData);
 
@@ -598,9 +536,11 @@ export default function SettingsPage() {
 
       // Update company in Zustand state with the response data
       updateCompany(currentCompany.id, result.company);
-      setEditCompanyModal({ isOpen: false, company: null });
+      setIsEditingCompany(false);
     } catch (error) {
-      throw new Error(error instanceof Error ? error.message : "Failed to update company");
+      setCompanyUpdateError(error instanceof Error ? error.message : "Failed to update company");
+    } finally {
+      setIsUpdatingCompany(false);
     }
   };
 
@@ -793,30 +733,74 @@ export default function SettingsPage() {
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-base font-semibold text-gray-900">Company Info</h2>
-            <button
-              onClick={() =>
-                setEditCompanyModal({
-                  isOpen: true,
-                  company: currentCompany,
-                })
-              }
-              className="text-sm text-blue-600 hover:text-blue-800"
-            >
-              Edit
-            </button>
+            {!isEditingCompany ? (
+              <button
+                onClick={handleInlineCompanyEdit}
+                className="text-sm text-blue-600 hover:text-blue-800"
+              >
+                Edit
+              </button>
+            ) : (
+              <div className="flex gap-2">
+                <button
+                  onClick={handleCancelCompanyEdit}
+                  className="text-sm text-gray-400 hover:text-gray-600"
+                  disabled={isUpdatingCompany}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveCompanyEdit}
+                  disabled={isUpdatingCompany || !editCompanyName.trim()}
+                  className="text-sm text-blue-600 hover:text-blue-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isUpdatingCompany ? "Saving..." : "Save"}
+                </button>
+              </div>
+            )}
           </div>
+
+          {companyUpdateError && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-md text-sm mb-4">
+              {companyUpdateError}
+            </div>
+          )}
 
           <div className="space-y-3">
             <div>
               <label className="block text-sm font-medium text-gray-700">Company Name</label>
-              <p className="text-sm text-gray-900 mt-1">{currentCompany.name}</p>
+              {!isEditingCompany ? (
+                <p className="text-sm text-gray-900 mt-1">{currentCompany.name}</p>
+              ) : (
+                <input
+                  type="text"
+                  value={editCompanyName}
+                  onChange={(e) => setEditCompanyName(e.target.value)}
+                  className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:border-black focus:outline-none focus:ring-black"
+                  placeholder="Enter company name"
+                  disabled={isUpdatingCompany}
+                />
+              )}
             </div>
-            {currentCompany.description && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Description</label>
-                <p className="text-sm text-gray-900 mt-1">{currentCompany.description}</p>
-              </div>
-            )}
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Description</label>
+              {!isEditingCompany ? (
+                currentCompany.description ? (
+                  <p className="text-sm text-gray-900 mt-1">{currentCompany.description}</p>
+                ) : (
+                  <p className="text-sm text-gray-500 mt-1">No description</p>
+                )
+              ) : (
+                <textarea
+                  value={editCompanyDescription}
+                  onChange={(e) => setEditCompanyDescription(e.target.value)}
+                  className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:border-black focus:outline-none focus:ring-black"
+                  placeholder="Enter description (optional)"
+                  rows={3}
+                  disabled={isUpdatingCompany}
+                />
+              )}
+            </div>
           </div>
         </div>
 
@@ -879,15 +863,15 @@ export default function SettingsPage() {
                         {member.is_access_enabled ? "Enabled" : "Disabled"}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">
                       {member.id !== user.id && (
                         <>
                           {(isOwner || member.role !== "Owner") && (
                             <>
-                              <button className="text-blue-600 hover:text-blue-900 mr-3">Edit</button>
+                              <button className="text-blue-600 hover:text-blue-800 mr-3">Edit</button>
                               <button
                                 onClick={() => handleDeleteMember(member.id)}
-                                className="text-red-600 hover:text-red-900"
+                                className="text-red-600 hover:text-red-800"
                               >
                                 Remove
                               </button>
@@ -958,16 +942,6 @@ export default function SettingsPage() {
           </div>
         </div>
       </div>
-
-      {/* Edit Company Modal */}
-      {editCompanyModal.company && (
-        <EditCompanyModal
-          isOpen={editCompanyModal.isOpen}
-          onClose={() => setEditCompanyModal({ isOpen: false, company: null })}
-          company={editCompanyModal.company}
-          onUpdateCompany={handleUpdateCompany}
-        />
-      )}
 
       {/* Add Member Modal */}
       <AddMemberModal isOpen={addMemberModal} onClose={() => setAddMemberModal(false)} onAddMember={handleAddMember} />
