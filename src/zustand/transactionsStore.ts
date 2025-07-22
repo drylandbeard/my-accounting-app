@@ -449,30 +449,41 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
         // Get split entry counts for each imported transaction to detect splits
         const transactionIds = allTransactionData.map(tx => tx.id);
         
-        // Fetch split counts with pagination if needed
+        // Fetch split counts with smaller batches to avoid URL length limits
         let allSplitCounts: SplitCountRow[] = [];
         page = 0;
+        const splitBatchSize = 100; // Smaller batch size to avoid URL length issues
         hasMore = true;
 
         while (hasMore) {
-          const { data: splitCounts, error: splitError } = await supabase
-            .from('imported_transactions_split')
-            .select('imported_transaction_id')
-            .eq('company_id', companyId)
-            .in('imported_transaction_id', transactionIds.slice(page * pageSize, (page + 1) * pageSize))
-            .range(0, 9999); // Large range since we're already filtering by transaction IDs
+          const startIndex = page * splitBatchSize;
+          const endIndex = Math.min(startIndex + splitBatchSize, transactionIds.length);
+          const batchIds = transactionIds.slice(startIndex, endIndex);
 
-          if (splitError) {
-            console.error('Error fetching split counts:', splitError);
+          if (batchIds.length === 0) {
             break;
           }
 
-          if (splitCounts && splitCounts.length > 0) {
-            allSplitCounts = [...allSplitCounts, ...splitCounts];
+          try {
+            const { data: splitCounts, error: splitError } = await supabase
+              .from('imported_transactions_split')
+              .select('imported_transaction_id')
+              .eq('company_id', companyId)
+              .in('imported_transaction_id', batchIds);
+
+            if (splitError) {
+              console.error('Error fetching split counts:', splitError);
+              // Continue with other batches instead of breaking completely
+            } else if (splitCounts && splitCounts.length > 0) {
+              allSplitCounts = [...allSplitCounts, ...splitCounts];
+            }
+          } catch (batchError) {
+            console.error('Error fetching split counts batch:', batchError);
+            // Continue with other batches
           }
 
           page++;
-          hasMore = transactionIds.length > page * pageSize;
+          hasMore = endIndex < transactionIds.length;
         }
         
         // Count split entries per transaction
@@ -559,30 +570,41 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
         // Get journal entry counts for each transaction to detect splits
         const transactionIds = allTransactionData.map(tx => tx.id);
         
-        // Fetch journal counts with pagination if needed
+        // Fetch journal counts with smaller batches to avoid URL length limits
         let allJournalCounts: JournalCountRow[] = [];
         page = 0;
+        const journalBatchSize = 100; // Smaller batch size to avoid URL length issues
         hasMore = true;
 
         while (hasMore) {
-          const { data: journalCounts, error: journalError } = await supabase
-            .from('journal')
-            .select('transaction_id')
-            .eq('company_id', companyId)
-            .in('transaction_id', transactionIds.slice(page * pageSize, (page + 1) * pageSize))
-            .range(0, 9999); // Large range since we're already filtering by transaction IDs
+          const startIndex = page * journalBatchSize;
+          const endIndex = Math.min(startIndex + journalBatchSize, transactionIds.length);
+          const batchIds = transactionIds.slice(startIndex, endIndex);
 
-          if (journalError) {
-            console.error('Error fetching journal counts:', journalError);
+          if (batchIds.length === 0) {
             break;
           }
 
-          if (journalCounts && journalCounts.length > 0) {
-            allJournalCounts = [...allJournalCounts, ...journalCounts];
+          try {
+            const { data: journalCounts, error: journalError } = await supabase
+              .from('journal')
+              .select('transaction_id')
+              .eq('company_id', companyId)
+              .in('transaction_id', batchIds);
+
+            if (journalError) {
+              console.error('Error fetching journal counts:', journalError);
+              // Continue with other batches instead of breaking completely
+            } else if (journalCounts && journalCounts.length > 0) {
+              allJournalCounts = [...allJournalCounts, ...journalCounts];
+            }
+          } catch (batchError) {
+            console.error('Error fetching journal counts batch:', batchError);
+            // Continue with other batches
           }
 
           page++;
-          hasMore = transactionIds.length > page * pageSize;
+          hasMore = endIndex < transactionIds.length;
         }
         
         // Count journal entries per transaction
