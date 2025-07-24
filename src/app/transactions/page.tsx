@@ -3999,7 +3999,7 @@ export default function TransactionsPage() {
             />
             <div className="overflow-auto max-h-[calc(100vh-300px)] border border-gray-300 rounded">
               <table className="w-full border-collapse border border-gray-300">
-              <thead className="bg-gray-100">
+              <thead className="bg-gray-100 sticky top-0 z-10">
                 <tr>
                   <th 
                     className="border p-1 w-8 text-center cursor-pointer"
@@ -4368,7 +4368,7 @@ export default function TransactionsPage() {
             />
             <div className="overflow-auto max-h-[calc(100vh-300px)] border border-gray-300 rounded">
               <table className="w-full border-collapse border border-gray-300">
-              <thead className="bg-gray-100">
+              <thead className="bg-gray-100 sticky top-0 z-10">
                 <tr>
                   <th
                     className="border p-1 w-8 text-center cursor-pointer"
