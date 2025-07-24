@@ -1883,7 +1883,7 @@ export default function ChartOfAccountsPage() {
           </div>
 
           {/* Payees Pagination */}
-          <div className="flex justify-between items-center mt-2">
+          <div className="flex justify-between items-center mt-2 gap-3">
             <span className="text-xs text-gray-600 whitespace-nowrap">
               {`${displayedPayees.length} of ${payeePaginationData.totalItems} payees`}
             </span>
@@ -3226,108 +3226,205 @@ export default function ChartOfAccountsPage() {
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                      {accounts
-                        .filter((acc) => {
-                          // Filter categories to show only those with same type as selected ones
-                          if (mergeModal.selectedCategories.size === 0) return true;
-                          const selectedTypes = new Set(
-                            Array.from(mergeModal.selectedCategories)
-                              .map((id) => accounts.find((acc) => acc.id === id)?.type)
-                              .filter(Boolean)
-                          );
-                          return selectedTypes.size === 0 || selectedTypes.has(acc.type);
-                        })
-                        .filter((acc) => {
-                          // Filter by search term
-                          if (!mergeModal.searchTerm.trim()) return true;
-                          const searchLower = mergeModal.searchTerm.toLowerCase();
-                          const parentCategory = acc.parent_id
-                            ? accounts.find((parent) => parent.id === acc.parent_id)
-                            : null;
+                      {(() => {
+                        // Filter accounts by type and search term
+                        const filteredAccounts = accounts
+                          .filter((acc) => {
+                            // Filter categories to show only those with same type as selected ones
+                            if (mergeModal.selectedCategories.size === 0) return true;
+                            const selectedTypes = new Set(
+                              Array.from(mergeModal.selectedCategories)
+                                .map((id) => accounts.find((acc) => acc.id === id)?.type)
+                                .filter(Boolean)
+                            );
+                            return selectedTypes.size === 0 || selectedTypes.has(acc.type);
+                          })
+                          .filter((acc) => {
+                            // Filter by search term
+                            if (!mergeModal.searchTerm.trim()) return true;
+                            const searchLower = mergeModal.searchTerm.toLowerCase();
+                            const parentCategory = acc.parent_id
+                              ? accounts.find((parent) => parent.id === acc.parent_id)
+                              : null;
 
-                          return (
-                            acc.name.toLowerCase().includes(searchLower) ||
-                            acc.type.toLowerCase().includes(searchLower) ||
-                            (parentCategory && parentCategory.name.toLowerCase().includes(searchLower))
-                          );
-                        })
-                        .map((category) => {
-                          const parentCategory = category.parent_id
-                            ? accounts.find((acc) => acc.id === category.parent_id)
-                            : null;
+                            return (
+                              acc.name.toLowerCase().includes(searchLower) ||
+                              acc.type.toLowerCase().includes(searchLower) ||
+                              (parentCategory && parentCategory.name.toLowerCase().includes(searchLower))
+                            );
+                          });
 
-                          const isSelected = mergeModal.selectedCategories.has(category.id);
-                          const isTarget = mergeModal.targetCategoryId === category.id;
+                        // Render hierarchical structure similar to main table
+                        const renderMergeAccounts = (accounts: Category[], level = 0) => {
+                          const parentAccounts = accounts.filter((acc) => acc.parent_id === null);
 
-                          return (
-                            <tr
-                              key={category.id}
-                              className={`hover:bg-gray-50 ${
-                                isTarget ? "bg-green-50 border-l-4 border-green-400" : isSelected ? "bg-blue-50" : ""
-                              }`}
-                            >
-                              <td className="px-3 py-2 whitespace-nowrap w-8">
-                                <input
-                                  type="checkbox"
-                                  checked={isSelected}
-                                  onChange={(e) => {
-                                    const newSelected = new Set(mergeModal.selectedCategories);
-                                    if (e.target.checked) {
-                                      newSelected.add(category.id);
-                                    } else {
-                                      newSelected.delete(category.id);
-                                      // If unchecking target, clear target selection
-                                      if (mergeModal.targetCategoryId === category.id) {
-                                        setMergeModal((prev) => ({ ...prev, targetCategoryId: null }));
-                                      }
-                                    }
-                                    setMergeModal((prev) => ({
-                                      ...prev,
-                                      selectedCategories: newSelected,
-                                      error: null,
-                                    }));
-                                  }}
-                                  className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
-                                />
-                              </td>
-                              <td className="px-3 py-2 text-sm">
-                                <div className="flex items-center">
-                                  <span
-                                    style={{ paddingLeft: `${category.parent_id ? 16 : 0}px` }}
-                                    className={isTarget ? "font-semibold text-green-800" : "text-gray-900"}
+                          return parentAccounts
+                            .flatMap((parent) => {
+                              const subAccounts = accounts.filter((acc) => acc.parent_id === parent.id);
+
+                              // If there are no subaccounts and parent doesn't match search, don't show parent
+                              if (subAccounts.length === 0 && !accounts.includes(parent)) {
+                                return [];
+                              }
+
+                              const rows = [];
+
+                              // Parent row
+                              const isParentSelected = mergeModal.selectedCategories.has(parent.id);
+                              const isParentTarget = mergeModal.targetCategoryId === parent.id;
+                              
+                              rows.push(
+                                <tr
+                                  key={parent.id}
+                                  className={`hover:bg-gray-50 ${
+                                    isParentTarget ? "bg-green-50 border-l-4 border-green-400" : isParentSelected ? "bg-blue-50" : ""
+                                  }`}
+                                >
+                                  <td className="px-3 py-2 whitespace-nowrap w-8">
+                                    <input
+                                      type="checkbox"
+                                      checked={isParentSelected}
+                                      onChange={(e) => {
+                                        const newSelected = new Set(mergeModal.selectedCategories);
+                                        if (e.target.checked) {
+                                          newSelected.add(parent.id);
+                                        } else {
+                                          newSelected.delete(parent.id);
+                                          // If unchecking target, clear target selection
+                                          if (mergeModal.targetCategoryId === parent.id) {
+                                            setMergeModal((prev) => ({ ...prev, targetCategoryId: null }));
+                                          }
+                                        }
+                                        setMergeModal((prev) => ({
+                                          ...prev,
+                                          selectedCategories: newSelected,
+                                          error: null,
+                                        }));
+                                      }}
+                                      className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                                    />
+                                  </td>
+                                  <td className="px-3 py-2 text-sm">
+                                    <div className="flex items-center">
+                                      <span
+                                        style={{ paddingLeft: `${level * 16}px` }}
+                                        className={isParentTarget ? "font-semibold text-green-800" : "text-gray-900"}
+                                      >
+                                        {parent.name}
+                                      </span>
+                                      {isParentTarget && (
+                                        <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                          Target
+                                        </span>
+                                      )}
+                                    </div>
+                                  </td>
+                                  <td className="px-3 py-2 text-sm text-gray-900">
+                                    <span className={isParentTarget ? "font-semibold text-green-800" : ""}>{parent.type}</span>
+                                  </td>
+                                  <td className="px-3 py-2 text-sm text-gray-500">—</td>
+                                  <td className="px-3 py-2 whitespace-nowrap w-8 text-center">
+                                    <input
+                                      type="radio"
+                                      name="targetCategory"
+                                      checked={isParentTarget}
+                                      disabled={!isParentSelected}
+                                      onChange={() => {
+                                        setMergeModal((prev) => ({
+                                          ...prev,
+                                          targetCategoryId: parent.id,
+                                          error: null,
+                                        }));
+                                      }}
+                                      className="rounded border-gray-300 text-green-600 focus:ring-green-600 disabled:opacity-30"
+                                    />
+                                  </td>
+                                </tr>
+                              );
+
+                              // Subaccount rows
+                              subAccounts.forEach((subAcc) => {
+                                const isSubSelected = mergeModal.selectedCategories.has(subAcc.id);
+                                const isSubTarget = mergeModal.targetCategoryId === subAcc.id;
+
+                                rows.push(
+                                  <tr
+                                    key={subAcc.id}
+                                    className={`hover:bg-gray-50 ${
+                                      isSubTarget ? "bg-green-50 border-l-4 border-green-400" : isSubSelected ? "bg-blue-50" : ""
+                                    }`}
                                   >
-                                    {category.name}
-                                  </span>
-                                  {isTarget && (
-                                    <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                      Target
-                                    </span>
-                                  )}
-                                </div>
-                              </td>
-                              <td className="px-3 py-2 text-sm text-gray-900">
-                                <span className={isTarget ? "font-semibold text-green-800" : ""}>{category.type}</span>
-                              </td>
-                              <td className="px-3 py-2 text-sm text-gray-500">{parentCategory?.name || "—"}</td>
-                              <td className="px-3 py-2 whitespace-nowrap w-8 text-center">
-                                <input
-                                  type="radio"
-                                  name="targetCategory"
-                                  checked={isTarget}
-                                  disabled={!isSelected}
-                                  onChange={() => {
-                                    setMergeModal((prev) => ({
-                                      ...prev,
-                                      targetCategoryId: category.id,
-                                      error: null,
-                                    }));
-                                  }}
-                                  className="rounded border-gray-300 text-green-600 focus:ring-green-600 disabled:opacity-30"
-                                />
-                              </td>
-                            </tr>
-                          );
-                        })}
+                                    <td className="px-3 py-2 whitespace-nowrap w-8">
+                                      <input
+                                        type="checkbox"
+                                        checked={isSubSelected}
+                                        onChange={(e) => {
+                                          const newSelected = new Set(mergeModal.selectedCategories);
+                                          if (e.target.checked) {
+                                            newSelected.add(subAcc.id);
+                                          } else {
+                                            newSelected.delete(subAcc.id);
+                                            // If unchecking target, clear target selection
+                                            if (mergeModal.targetCategoryId === subAcc.id) {
+                                              setMergeModal((prev) => ({ ...prev, targetCategoryId: null }));
+                                            }
+                                          }
+                                          setMergeModal((prev) => ({
+                                            ...prev,
+                                            selectedCategories: newSelected,
+                                            error: null,
+                                          }));
+                                        }}
+                                        className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                                      />
+                                    </td>
+                                    <td className="px-3 py-2 text-sm">
+                                      <div className="flex items-center">
+                                        <span
+                                          style={{ paddingLeft: `${(level + 1) * 16}px` }}
+                                          className={isSubTarget ? "font-semibold text-green-800" : "text-gray-900"}
+                                        >
+                                          {subAcc.name}
+                                        </span>
+                                        {isSubTarget && (
+                                          <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                            Target
+                                          </span>
+                                        )}
+                                      </div>
+                                    </td>
+                                    <td className="px-3 py-2 text-sm text-gray-900">
+                                      <span className={isSubTarget ? "font-semibold text-green-800" : ""}>{subAcc.type}</span>
+                                    </td>
+                                    <td className="px-3 py-2 text-sm text-gray-500">{parent.name}</td>
+                                    <td className="px-3 py-2 whitespace-nowrap w-8 text-center">
+                                      <input
+                                        type="radio"
+                                        name="targetCategory"
+                                        checked={isSubTarget}
+                                        disabled={!isSubSelected}
+                                        onChange={() => {
+                                          setMergeModal((prev) => ({
+                                            ...prev,
+                                            targetCategoryId: subAcc.id,
+                                            error: null,
+                                          }));
+                                        }}
+                                        className="rounded border-gray-300 text-green-600 focus:ring-green-600 disabled:opacity-30"
+                                      />
+                                    </td>
+                                  </tr>
+                                );
+                              });
+
+                              return rows;
+                            })
+                            .filter(Boolean)
+                            .flat();
+                        };
+
+                        return renderMergeAccounts(filteredAccounts);
+                      })()}
                     </tbody>
                   </table>
                 </div>
