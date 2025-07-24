@@ -36,14 +36,36 @@ export async function POST(req: NextRequest) {
 
     console.log("Using date range for Plaid fetch:", earliestStartDate, "to", endDate);
 
-    // Fetch transactions from Plaid using the earliest date to get all needed transactions
-    const transactionsResponse = await plaidClient.transactionsGet({
-      access_token: accessToken,
-      start_date: earliestStartDate,
-      end_date: endDate,
-    });
+    // Fetch transactions from Plaid using pagination to get all transactions
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let allTransactions: any[] = [];
+    let offset = 0;
+    const count = 500; // Maximum per request
+    let hasMore = true;
 
-    console.log("Fetched transactions:", transactionsResponse.data.transactions.length);
+    while (hasMore) {
+      const transactionsResponse = await plaidClient.transactionsGet({
+        access_token: accessToken,
+        start_date: earliestStartDate,
+        end_date: endDate,
+        options: {
+          count: count,
+          offset: offset,
+        }
+      });
+
+      const transactions = transactionsResponse.data.transactions;
+      allTransactions = allTransactions.concat(transactions);
+      
+      // Check if we've got all transactions
+      const totalTransactions = transactionsResponse.data.total_transactions;
+      hasMore = (offset + count) < totalTransactions;
+      offset += count;
+
+      console.log(`Fetched ${transactions.length} transactions (${allTransactions.length}/${totalTransactions} total)`);
+    }
+
+    console.log("Fetched transactions:", allTransactions.length);
 
     // Get account information including starting balance (filtered by company)
     const { data: accounts } = await supabase
@@ -89,7 +111,7 @@ export async function POST(req: NextRequest) {
     console.log("Creating starting balance transactions:", startingBalanceTransactions.length);
 
     // Filter transactions by selected accounts (if specified) AND by account-specific dates
-    let filteredTransactions = transactionsResponse.data.transactions;
+    let filteredTransactions = allTransactions;
     
     if (selectedAccountIds && selectedAccountIds.length > 0) {
       filteredTransactions = filteredTransactions.filter(txn => 
