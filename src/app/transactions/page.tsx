@@ -3997,7 +3997,8 @@ export default function TransactionsPage() {
               onChange={(e) => setSearchQuery(e.target.value)}
               className="border px-2 py-1 w-full text-xs mb-2"
             />
-            <table className="w-full border-collapse border border-gray-300">
+            <div className="overflow-auto max-h-[calc(100vh-300px)] border border-gray-300 rounded">
+              <table className="w-full border-collapse border border-gray-300">
               <thead className="bg-gray-100">
                 <tr>
                   <th 
@@ -4338,6 +4339,7 @@ export default function TransactionsPage() {
                 })}
               </tbody>
             </table>
+            </div>
 
             <div className="flex justify-between items-center">
               {/* Pagination for To Add table */}
@@ -4364,7 +4366,8 @@ export default function TransactionsPage() {
               onChange={(e) => setSearchQuery(e.target.value)}
               className="border px-2 py-1 w-full text-xs mb-2"
             />
-            <table className="w-full border-collapse border border-gray-300">
+            <div className="overflow-auto max-h-[calc(100vh-300px)] border border-gray-300 rounded">
+              <table className="w-full border-collapse border border-gray-300">
               <thead className="bg-gray-100">
                 <tr>
                   <th
@@ -4526,6 +4529,7 @@ export default function TransactionsPage() {
                 })}
               </tbody>
             </table>
+            </div>
 
             <div className="flex justify-between items-center">
               {/* Pagination for Added table */}
