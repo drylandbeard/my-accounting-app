@@ -784,7 +784,7 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
         get().fetchImportedTransactions(companyId),
         get().fetchConfirmedTransactions(companyId),
         get().fetchJournalEntries(companyId, false), // Don't manage loading state individually
-        get().fetchImportedTransactionSplits(companyId)
+        // Removed fetchImportedTransactionSplits - now handled by real-time subscription
       ]);
       
       set({ isLoading: false });
@@ -863,8 +863,7 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
 
       if (error) throw error;
 
-      // Refresh splits data
-      await get().fetchImportedTransactionSplits(companyId);
+      // Note: fetchImportedTransactionSplits will be called automatically via real-time subscription
       
       showSuccessToast('Split transaction saved successfully!');
       return { success: true };
@@ -898,8 +897,7 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
 
       if (error) throw error;
 
-      // Refresh splits data
-      await get().fetchImportedTransactionSplits(companyId);
+      // Note: fetchImportedTransactionSplits will be called automatically via real-time subscription
       
       showSuccessToast('Split transaction deleted successfully!');
       return true;
@@ -1675,7 +1673,21 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
       })
       .subscribe();
 
-    subscriptions.push(importedTxSubscription, confirmedTxSubscription);
+    // Subscribe to imported transaction splits changes
+    const splitsSubscription = supabase
+      .channel('imported_transactions_split_changes')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'imported_transactions_split',
+        filter: `company_id=eq.${companyId}`
+      }, (payload) => {
+        console.log('Imported transaction splits changed:', payload.eventType);
+        get().fetchImportedTransactionSplits(companyId);
+      })
+      .subscribe();
+
+    subscriptions.push(importedTxSubscription, confirmedTxSubscription, splitsSubscription);
     set({ subscriptions });
 
     // Return cleanup function

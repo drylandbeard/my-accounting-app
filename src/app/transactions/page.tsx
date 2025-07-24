@@ -240,6 +240,7 @@ export default function TransactionsPage() {
     importTransactionsFromCSV,
     saveImportedTransactionSplit,
     getImportedTransactionSplitsByTransactionId,
+    fetchImportedTransactionSplits,
     saveAutomationState,
     loadAutomationState,
   } = useTransactionsStore();
@@ -822,8 +823,10 @@ export default function TransactionsPage() {
       refreshAll(currentCompany.id);
       refreshCategories();
       refreshPayees();
+      // Initial fetch for imported transaction splits (subsequent updates via subscription)
+      fetchImportedTransactionSplits(currentCompany.id);
     }
-  }, [currentCompany?.id, hasCompanyContext, refreshAll, refreshCategories, refreshPayees]); // Refresh when company changes
+  }, [currentCompany?.id, hasCompanyContext, refreshAll, refreshCategories, refreshPayees, fetchImportedTransactionSplits]); // Refresh when company changes
 
   // Real-time subscriptions managed by stores
   useEffect(() => {
