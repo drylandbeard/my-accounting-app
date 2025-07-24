@@ -136,10 +136,7 @@ export const useAccountOperations = ({
       const totalDebits = journalEntries
         .filter((tx) => tx.chart_account_id === account.id && tx.date.startsWith(month))
         .reduce((sum, tx) => sum + Number(tx.debit), 0);
-      const totalCredits = journalEntries
-        .filter((tx) => tx.chart_account_id === account.id && tx.date.startsWith(month))
-        .reduce((sum, tx) => sum + Number(tx.credit), 0);
-      return totalDebits - totalCredits;
+      return totalDebits;
     } else if (account.type === "Asset") {
       const totalDebits = journalEntries
         .filter((tx) => tx.chart_account_id === account.id && tx.date.startsWith(month))
