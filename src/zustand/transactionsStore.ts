@@ -4,6 +4,59 @@ import { supabase } from '@/lib/supabase';
 import { FinancialAmount } from '@/lib/financial';
 import { showSuccessToast, showErrorToast } from '@/components/ui/toast';
 
+// Supabase realtime payload types
+interface RealtimePayload {
+  eventType: 'INSERT' | 'UPDATE' | 'DELETE';
+  new?: Record<string, unknown>;
+  old?: Record<string, unknown>;
+}
+
+// Database row types for realtime payloads
+interface ImportedTransactionRow {
+  id: string;
+  date: string;
+  description: string;
+  spent?: number;
+  received?: number;
+  plaid_account_id: string | null;
+  plaid_account_name: string | null;
+  selected_category_id?: string;
+  payee_id?: string;
+  company_id: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+interface TransactionRow {
+  id: string;
+  date: string;
+  description: string;
+  spent?: number;
+  received?: number;
+  plaid_account_id: string | null;
+  plaid_account_name: string | null;
+  selected_category_id?: string;
+  corresponding_category_id?: string;
+  payee_id?: string;
+  company_id: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+interface ImportedTransactionSplitRow {
+  id: string;
+  imported_transaction_id: string;
+  date: string;
+  description: string;
+  debit: number;
+  credit: number;
+  chart_account_id: string;
+  payee_id?: string;
+  company_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
 // Enhanced error handling types
 export interface StoreError {
   code: string;
@@ -1856,16 +1909,18 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
         schema: 'public',
         table: 'imported_transactions',
         filter: `company_id=eq.${companyId}`
-      }, async (payload) => {
+      }, async (payload: RealtimePayload) => {
         console.log('Imported transactions changed:', payload.eventType);
         
         const currentState = get();
         
         if (payload.eventType === 'INSERT') {
           // Add new imported transaction to the beginning of the list
-          const newTransaction = payload.new as any;
+          const newTransaction = payload.new as unknown as ImportedTransactionRow;
+          if (!newTransaction) return;
+          
           // Convert numeric values to strings and add split info
-          const formattedTransaction = {
+          const formattedTransaction: Transaction = {
             ...newTransaction,
             spent: newTransaction.spent ? newTransaction.spent.toString() : undefined,
             received: newTransaction.received ? newTransaction.received.toString() : undefined,
@@ -1876,8 +1931,10 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
           set({ importedTransactions: updatedImportedTransactions });
         } else if (payload.eventType === 'UPDATE') {
           // Update existing imported transaction
-          const updatedTransaction = payload.new as any;
-          const formattedTransaction = {
+          const updatedTransaction = payload.new as unknown as ImportedTransactionRow;
+          if (!updatedTransaction) return;
+          
+          const formattedTransaction: Partial<Transaction> = {
             ...updatedTransaction,
             spent: updatedTransaction.spent ? updatedTransaction.spent.toString() : undefined,
             received: updatedTransaction.received ? updatedTransaction.received.toString() : undefined,
@@ -1890,10 +1947,10 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
           set({ importedTransactions: updatedImportedTransactions });
         } else if (payload.eventType === 'DELETE') {
           // Remove deleted imported transaction
-          const deletedId = payload.old?.id;
-          if (deletedId) {
+          const deletedRow = payload.old as unknown as ImportedTransactionRow;
+          if (deletedRow?.id) {
             const updatedImportedTransactions = currentState.importedTransactions.filter(
-              tx => tx.id !== deletedId
+              tx => tx.id !== deletedRow.id
             );
             set({ importedTransactions: updatedImportedTransactions });
           }
@@ -1909,15 +1966,17 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
         schema: 'public',
         table: 'transactions',
         filter: `company_id=eq.${companyId}`
-      }, async (payload) => {
+      }, async (payload: RealtimePayload) => {
         console.log('Transactions changed:', payload.eventType);
         
         const currentState = get();
         
         if (payload.eventType === 'INSERT') {
           // Add new confirmed transaction to the beginning of the list
-          const newTransaction = payload.new as any;
-          const formattedTransaction = {
+          const newTransaction = payload.new as unknown as TransactionRow;
+          if (!newTransaction) return;
+          
+          const formattedTransaction: Transaction = {
             ...newTransaction,
             spent: newTransaction.spent ? newTransaction.spent.toString() : undefined,
             received: newTransaction.received ? newTransaction.received.toString() : undefined,
@@ -1928,8 +1987,10 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
           set({ transactions: updatedTransactions });
         } else if (payload.eventType === 'UPDATE') {
           // Update existing confirmed transaction
-          const updatedTransaction = payload.new as any;
-          const formattedTransaction = {
+          const updatedTransaction = payload.new as unknown as TransactionRow;
+          if (!updatedTransaction) return;
+          
+          const formattedTransaction: Partial<Transaction> = {
             ...updatedTransaction,
             spent: updatedTransaction.spent ? updatedTransaction.spent.toString() : undefined,
             received: updatedTransaction.received ? updatedTransaction.received.toString() : undefined,
@@ -1942,10 +2003,10 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
           set({ transactions: updatedTransactions });
         } else if (payload.eventType === 'DELETE') {
           // Remove deleted confirmed transaction
-          const deletedId = payload.old?.id;
-          if (deletedId) {
+          const deletedRow = payload.old as unknown as TransactionRow;
+          if (deletedRow?.id) {
             const updatedTransactions = currentState.transactions.filter(
-              tx => tx.id !== deletedId
+              tx => tx.id !== deletedRow.id
             );
             set({ transactions: updatedTransactions });
           }
@@ -1961,7 +2022,7 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
         schema: 'public',
         table: 'imported_transactions_split',
         filter: `company_id=eq.${companyId}`
-      }, async (payload) => {
+      }, async (payload: RealtimePayload) => {
         console.log('Imported transaction splits changed:', payload.eventType);
         
         const currentState = get();
@@ -1971,7 +2032,10 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
           await get().fetchImportedTransactionSplits(companyId);
           
           // Update split indicators for affected imported transactions
-          const affectedTransactionId = payload.new?.imported_transaction_id || payload.old?.imported_transaction_id;
+          const newSplit = payload.new as unknown as ImportedTransactionSplitRow;
+          const oldSplit = payload.old as unknown as ImportedTransactionSplitRow;
+          const affectedTransactionId = newSplit?.imported_transaction_id || oldSplit?.imported_transaction_id;
+          
           if (affectedTransactionId) {
             // Get updated split count for this transaction
             const { data: splitCount } = await supabase
