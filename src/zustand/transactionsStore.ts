@@ -223,7 +223,7 @@ interface TransactionsState {
   fetchAccounts: (companyId: string) => Promise<void>;
   fetchImportedTransactions: (companyId: string) => Promise<void>;
   fetchConfirmedTransactions: (companyId: string) => Promise<void>;
-  fetchJournalEntries: (companyId: string) => Promise<void>;
+  fetchJournalEntries: (companyId: string, manageLoadingState?: boolean) => Promise<void>;
   refreshAll: (companyId: string) => Promise<void>;
   
   // Transaction operations
@@ -635,9 +635,11 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
   },
 
   // Fetch journal entries from both journal and manual_journal_entries tables with pagination
-  fetchJournalEntries: async (companyId: string) => {
+  fetchJournalEntries: async (companyId: string, manageLoadingState: boolean = true) => {
     try {
-      set({ isLoading: true, error: null });
+      if (manageLoadingState) {
+        set({ isLoading: true, error: null });
+      }
 
       // Fetch ALL journal entries with pagination
       type JournalEntryRow = {
@@ -759,22 +761,37 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
       const allEntries = [...processedJournalEntries, ...processedManualEntries]
         .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       
-      set({ journalEntries: allEntries, isLoading: false });
+      set({ 
+        journalEntries: allEntries,
+        ...(manageLoadingState && { isLoading: false })
+      });
     } catch (error) {
       console.error('Error fetching journal entries:', error);
-      set({ error: 'Failed to fetch journal entries', isLoading: false });
+      set({ 
+        error: 'Failed to fetch journal entries',
+        ...(manageLoadingState && { isLoading: false })
+      });
     }
   },
   
   // Refresh all data
   refreshAll: async (companyId: string) => {
-    await Promise.all([
-      get().fetchAccounts(companyId),
-      get().fetchImportedTransactions(companyId),
-      get().fetchConfirmedTransactions(companyId),
-      get().fetchJournalEntries(companyId),
-      get().fetchImportedTransactionSplits(companyId)
-    ]);
+    try {
+      set({ isLoading: true, error: null });
+      
+      await Promise.all([
+        get().fetchAccounts(companyId),
+        get().fetchImportedTransactions(companyId),
+        get().fetchConfirmedTransactions(companyId),
+        get().fetchJournalEntries(companyId, false), // Don't manage loading state individually
+        get().fetchImportedTransactionSplits(companyId)
+      ]);
+      
+      set({ isLoading: false });
+    } catch (error) {
+      console.error('Error refreshing all data:', error);
+      set({ error: 'Failed to refresh data', isLoading: false });
+    }
   },
 
   // Fetch imported transaction splits with pagination
