@@ -6,7 +6,7 @@ import { useTransactionsStore } from "@/zustand/transactionsStore";
 import { useCategoriesStore } from "@/zustand/categoriesStore";
 import { usePayeesStore } from "@/zustand/payeesStore";
 import { supabase } from "@/lib/supabase";
-import { Loader2 } from "lucide-react";
+import { Loader2, ChevronDown, ChevronRight } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import TransactionModal, {
@@ -37,6 +37,7 @@ import { useFinancialData } from "../_hooks/useFinancialData";
 import { usePeriodSelection } from "../_hooks/usePeriodSelection";
 import { useAccountOperations } from "../_hooks/useAccountOperations";
 import { useExportBalanceSheet } from "../_hooks/useExportBalanceSheet";
+import { useRetainedEarningsData } from "../_hooks/useRetainedEarningsData";
 import { ReportHeader } from "../_components/ReportHeader";
 import { TransactionViewer } from "../_components/TransactionViewer";
 import { AccountRowRenderer } from "../_components/AccountRowRenderer";
@@ -101,25 +102,24 @@ export default function BalanceSheetPage() {
     isMonthlyView,
     isQuarterlyView,
     setStartDate,
+    setEndDate,
     handlePeriodChange,
     handlePrimaryDisplayChange,
     handleSecondaryDisplayChange,
   } = usePeriodSelection();
 
-  // For balance sheet, we use endDate as the "as of" date, but also manage it separately
-  const [asOfDate, setAsOfDate] = useState<string>(endDate);
-
-  // Sync asOfDate with endDate when period selection changes
-  React.useEffect(() => {
-    setAsOfDate(endDate);
-  }, [endDate]);
-
-  // For balance sheet, we need all journal entries up to the as-of date
+  // For balance sheet, we need all journal entries up to the end date
   const { categories, journalEntries, loading } = useFinancialData({
     companyId: currentCompany?.id || null,
-    startDate: "1900-01-01", // Get all historical data
-    endDate: asOfDate,
+    startDate: startDate,
+    endDate: endDate,
     accountTypes: ["Asset", "Liability", "Equity", "Revenue", "COGS", "Expense", "Bank Account", "Credit Card"],
+  });
+
+  // Fetch retained earnings data (historical transactions before current period)
+  const { retainedEarningsEntries, loading: retainedEarningsLoading } = useRetainedEarningsData({
+    companyId: currentCompany?.id || null,
+    currentPeriodStartDate: startDate,
   });
 
   const {
@@ -160,7 +160,8 @@ export default function BalanceSheetPage() {
           console.log("savedReport", savedReport);
           if (savedReport.type === "balance-sheet") {
             // Apply saved parameters
-            setAsOfDate(savedReport.parameters.endDate);
+            setStartDate(savedReport.parameters.startDate);
+            setEndDate(savedReport.parameters.endDate);
             handlePrimaryDisplayChange(savedReport.parameters.primaryDisplay);
             handleSecondaryDisplayChange(savedReport.parameters.secondaryDisplay);
             if (savedReport.parameters.period) {
@@ -187,10 +188,10 @@ export default function BalanceSheetPage() {
       const response = await api.post("/api/reports/saved", {
         name: name.trim(),
         type: "balance-sheet",
-        description: `Balance Sheet as of ${formatDateForDisplay(asOfDate)}`,
+        description: `Balance Sheet from ${formatDateForDisplay(startDate)} to ${formatDateForDisplay(endDate)}`,
         parameters: {
           startDate,
-          endDate: asOfDate,
+          endDate,
           primaryDisplay: selectedPrimaryDisplay,
           secondaryDisplay: selectedSecondaryDisplay,
           period: selectedPeriod,
@@ -300,46 +301,195 @@ export default function BalanceSheetPage() {
   };
 
   // Account groups for balance sheet
-  const assetAccounts = [...getTopLevelAccounts("Asset"), ...getTopLevelAccounts("Bank Account")];
-  const liabilityAccounts = [...getTopLevelAccounts("Liability"), ...getTopLevelAccounts("Credit Card")];
+  const regularAssetAccounts = getTopLevelAccounts("Asset");
+  const bankAccountAccounts = getTopLevelAccounts("Bank Account");
+  const assetAccounts = [...regularAssetAccounts, ...bankAccountAccounts]; // Keep for total calculations
+  const regularLiabilityAccounts = getTopLevelAccounts("Liability");
+  const creditCardAccounts = getTopLevelAccounts("Credit Card");
+  const liabilityAccounts = [...regularLiabilityAccounts, ...creditCardAccounts]; // Keep for total calculations
   const equityAccounts = getTopLevelAccounts("Equity");
+
+  // Create virtual Bank Accounts parent category if there are bank accounts
+  const virtualBankAccountsParent: Category | null = bankAccountAccounts.length > 0 ? {
+    id: "VIRTUAL_BANK_ACCOUNTS",
+    name: "Bank Accounts",
+    type: "Asset",
+    parent_id: null,
+  } : null;
+
+  // Create virtual Credit Cards parent category if there are credit card accounts
+  const virtualCreditCardsParent: Category | null = creditCardAccounts.length > 0 ? {
+    id: "VIRTUAL_CREDIT_CARDS",
+    name: "Credit Cards",
+    type: "Liability",
+    parent_id: null,
+  } : null;
+
+  // Create the asset accounts array with virtual Bank Accounts parent first
+  const assetAccountsWithBankGroup = [
+    ...(virtualBankAccountsParent ? [virtualBankAccountsParent] : []),
+    ...regularAssetAccounts
+  ];
+
+  // Create the liability accounts array with virtual Credit Cards parent first
+  const liabilityAccountsWithCreditCardGroup = [
+    ...(virtualCreditCardsParent ? [virtualCreditCardsParent] : []),
+    ...regularLiabilityAccounts
+  ];
 
   // P&L accounts for retained earnings calculation
   const revenueAccounts = getTopLevelAccounts("Revenue");
   const cogsAccounts = getTopLevelAccounts("COGS");
   const expenseAccounts = getTopLevelAccounts("Expense");
 
-  // Calculate P&L totals for retained earnings
+  // Calculate P&L totals for retained earnings (filtered by date range)
   const totalRevenue = revenueAccounts.reduce((sum, a) => {
     return (
       sum +
       journalEntries
-        .filter((tx) => getAllAccountIds(categories, a).includes(tx.chart_account_id))
-        .reduce((txSum, tx) => txSum + Number(tx.credit) - Number(tx.debit), 0)
+        .filter((tx) => getAllAccountIds(categories, a).includes(tx.chart_account_id) && tx.date >= startDate && tx.date <= endDate)
+        .reduce((txSum, tx) => txSum + Number(tx.credit), 0)
     );
   }, 0);
 
   const totalCOGS = cogsAccounts.reduce((sum, a) => {
-    const totalDebits = journalEntries
-      .filter((tx) => getAllAccountIds(categories, a).includes(tx.chart_account_id))
-      .reduce((txSum, tx) => txSum + Number(tx.debit), 0);
-    const totalCredits = journalEntries
-      .filter((tx) => getAllAccountIds(categories, a).includes(tx.chart_account_id))
-      .reduce((txSum, tx) => txSum + Number(tx.credit), 0);
-    return sum + (totalDebits - totalCredits);
+    return (
+      sum +
+      journalEntries
+        .filter((tx) => getAllAccountIds(categories, a).includes(tx.chart_account_id) && tx.date >= startDate && tx.date <= endDate)
+        .reduce((txSum, tx) => txSum + Number(tx.debit), 0)
+    );
   }, 0);
 
   const totalExpenses = expenseAccounts.reduce((sum, a) => {
-    const totalDebits = journalEntries
-      .filter((tx) => getAllAccountIds(categories, a).includes(tx.chart_account_id))
-      .reduce((txSum, tx) => txSum + Number(tx.debit), 0);
-    const totalCredits = journalEntries
-      .filter((tx) => getAllAccountIds(categories, a).includes(tx.chart_account_id))
-      .reduce((txSum, tx) => txSum + Number(tx.credit), 0);
-    return sum + (totalDebits - totalCredits);
+    return (
+      sum +
+      journalEntries
+        .filter((tx) => getAllAccountIds(categories, a).includes(tx.chart_account_id) && tx.date >= startDate && tx.date <= endDate)
+        .reduce((txSum, tx) => txSum + Number(tx.debit), 0)
+    );
   }, 0);
 
-  const retainedEarnings = totalRevenue - totalCOGS - totalExpenses;
+  const netIncome = totalRevenue - totalCOGS - totalExpenses;
+
+  // Calculate Net Income for specific month (filtered by date range)
+  const calculateNetIncomeForMonth = (month: string): number => {
+    const monthStart = month + "-01";
+    const monthEnd = new Date(month + "-31").toISOString().split("T")[0];
+    
+    // Filter to only include transactions within both the report date range AND the specific month
+    const effectiveStartDate = monthStart >= startDate ? monthStart : startDate;
+    const effectiveEndDate = monthEnd <= endDate ? monthEnd : endDate;
+    
+    // Skip if month is outside the report date range
+    if (effectiveStartDate > effectiveEndDate) return 0;
+    
+    const monthRevenue = revenueAccounts.reduce((sum, a) => {
+      return sum + journalEntries
+        .filter((tx) => 
+          getAllAccountIds(categories, a).includes(tx.chart_account_id) && 
+          tx.date >= effectiveStartDate && 
+          tx.date <= effectiveEndDate
+        )
+        .reduce((txSum, tx) => txSum + Number(tx.credit), 0);
+    }, 0);
+
+    const monthCOGS = cogsAccounts.reduce((sum, a) => {
+      return sum + journalEntries
+        .filter((tx) => 
+          getAllAccountIds(categories, a).includes(tx.chart_account_id) && 
+          tx.date >= effectiveStartDate && 
+          tx.date <= effectiveEndDate
+        )
+        .reduce((txSum, tx) => txSum + Number(tx.debit), 0);
+    }, 0);
+
+    const monthExpenses = expenseAccounts.reduce((sum, a) => {
+      return sum + journalEntries
+        .filter((tx) => 
+          getAllAccountIds(categories, a).includes(tx.chart_account_id) && 
+          tx.date >= effectiveStartDate && 
+          tx.date <= effectiveEndDate
+        )
+        .reduce((txSum, tx) => txSum + Number(tx.debit), 0);
+    }, 0);
+
+    return monthRevenue - monthCOGS - monthExpenses;
+  };
+
+  // Calculate Net Income for specific quarter (filtered by date range)
+  const calculateNetIncomeForQuarter = (quarter: string): number => {
+    const [year, q] = quarter.split("-Q");
+    const startMonth = (parseInt(q) - 1) * 3 + 1;
+    const endMonth = parseInt(q) * 3;
+    const quarterStart = new Date(parseInt(year), startMonth - 1, 1).toISOString().split("T")[0];
+    const quarterEnd = new Date(parseInt(year), endMonth - 1, 31).toISOString().split("T")[0];
+    
+    // Filter to only include transactions within both the report date range AND the specific quarter
+    const effectiveStartDate = quarterStart >= startDate ? quarterStart : startDate;
+    const effectiveEndDate = quarterEnd <= endDate ? quarterEnd : endDate;
+    
+    // Skip if quarter is outside the report date range
+    if (effectiveStartDate > effectiveEndDate) return 0;
+    
+    const quarterRevenue = revenueAccounts.reduce((sum, a) => {
+      return sum + journalEntries
+        .filter((tx) => 
+          getAllAccountIds(categories, a).includes(tx.chart_account_id) && 
+          tx.date >= effectiveStartDate && 
+          tx.date <= effectiveEndDate
+        )
+        .reduce((txSum, tx) => txSum + Number(tx.credit), 0);
+    }, 0);
+
+    const quarterCOGS = cogsAccounts.reduce((sum, a) => {
+      return sum + journalEntries
+        .filter((tx) => 
+          getAllAccountIds(categories, a).includes(tx.chart_account_id) && 
+          tx.date >= effectiveStartDate && 
+          tx.date <= effectiveEndDate
+        )
+        .reduce((txSum, tx) => txSum + Number(tx.debit), 0);
+    }, 0);
+
+    const quarterExpenses = expenseAccounts.reduce((sum, a) => {
+      return sum + journalEntries
+        .filter((tx) => 
+          getAllAccountIds(categories, a).includes(tx.chart_account_id) && 
+          tx.date >= effectiveStartDate && 
+          tx.date <= effectiveEndDate
+        )
+        .reduce((txSum, tx) => txSum + Number(tx.debit), 0);
+    }, 0);
+
+    return quarterRevenue - quarterCOGS - quarterExpenses;
+  };
+
+  // Calculate Retained Earnings (Net Income from 1/1/2000 to day before current period starts)
+  const calculateRetainedEarnings = (): number => {
+    // Use the dedicated retained earnings entries instead of filtered current period entries
+    const retainedRevenue = revenueAccounts.reduce((sum, a) => {
+      return sum + retainedEarningsEntries
+        .filter((tx) => getAllAccountIds(categories, a).includes(tx.chart_account_id))
+        .reduce((txSum, tx) => txSum + Number(tx.credit), 0);
+    }, 0);
+
+    const retainedCOGS = cogsAccounts.reduce((sum, a) => {
+      return sum + retainedEarningsEntries
+        .filter((tx) => getAllAccountIds(categories, a).includes(tx.chart_account_id))
+        .reduce((txSum, tx) => txSum + Number(tx.debit), 0);
+    }, 0);
+
+    const retainedExpenses = expenseAccounts.reduce((sum, a) => {
+      return sum + retainedEarningsEntries
+        .filter((tx) => getAllAccountIds(categories, a).includes(tx.chart_account_id))
+        .reduce((txSum, tx) => txSum + Number(tx.debit), 0);
+    }, 0);
+
+    return retainedRevenue - retainedCOGS - retainedExpenses;
+  };
+
+  const retainedEarnings = calculateRetainedEarnings();
 
   // Balance sheet totals
   const totalAssets = assetAccounts.reduce((sum, a) => {
@@ -353,7 +503,7 @@ export default function BalanceSheetPage() {
   const totalEquity =
     equityAccounts.reduce((sum, a) => {
       return sum + calculateBalanceSheetAccountTotalWithSubaccounts(a);
-    }, 0) + retainedEarnings;
+    }, 0) + retainedEarnings + netIncome;
 
   // Helper functions
   const getCategoryName = (tx: Transaction) => {
@@ -363,11 +513,11 @@ export default function BalanceSheetPage() {
   // Calculate total columns for proper column spanning
   const getTotalColumns = (): number => {
     if (isMonthlyView) {
-      const monthCount = getMonthsInRange(startDate, asOfDate).length;
+      const monthCount = getMonthsInRange(startDate, endDate).length;
       // Account column + month columns + (percentage columns if enabled) + Total column + (Total percentage if enabled)
       return 1 + monthCount + (showPercentages ? monthCount : 0) + 1 + (showPercentages ? 1 : 0);
     } else if (isQuarterlyView) {
-      const quarterCount = getQuartersInRange(startDate, asOfDate).length;
+      const quarterCount = getQuartersInRange(startDate, endDate).length;
       // Account column + quarter columns + (percentage columns if enabled) + Total column + (Total percentage if enabled)
       return 1 + quarterCount + (showPercentages ? quarterCount : 0) + 1 + (showPercentages ? 1 : 0);
     } else {
@@ -633,22 +783,39 @@ export default function BalanceSheetPage() {
     if (!viewerModal.category) return [];
 
     const category = viewerModal.category;
-    const transactions =
+    let transactions =
       category.id === "ASSETS_GROUP"
         ? journalEntries.filter((tx) => getAllGroupAccountIds(categories, assetAccounts).includes(tx.chart_account_id))
+        : category.id === "VIRTUAL_BANK_ACCOUNTS"
+        ? journalEntries.filter((tx) => getAllGroupAccountIds(categories, bankAccountAccounts).includes(tx.chart_account_id))
+        : category.id === "VIRTUAL_CREDIT_CARDS"
+        ? journalEntries.filter((tx) => getAllGroupAccountIds(categories, creditCardAccounts).includes(tx.chart_account_id))
+        : category.id === "BANK_ACCOUNT_GROUP"
+        ? journalEntries.filter((tx) => getAllGroupAccountIds(categories, bankAccountAccounts).includes(tx.chart_account_id))
         : category.id === "LIABILITIES_GROUP"
         ? journalEntries.filter((tx) =>
             getAllGroupAccountIds(categories, liabilityAccounts).includes(tx.chart_account_id)
           )
         : category.id === "EQUITY_GROUP"
         ? journalEntries.filter((tx) => getAllGroupAccountIds(categories, equityAccounts).includes(tx.chart_account_id))
-        : category.id === "RETAINED_EARNINGS"
+        : category.id === "NET_INCOME_GROUP"
         ? journalEntries.filter((tx) =>
             getAllGroupAccountIds(categories, [...revenueAccounts, ...cogsAccounts, ...expenseAccounts]).includes(
               tx.chart_account_id
             )
           )
+        : category.id === "RETAINED_EARNINGS"
+        ? retainedEarningsEntries.filter((tx) => 
+            getAllGroupAccountIds(categories, [...revenueAccounts, ...cogsAccounts, ...expenseAccounts]).includes(
+              tx.chart_account_id
+            )
+          )
         : journalEntries.filter((tx) => getAllAccountIds(categories, category).includes(tx.chart_account_id));
+
+    // Filter by month if selectedMonth is provided
+    if (viewerModal.selectedMonth) {
+      transactions = transactions.filter((tx) => tx.date.startsWith(viewerModal.selectedMonth!));
+    }
 
     return transactions;
   }, [
@@ -656,6 +823,8 @@ export default function BalanceSheetPage() {
     journalEntries,
     categories,
     assetAccounts,
+    bankAccountAccounts,
+    creditCardAccounts,
     liabilityAccounts,
     equityAccounts,
     revenueAccounts,
@@ -668,14 +837,18 @@ export default function BalanceSheetPage() {
     categories,
     journalEntries,
     assetAccounts,
+    regularAssetAccounts,
+    bankAccountAccounts,
     liabilityAccounts,
+    regularLiabilityAccounts,
+    creditCardAccounts,
     equityAccounts,
     currentCompany,
     isMonthlyView,
     isQuarterlyView,
     showPercentages,
     startDate,
-    asOfDate,
+    endDate,
     collapsedAccounts,
     calculateBalanceSheetAccountTotal,
     calculateBalanceSheetAccountTotalWithSubaccounts,
@@ -686,6 +859,7 @@ export default function BalanceSheetPage() {
     totalAssets,
     totalLiabilities,
     totalEquity,
+    netIncome,
     retainedEarnings,
     formatPercentageForAccount,
     calculatePercentageForMonth,
@@ -694,6 +868,461 @@ export default function BalanceSheetPage() {
 
   // Render account row helper for balance sheet
   const renderAccountRow = (category: Category, level = 0): React.ReactElement | null => {
+    // Handle virtual Bank Accounts parent
+    if (category.id === "VIRTUAL_BANK_ACCOUNTS") {
+      const isCollapsed = collapsedAccounts.has(category.id);
+      const totalBankAccountValue = bankAccountAccounts.reduce((sum, a) => sum + calculateBalanceSheetAccountTotalWithSubaccounts(a), 0);
+      
+      return (
+        <React.Fragment key={category.id}>
+          {/* Bank Accounts Parent Row */}
+          <TableRow
+            className="cursor-pointer hover:bg-gray-50"
+            onClick={(e) => {
+              // Check if clicking on the expand/collapse icon area
+              const target = e.target as HTMLElement;
+              if (target.closest('.expand-icon')) {
+                toggleCategory(category.id);
+              } else {
+                // Open transaction viewer
+                setViewerModal({
+                  isOpen: true,
+                  category: { id: "VIRTUAL_BANK_ACCOUNTS", name: "Bank Accounts", type: "Asset", parent_id: null },
+                });
+              }
+            }}
+          >
+            <TableCell className="text-left font-medium">
+              <div className="flex items-center">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleCategory(category.id);
+                  }}
+                  className="mr-2 p-1 hover:bg-gray-200 rounded transition-colors expand-icon"
+                >
+                  {isCollapsed ? (
+                    <ChevronRight className="w-3 h-3 text-gray-600" />
+                  ) : (
+                    <ChevronDown className="w-3 h-3 text-gray-600" />
+                  )}
+                </button>
+                {category.name}
+              </div>
+            </TableCell>
+            {isMonthlyView ? (
+              <>
+                {getMonthsInRange(startDate, endDate).map((month) => (
+                  <React.Fragment key={month}>
+                    <TableCell isValue>
+                      {formatNumber(
+                        bankAccountAccounts.reduce(
+                          (sum, a) => sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month),
+                          0
+                        )
+                      )}
+                    </TableCell>
+                    {showPercentages && (
+                      <TableCell isValue>
+                        {calculatePercentageForMonth(
+                          bankAccountAccounts.reduce(
+                            (sum, a) => sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month),
+                            0
+                          ),
+                          month
+                        )}
+                      </TableCell>
+                    )}
+                  </React.Fragment>
+                ))}
+                <TableCell isValue>{formatNumber(totalBankAccountValue)}</TableCell>
+                {showPercentages && <TableCell isValue>{formatPercentageForAccount(totalBankAccountValue)}</TableCell>}
+              </>
+            ) : isQuarterlyView ? (
+              <>
+                {getQuartersInRange(startDate, endDate).map((quarter) => (
+                  <React.Fragment key={quarter}>
+                    <TableCell isValue>
+                      {formatNumber(
+                        bankAccountAccounts.reduce(
+                          (sum, a) => sum + calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter),
+                          0
+                        )
+                      )}
+                    </TableCell>
+                    {showPercentages && (
+                      <TableCell isValue>
+                        {calculatePercentageForQuarter(
+                          bankAccountAccounts.reduce(
+                            (sum, a) => sum + calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter),
+                            0
+                          ),
+                          quarter
+                        )}
+                      </TableCell>
+                    )}
+                  </React.Fragment>
+                ))}
+                <TableCell isValue>{formatNumber(totalBankAccountValue)}</TableCell>
+                {showPercentages && <TableCell isValue>{formatPercentageForAccount(totalBankAccountValue)}</TableCell>}
+              </>
+            ) : (
+              <>
+                <TableCell isValue>{formatNumber(totalBankAccountValue)}</TableCell>
+                {showPercentages && <TableCell isValue>{formatPercentageForAccount(totalBankAccountValue)}</TableCell>}
+              </>
+            )}
+          </TableRow>
+          
+          {/* Bank Account Children */}
+          {!isCollapsed && bankAccountAccounts.map((bankAccount) => (
+            <AccountRowRenderer
+              key={bankAccount.id}
+              category={bankAccount}
+              level={1}
+              categories={categories}
+              journalEntries={journalEntries}
+              isMonthlyView={isMonthlyView}
+              isQuarterlyView={isQuarterlyView}
+              showPercentages={showPercentages}
+              startDate={startDate}
+              endDate={endDate}
+              collapsedAccounts={collapsedAccounts}
+              toggleCategory={toggleCategory}
+              calculateAccountTotal={calculateBalanceSheetAccountTotalWithSubaccounts}
+              calculateAccountDirectTotal={calculateBalanceSheetAccountTotal}
+              calculateAccountTotalForMonth={calculateBalanceSheetAccountTotalForMonth}
+              calculateAccountTotalForMonthWithSubaccounts={calculateBalanceSheetAccountTotalForMonthWithSubaccounts}
+              calculateAccountTotalForQuarter={calculateBalanceSheetAccountTotalForQuarter}
+              calculateAccountTotalForQuarterWithSubaccounts={calculateBalanceSheetAccountTotalForQuarterWithSubaccounts}
+              setViewerModal={setViewerModal}
+              formatPercentageForAccount={(num) => formatPercentageForAccount(num)}
+            />
+          ))}
+          
+          {/* Total Bank Accounts Row */}
+          {!isCollapsed && (
+            <TableRow
+              className="cursor-pointer hover:bg-blue-50"
+              onClick={() => setViewerModal({ isOpen: true, category: { id: "VIRTUAL_BANK_ACCOUNTS", name: "Bank Accounts", type: "Asset", parent_id: null } })}
+            >
+              <TableCell className="border p-1 text-xs bg-gray-50" style={{ paddingLeft: `${2 * 12 + 8}px` }}>
+                <span className="font-semibold">Total Bank Accounts</span>
+              </TableCell>
+              {isMonthlyView ? (
+                <>
+                  {getMonthsInRange(startDate, endDate).map((month) => (
+                    <React.Fragment key={month}>
+                      <TableCell className="border p-1 text-right font-semibold bg-gray-50 text-xs">
+                        {formatNumber(
+                          bankAccountAccounts.reduce(
+                            (sum, a) => sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month),
+                            0
+                          )
+                        )}
+                      </TableCell>
+                      {showPercentages && (
+                        <TableCell className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
+                          {calculatePercentageForMonth(
+                            bankAccountAccounts.reduce(
+                              (sum, a) => sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month),
+                              0
+                            ),
+                            month
+                          )}
+                        </TableCell>
+                      )}
+                    </React.Fragment>
+                  ))}
+                  <TableCell className="border p-1 text-right font-semibold bg-gray-50 text-xs">
+                    {formatNumber(totalBankAccountValue)}
+                  </TableCell>
+                  {showPercentages && (
+                    <TableCell className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
+                      {formatPercentageForAccount(totalBankAccountValue)}
+                    </TableCell>
+                  )}
+                </>
+              ) : isQuarterlyView ? (
+                <>
+                  {getQuartersInRange(startDate, endDate).map((quarter) => (
+                    <React.Fragment key={quarter}>
+                      <TableCell className="border p-1 text-right font-semibold bg-gray-50 text-xs">
+                        {formatNumber(
+                          bankAccountAccounts.reduce(
+                            (sum, a) => sum + calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter),
+                            0
+                          )
+                        )}
+                      </TableCell>
+                      {showPercentages && (
+                        <TableCell className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
+                          {calculatePercentageForQuarter(
+                            bankAccountAccounts.reduce(
+                              (sum, a) => sum + calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter),
+                              0
+                            ),
+                            quarter
+                          )}
+                        </TableCell>
+                      )}
+                    </React.Fragment>
+                  ))}
+                  <TableCell className="border p-1 text-right font-semibold bg-gray-50 text-xs">
+                    {formatNumber(totalBankAccountValue)}
+                  </TableCell>
+                  {showPercentages && (
+                    <TableCell className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
+                      {formatPercentageForAccount(totalBankAccountValue)}
+                    </TableCell>
+                  )}
+                </>
+              ) : (
+                <>
+                  <TableCell className="border p-1 text-right font-semibold bg-gray-50 text-xs">
+                    {formatNumber(totalBankAccountValue)}
+                  </TableCell>
+                  {showPercentages && (
+                    <TableCell className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
+                      {formatPercentageForAccount(totalBankAccountValue)}
+                    </TableCell>
+                  )}
+                </>
+              )}
+            </TableRow>
+          )}
+        </React.Fragment>
+      );
+    }
+
+    // Handle virtual Credit Cards parent
+    if (category.id === "VIRTUAL_CREDIT_CARDS") {
+      const isCollapsed = collapsedAccounts.has(category.id);
+      const totalCreditCardValue = creditCardAccounts.reduce((sum, a) => sum + calculateBalanceSheetAccountTotalWithSubaccounts(a), 0);
+      
+      return (
+        <React.Fragment key={category.id}>
+          {/* Credit Cards Parent Row */}
+          <TableRow
+            className="cursor-pointer hover:bg-gray-50"
+            onClick={(e) => {
+              // Check if clicking on the expand/collapse icon area
+              const target = e.target as HTMLElement;
+              if (target.closest('.expand-icon')) {
+                toggleCategory(category.id);
+              } else {
+                // Open transaction viewer
+                setViewerModal({
+                  isOpen: true,
+                  category: { id: "VIRTUAL_CREDIT_CARDS", name: "Credit Cards", type: "Liability", parent_id: null },
+                });
+              }
+            }}
+          >
+            <TableCell className="text-left font-medium">
+              <div className="flex items-center">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleCategory(category.id);
+                  }}
+                  className="mr-2 p-1 hover:bg-gray-200 rounded transition-colors expand-icon"
+                >
+                  {isCollapsed ? (
+                    <ChevronRight className="w-3 h-3 text-gray-600" />
+                  ) : (
+                    <ChevronDown className="w-3 h-3 text-gray-600" />
+                  )}
+                </button>
+                {category.name}
+              </div>
+            </TableCell>
+            {isMonthlyView ? (
+              <>
+                {getMonthsInRange(startDate, endDate).map((month) => (
+                  <React.Fragment key={month}>
+                    <TableCell isValue>
+                      {formatNumber(
+                        creditCardAccounts.reduce(
+                          (sum, a) => sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month),
+                          0
+                        )
+                      )}
+                    </TableCell>
+                    {showPercentages && (
+                      <TableCell isValue>
+                        {calculatePercentageForMonth(
+                          creditCardAccounts.reduce(
+                            (sum, a) => sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month),
+                            0
+                          ),
+                          month
+                        )}
+                      </TableCell>
+                    )}
+                  </React.Fragment>
+                ))}
+                <TableCell isValue>{formatNumber(totalCreditCardValue)}</TableCell>
+                {showPercentages && <TableCell isValue>{formatPercentageForAccount(totalCreditCardValue)}</TableCell>}
+              </>
+            ) : isQuarterlyView ? (
+              <>
+                {getQuartersInRange(startDate, endDate).map((quarter) => (
+                  <React.Fragment key={quarter}>
+                    <TableCell isValue>
+                      {formatNumber(
+                        creditCardAccounts.reduce(
+                          (sum, a) => sum + calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter),
+                          0
+                        )
+                      )}
+                    </TableCell>
+                    {showPercentages && (
+                      <TableCell isValue>
+                        {calculatePercentageForQuarter(
+                          creditCardAccounts.reduce(
+                            (sum, a) => sum + calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter),
+                            0
+                          ),
+                          quarter
+                        )}
+                      </TableCell>
+                    )}
+                  </React.Fragment>
+                ))}
+                <TableCell isValue>{formatNumber(totalCreditCardValue)}</TableCell>
+                {showPercentages && <TableCell isValue>{formatPercentageForAccount(totalCreditCardValue)}</TableCell>}
+              </>
+            ) : (
+              <>
+                <TableCell isValue>{formatNumber(totalCreditCardValue)}</TableCell>
+                {showPercentages && <TableCell isValue>{formatPercentageForAccount(totalCreditCardValue)}</TableCell>}
+              </>
+            )}
+          </TableRow>
+          
+          {/* Credit Card Children */}
+          {!isCollapsed && creditCardAccounts.map((creditCard) => (
+            <AccountRowRenderer
+              key={creditCard.id}
+              category={creditCard}
+              level={1}
+              categories={categories}
+              journalEntries={journalEntries}
+              isMonthlyView={isMonthlyView}
+              isQuarterlyView={isQuarterlyView}
+              showPercentages={showPercentages}
+              startDate={startDate}
+              endDate={endDate}
+              collapsedAccounts={collapsedAccounts}
+              toggleCategory={toggleCategory}
+              calculateAccountTotal={calculateBalanceSheetAccountTotalWithSubaccounts}
+              calculateAccountDirectTotal={calculateBalanceSheetAccountTotal}
+              calculateAccountTotalForMonth={calculateBalanceSheetAccountTotalForMonth}
+              calculateAccountTotalForMonthWithSubaccounts={calculateBalanceSheetAccountTotalForMonthWithSubaccounts}
+              calculateAccountTotalForQuarter={calculateBalanceSheetAccountTotalForQuarter}
+              calculateAccountTotalForQuarterWithSubaccounts={calculateBalanceSheetAccountTotalForQuarterWithSubaccounts}
+              setViewerModal={setViewerModal}
+              formatPercentageForAccount={(num) => formatPercentageForAccount(num)}
+            />
+          ))}
+          
+          {/* Total Credit Cards Row */}
+          {!isCollapsed && (
+            <TableRow
+              className="cursor-pointer hover:bg-blue-50"
+              onClick={() => setViewerModal({ isOpen: true, category: { id: "VIRTUAL_CREDIT_CARDS", name: "Credit Cards", type: "Liability", parent_id: null } })}
+            >
+              <TableCell className="border p-1 text-xs bg-gray-50" style={{ paddingLeft: `${2 * 12 + 8}px` }}>
+                <span className="font-semibold">Total Credit Cards</span>
+              </TableCell>
+              {isMonthlyView ? (
+                <>
+                  {getMonthsInRange(startDate, endDate).map((month) => (
+                    <React.Fragment key={month}>
+                      <TableCell className="border p-1 text-right font-semibold bg-gray-50 text-xs">
+                        {formatNumber(
+                          creditCardAccounts.reduce(
+                            (sum, a) => sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month),
+                            0
+                          )
+                        )}
+                      </TableCell>
+                      {showPercentages && (
+                        <TableCell className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
+                          {calculatePercentageForMonth(
+                            creditCardAccounts.reduce(
+                              (sum, a) => sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month),
+                              0
+                            ),
+                            month
+                          )}
+                        </TableCell>
+                      )}
+                    </React.Fragment>
+                  ))}
+                  <TableCell className="border p-1 text-right font-semibold bg-gray-50 text-xs">
+                    {formatNumber(totalCreditCardValue)}
+                  </TableCell>
+                  {showPercentages && (
+                    <TableCell className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
+                      {formatPercentageForAccount(totalCreditCardValue)}
+                    </TableCell>
+                  )}
+                </>
+              ) : isQuarterlyView ? (
+                <>
+                  {getQuartersInRange(startDate, endDate).map((quarter) => (
+                    <React.Fragment key={quarter}>
+                      <TableCell className="border p-1 text-right font-semibold bg-gray-50 text-xs">
+                        {formatNumber(
+                          creditCardAccounts.reduce(
+                            (sum, a) => sum + calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter),
+                            0
+                          )
+                        )}
+                      </TableCell>
+                      {showPercentages && (
+                        <TableCell className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
+                          {calculatePercentageForQuarter(
+                            creditCardAccounts.reduce(
+                              (sum, a) => sum + calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter),
+                              0
+                            ),
+                            quarter
+                          )}
+                        </TableCell>
+                      )}
+                    </React.Fragment>
+                  ))}
+                  <TableCell className="border p-1 text-right font-semibold bg-gray-50 text-xs">
+                    {formatNumber(totalCreditCardValue)}
+                  </TableCell>
+                  {showPercentages && (
+                    <TableCell className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
+                      {formatPercentageForAccount(totalCreditCardValue)}
+                    </TableCell>
+                  )}
+                </>
+              ) : (
+                <>
+                  <TableCell className="border p-1 text-right font-semibold bg-gray-50 text-xs">
+                    {formatNumber(totalCreditCardValue)}
+                  </TableCell>
+                  {showPercentages && (
+                    <TableCell className="border p-1 text-right text-xs text-slate-600 bg-gray-50">
+                      {formatPercentageForAccount(totalCreditCardValue)}
+                    </TableCell>
+                  )}
+                </>
+              )}
+            </TableRow>
+          )}
+        </React.Fragment>
+      );
+    }
+
+    // Regular account rendering
     return (
       <AccountRowRenderer
         key={category.id}
@@ -705,7 +1334,7 @@ export default function BalanceSheetPage() {
         isQuarterlyView={isQuarterlyView}
         showPercentages={showPercentages}
         startDate={startDate}
-        endDate={asOfDate}
+        endDate={endDate}
         collapsedAccounts={collapsedAccounts}
         toggleCategory={toggleCategory}
         calculateAccountTotal={calculateBalanceSheetAccountTotalWithSubaccounts}
@@ -737,14 +1366,14 @@ export default function BalanceSheetPage() {
     <div className="p-6 bg-white min-h-screen">
       <div
         className={`mx-auto ${
-          getMonthsInRange(startDate, asOfDate).length > 6 ? "max-w-full" : "max-w-7xl"
+          getMonthsInRange(startDate, endDate).length > 6 ? "max-w-full" : "max-w-7xl"
         } animate-in fade-in`}
       >
         <ReportHeader
           startDate={startDate}
-          endDate={asOfDate}
+          endDate={endDate}
           setStartDate={setStartDate}
-          setEndDate={setAsOfDate} // Update the as of date when changed
+          setEndDate={setEndDate}
           selectedPeriod={selectedPeriod}
           onPeriodChange={handlePeriodChange}
           selectedPrimaryDisplay={selectedPrimaryDisplay}
@@ -758,7 +1387,6 @@ export default function BalanceSheetPage() {
           exportToXLSX={exportToXLSX}
           onSaveReport={() => setShowSaveDialog(true)}
           loading={loading}
-          isBalanceSheet={true}
         />
 
         <Card className="pt-3 pb-0">
@@ -767,8 +1395,8 @@ export default function BalanceSheetPage() {
             <p className="text-lg text-slate-700 mb-1 text-center font-medium">Balance Sheet</p>
             <p className="text-sm text-slate-600 mb-3 text-center">
               {isMonthlyView || isQuarterlyView
-                ? `${formatDateForDisplay(startDate)} to ${formatDateForDisplay(asOfDate)}`
-                : `As of ${formatDateForDisplay(asOfDate)}`}
+                ? `${formatDateForDisplay(startDate)} to ${formatDateForDisplay(endDate)}`
+                : `As of ${formatDateForDisplay(endDate)}`}
             </p>
 
             <div className="overflow-x-auto">
@@ -790,7 +1418,7 @@ export default function BalanceSheetPage() {
                     ></TableHead>
                     {isMonthlyView ? (
                       <>
-                        {getMonthsInRange(startDate, asOfDate).map((month) => (
+                        {getMonthsInRange(startDate, endDate).map((month) => (
                           <React.Fragment key={month}>
                             <TableHead
                               className="whitespace-nowrap"
@@ -812,7 +1440,7 @@ export default function BalanceSheetPage() {
                       </>
                     ) : isQuarterlyView ? (
                       <>
-                        {getQuartersInRange(startDate, asOfDate).map((quarter) => (
+                        {getQuartersInRange(startDate, endDate).map((quarter) => (
                           <React.Fragment key={quarter}>
                             <TableHead className="whitespace-nowrap" style={{ width: showPercentages ? "7%" : "10%" }}>
                               {formatQuarter(quarter)}
@@ -833,7 +1461,7 @@ export default function BalanceSheetPage() {
                 </TableHeader>
 
                 <TableBody>
-                  {loading || loadingSavedReport ? (
+                  {loading || retainedEarningsLoading || loadingSavedReport ? (
                     <TableRow>
                       <TableCell colSpan={getTotalColumns()} className="border p-4 text-center">
                         <div className="flex flex-col items-center space-y-3">
@@ -850,7 +1478,7 @@ export default function BalanceSheetPage() {
                           Assets
                         </TableCell>
                       </TableRow>
-                      {assetAccounts.map((account) => renderAccountRow(account))}
+                      {assetAccountsWithBankGroup.map((account) => renderAccountRow(account))}
 
                       {/* Total Assets */}
                       <TableRow
@@ -865,7 +1493,7 @@ export default function BalanceSheetPage() {
                         <TableCell isLineItem>Total Assets</TableCell>
                         {isMonthlyView ? (
                           <>
-                            {getMonthsInRange(startDate, asOfDate).map((month) => (
+                            {getMonthsInRange(startDate, endDate).map((month) => (
                               <React.Fragment key={month}>
                                 <TableCell isValue>
                                   {formatNumber(
@@ -884,7 +1512,7 @@ export default function BalanceSheetPage() {
                           </>
                         ) : isQuarterlyView ? (
                           <>
-                            {getQuartersInRange(startDate, asOfDate).map((quarter) => (
+                            {getQuartersInRange(startDate, endDate).map((quarter) => (
                               <React.Fragment key={quarter}>
                                 <TableCell isValue>
                                   {formatNumber(
@@ -915,7 +1543,7 @@ export default function BalanceSheetPage() {
                           Liabilities
                         </TableCell>
                       </TableRow>
-                      {liabilityAccounts.map((account) => renderAccountRow(account))}
+                      {liabilityAccountsWithCreditCardGroup.map((account) => renderAccountRow(account))}
 
                       {/* Total Liabilities */}
                       <TableRow
@@ -935,7 +1563,7 @@ export default function BalanceSheetPage() {
                         <TableCell isLineItem>Total Liabilities</TableCell>
                         {isMonthlyView ? (
                           <>
-                            {getMonthsInRange(startDate, asOfDate).map((month) => (
+                            {getMonthsInRange(startDate, endDate).map((month) => (
                               <React.Fragment key={month}>
                                 <TableCell isValue>
                                   {formatNumber(
@@ -967,7 +1595,7 @@ export default function BalanceSheetPage() {
                           </>
                         ) : isQuarterlyView ? (
                           <>
-                            {getQuartersInRange(startDate, asOfDate).map((quarter) => (
+                            {getQuartersInRange(startDate, endDate).map((quarter) => (
                               <React.Fragment key={quarter}>
                                 <TableCell isValue>
                                   {formatNumber(
@@ -1015,6 +1643,56 @@ export default function BalanceSheetPage() {
                       </TableRow>
                       {equityAccounts.map((account) => renderAccountRow(account))}
 
+                      {/* Net Income */}
+                      <TableRow
+                        className="cursor-pointer"
+                        onClick={() =>
+                          setViewerModal({
+                            isOpen: true,
+                            category: {
+                              id: "NET_INCOME_GROUP",
+                              name: "Net Income",
+                              type: "Net Income",
+                              parent_id: null,
+                            },
+                          })
+                        }
+                      >
+                        <TableCell isLineItem>Net Income</TableCell>
+                        {isMonthlyView ? (
+                          <>
+                            {getMonthsInRange(startDate, endDate).map((month) => (
+                              <React.Fragment key={month}>
+                                <TableCell isValue>{formatNumber(calculateNetIncomeForMonth(month))}</TableCell>
+                                {showPercentages && (
+                                  <TableCell isValue>{calculatePercentageForMonth(calculateNetIncomeForMonth(month), month)}</TableCell>
+                                )}
+                              </React.Fragment>
+                            ))}
+                            <TableCell isValue>{formatNumber(netIncome)}</TableCell>
+                            {showPercentages && <TableCell isValue>{formatPercentageForAccount(netIncome)}</TableCell>}
+                          </>
+                        ) : isQuarterlyView ? (
+                          <>
+                            {getQuartersInRange(startDate, endDate).map((quarter) => (
+                              <React.Fragment key={quarter}>
+                                <TableCell isValue>{formatNumber(calculateNetIncomeForQuarter(quarter))}</TableCell>
+                                {showPercentages && (
+                                  <TableCell isValue>{calculatePercentageForQuarter(calculateNetIncomeForQuarter(quarter), quarter)}</TableCell>
+                                )}
+                              </React.Fragment>
+                            ))}
+                            <TableCell isValue>{formatNumber(netIncome)}</TableCell>
+                            {showPercentages && <TableCell isValue>{formatPercentageForAccount(netIncome)}</TableCell>}
+                          </>
+                        ) : (
+                          <>
+                            <TableCell isValue>{formatNumber(netIncome)}</TableCell>
+                            {showPercentages && <TableCell isValue>{formatPercentageForAccount(netIncome)}</TableCell>}
+                          </>
+                        )}
+                      </TableRow>
+
                       {/* Retained Earnings */}
                       <TableRow
                         className="cursor-pointer"
@@ -1033,7 +1711,7 @@ export default function BalanceSheetPage() {
                         <TableCell isLineItem>Retained Earnings</TableCell>
                         {isMonthlyView ? (
                           <>
-                            {getMonthsInRange(startDate, asOfDate).map((month) => (
+                            {getMonthsInRange(startDate, endDate).map((month) => (
                               <React.Fragment key={month}>
                                 <TableCell isValue>{formatNumber(retainedEarnings)}</TableCell>
                                 {showPercentages && (
@@ -1048,7 +1726,7 @@ export default function BalanceSheetPage() {
                           </>
                         ) : isQuarterlyView ? (
                           <>
-                            {getQuartersInRange(startDate, asOfDate).map((quarter) => (
+                            {getQuartersInRange(startDate, endDate).map((quarter) => (
                               <React.Fragment key={quarter}>
                                 <TableCell isValue>{formatNumber(retainedEarnings)}</TableCell>
                                 {showPercentages && (
@@ -1086,7 +1764,7 @@ export default function BalanceSheetPage() {
                         <TableCell isLineItem>Total Equity</TableCell>
                         {isMonthlyView ? (
                           <>
-                            {getMonthsInRange(startDate, asOfDate).map((month) => (
+                            {getMonthsInRange(startDate, endDate).map((month) => (
                               <React.Fragment key={month}>
                                 <TableCell isValue>
                                   {formatNumber(
@@ -1094,7 +1772,7 @@ export default function BalanceSheetPage() {
                                       (sum, a) =>
                                         sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month),
                                       0
-                                    ) + retainedEarnings
+                                    ) + retainedEarnings + calculateNetIncomeForMonth(month)
                                   )}
                                 </TableCell>
                                 {showPercentages && (
@@ -1104,7 +1782,7 @@ export default function BalanceSheetPage() {
                                         (sum, a) =>
                                           sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month),
                                         0
-                                      ) + retainedEarnings,
+                                      ) + retainedEarnings + calculateNetIncomeForMonth(month),
                                       month
                                     )}
                                   </TableCell>
@@ -1118,7 +1796,7 @@ export default function BalanceSheetPage() {
                           </>
                         ) : isQuarterlyView ? (
                           <>
-                            {getQuartersInRange(startDate, asOfDate).map((quarter) => (
+                            {getQuartersInRange(startDate, endDate).map((quarter) => (
                               <React.Fragment key={quarter}>
                                 <TableCell isValue>
                                   {formatNumber(
@@ -1126,7 +1804,7 @@ export default function BalanceSheetPage() {
                                       (sum, a) =>
                                         sum + calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter),
                                       0
-                                    ) + retainedEarnings
+                                    ) + retainedEarnings + calculateNetIncomeForQuarter(quarter)
                                   )}
                                 </TableCell>
                                 {showPercentages && (
@@ -1136,7 +1814,7 @@ export default function BalanceSheetPage() {
                                         (sum, a) =>
                                           sum + calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter),
                                         0
-                                      ) + retainedEarnings,
+                                      ) + retainedEarnings + calculateNetIncomeForQuarter(quarter),
                                       quarter
                                     )}
                                   </TableCell>
@@ -1163,7 +1841,7 @@ export default function BalanceSheetPage() {
                         <TableCell isLineItem>Total Liabilities & Equity</TableCell>
                         {isMonthlyView ? (
                           <>
-                            {getMonthsInRange(startDate, asOfDate).map((month) => (
+                            {getMonthsInRange(startDate, endDate).map((month) => (
                               <React.Fragment key={month}>
                                 <TableCell isValue>
                                   {formatNumber(
@@ -1177,7 +1855,8 @@ export default function BalanceSheetPage() {
                                           sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month),
                                         0
                                       ) +
-                                      retainedEarnings
+                                      retainedEarnings +
+                                      calculateNetIncomeForMonth(month)
                                   )}
                                 </TableCell>
                                 {showPercentages && (
@@ -1193,7 +1872,8 @@ export default function BalanceSheetPage() {
                                             sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month),
                                           0
                                         ) +
-                                        retainedEarnings,
+                                        retainedEarnings +
+                                        calculateNetIncomeForMonth(month),
                                       month
                                     )}
                                   </TableCell>
@@ -1209,7 +1889,7 @@ export default function BalanceSheetPage() {
                           </>
                         ) : isQuarterlyView ? (
                           <>
-                            {getQuartersInRange(startDate, asOfDate).map((quarter) => (
+                            {getQuartersInRange(startDate, endDate).map((quarter) => (
                               <React.Fragment key={quarter}>
                                 <TableCell isValue>
                                   {formatNumber(
@@ -1223,7 +1903,8 @@ export default function BalanceSheetPage() {
                                           sum + calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter),
                                         0
                                       ) +
-                                      retainedEarnings
+                                      retainedEarnings +
+                                      calculateNetIncomeForQuarter(quarter)
                                   )}
                                 </TableCell>
                                 {showPercentages && (
@@ -1240,7 +1921,8 @@ export default function BalanceSheetPage() {
                                             calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter),
                                           0
                                         ) +
-                                        retainedEarnings,
+                                        retainedEarnings +
+                                        calculateNetIncomeForQuarter(quarter),
                                       quarter
                                     )}
                                   </TableCell>
@@ -1289,8 +1971,8 @@ export default function BalanceSheetPage() {
           viewerModal={viewerModal}
           setViewerModal={setViewerModal}
           selectedCategoryTransactions={selectedCategoryTransactions}
-          startDate="1900-01-01"
-          endDate={asOfDate}
+          startDate={startDate}
+          endDate={endDate}
           companyName={currentCompany.name}
           getCategoryName={getCategoryName}
           onTransactionClick={handleTransactionClick}
