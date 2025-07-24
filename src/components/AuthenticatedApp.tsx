@@ -47,7 +47,7 @@ export default function AuthenticatedApp({ children }: { children: React.ReactNo
     <SelectedToAddProvider>
       {/* Only show navbar if not on homepage */}
       {!isHomepage && <NavBar onToggleAI={() => setIsAIPanelOpen(!isAIPanelOpen)} />}
-      <div className={`flex ${isHomepage ? 'min-h-screen' : ''}`}>
+      <div className={`flex ${isHomepage ? 'min-h-screen' : 'min-h-[calc(100vh-2.75rem)]'}`}>
         <main className={`flex-1 ${isHomepage ? '' : 'overflow-auto'}`}>
           {children}
         </main>
@@ -56,8 +56,13 @@ export default function AuthenticatedApp({ children }: { children: React.ReactNo
           losing its internal state (like chat history). 
           By rendering a single instance, the state is preserved across open/close actions.
           The component itself handles whether to show the full panel or just the "open" button.
+          AISidePanel is now sticky positioned relative to the navbar.
         */}
-        {!isHomepage && <AISidePanel isOpen={isAIPanelOpen} setIsOpen={setIsAIPanelOpen} />}
+        {!isHomepage && (
+          <div className="relative">
+            <AISidePanel isOpen={isAIPanelOpen} setIsOpen={setIsAIPanelOpen} />
+          </div>
+        )}
       </div>
     </SelectedToAddProvider>
   );

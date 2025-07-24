@@ -190,7 +190,7 @@ export default function NavBar({
 
   return (
     <>
-      <nav className="flex justify-between items-center px-6 py-2 bg-gray-100 border-b border-gray-300 text-xs font-normal">
+      <nav className="sticky top-0 z-40 flex justify-between items-center px-6 py-2 bg-gray-100 border-b border-gray-300 text-xs font-normal h-11">
         {/* Left side - Navigation or Empty for Gateway */}
         <div className="space-x-6 flex">
           {!isGatewayPage && (
