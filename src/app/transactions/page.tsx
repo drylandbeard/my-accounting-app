@@ -2990,11 +2990,6 @@ export default function TransactionsPage() {
                                   selectedTransactions: new Set(),
                                 }));
 
-                                // Show success message
-                                showSuccessToast(
-                                  `Successfully imported ${result.count || selectedTransactions.length} transactions!`
-                                );
-
                                 // Note: Automations will be triggered automatically by the main automation effect
                                 // when it detects the new imported transactions
                               } else {
