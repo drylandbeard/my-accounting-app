@@ -222,7 +222,6 @@ export default function TransactionsPage() {
     isUndoingTransactions,
     setSelectedAccountId,
     createLinkToken,
-    refreshAll,
     addTransactions,
     undoTransactions,
     syncTransactions: storeSyncTransactions,
@@ -243,6 +242,10 @@ export default function TransactionsPage() {
     fetchImportedTransactionSplits,
     saveAutomationState,
     loadAutomationState,
+    fetchAccounts,
+    fetchImportedTransactions,
+    fetchConfirmedTransactions,
+    fetchJournalEntries,
   } = useTransactionsStore();
 
   const { categories, refreshCategories, createCategoryForTransaction, subscribeToCategories } = useCategoriesStore();
@@ -820,13 +823,17 @@ export default function TransactionsPage() {
 
   useEffect(() => {
     if (hasCompanyContext && currentCompany?.id) {
-      refreshAll(currentCompany.id);
+      // Use individual fetch functions with incremental sync (default behavior)
+      fetchAccounts(currentCompany.id);
+      fetchImportedTransactions(currentCompany.id);
+      fetchConfirmedTransactions(currentCompany.id);
+      fetchJournalEntries(currentCompany.id);
       refreshCategories();
       refreshPayees();
       // Initial fetch for imported transaction splits (subsequent updates via subscription)
       fetchImportedTransactionSplits(currentCompany.id);
     }
-  }, [currentCompany?.id, hasCompanyContext, refreshAll, refreshCategories, refreshPayees, fetchImportedTransactionSplits]); // Refresh when company changes
+  }, [currentCompany?.id, hasCompanyContext, fetchAccounts, fetchImportedTransactions, fetchConfirmedTransactions, fetchJournalEntries, refreshCategories, refreshPayees, fetchImportedTransactionSplits]); // Refresh when company changes
 
   // Real-time subscriptions managed by stores
   useEffect(() => {
@@ -2470,8 +2477,11 @@ export default function TransactionsPage() {
         throw new Error("Failed to update journal entries");
       }
 
-      // Refresh all data
-      await refreshAll(currentCompany!.id);
+      // Refresh data with incremental sync
+      await Promise.all([
+        fetchConfirmedTransactions(currentCompany!.id),
+        fetchJournalEntries(currentCompany!.id)
+      ]);
 
       showSuccessToast("Journal entries updated successfully!");
 

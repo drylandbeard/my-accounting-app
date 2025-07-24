@@ -182,11 +182,41 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 9. Return success response
+    // 9. Fetch the complete imported transactions with split information
+    const importedTransactionIds = insertedImportedTransactions.map(tx => tx.id);
+    
+    // Get split counts for each imported transaction
+    const { data: splitCounts } = await supabase
+      .from('imported_transactions_split')
+      .select('imported_transaction_id')
+      .in('imported_transaction_id', importedTransactionIds)
+      .eq('company_id', companyId);
+    
+    // Count splits per transaction
+    const splitCountMap = new Map<string, number>();
+    if (splitCounts) {
+      splitCounts.forEach(entry => {
+        const count = splitCountMap.get(entry.imported_transaction_id) || 0;
+        splitCountMap.set(entry.imported_transaction_id, count + 1);
+      });
+    }
+    
+    // Add split information to the imported transactions
+    const importedTransactionsWithSplitInfo = insertedImportedTransactions.map(tx => ({
+      ...tx,
+      // Convert numeric values to strings as expected by Transaction type
+      spent: tx.spent ? tx.spent.toString() : undefined,
+      received: tx.received ? tx.received.toString() : undefined,
+      // A transaction is split if it has more than 2 split entries
+      has_split: (splitCountMap.get(tx.id) || 0) > 2
+    }));
+
+    // 10. Return success response with the imported transactions
     return NextResponse.json({ 
       status: "success",
       processed: transactionsToUndo.length,
-      message: `Successfully undid ${transactionsToUndo.length} transactions`
+      message: `Successfully undid ${transactionsToUndo.length} transactions`,
+      importedTransactions: importedTransactionsWithSplitInfo
     });
 
   } catch (err: unknown) {

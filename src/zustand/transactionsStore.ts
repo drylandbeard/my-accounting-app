@@ -213,6 +213,15 @@ interface TransactionsState {
   // Real-time subscriptions state
   subscriptions: ReturnType<typeof supabase.channel>[];
   
+  // Incremental sync timestamps
+  lastSyncTimestamps: {
+    importedTransactions?: string;
+    transactions?: string;
+    journalEntries?: string;
+    manualJournalEntries?: string;
+    importedTransactionSplits?: string;
+  };
+  
   // Actions
   setLinkToken: (token: string | null) => void;
   setSelectedAccountId: (accountId: string | null) => void;
@@ -221,9 +230,9 @@ interface TransactionsState {
   // Data fetching
   createLinkToken: () => Promise<void>;
   fetchAccounts: (companyId: string) => Promise<void>;
-  fetchImportedTransactions: (companyId: string) => Promise<void>;
-  fetchConfirmedTransactions: (companyId: string) => Promise<void>;
-  fetchJournalEntries: (companyId: string, manageLoadingState?: boolean) => Promise<void>;
+  fetchImportedTransactions: (companyId: string, forceFullRefresh?: boolean) => Promise<void>;
+  fetchConfirmedTransactions: (companyId: string, forceFullRefresh?: boolean) => Promise<void>;
+  fetchJournalEntries: (companyId: string, manageLoadingState?: boolean, forceFullRefresh?: boolean) => Promise<void>;
   refreshAll: (companyId: string) => Promise<void>;
   
   // Transaction operations
@@ -328,6 +337,7 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
   isUndoingTransactions: false,
   error: null,
   subscriptions: [],
+  lastSyncTimestamps: {},
   
   // Basic setters
   setLinkToken: (token) => set({ linkToken: token }),
@@ -394,7 +404,7 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
   },
   
   // Fetch imported transactions with pagination to handle more than 1000 rows
-  fetchImportedTransactions: async (companyId: string) => {
+  fetchImportedTransactions: async (companyId: string, forceFullRefresh: boolean = false) => {
     try {
       type ImportedTransactionRow = {
         id: string;
@@ -407,13 +417,19 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
         selected_category_id: string | null;
         payee_id: string | null;
         company_id: string;
+        created_at: string;
+        updated_at: string;
       };
 
       type SplitCountRow = {
         imported_transaction_id: string;
       };
 
-      // Fetch ALL imported transactions with pagination
+      const currentState = get();
+      const lastSync = currentState.lastSyncTimestamps.importedTransactions;
+      const isIncrementalSync = !forceFullRefresh && lastSync;
+
+      // Fetch imported transactions with pagination
       let allTransactionData: ImportedTransactionRow[] = [];
       let page = 0;
       const pageSize = 1000;
@@ -421,11 +437,18 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
 
       // Fetch all pages of data
       while (hasMore) {
-        const { data, error } = await supabase
+        let query = supabase
           .from('imported_transactions')
-          .select('id, date, description, spent, received, plaid_account_id, plaid_account_name, selected_category_id, payee_id, company_id')
+          .select('id, date, description, spent, received, plaid_account_id, plaid_account_name, selected_category_id, payee_id, company_id, created_at, updated_at')
           .eq('company_id', companyId)
-          .neq('plaid_account_name', null)
+          .neq('plaid_account_name', null);
+
+        // Add timestamp filter for incremental sync
+        if (isIncrementalSync) {
+          query = query.or(`created_at.gt.${lastSync},updated_at.gt.${lastSync}`);
+        }
+
+        const { data, error } = await query
           .range(page * pageSize, (page + 1) * pageSize - 1)
           .order('date', { ascending: false });
 
@@ -503,10 +526,39 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
           has_split: (splitCountMap.get(tx.id) || 0) > 2
         })) as Transaction[];
         
-        set({ importedTransactions: transactionsWithSplitInfo });
-      } else {
+        // Handle incremental vs full refresh
+        if (isIncrementalSync) {
+          // Merge with existing data
+          const existingTransactions = currentState.importedTransactions;
+          const updatedTransactionIds = new Set(transactionsWithSplitInfo.map(tx => tx.id));
+          
+          // Filter out transactions that were updated, then add the new/updated ones
+          const mergedTransactions = [
+            ...transactionsWithSplitInfo,
+            ...existingTransactions.filter(tx => !updatedTransactionIds.has(tx.id))
+          ];
+          
+          // Sort by date (newest first)
+          mergedTransactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+          
+          set({ importedTransactions: mergedTransactions });
+        } else {
+          // Full refresh - replace all data
+          set({ importedTransactions: transactionsWithSplitInfo });
+        }
+      } else if (!isIncrementalSync) {
+        // Only clear data on full refresh
         set({ importedTransactions: [] });
       }
+      
+      // Update sync timestamp
+      const now = new Date().toISOString();
+      set((state) => ({
+        lastSyncTimestamps: {
+          ...state.lastSyncTimestamps,
+          importedTransactions: now
+        }
+      }));
     } catch (error) {
       console.error('Error fetching imported transactions:', error);
       set({ error: 'Failed to fetch imported transactions' });
@@ -514,7 +566,7 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
   },
   
   // Fetch confirmed transactions with pagination to handle more than 1000 rows
-  fetchConfirmedTransactions: async (companyId: string) => {
+  fetchConfirmedTransactions: async (companyId: string, forceFullRefresh: boolean = false) => {
     try {
       type ConfirmedTransactionRow = {
         id: string;
@@ -528,13 +580,19 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
         corresponding_category_id: string | null;
         payee_id: string | null;
         company_id: string;
+        created_at: string;
+        updated_at: string;
       };
 
       type JournalCountRow = {
         transaction_id: string;
       };
 
-      // Fetch ALL confirmed transactions with pagination
+      const currentState = get();
+      const lastSync = currentState.lastSyncTimestamps.transactions;
+      const isIncrementalSync = !forceFullRefresh && lastSync;
+
+      // Fetch confirmed transactions with pagination
       let allTransactionData: ConfirmedTransactionRow[] = [];
       let page = 0;
       const pageSize = 1000;
@@ -542,11 +600,18 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
 
       // Fetch all pages of data
       while (hasMore) {
-        const { data, error } = await supabase
+        let query = supabase
           .from('transactions')
-          .select('id, date, description, spent, received, plaid_account_id, plaid_account_name, selected_category_id, corresponding_category_id, payee_id, company_id')
+          .select('id, date, description, spent, received, plaid_account_id, plaid_account_name, selected_category_id, corresponding_category_id, payee_id, company_id, created_at, updated_at')
           .eq('company_id', companyId)
-          .neq('plaid_account_name', null)
+          .neq('plaid_account_name', null);
+
+        // Add timestamp filter for incremental sync
+        if (isIncrementalSync) {
+          query = query.or(`created_at.gt.${lastSync},updated_at.gt.${lastSync}`);
+        }
+
+        const { data, error } = await query
           .range(page * pageSize, (page + 1) * pageSize - 1)
           .order('date', { ascending: false });
 
@@ -624,10 +689,39 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
           has_split: (journalCountMap.get(tx.id) || 0) > 2
         })) as Transaction[];
         
-        set({ transactions: transactionsWithSplitInfo });
-      } else {
+        // Handle incremental vs full refresh
+        if (isIncrementalSync) {
+          // Merge with existing data
+          const existingTransactions = currentState.transactions;
+          const updatedTransactionIds = new Set(transactionsWithSplitInfo.map(tx => tx.id));
+          
+          // Filter out transactions that were updated, then add the new/updated ones
+          const mergedTransactions = [
+            ...transactionsWithSplitInfo,
+            ...existingTransactions.filter(tx => !updatedTransactionIds.has(tx.id))
+          ];
+          
+          // Sort by date (newest first)
+          mergedTransactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+          
+          set({ transactions: mergedTransactions });
+        } else {
+          // Full refresh - replace all data
+          set({ transactions: transactionsWithSplitInfo });
+        }
+      } else if (!isIncrementalSync) {
+        // Only clear data on full refresh
         set({ transactions: [] });
       }
+      
+      // Update sync timestamp
+      const now = new Date().toISOString();
+      set((state) => ({
+        lastSyncTimestamps: {
+          ...state.lastSyncTimestamps,
+          transactions: now
+        }
+      }));
     } catch (error) {
       console.error('Error fetching confirmed transactions:', error);
       set({ error: 'Failed to fetch confirmed transactions' });
@@ -635,11 +729,15 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
   },
 
   // Fetch journal entries from both journal and manual_journal_entries tables with pagination
-  fetchJournalEntries: async (companyId: string, manageLoadingState: boolean = true) => {
+  fetchJournalEntries: async (companyId: string, manageLoadingState: boolean = true, forceFullRefresh: boolean = false) => {
     try {
       if (manageLoadingState) {
         set({ isLoading: true, error: null });
       }
+
+      const currentState = get();
+      const lastSync = currentState.lastSyncTimestamps.journalEntries;
+      const isIncrementalSync = !forceFullRefresh && lastSync;
 
       // Fetch ALL journal entries with pagination
       type JournalEntryRow = {
@@ -651,6 +749,8 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
         transaction_id: string;
         chart_account_id: string;
         company_id: string;
+        created_at: string;
+        updated_at: string;
         transactions: {
           payee_id?: string;
           corresponding_category_id: string;
@@ -664,13 +764,20 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
 
       // Fetch all pages of journal entries
       while (hasMore) {
-        const { data, error } = await supabase
+        let query = supabase
           .from('journal')
           .select(`
             *,
             transactions!inner(payee_id, corresponding_category_id)
           `)
-          .eq('company_id', companyId)
+          .eq('company_id', companyId);
+
+        // Add timestamp filter for incremental sync
+        if (isIncrementalSync) {
+          query = query.or(`created_at.gt.${lastSync},updated_at.gt.${lastSync}`);
+        }
+
+        const { data, error } = await query
           .range(page * pageSize, (page + 1) * pageSize - 1)
           .order('date', { ascending: false });
 
@@ -711,10 +818,17 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
 
       // Fetch all pages of manual journal entries
       while (hasMore) {
-        const { data, error } = await supabase
+        let query = supabase
           .from('manual_journal_entries')
           .select('*')
-          .eq('company_id', companyId)
+          .eq('company_id', companyId);
+
+        // Add timestamp filter for incremental sync
+        if (isIncrementalSync) {
+          query = query.or(`created_at.gt.${lastSync},updated_at.gt.${lastSync}`);
+        }
+
+        const { data, error } = await query
           .range(page * pageSize, (page + 1) * pageSize - 1)
           .order('date', { ascending: false });
 
@@ -761,10 +875,41 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
       const allEntries = [...processedJournalEntries, ...processedManualEntries]
         .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       
-      set({ 
-        journalEntries: allEntries,
-        ...(manageLoadingState && { isLoading: false })
-      });
+      // Handle incremental vs full refresh
+      if (isIncrementalSync) {
+        // Merge with existing data
+        const existingEntries = currentState.journalEntries;
+        const updatedEntryIds = new Set(allEntries.map(entry => entry.id));
+        
+        // Filter out entries that were updated, then add the new/updated ones
+        const mergedEntries = [
+          ...allEntries,
+          ...existingEntries.filter(entry => !updatedEntryIds.has(entry.id))
+        ];
+        
+        // Sort by date (newest first)
+        mergedEntries.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        
+        set({ 
+          journalEntries: mergedEntries,
+          ...(manageLoadingState && { isLoading: false })
+        });
+      } else {
+        // Full refresh - replace all data
+        set({ 
+          journalEntries: allEntries,
+          ...(manageLoadingState && { isLoading: false })
+        });
+      }
+      
+      // Update sync timestamp
+      const now = new Date().toISOString();
+      set((state) => ({
+        lastSyncTimestamps: {
+          ...state.lastSyncTimestamps,
+          journalEntries: now
+        }
+      }));
     } catch (error) {
       console.error('Error fetching journal entries:', error);
       set({ 
@@ -781,9 +926,9 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
       
       await Promise.all([
         get().fetchAccounts(companyId),
-        get().fetchImportedTransactions(companyId),
-        get().fetchConfirmedTransactions(companyId),
-        get().fetchJournalEntries(companyId, false), // Don't manage loading state individually
+        get().fetchImportedTransactions(companyId, true), // Force full refresh
+        get().fetchConfirmedTransactions(companyId, true), // Force full refresh
+        get().fetchJournalEntries(companyId, false, true), // Don't manage loading state individually, force full refresh
         // Removed fetchImportedTransactionSplits - now handled by real-time subscription
       ]);
       
@@ -971,8 +1116,18 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
         }
       }
       
-      // Refresh data after processing all batches
-      await get().refreshAll(companyId);
+      // Update state directly instead of refreshing all data
+      // Remove the processed imported transactions from the imported list
+      const processedIds = transactionRequests.map(req => req.transaction.id);
+      const currentState = get();
+      const updatedImportedTransactions = currentState.importedTransactions.filter(
+        tx => !processedIds.includes(tx.id)
+      );
+      
+      set({ importedTransactions: updatedImportedTransactions });
+      
+      // Refresh only confirmed transactions to get the newly added ones
+      await get().fetchConfirmedTransactions(companyId);
       
       if (hasErrors) {
         showErrorToast(`Completed with errors. ${totalProcessed} out of ${transactionRequests.length} transactions processed.`);
@@ -1010,8 +1165,35 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
         throw new Error(data.error || 'Failed to undo transactions');
       }
       
-      // Refresh data after successful operation
-      await get().refreshAll(companyId);
+      // Update state with returned data instead of refetching all
+      if (data.importedTransactions && Array.isArray(data.importedTransactions)) {
+        const currentState = get();
+        
+        // Remove the transactions from the confirmed transactions list
+        const updatedTransactions = currentState.transactions.filter(
+          tx => !transactionIds.includes(tx.id)
+        );
+        
+        // Add the returned imported transactions to the imported transactions list
+        const updatedImportedTransactions = [
+          ...data.importedTransactions,
+          ...currentState.importedTransactions
+        ];
+        
+        // Sort by date (newest first)
+        updatedImportedTransactions.sort((a, b) => 
+          new Date(b.date).getTime() - new Date(a.date).getTime()
+        );
+        
+        set({ 
+          transactions: updatedTransactions,
+          importedTransactions: updatedImportedTransactions 
+        });
+      } else {
+        // Fallback to refresh if data format is unexpected
+        console.warn('Unexpected response format, falling back to refresh');
+        await get().refreshAll(companyId);
+      }
       
       showSuccessToast(`Successfully undid ${transactionIds.length} transactions!`);
       
@@ -1052,8 +1234,29 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
         throw new Error(data.error || 'Failed to update transaction');
       }
       
-      // Refresh data
-      await get().refreshAll(companyId);
+      // Update state with returned data instead of refetching all
+      if (data.transaction && data.tableName) {
+        const currentState = get();
+        const updatedTransaction = data.transaction;
+        
+        if (data.tableName === 'transactions') {
+          // Update the transaction in the confirmed transactions list
+          const updatedTransactions = currentState.transactions.map(tx =>
+            tx.id === transactionId ? { ...tx, ...updatedTransaction } : tx
+          );
+          set({ transactions: updatedTransactions });
+        } else if (data.tableName === 'imported_transactions') {
+          // Update the transaction in the imported transactions list
+          const updatedImportedTransactions = currentState.importedTransactions.map(tx =>
+            tx.id === transactionId ? { ...tx, ...updatedTransaction } : tx
+          );
+          set({ importedTransactions: updatedImportedTransactions });
+        }
+      } else {
+        // Fallback to refresh if data format is unexpected
+        console.warn('Unexpected response format, falling back to refresh');
+        await get().refreshAll(companyId);
+      }
       
       showSuccessToast('Transaction updated successfully!');
       
@@ -1653,9 +1856,48 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
         schema: 'public',
         table: 'imported_transactions',
         filter: `company_id=eq.${companyId}`
-      }, (payload) => {
+      }, async (payload) => {
         console.log('Imported transactions changed:', payload.eventType);
-        get().fetchImportedTransactions(companyId);
+        
+        const currentState = get();
+        
+        if (payload.eventType === 'INSERT') {
+          // Add new imported transaction to the beginning of the list
+          const newTransaction = payload.new as any;
+          // Convert numeric values to strings and add split info
+          const formattedTransaction = {
+            ...newTransaction,
+            spent: newTransaction.spent ? newTransaction.spent.toString() : undefined,
+            received: newTransaction.received ? newTransaction.received.toString() : undefined,
+            has_split: false // New transactions don't have splits initially
+          };
+          
+          const updatedImportedTransactions = [formattedTransaction, ...currentState.importedTransactions];
+          set({ importedTransactions: updatedImportedTransactions });
+        } else if (payload.eventType === 'UPDATE') {
+          // Update existing imported transaction
+          const updatedTransaction = payload.new as any;
+          const formattedTransaction = {
+            ...updatedTransaction,
+            spent: updatedTransaction.spent ? updatedTransaction.spent.toString() : undefined,
+            received: updatedTransaction.received ? updatedTransaction.received.toString() : undefined,
+            has_split: currentState.importedTransactions.find(tx => tx.id === updatedTransaction.id)?.has_split || false
+          };
+          
+          const updatedImportedTransactions = currentState.importedTransactions.map(tx =>
+            tx.id === updatedTransaction.id ? { ...tx, ...formattedTransaction } : tx
+          );
+          set({ importedTransactions: updatedImportedTransactions });
+        } else if (payload.eventType === 'DELETE') {
+          // Remove deleted imported transaction
+          const deletedId = payload.old?.id;
+          if (deletedId) {
+            const updatedImportedTransactions = currentState.importedTransactions.filter(
+              tx => tx.id !== deletedId
+            );
+            set({ importedTransactions: updatedImportedTransactions });
+          }
+        }
       })
       .subscribe();
 
@@ -1667,9 +1909,47 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
         schema: 'public',
         table: 'transactions',
         filter: `company_id=eq.${companyId}`
-      }, (payload) => {
+      }, async (payload) => {
         console.log('Transactions changed:', payload.eventType);
-        get().fetchConfirmedTransactions(companyId);
+        
+        const currentState = get();
+        
+        if (payload.eventType === 'INSERT') {
+          // Add new confirmed transaction to the beginning of the list
+          const newTransaction = payload.new as any;
+          const formattedTransaction = {
+            ...newTransaction,
+            spent: newTransaction.spent ? newTransaction.spent.toString() : undefined,
+            received: newTransaction.received ? newTransaction.received.toString() : undefined,
+            has_split: false // Will be updated when journal entries are created
+          };
+          
+          const updatedTransactions = [formattedTransaction, ...currentState.transactions];
+          set({ transactions: updatedTransactions });
+        } else if (payload.eventType === 'UPDATE') {
+          // Update existing confirmed transaction
+          const updatedTransaction = payload.new as any;
+          const formattedTransaction = {
+            ...updatedTransaction,
+            spent: updatedTransaction.spent ? updatedTransaction.spent.toString() : undefined,
+            received: updatedTransaction.received ? updatedTransaction.received.toString() : undefined,
+            has_split: currentState.transactions.find(tx => tx.id === updatedTransaction.id)?.has_split || false
+          };
+          
+          const updatedTransactions = currentState.transactions.map(tx =>
+            tx.id === updatedTransaction.id ? { ...tx, ...formattedTransaction } : tx
+          );
+          set({ transactions: updatedTransactions });
+        } else if (payload.eventType === 'DELETE') {
+          // Remove deleted confirmed transaction
+          const deletedId = payload.old?.id;
+          if (deletedId) {
+            const updatedTransactions = currentState.transactions.filter(
+              tx => tx.id !== deletedId
+            );
+            set({ transactions: updatedTransactions });
+          }
+        }
       })
       .subscribe();
 
@@ -1681,9 +1961,35 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
         schema: 'public',
         table: 'imported_transactions_split',
         filter: `company_id=eq.${companyId}`
-      }, (payload) => {
+      }, async (payload) => {
         console.log('Imported transaction splits changed:', payload.eventType);
-        get().fetchImportedTransactionSplits(companyId);
+        
+        const currentState = get();
+        
+        if (payload.eventType === 'INSERT' || payload.eventType === 'DELETE' || payload.eventType === 'UPDATE') {
+          // Refresh splits data and update split indicators
+          await get().fetchImportedTransactionSplits(companyId);
+          
+          // Update split indicators for affected imported transactions
+          const affectedTransactionId = payload.new?.imported_transaction_id || payload.old?.imported_transaction_id;
+          if (affectedTransactionId) {
+            // Get updated split count for this transaction
+            const { data: splitCount } = await supabase
+              .from('imported_transactions_split')
+              .select('id')
+              .eq('imported_transaction_id', affectedTransactionId)
+              .eq('company_id', companyId);
+            
+            const splitEntryCount = splitCount?.length || 0;
+            const hasSplit = splitEntryCount > 2;
+            
+            // Update the imported transaction's split indicator
+            const updatedImportedTransactions = currentState.importedTransactions.map(tx =>
+              tx.id === affectedTransactionId ? { ...tx, has_split: hasSplit } : tx
+            );
+            set({ importedTransactions: updatedImportedTransactions });
+          }
+        }
       })
       .subscribe();
 
