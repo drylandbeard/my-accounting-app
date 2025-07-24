@@ -10,8 +10,6 @@ import ManualJeModal, {
   type NewJournalEntry, 
   type EditJournalModalState 
 } from '@/components/ManualJeModal';
-
-import { X } from 'lucide-react';
 import Select from 'react-select';
 import { 
   isZeroAmount
