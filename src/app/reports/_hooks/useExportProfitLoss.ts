@@ -234,7 +234,7 @@ export const useExportProfitLoss = (params: UseExportProfitLossParams) => {
 
             let colIndex = 1;
             const indent = "        ".repeat(accountLevel);
-            worksheet.getCell(currentRow, colIndex++).value = `${indent}${acc.name}`;
+            worksheet.getCell(currentRow, colIndex++).value = `  ${indent}${acc.name}`;
             worksheet.getCell(currentRow, 1).style = { font: { size: 10 } };
 
             if (isMonthlyView) {
@@ -412,7 +412,7 @@ export const useExportProfitLoss = (params: UseExportProfitLossParams) => {
 
             if (showPercentages) {
               const percentValue =
-                sectionName === "Revenue" ? "100.0%" : calculatePercentageForMonth(monthlyTotal, month);
+                sectionName === "Revenue" && monthlyTotal !== 0 ? "100.0%" : calculatePercentageForMonth(monthlyTotal, month);
               worksheet.getCell(currentRow, colIndex++).value =
                 percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
               worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
@@ -442,7 +442,7 @@ export const useExportProfitLoss = (params: UseExportProfitLossParams) => {
 
             if (showPercentages) {
               const percentValue =
-                sectionName === "Revenue" ? "100.0%" : calculatePercentageForQuarter(quarterlyTotal, quarter);
+                sectionName === "Revenue" && quarterlyTotal !== 0 ? "100.0%" : calculatePercentageForQuarter(quarterlyTotal, quarter);
               worksheet.getCell(currentRow, colIndex++).value =
                 percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
               worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
@@ -587,7 +587,7 @@ export const useExportProfitLoss = (params: UseExportProfitLossParams) => {
               percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
             worksheet.getCell(currentRow, colIndex - 1).style = {
               font: { bold: true },
-              numFmt: "0.0%",
+              numFmt: '0.0%;-0.0%;\"—\"',
               alignment: { horizontal: "right" as const },
             };
           }
@@ -631,7 +631,7 @@ export const useExportProfitLoss = (params: UseExportProfitLossParams) => {
               percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
             worksheet.getCell(currentRow, colIndex - 1).style = {
               font: { bold: true },
-              numFmt: "0.0%",
+              numFmt: '0.0%;-0.0%;\"—\"',
               alignment: { horizontal: "right" as const },
             };
           }
