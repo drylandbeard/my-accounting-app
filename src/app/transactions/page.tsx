@@ -216,6 +216,7 @@ export default function TransactionsPage() {
     accounts,
     importedTransactions,
     transactions,
+    isLoading,
     isSyncing,
     isAddingTransactions,
     isUndoingTransactions,
@@ -4061,7 +4062,17 @@ export default function TransactionsPage() {
                 </tr>
               </thead>
               <tbody>
-                {imported.map((tx) => {
+                {isLoading ? (
+                  <tr>
+                    <td colSpan={8} className="border p-4 text-center">
+                      <div className="flex flex-col items-center space-y-3">
+                        <Loader2 className="h-8 w-8 animate-spin" />
+                        <span className="text-xs">Loading transactions...</span>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  imported.map((tx) => {
                   return (
                     <tr
                       key={tx.id}
@@ -4331,7 +4342,8 @@ export default function TransactionsPage() {
                       </td>
                     </tr>
                   );
-                })}
+                })
+                )}
               </tbody>
             </table>
             </div>
@@ -4430,7 +4442,17 @@ export default function TransactionsPage() {
                 </tr>
               </thead>
               <tbody>
-                {confirmed.map((tx) => {
+                {isLoading ? (
+                  <tr>
+                    <td colSpan={8} className="border p-4 text-center">
+                      <div className="flex flex-col items-center space-y-3">
+                        <Loader2 className="h-8 w-8 animate-spin" />
+                        <span className="text-xs">Loading transactions...</span>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  confirmed.map((tx) => {
                   const category = categories.find((c) => c.id === tx.selected_category_id);
                   return (
                     <tr
@@ -4521,7 +4543,8 @@ export default function TransactionsPage() {
                       </td>
                     </tr>
                   );
-                })}
+                })
+                )}
               </tbody>
             </table>
             </div>

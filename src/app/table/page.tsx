@@ -5,7 +5,7 @@ import { useAuthStore } from '@/zustand/authStore';
 import { useTransactionsStore, type JournalTableEntry } from '@/zustand/transactionsStore';
 import { useCategoriesStore, type Category } from '@/zustand/categoriesStore';
 import { usePayeesStore } from '@/zustand/payeesStore';
-import { X } from 'lucide-react';
+import { X, Loader2 } from 'lucide-react';
 import Select from 'react-select';
 import TransactionModal, { 
   type EditJournalModalState, 
@@ -1196,7 +1196,17 @@ export default function JournalTablePage() {
                 </tr>
               </thead>
               <tbody>
-                {displayedEntries.map((entry) => (
+                {isLoading ? (
+                  <tr>
+                    <td colSpan={finalColumns.length} className="border p-4 text-center">
+                      <div className="flex flex-col items-center space-y-3">
+                        <Loader2 className="h-8 w-8 animate-spin" />
+                        <span className="text-xs">Loading journal entries...</span>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  displayedEntries.map((entry) => (
                   <tr 
                     key={String(entry.id)} 
                     className={`hover:bg-gray-50 cursor-pointer ${entry.is_split_item ? 'bg-blue-50' : ''}`}
@@ -1235,7 +1245,8 @@ export default function JournalTablePage() {
                       </td>
                     ))}
                   </tr>
-                ))}
+                ))
+                )}
               </tbody>
             </table>
           </div>

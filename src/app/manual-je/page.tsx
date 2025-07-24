@@ -26,6 +26,7 @@ import {
 import { DatePicker } from '@/components/ui/date-picker';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Loader2 } from 'lucide-react';
 
 // Define types specific to the journal table
 
@@ -890,7 +891,17 @@ export default function JournalTablePage() {
                 </tr>
               </thead>
               <tbody>
-                {displayedEntries.map((entry) => (
+                {isLoading ? (
+                  <tr>
+                    <td colSpan={finalColumns.length} className="border p-4 text-center">
+                      <div className="flex flex-col items-center space-y-3">
+                        <Loader2 className="h-8 w-8 animate-spin" />
+                        <span className="text-xs">Loading journal entries...</span>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  displayedEntries.map((entry) => (
                   <tr 
                     key={String(entry.id)} 
                     className="hover:bg-gray-50 cursor-pointer"
@@ -920,7 +931,8 @@ export default function JournalTablePage() {
                       </td>
                     ))}
                   </tr>
-                ))}
+                ))
+                )}
               </tbody>
             </table>
           </div>
