@@ -42,25 +42,10 @@ type SelectOption = {
   label: string;
 };
 
-type CSVJournalEntry = {
-  id: string;
-  Payee: string;
-  Description: string;
-  'Spent (Debit)': string;
-  'Received (Credit)': string;
-  payee_id?: string;
-  chart_account_id?: string;
-};
-
 type ImportModalState = {
   isOpen: boolean;
-  step: "upload" | "review";
-  csvData: CSVJournalEntry[];
   isLoading: boolean;
   error: string | null;
-  selectedEntries: Set<string>;
-  date: string;
-  jeName: string;
 };
 
 export default function JournalTablePage() {
@@ -68,7 +53,7 @@ export default function JournalTablePage() {
   const hasCompanyContext = !!(currentCompany);
   
   // Store hooks
-  const { fetchAccounts, manualJournalEntries, fetchManualJournalEntries, saveManualJournalEntry, updateManualJournalEntry, importManualJournalEntriesFromCSV, isLoading, error } = useTransactionsStore();
+  const { fetchAccounts, manualJournalEntries, fetchManualJournalEntries, saveManualJournalEntry, updateManualJournalEntry, isLoading, error } = useTransactionsStore();
   const { categories, refreshCategories, createCategoryForTransaction } = useCategoriesStore();
   const { payees, refreshPayees } = usePayeesStore();
   
@@ -159,13 +144,8 @@ export default function JournalTablePage() {
   // Import modal state
   const [importModal, setImportModal] = useState<ImportModalState>({
     isOpen: false,
-    step: "upload",
-    csvData: [],
     isLoading: false,
-    error: null,
-    selectedEntries: new Set(),
-    date: new Date().toISOString().split('T')[0],
-    jeName: ''
+    error: null
   });
 
   // Category dropdown options
@@ -876,16 +856,31 @@ ABC Company,Equipment Purchase,250.00,0.00
                 'Received (Credit)': row['Received (Credit)'] || '0.00',
                 payee_id: undefined,
                 chart_account_id: undefined
-              } as CSVJournalEntry;
+              };
             });
 
-          setImportModal(prev => ({
-            ...prev,
-            step: 'review',
-            csvData,
-            selectedEntries: new Set(csvData.map(entry => entry.id)),
-            isLoading: false
+          // Convert CSV data to journal entry lines
+          const journalLines: JournalEntryLine[] = csvData.map((entry, index) => ({
+            id: (index + 1).toString(),
+            description: entry.Description,
+            categoryId: '', // Will need to be selected by user
+            payeeId: '', // Will need to be mapped or selected
+            debit: entry['Spent (Debit)'] || '0.00',
+            credit: entry['Received (Credit)'] || '0.00'
           }));
+
+          // Populate the new entry state with CSV data
+          setNewEntry({
+            date: new Date().toISOString().split('T')[0],
+            description: `Imported from CSV - ${file.name}`,
+            jeName: `CSV Import - ${new Date().toLocaleDateString()}`,
+            lines: journalLines
+          });
+
+          // Close import modal and open the add modal
+          setImportModal(prev => ({ ...prev, isOpen: false, isLoading: false }));
+          setShowAddModal(true);
+
         } catch (error) {
           console.error('Error parsing CSV:', error);
           setImportModal(prev => ({
@@ -1217,286 +1212,66 @@ ABC Company,Equipment Purchase,250.00,0.00
                   <Loader2 className="h-8 w-8 animate-spin" />
                 </div>
               ) : (
-                <div className="space-y-1">
-                  {importModal.step === "upload" && (
-                    <>
-                      <div className="space-y-4">
-                        <div className="space-y-3">
-                          <div className="flex justify-between items-center">
-                            <h3 className="text-sm font-medium text-gray-700">Upload CSV File</h3>
-                            <button onClick={downloadJournalTemplate} className="text-sm text-gray-600 hover:text-gray-800">
-                              Download Template
-                            </button>
-                          </div>
+                <div className="space-y-4">
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <h3 className="text-sm font-medium text-gray-700">Upload CSV File</h3>
+                      <button onClick={downloadJournalTemplate} className="text-sm text-gray-600 hover:text-gray-800">
+                        Download Template
+                      </button>
+                    </div>
 
-                          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                            <h4 className="text-sm font-medium text-blue-800 mb-2">CSV Format Instructions:</h4>
-                            <ul className="text-sm text-blue-700 space-y-1">
-                              <li>
-                                • <strong>Payee:</strong> Name of the payee (optional)
-                              </li>
-                              <li>
-                                • <strong>Description:</strong> Description of the journal entry
-                              </li>
-                              <li>
-                                • <strong>Spent (Debit):</strong> Debit amount (use 0.00 if no amount)
-                              </li>
-                              <li>
-                                • <strong>Received (Credit):</strong> Credit amount (use 0.00 if no amount)
-                              </li>
-                            </ul>
-                            <p className="text-xs text-blue-600 mt-2">
-                              Download the template above to see examples of proper formatting.
-                            </p>
-                          </div>
-                        </div>
-                        <div
-                          className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center transition-colors duration-200 hover:border-gray-400"
-                          onDragOver={handleCsvDragOver}
-                          onDrop={handleCsvDrop}
-                        >
-                          <input
-                            type="file"
-                            accept=".csv"
-                            onChange={handleFileUpload}
-                            className="hidden"
-                            id="csv-upload"
-                          />
-                          <label
-                            htmlFor="csv-upload"
-                            className="cursor-pointer inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
-                          >
-                            Choose CSV File
-                          </label>
-                          <p className="mt-2 text-sm text-gray-500">
-                            Drag and drop your CSV file here, or click to browse
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex justify-end space-x-2 mt-4">
-                        <button
-                          onClick={() => setImportModal(prev => ({ ...prev, isOpen: false }))}
-                          className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </>
-                  )}
-                  {importModal.step === "review" && (
-                    <>
-                      <div className="space-y-4">
-                        <div className="space-y-2">
-                          <label className="block text-sm font-medium text-gray-700">Date</label>
-                          <DatePicker
-                            value={importModal.date}
-                            onChange={(date) => setImportModal(prev => ({ 
-                              ...prev, 
-                              date: date ? date.toISOString().split('T')[0] : '' 
-                            }))}
-                            className="px-2 h-7 text-xs w-full"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label className="block text-sm font-medium text-gray-700">Journal Entry Name</label>
-                          <input
-                            type="text"
-                            value={importModal.jeName}
-                            onChange={(e) => setImportModal(prev => ({ ...prev, jeName: e.target.value }))}
-                            placeholder="Enter journal entry name..."
-                            className="w-full border px-2 py-1 rounded text-sm"
-                          />
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <h3 className="text-sm font-medium text-gray-700">Review Entries</h3>
-                        </div>
-                        <div className="border rounded-lg overflow-hidden max-h-96 overflow-y-auto">
-                          <table className="min-w-full divide-y divide-gray-200">
-                            <thead className="bg-gray-50">
-                              <tr>
-                                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-8">
-                                  <input
-                                    type="checkbox"
-                                    checked={
-                                      importModal.csvData.length > 0 &&
-                                      importModal.selectedEntries.size === importModal.csvData.length
-                                    }
-                                    onChange={(e) => {
-                                      if (e.target.checked) {
-                                        setImportModal(prev => ({
-                                          ...prev,
-                                          selectedEntries: new Set(importModal.csvData.map(entry => entry.id)),
-                                        }));
-                                      } else {
-                                        setImportModal(prev => ({
-                                          ...prev,
-                                          selectedEntries: new Set(),
-                                        }));
-                                      }
-                                    }}
-                                    className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
-                                  />
-                                </th>
-                                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                  Payee
-                                </th>
-                                <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                  Description
-                                </th>
-                                <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                  Debit
-                                </th>
-                                <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                  Credit
-                                </th>
-                              </tr>
-                            </thead>
-                            <tbody className="bg-white divide-y divide-gray-200">
-                              {importModal.csvData.map((entry) => (
-                                <tr key={entry.id}>
-                                  <td className="px-4 py-2 whitespace-nowrap w-8 text-left">
-                                    <input
-                                      type="checkbox"
-                                      checked={importModal.selectedEntries.has(entry.id)}
-                                      onChange={(e) => {
-                                        const newSelected = new Set(importModal.selectedEntries);
-                                        if (e.target.checked) {
-                                          newSelected.add(entry.id);
-                                        } else {
-                                          newSelected.delete(entry.id);
-                                        }
-                                        setImportModal(prev => ({
-                                          ...prev,
-                                          selectedEntries: newSelected,
-                                        }));
-                                      }}
-                                      className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
-                                    />
-                                  </td>
-                                  <td className="px-4 py-2 text-sm text-gray-900">
-                                    {entry.Payee || '—'}
-                                  </td>
-                                  <td className="px-4 py-2 text-sm text-gray-900" style={{ minWidth: 250 }}>
-                                    {entry.Description}
-                                  </td>
-                                  <td className="px-4 py-2 text-sm text-gray-900 text-right">
-                                    {parseFloat(entry['Spent (Debit)']) > 0 ? entry['Spent (Debit)'] : '—'}
-                                  </td>
-                                  <td className="px-4 py-2 text-sm text-gray-900 text-right">
-                                    {parseFloat(entry['Received (Credit)']) > 0 ? entry['Received (Credit)'] : '—'}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                            <tfoot className="bg-gray-50">
-                              <tr>
-                                <td colSpan={3} className="px-4 py-2 text-sm font-medium text-gray-700 text-right">
-                                  Total:
-                                </td>
-                                <td className="px-4 py-2 text-sm font-medium text-gray-900 text-right">
-                                  {(() => {
-                                    const total = importModal.csvData.reduce((sum, entry) => {
-                                      return sum + (parseFloat(entry['Spent (Debit)']) || 0);
-                                    }, 0);
-                                    return total.toFixed(2);
-                                  })()}
-                                </td>
-                                <td className="px-4 py-2 text-sm font-medium text-gray-900 text-right">
-                                  {(() => {
-                                    const total = importModal.csvData.reduce((sum, entry) => {
-                                      return sum + (parseFloat(entry['Received (Credit)']) || 0);
-                                    }, 0);
-                                    return total.toFixed(2);
-                                  })()}
-                                </td>
-                              </tr>
-                            </tfoot>
-                          </table>
-                        </div>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <div className="text-sm font-medium">
-                          {importModal.selectedEntries.size > 0 && (
-                            <span className="text-gray-600">{importModal.selectedEntries.size} selected</span>
-                          )}
-                        </div>
-                        <div className="flex justify-end space-x-2 mt-4">
-                          <button
-                            onClick={() => setImportModal(prev => ({ ...prev, step: "upload" }))}
-                            className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
-                          >
-                            Back
-                          </button>
-                          <button
-                            onClick={async () => {
-                              setImportModal(prev => ({ ...prev, isLoading: true, error: null }));
-                              try {
-                                if (!currentCompany) {
-                                  throw new Error("No company selected. Please select a company first.");
-                                }
-
-                                if (!importModal.date) {
-                                  throw new Error("Please select a date for the journal entries.");
-                                }
-
-                                // Filter selected entries and prepare for import
-                                const selectedEntries = importModal.csvData
-                                  .filter(entry => importModal.selectedEntries.has(entry.id))
-                                  .map(entry => ({
-                                    id: entry.id,
-                                    description: entry.Description,
-                                    debit: entry['Spent (Debit)'] || '0.00',
-                                    credit: entry['Received (Credit)'] || '0.00',
-                                    payee_id: entry.payee_id,
-                                    chart_account_id: entry.chart_account_id
-                                  }));
-
-                                if (selectedEntries.length === 0) {
-                                  throw new Error("No entries selected for import.");
-                                }
-
-                                // Import using the store function
-                                const result = await importManualJournalEntriesFromCSV(
-                                  selectedEntries,
-                                  importModal.date,
-                                  importModal.jeName,
-                                  currentCompany.id
-                                );
-
-                                if (result.success) {
-                                  setImportModal({
-                                    isOpen: false,
-                                    step: "upload",
-                                    csvData: [],
-                                    isLoading: false,
-                                    error: null,
-                                    selectedEntries: new Set(),
-                                    date: new Date().toISOString().split('T')[0],
-                                    jeName: ''
-                                  });
-                                } else {
-                                  throw new Error(result.error || "Failed to import journal entries");
-                                }
-                              } catch (error) {
-                                console.error("Import error:", error);
-                                setImportModal(prev => ({
-                                  ...prev,
-                                  isLoading: false,
-                                  error:
-                                    error instanceof Error
-                                      ? error.message
-                                      : "Failed to import journal entries. Please try again.",
-                                }));
-                              }
-                            }}
-                            className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
-                          >
-                            Import
-                          </button>
-                        </div>
-                      </div>
-                    </>
-                  )}
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                      <h4 className="text-sm font-medium text-blue-800 mb-2">CSV Format Instructions:</h4>
+                      <ul className="text-sm text-blue-700 space-y-1">
+                        <li>
+                          • <strong>Payee:</strong> Name of the payee (optional)
+                        </li>
+                        <li>
+                          • <strong>Description:</strong> Description of the journal entry
+                        </li>
+                        <li>
+                          • <strong>Spent (Debit):</strong> Debit amount (use 0.00 if no amount)
+                        </li>
+                        <li>
+                          • <strong>Received (Credit):</strong> Credit amount (use 0.00 if no amount)
+                        </li>
+                      </ul>
+                      <p className="text-xs text-blue-600 mt-2">
+                        Download the template above to see examples of proper formatting. After upload, you&apos;ll be able to review and edit the entries before saving.
+                      </p>
+                    </div>
+                  </div>
+                  <div
+                    className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center transition-colors duration-200 hover:border-gray-400"
+                    onDragOver={handleCsvDragOver}
+                    onDrop={handleCsvDrop}
+                  >
+                    <input
+                      type="file"
+                      accept=".csv"
+                      onChange={handleFileUpload}
+                      className="hidden"
+                      id="csv-upload"
+                    />
+                    <label
+                      htmlFor="csv-upload"
+                      className="cursor-pointer inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                    >
+                      Choose CSV File
+                    </label>
+                    <p className="mt-2 text-sm text-gray-500">
+                      Drag and drop your CSV file here, or click to browse
+                    </p>
+                  </div>
+                  <div className="flex justify-end space-x-2 mt-4">
+                    <button
+                      onClick={() => setImportModal(prev => ({ ...prev, isOpen: false }))}
+                      className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 </div>
               )}
             </DialogContent>
