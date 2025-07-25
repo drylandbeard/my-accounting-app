@@ -91,7 +91,17 @@ type SortConfig = {
 };
 
 type PayeeSortConfig = {
-  key: "name" | null;
+  key: "name" | "status" | null;
+  direction: "asc" | "desc";
+};
+
+type CategoryImportSortConfig = {
+  key: "name" | "type" | "parent" | "status" | null;
+  direction: "asc" | "desc";
+};
+
+type PayeeImportSortConfig = {
+  key: "name" | "status" | null;
   direction: "asc" | "desc";
 };
 
@@ -219,6 +229,16 @@ export default function ChartOfAccountsPage() {
     isLoading: false,
     error: null,
     selectedPayees: new Set(),
+  });
+
+  // Sorting state for import modals
+  const [categoryImportSortConfig, setCategoryImportSortConfig] = useState<CategoryImportSortConfig>({
+    key: null,
+    direction: "asc",
+  });
+  const [payeeImportSortConfig, setPayeeImportSortConfig] = useState<PayeeImportSortConfig>({
+    key: null,
+    direction: "asc",
   });
 
   // Sorting state
@@ -558,6 +578,54 @@ export default function ChartOfAccountsPage() {
     });
   };
 
+  const sortCategoryImportData = (categories: CategoryImportData[], sortConfig: CategoryImportSortConfig) => {
+    if (!sortConfig.key) return categories;
+
+    return [...categories].sort((a, b) => {
+      if (sortConfig.key === "name") {
+        return sortConfig.direction === "asc" ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name);
+      }
+      if (sortConfig.key === "type") {
+        return sortConfig.direction === "asc" ? a.type.localeCompare(b.type) : b.type.localeCompare(a.type);
+      }
+      if (sortConfig.key === "parent") {
+        const aParent = a.parentName || "";
+        const bParent = b.parentName || "";
+        return sortConfig.direction === "asc" ? aParent.localeCompare(bParent) : bParent.localeCompare(aParent);
+      }
+      if (sortConfig.key === "status") {
+        const getStatusPriority = (cat: CategoryImportData) => {
+          if (!cat.isValid) return 0; // Errors first
+          if (cat.needsParentCreation) return 1; // Missing parents second
+          return 2; // Valid items last
+        };
+        const aPriority = getStatusPriority(a);
+        const bPriority = getStatusPriority(b);
+        return sortConfig.direction === "asc" ? aPriority - bPriority : bPriority - aPriority;
+      }
+      return 0;
+    });
+  };
+
+  const sortPayeeImportData = (payees: Payee[], sortConfig: PayeeImportSortConfig) => {
+    if (!sortConfig.key) return payees;
+
+    return [...payees].sort((a, b) => {
+      if (sortConfig.key === "name") {
+        return sortConfig.direction === "asc" ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name);
+      }
+      if (sortConfig.key === "status") {
+        const getStatusPriority = (payee: Payee) => {
+          return payee.isValid === false ? 0 : 1; // Errors first, valid items second
+        };
+        const aPriority = getStatusPriority(a);
+        const bPriority = getStatusPriority(b);
+        return sortConfig.direction === "asc" ? aPriority - bPriority : bPriority - aPriority;
+      }
+      return 0;
+    });
+  };
+
   const handleCategorySort = (key: "name" | "type" | "parent") => {
     setCategorySortConfig((current) => ({
       key,
@@ -567,6 +635,20 @@ export default function ChartOfAccountsPage() {
 
   const handlePayeeSort = (key: "name") => {
     setPayeeSortConfig((current) => ({
+      key,
+      direction: current.key === key && current.direction === "asc" ? "desc" : "asc",
+    }));
+  };
+
+  const handleCategoryImportSort = (key: "name" | "type" | "parent" | "status") => {
+    setCategoryImportSortConfig((current) => ({
+      key,
+      direction: current.key === key && current.direction === "asc" ? "desc" : "asc",
+    }));
+  };
+
+  const handlePayeeImportSort = (key: "name" | "status") => {
+    setPayeeImportSortConfig((current) => ({
       key,
       direction: current.key === key && current.direction === "asc" ? "desc" : "asc",
     }));
@@ -1994,7 +2076,7 @@ export default function ChartOfAccountsPage() {
         open={payeeImportModal.isOpen}
         onOpenChange={(isOpen) => setPayeeImportModal({ ...payeeImportModal, isOpen })}
       >
-        <DialogContent className="min-w-[600px]">
+        <DialogContent className="min-w-[80%]">
           <DialogHeader>
             <DialogTitle>Import Payees</DialogTitle>
           </DialogHeader>
@@ -2077,6 +2159,20 @@ export default function ChartOfAccountsPage() {
                   <div className="space-y-4">
                     <div className="flex justify-between items-center">
                       <h3 className="text-sm font-medium text-gray-700">Review Payees</h3>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setPayeeImportModal((prev) => ({
+                              ...prev,
+                              selectedPayees: new Set(payeeImportModal.csvData.filter(p => p.isValid !== false).map((payee) => payee.id)),
+                            }));
+                          }}
+                        >
+                          Select All
+                        </Button>
+                      </div>
                     </div>
                     <div className="border rounded-lg overflow-hidden max-h-96 overflow-y-auto">
                       <table className="min-w-full divide-y divide-gray-200">
@@ -2087,13 +2183,13 @@ export default function ChartOfAccountsPage() {
                                 type="checkbox"
                                 checked={
                                   payeeImportModal.csvData.length > 0 &&
-                                  payeeImportModal.selectedPayees.size === payeeImportModal.csvData.length
+                                  payeeImportModal.selectedPayees.size === payeeImportModal.csvData.filter(p => p.isValid !== false).length
                                 }
                                 onChange={(e) => {
                                   if (e.target.checked) {
                                     setPayeeImportModal((prev) => ({
                                       ...prev,
-                                      selectedPayees: new Set(payeeImportModal.csvData.map((payee) => payee.id)),
+                                      selectedPayees: new Set(payeeImportModal.csvData.filter(p => p.isValid !== false).map((payee) => payee.id)),
                                     }));
                                   } else {
                                     setPayeeImportModal((prev) => ({
@@ -2105,16 +2201,22 @@ export default function ChartOfAccountsPage() {
                                 className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
                               />
                             </th>
-                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                              Name
+                            <th 
+                              className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-200"
+                              onClick={() => handlePayeeImportSort("name")}
+                            >
+                              Name {payeeImportSortConfig.key === "name" && (payeeImportSortConfig.direction === "asc" ? "↑" : "↓")}
                             </th>
-                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                              Status
+                            <th 
+                              className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-200"
+                              onClick={() => handlePayeeImportSort("status")}
+                            >
+                              Status {payeeImportSortConfig.key === "status" && (payeeImportSortConfig.direction === "asc" ? "↑" : "↓")}
                             </th>
                           </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
-                          {payeeImportModal.csvData.map((payee) => (
+                          {sortPayeeImportData(payeeImportModal.csvData, payeeImportSortConfig).map((payee) => (
                             <tr key={payee.id} className={payee.isValid === false ? "bg-red-50" : ""}>
                               <td className="px-4 py-2 whitespace-nowrap w-8 text-left">
                                 <input
@@ -2141,12 +2243,12 @@ export default function ChartOfAccountsPage() {
                                 {payee.isValid === false ? (
                                   <div className="flex items-center space-x-1">
                                     <span className="w-2 h-2 bg-red-400 rounded-full flex-shrink-0"></span>
-                                    <span className="text-red-700 text-xs">{payee.validationMessage}</span>
+                                    <span className="text-red-700 text-sm">{payee.validationMessage}</span>
                                   </div>
                                 ) : (
                                   <div className="flex items-center space-x-1">
                                     <span className="w-2 h-2 bg-green-400 rounded-full"></span>
-                                    <span className="text-green-700 text-xs">Valid</span>
+                                    <span className="text-green-700 text-sm">Valid</span>
                                   </div>
                                 )}
                               </td>
@@ -2175,6 +2277,8 @@ export default function ChartOfAccountsPage() {
                         Back
                       </Button>
                       <Button
+                        disabled={payeeImportModal.selectedPayees.size === 0}
+                        className={payeeImportModal.selectedPayees.size === 0 ? "opacity-50 cursor-not-allowed" : ""}
                         onClick={async () => {
                           setPayeeImportModal((prev) => ({
                             ...prev,
@@ -2253,7 +2357,7 @@ export default function ChartOfAccountsPage() {
                           }
                         }}
                       >
-                        Import Payees
+                        Import
                       </Button>
                     </div>
                   </div>
@@ -2269,7 +2373,7 @@ export default function ChartOfAccountsPage() {
         open={categoryImportModal.isOpen}
         onOpenChange={(open) => setCategoryImportModal((prev) => ({ ...prev, isOpen: open }))}
       >
-        <DialogContent className="min-w-[600px] overflow-y-auto">
+        <DialogContent className="min-w-[80%] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Import Categories</DialogTitle>
           </DialogHeader>
@@ -2358,6 +2462,20 @@ export default function ChartOfAccountsPage() {
                   <div className="space-y-4">
                     <div className="flex justify-between items-center">
                       <h3 className="text-sm font-medium text-gray-700">Review Categories</h3>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setCategoryImportModal((prev) => ({
+                              ...prev,
+                              selectedCategories: new Set(categoryImportModal.csvData.map((cat) => cat.id)),
+                            }));
+                          }}
+                        >
+                          Select All
+                        </Button>
+                      </div>
                     </div>
 
                     {/* Missing parents warning and options */}
@@ -2441,22 +2559,34 @@ export default function ChartOfAccountsPage() {
                                 className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
                               />
                             </th>
-                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                              Name
+                            <th 
+                              className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-200"
+                              onClick={() => handleCategoryImportSort("name")}
+                            >
+                              Name {categoryImportSortConfig.key === "name" && (categoryImportSortConfig.direction === "asc" ? "↑" : "↓")}
                             </th>
-                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                              Type
+                            <th 
+                              className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-200"
+                              onClick={() => handleCategoryImportSort("type")}
+                            >
+                              Type {categoryImportSortConfig.key === "type" && (categoryImportSortConfig.direction === "asc" ? "↑" : "↓")}
                             </th>
-                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                              Parent
+                            <th 
+                              className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-200"
+                              onClick={() => handleCategoryImportSort("parent")}
+                            >
+                              Parent {categoryImportSortConfig.key === "parent" && (categoryImportSortConfig.direction === "asc" ? "↑" : "↓")}
                             </th>
-                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                              Status
+                            <th 
+                              className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-200"
+                              onClick={() => handleCategoryImportSort("status")}
+                            >
+                              Status {categoryImportSortConfig.key === "status" && (categoryImportSortConfig.direction === "asc" ? "↑" : "↓")}
                             </th>
                           </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
-                          {categoryImportModal.csvData.map((category) => (
+                          {sortCategoryImportData(categoryImportModal.csvData, categoryImportSortConfig).map((category) => (
                             <tr
                               key={category.id}
                               className={`${
@@ -2512,24 +2642,24 @@ export default function ChartOfAccountsPage() {
                                 {!category.isValid ? (
                                   <div className="flex items-center space-x-1">
                                     <span className="w-2 h-2 bg-red-400 rounded-full flex-shrink-0"></span>
-                                    <span className="text-red-700 text-xs">{category.validationMessage}</span>
+                                    <span className="text-red-700 text-sm">{category.validationMessage}</span>
                                   </div>
                                 ) : category.needsParentCreation ? (
                                   categoryImportModal.autoCreateMissing ? (
                                     <div className="flex items-center space-x-1">
                                       <span className="w-2 h-2 bg-blue-400 rounded-full"></span>
-                                      <span className="text-blue-700 text-xs">Will create parent</span>
+                                      <span className="text-blue-700 text-sm">Will create parent</span>
                                     </div>
                                   ) : (
                                     <div className="flex items-center space-x-1">
                                       <span className="w-2 h-2 bg-orange-400 rounded-full"></span>
-                                      <span className="text-orange-700 text-xs">Missing parent</span>
+                                      <span className="text-orange-700 text-sm">Missing parent</span>
                                     </div>
                                   )
                                 ) : (
                                   <div className="flex items-center space-x-1">
                                     <span className="w-2 h-2 bg-green-400 rounded-full"></span>
-                                    <span className="text-green-700 text-xs">Valid</span>
+                                    <span className="text-green-700 text-sm">Valid</span>
                                   </div>
                                 )}
                               </td>
@@ -2578,6 +2708,10 @@ export default function ChartOfAccountsPage() {
                         Back
                       </button>
                       <button
+                        disabled={categoryImportModal.selectedCategories.size === 0}
+                        className={`px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800 ${
+                          categoryImportModal.selectedCategories.size === 0 ? "opacity-50 cursor-not-allowed hover:bg-gray-900" : ""
+                        }`}
                         onClick={async () => {
                           setCategoryImportModal((prev) => ({
                             ...prev,
@@ -2811,9 +2945,8 @@ export default function ChartOfAccountsPage() {
                             }));
                           }
                         }}
-                        className="px-4 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
                       >
-                        Import Categories
+                        Import
                       </button>
                     </div>
                   </div>
