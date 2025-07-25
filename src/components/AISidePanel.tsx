@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { X, RefreshCcw, ArrowUpCircle } from "lucide-react";
 import { usePayeesStore } from "@/zustand/payeesStore";
+import { useCategoriesStore } from "@/zustand/categoriesStore";
 import { useAuthStore } from "@/zustand/authStore";
 import { useChatHistory } from "@/hooks/useChatHistory";
 import { AIHandler } from "@/lib/ai/ai-handler";
@@ -30,6 +31,12 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
     error: payeesError
   } = usePayeesStore();
   
+  const { 
+    categories, 
+    refreshCategories: refreshCategoriesFromStore,
+    error: categoriesError
+  } = useCategoriesStore();
+  
   const { currentCompany, user } = useAuthStore();
   
   // Chat history hook
@@ -54,7 +61,7 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
       return;
     }
 
-    // Create new handler with current payees and store methods
+    // Create new handler with current payees, categories and store methods
     const handler = new AIHandler(
       {
         payees,
@@ -64,12 +71,22 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
         deletePayee: usePayeesStore.getState().deletePayee,
         refreshPayees: refreshPayeesFromStore
       },
+      {
+        categories,
+        error: categoriesError,
+        addCategory: useCategoriesStore.getState().addCategory,
+        updateCategory: useCategoriesStore.getState().updateCategory,
+        deleteCategory: useCategoriesStore.getState().deleteCategory,
+        moveCategory: useCategoriesStore.getState().moveCategory,
+        refreshCategories: refreshCategoriesFromStore,
+        findCategoryByName: useCategoriesStore.getState().findCategoryByName
+      },
       currentCompany,
       apiKey
     );
 
     setAiHandler(handler);
-  }, [payees, payeesError, currentCompany, refreshPayeesFromStore]);
+  }, [payees, payeesError, categories, categoriesError, currentCompany, refreshPayeesFromStore, refreshCategoriesFromStore]);
 
   // Load saved panel width from localStorage
   useEffect(() => {
@@ -191,19 +208,24 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
     const thinkingMessageIndex = messages.length + 1; // +1 for the user message we just added
 
     try {
-      // Refresh payees to ensure we have the latest state from database
-      console.log('🔄 Refreshing payees before AI processing...');
-      await refreshPayeesFromStore();
+      // Refresh both payees and categories to ensure we have the latest state from database
+      console.log('🔄 Refreshing payees and categories before AI processing...');
+      await Promise.all([
+        refreshPayeesFromStore(),
+        refreshCategoriesFromStore()
+      ]);
       
-      // Get fresh payees from store after refresh
+      // Get fresh data from stores after refresh
       const freshPayees = usePayeesStore.getState().payees;
-      console.log(`✅ Using fresh payees for AI: ${freshPayees.length} payees`);
+      const freshCategories = useCategoriesStore.getState().categories;
+      console.log(`✅ Using fresh data for AI: ${freshPayees.length} payees, ${freshCategories.length} categories`);
       
-      // Process with AI Handler using fresh payees
+      // Process with AI Handler using fresh data
       const result = await aiHandler.processUserMessage(
         userMessage,
         messages,
-        freshPayees
+        freshPayees,
+        freshCategories
       );
 
       if (result.success && result.response) {

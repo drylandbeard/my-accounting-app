@@ -1,4 +1,5 @@
 import { ChatMessage, OpenAIResponse, PayeeOperation, OperationResult } from './types';
+import { getCategoryTools, getCategorySystemPrompt } from './category-tools';
 
 /**
  * AI Chat Service
@@ -287,6 +288,42 @@ Keep it conversational and encouraging.`;
           },
         },
       }
+    ];
+  }
+
+  /**
+   * Gets unified system prompt for both payee and category operations
+   */
+  getUnifiedSystemPrompt(
+    payees: Array<{ name: string }>, 
+    categories: Array<{ name: string; type: string; parent_id?: string | null }>
+  ): string {
+    const payeePrompt = this.getPayeeSystemPrompt(payees);
+    const categoryPrompt = getCategorySystemPrompt(categories);
+    
+    return `${payeePrompt}
+
+${categoryPrompt}
+
+UNIFIED OPERATIONS AVAILABLE:
+You can help users manage both payees and categories (chart of accounts) in their accounting system.
+
+PAYEE OPERATIONS:
+- create_payee, update_payee, delete_payee
+
+CATEGORY OPERATIONS:
+- create_category, update_category, delete_category, move_category
+
+When users ask about financial organization, consider both payees and categories as relevant depending on their needs.`;
+  }
+
+  /**
+   * Gets unified tools for both payee and category operations
+   */
+  getUnifiedTools(): unknown[] {
+    return [
+      ...this.getPayeeTools(),
+      ...getCategoryTools()
     ];
   }
 

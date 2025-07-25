@@ -8,6 +8,7 @@ import {
   PayeeValidationContext
 } from './types';
 import { PayeeExecutor } from './payee-executor';
+import { CategoryExecutor } from './category-executor';
 import { ChatService } from './chat-service';
 import { PayeeValidator } from './payee-validator';
 
@@ -17,6 +18,7 @@ import { PayeeValidator } from './payee-validator';
  */
 export class AIHandler {
   private payeeExecutor: PayeeExecutor;
+  private categoryExecutor: CategoryExecutor;
   private chatService: ChatService;
   private payeesStore: {
     payees: Array<{ id: string; name: string; company_id: string }>;
@@ -25,6 +27,24 @@ export class AIHandler {
     updatePayee: (id: string, updates: { name: string }) => Promise<boolean>;
     deletePayee: (id: string) => Promise<boolean>;
     refreshPayees: () => Promise<void>;
+  };
+  private categoriesStore: {
+    categories: Array<{ 
+      id: string; 
+      name: string; 
+      type: string; 
+      company_id: string;
+      parent_id?: string | null;
+      subtype?: string;
+      plaid_account_id?: string | null;
+    }>;
+    error: string | null;
+    addCategory: (category: { name: string; type: string; parent_id?: string | null }) => Promise<{ id: string; name: string; type: string } | null>;
+    updateCategory: (idOrName: string, updates: { name?: string; type?: string; parent_id?: string | null }) => Promise<boolean>;
+    deleteCategory: (idOrName: string) => Promise<boolean>;
+    moveCategory: (categoryIdOrName: string, newParentIdOrName: string | null) => Promise<boolean>;
+    refreshCategories: () => Promise<void>;
+    findCategoryByName: (name: string, caseSensitive?: boolean) => { id: string; name: string; type: string; parent_id?: string | null } | null;
   };
 
   constructor(
@@ -36,11 +56,31 @@ export class AIHandler {
       deletePayee: (id: string) => Promise<boolean>;
       refreshPayees: () => Promise<void>;
     },
+    categoriesStore: {
+      categories: Array<{ 
+        id: string; 
+        name: string; 
+        type: string; 
+        company_id: string;
+        parent_id?: string | null;
+        subtype?: string;
+        plaid_account_id?: string | null;
+      }>;
+      error: string | null;
+      addCategory: (category: { name: string; type: string; parent_id?: string | null }) => Promise<{ id: string; name: string; type: string } | null>;
+      updateCategory: (idOrName: string, updates: { name?: string; type?: string; parent_id?: string | null }) => Promise<boolean>;
+      deleteCategory: (idOrName: string) => Promise<boolean>;
+      moveCategory: (categoryIdOrName: string, newParentIdOrName: string | null) => Promise<boolean>;
+      refreshCategories: () => Promise<void>;
+      findCategoryByName: (name: string, caseSensitive?: boolean) => { id: string; name: string; type: string; parent_id?: string | null } | null;
+    },
     currentCompany: { id: string; name: string } | null,
     apiKey: string
   ) {
     this.payeesStore = payeesStore;
+    this.categoriesStore = categoriesStore;
     this.payeeExecutor = new PayeeExecutor(payeesStore, currentCompany);
+    this.categoryExecutor = new CategoryExecutor(categoriesStore, currentCompany);
     this.chatService = new ChatService(apiKey);
   }
 
@@ -50,7 +90,8 @@ export class AIHandler {
   async processUserMessage(
     userMessage: string,
     existingMessages: Message[],
-    payees: Array<{ name: string }>
+    payees: Array<{ name: string }>,
+    categories: Array<{ name: string; type: string; parent_id?: string | null }>
   ): Promise<{
     success: boolean;
     response?: Message;
@@ -59,25 +100,35 @@ export class AIHandler {
     try {
       // Check for vague prompts - route through AI for dynamic response
       if (this.isVaguePrompt(userMessage)) {
-        return await this.generateAIResponse(userMessage, existingMessages, payees, 'vague_prompt');
+        return await this.generateAIResponse(userMessage, existingMessages, payees, categories, 'vague_prompt');
       }
 
-      // Prepare messages for OpenAI
-      const systemPrompt = this.chatService.getPayeeSystemPrompt(payees);
-      
-      // For payee operations, limit chat history to prevent confusion from stale operations
-      // Check if this is a payee operation that might be affected by stale history
-      const isPayeeOperation = /(?:create|add|delete|remove|update|rename|edit)\s+(?:payee|.*(?:mark|aenon|justine|ryland))/i.test(userMessage);
-      
-      let recentMessages: Message[] = [];
-      if (isPayeeOperation) {
-        // For payee operations, only include the most recent 2 messages to minimize conflicting context
-        recentMessages = existingMessages.slice(-2);
-        console.log(`🎯 Payee operation detected, using minimal context: ${recentMessages.length} messages`);
+      // Detect operation type
+      const operationType = this.detectOperationType(userMessage);
+
+      // Prepare messages for OpenAI based on operation type
+      let systemPrompt: string;
+      let tools: unknown[];
+
+      if (operationType === 'category' || operationType === 'mixed') {
+        systemPrompt = this.chatService.getUnifiedSystemPrompt(payees, categories);
+        tools = this.chatService.getUnifiedTools();
       } else {
-        // For non-payee operations, include more context
+        // Default to payee operations for backward compatibility
+        systemPrompt = this.chatService.getPayeeSystemPrompt(payees);
+        tools = this.chatService.getPayeeTools();
+      }
+      
+      // For operations, limit chat history to prevent confusion from stale operations
+      let recentMessages: Message[] = [];
+      if (operationType !== 'general') {
+        // For specific operations, only include the most recent 2 messages to minimize conflicting context
+        recentMessages = existingMessages.slice(-2);
+        console.log(`🎯 ${operationType} operation detected, using minimal context: ${recentMessages.length} messages`);
+      } else {
+        // For general operations, include more context
         recentMessages = existingMessages.slice(-6);
-        console.log(`📨 Regular operation, using ${recentMessages.length} recent messages`);
+        console.log(`📨 General operation, using ${recentMessages.length} recent messages`);
       }
       
       const chatMessages: ChatMessage[] = [
@@ -93,7 +144,7 @@ export class AIHandler {
           model: 'gpt-4o-mini-2024-07-18',
           temperature: 0.2,
           maxTokens: 512,
-          tools: this.chatService.getPayeeTools()
+          tools: tools
         }
       );
 
@@ -107,6 +158,7 @@ export class AIHandler {
           userMessage,
           existingMessages,
           payees,
+          categories,
           errorContent
         );
       }
@@ -118,6 +170,36 @@ export class AIHandler {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error'
       };
+    }
+  }
+
+  /**
+   * Detects the type of operation from user message
+   */
+  private detectOperationType(userMessage: string): 'payee' | 'category' | 'mixed' | 'general' {
+    const lowerMessage = userMessage.toLowerCase();
+    
+    // Category operation keywords
+    const categoryKeywords = [
+      'category', 'categories', 'account', 'accounts', 'chart of accounts',
+      'asset', 'liability', 'equity', 'revenue', 'expense', 'cogs',
+      'bank account', 'credit card'
+    ];
+    
+    // Payee operation keywords
+    const payeeKeywords = ['payee', 'payees'];
+    
+    const hasCategoryKeywords = categoryKeywords.some(keyword => lowerMessage.includes(keyword));
+    const hasPayeeKeywords = payeeKeywords.some(keyword => lowerMessage.includes(keyword));
+    
+    if (hasCategoryKeywords && hasPayeeKeywords) {
+      return 'mixed';
+    } else if (hasCategoryKeywords) {
+      return 'category';
+    } else if (hasPayeeKeywords) {
+      return 'payee';
+    } else {
+      return 'general';
     }
   }
 
@@ -143,16 +225,43 @@ export class AIHandler {
 
       // Single operation
       const operationName = action.action as string;
-      const result = await this.payeeExecutor.executePayeeOperation(
-        operationName,
-        action
-      );
+      
+      // Determine if this is a payee or category operation
+      if (operationName.includes('_payee')) {
+        const result = await this.payeeExecutor.executePayeeOperation(
+          operationName,
+          action
+        );
 
-      return await this.generateActionResponseWithAI(
-        this.formatOperationResult(result, operationName),
-        result.success ? 'operation_success' : 'operation_failure',
-        { result, operation: operationName, action }
-      );
+        return await this.generateActionResponseWithAI(
+          this.formatOperationResult(result, operationName),
+          result.success ? 'operation_success' : 'operation_failure',
+          { result, operation: operationName, action }
+        );
+      } else if (operationName.includes('_category')) {
+        const result = await this.categoryExecutor.executeCategoryOperation(
+          operationName,
+          action
+        );
+
+        return await this.generateActionResponseWithAI(
+          this.formatOperationResult(result, operationName),
+          result.success ? 'operation_success' : 'operation_failure',
+          { result, operation: operationName, action }
+        );
+      } else {
+        // Default to payee operation for backward compatibility
+        const result = await this.payeeExecutor.executePayeeOperation(
+          operationName,
+          action
+        );
+
+        return await this.generateActionResponseWithAI(
+          this.formatOperationResult(result, operationName),
+          result.success ? 'operation_success' : 'operation_failure',
+          { result, operation: operationName, action }
+        );
+      }
     } catch (error) {
       console.error('Error executing action:', error);
       return await this.generateActionResponseWithAI(
@@ -629,6 +738,7 @@ export class AIHandler {
     userMessage: string,
     existingMessages: Message[],
     payees: Array<{ name: string }>,
+    categories: Array<{ name: string; type: string; parent_id?: string | null }>,
     responseType: 'vague_prompt' | 'validation_error',
     validationDetails?: {
       operation: string;
@@ -643,6 +753,7 @@ export class AIHandler {
   }> {
     try {
       // Prepare enhanced system prompt for different response types
+      // For now, use payee prompt but we can enhance this later to support categories
       const systemPrompt = this.chatService.getEnhancedSystemPrompt(payees, responseType, validationDetails);
       
       // For special responses, include minimal context to avoid confusion
@@ -693,6 +804,7 @@ export class AIHandler {
     userMessage: string,
     existingMessages: Message[],
     payees: Array<{ name: string }>,
+    categories: Array<{ name: string; type: string; parent_id?: string | null }>,
     operation: string,
     validationDetails: {
       operation: string;
@@ -709,6 +821,7 @@ export class AIHandler {
       userMessage, 
       existingMessages, 
       payees, 
+      categories,
       'validation_error', 
       validationDetails
     );
@@ -721,6 +834,7 @@ export class AIHandler {
     userMessage: string,
     existingMessages: Message[],
     payees: Array<{ name: string }>,
+    categories: Array<{ name: string; type: string; parent_id?: string | null }>,
     errorMessage: string
   ): Promise<{
     success: boolean;
@@ -729,7 +843,7 @@ export class AIHandler {
   }> {
     // Parse the error message to extract validation details
     const validationDetails = {
-      operation: 'payee_operation',
+      operation: 'operation',
       errors: [errorMessage],
       warnings: [],
       suggestions: this.extractSuggestionsFromErrorMessage(errorMessage)
@@ -739,6 +853,7 @@ export class AIHandler {
       userMessage, 
       existingMessages, 
       payees, 
+      categories,
       'validation_error', 
       validationDetails
     );
