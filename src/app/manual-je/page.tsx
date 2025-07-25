@@ -819,11 +819,11 @@ export default function JournalTablePage() {
 
   // CSV Import Functions
   const downloadJournalTemplate = () => {
-    const template = `Payee,Description,Spent (Debit),Received (Credit)
-John Doe,Office Supplies,100.00,0.00
-,Sales Revenue,0.00,500.00
-ABC Company,Equipment Purchase,250.00,0.00
-,Equipment Depreciation,0.00,25.00`;
+    const template = `Description,Spent (Debit),Received (Credit)
+Office Supplies,100.00,0.00
+Sales Revenue,0.00,100.00
+Equipment Purchase,250.00,0.00
+Equipment Depreciation,0.00,250.00`;
 
     const blob = new Blob([template], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
@@ -845,16 +845,14 @@ ABC Company,Equipment Purchase,250.00,0.00
       complete: (results) => {
         try {
           const csvData = (results.data as Record<string, string>[])
-            .filter((row) => row.Payee || row.Description || row['Spent (Debit)'] || row['Received (Credit)'])
+            .filter((row) => row.Description || row['Spent (Debit)'] || row['Received (Credit)'])
             .map((row) => {
               const id = uuidv4();
               return {
                 id,
-                Payee: row.Payee || '',
                 Description: row.Description || '',
                 'Spent (Debit)': row['Spent (Debit)'] || '0.00',
                 'Received (Credit)': row['Received (Credit)'] || '0.00',
-                payee_id: undefined,
                 chart_account_id: undefined
               };
             });
@@ -864,7 +862,7 @@ ABC Company,Equipment Purchase,250.00,0.00
             id: (index + 1).toString(),
             description: entry.Description,
             categoryId: '', // Will need to be selected by user
-            payeeId: '', // Will need to be mapped or selected
+            payeeId: '', // Empty since we removed payee from CSV
             debit: entry['Spent (Debit)'] || '0.00',
             credit: entry['Received (Credit)'] || '0.00'
           }));
