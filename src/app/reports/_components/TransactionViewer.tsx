@@ -17,6 +17,8 @@ interface TransactionViewerProps {
   companyName?: string;
   getCategoryName: (tx: Transaction, category: Category) => string;
   onTransactionClick?: (tx: Transaction) => void;
+  payees?: Array<{ id: string; name: string }>;
+  accounts?: Array<{ plaid_account_id: string | null; name: string }>;
 }
 
 export const TransactionViewer: React.FC<TransactionViewerProps> = ({
@@ -28,7 +30,35 @@ export const TransactionViewer: React.FC<TransactionViewerProps> = ({
   companyName,
   getCategoryName,
   onTransactionClick,
+  payees = [],
+  accounts = [],
 }) => {
+  // Helper functions to get names
+  const getPayeeName = (tx: Transaction): string => {
+    if (!tx.payee_id) return "";
+    const payee = payees.find(p => p.id === tx.payee_id);
+    return payee?.name || "";
+  };
+
+  const getAccountName = (tx: Transaction): string => {
+    if (tx.plaid_account_name) return tx.plaid_account_name;
+    if (!tx.plaid_account_id) return "";
+    const account = accounts.find(a => a.plaid_account_id === tx.plaid_account_id);
+    return account?.name || "";
+  };
+
+  // Calculate running balance
+  const calculateRunningBalance = (): Array<{ transaction: Transaction; balance: number }> => {
+    let runningBalance = 0;
+    return selectedCategoryTransactions.map(tx => {
+      const displayAmount = getTransactionDisplayAmount(tx, viewerModal.category?.type || "");
+      runningBalance += displayAmount;
+      return { transaction: tx, balance: runningBalance };
+    });
+  };
+
+  const transactionsWithBalance = calculateRunningBalance();
+
   // Export modal transactions function
   const exportModalTransactions = async () => {
     if (!viewerModal.category || selectedCategoryTransactions.length === 0) return;
@@ -48,7 +78,7 @@ export const TransactionViewer: React.FC<TransactionViewerProps> = ({
     let currentRow = 1;
 
     // Title and company info
-    worksheet.mergeCells(`A${currentRow}:E${currentRow}`);
+    worksheet.mergeCells(`A${currentRow}:G${currentRow}`);
     worksheet.getCell(`A${currentRow}`).value = `${viewerModal.category.name} Transactions`;
     worksheet.getCell(`A${currentRow}`).style = {
       font: { size: 12, bold: true },
@@ -57,13 +87,13 @@ export const TransactionViewer: React.FC<TransactionViewerProps> = ({
     currentRow++;
 
     if (companyName) {
-      worksheet.mergeCells(`A${currentRow}:E${currentRow}`);
+      worksheet.mergeCells(`A${currentRow}:G${currentRow}`);
       worksheet.getCell(`A${currentRow}`).value = companyName;
       worksheet.getCell(`A${currentRow}`).style = { font: { size: 10 }, alignment: { horizontal: "center" as const } };
       currentRow++;
     }
 
-    worksheet.mergeCells(`A${currentRow}:E${currentRow}`);
+    worksheet.mergeCells(`A${currentRow}:G${currentRow}`);
     worksheet.getCell(`A${currentRow}`).value = viewerModal.selectedMonth
       ? `for ${formatMonth(viewerModal.selectedMonth)}`
       : `${formatDateForDisplay(startDate)} to ${formatDateForDisplay(endDate)}`;
@@ -73,32 +103,44 @@ export const TransactionViewer: React.FC<TransactionViewerProps> = ({
     // Headers
     worksheet.getCell(`A${currentRow}`).value = "Date";
     worksheet.getCell(`A${currentRow}`).style = headerStyle;
-    worksheet.getCell(`B${currentRow}`).value = "Description";
+    worksheet.getCell(`B${currentRow}`).value = "Payee";
     worksheet.getCell(`B${currentRow}`).style = headerStyle;
-    worksheet.getCell(`C${currentRow}`).value = "Category";
+    worksheet.getCell(`C${currentRow}`).value = "Description";
     worksheet.getCell(`C${currentRow}`).style = headerStyle;
-    worksheet.getCell(`D${currentRow}`).value = "Source";
+    worksheet.getCell(`D${currentRow}`).value = "Category";
     worksheet.getCell(`D${currentRow}`).style = headerStyle;
-    worksheet.getCell(`E${currentRow}`).value = "Amount";
+    worksheet.getCell(`E${currentRow}`).value = "Source/Account";
     worksheet.getCell(`E${currentRow}`).style = headerStyle;
+    worksheet.getCell(`F${currentRow}`).value = "Amount";
+    worksheet.getCell(`F${currentRow}`).style = headerStyle;
+    worksheet.getCell(`G${currentRow}`).value = "Balance";
+    worksheet.getCell(`G${currentRow}`).style = headerStyle;
     currentRow++;
 
-    // Transaction rows
+    // Transaction rows with running balance
+    let runningBalance = 0;
     selectedCategoryTransactions.forEach((tx) => {
       const displayAmount = getTransactionDisplayAmount(tx, viewerModal.category?.type || "");
+      runningBalance += displayAmount;
       const categoryName = viewerModal.category ? getCategoryName(tx, viewerModal.category) : "";
+      const payeeName = getPayeeName(tx);
+      const accountName = getAccountName(tx);
       const source = tx.source === "manual" ? "Manual" : "Journal";
 
       worksheet.getCell(`A${currentRow}`).value = tx.date;
       worksheet.getCell(`A${currentRow}`).style = dateStyle;
-      worksheet.getCell(`B${currentRow}`).value = tx.description;
+      worksheet.getCell(`B${currentRow}`).value = payeeName;
       worksheet.getCell(`B${currentRow}`).style = dateStyle;
-      worksheet.getCell(`C${currentRow}`).value = categoryName;
+      worksheet.getCell(`C${currentRow}`).value = tx.description;
       worksheet.getCell(`C${currentRow}`).style = dateStyle;
-      worksheet.getCell(`D${currentRow}`).value = source;
+      worksheet.getCell(`D${currentRow}`).value = categoryName;
       worksheet.getCell(`D${currentRow}`).style = dateStyle;
-      worksheet.getCell(`E${currentRow}`).value = displayAmount;
-      worksheet.getCell(`E${currentRow}`).style = numberStyle;
+      worksheet.getCell(`E${currentRow}`).value = accountName || source;
+      worksheet.getCell(`E${currentRow}`).style = dateStyle;
+      worksheet.getCell(`F${currentRow}`).value = displayAmount;
+      worksheet.getCell(`F${currentRow}`).style = numberStyle;
+      worksheet.getCell(`G${currentRow}`).value = runningBalance;
+      worksheet.getCell(`G${currentRow}`).style = numberStyle;
       currentRow++;
     });
 
@@ -111,8 +153,8 @@ export const TransactionViewer: React.FC<TransactionViewerProps> = ({
     currentRow++; // Empty row
     worksheet.getCell(`A${currentRow}`).value = "Total";
     worksheet.getCell(`A${currentRow}`).style = { font: { bold: true, size: 10 } };
-    worksheet.getCell(`E${currentRow}`).value = total;
-    worksheet.getCell(`E${currentRow}`).style = {
+    worksheet.getCell(`F${currentRow}`).value = total;
+    worksheet.getCell(`F${currentRow}`).style = {
       font: { bold: true, size: 10 },
       numFmt: '#,##0.00;(#,##0.00);"—"',
       alignment: { horizontal: "right" as const },
@@ -122,7 +164,7 @@ export const TransactionViewer: React.FC<TransactionViewerProps> = ({
     currentRow += 3;
 
     const today = new Date();
-    worksheet.mergeCells(`A${currentRow}:E${currentRow}`);
+    worksheet.mergeCells(`A${currentRow}:G${currentRow}`);
     worksheet.getCell(`A${currentRow}`).value = `switch | ${companyName || ""} | ${formatDateForDisplay(
       today.toISOString().split("T")[0]
     )} ${today.toLocaleTimeString()}`;
@@ -132,11 +174,13 @@ export const TransactionViewer: React.FC<TransactionViewerProps> = ({
     };
 
     // Set column widths
-    worksheet.getColumn("A").width = 12;
-    worksheet.getColumn("B").width = 30;
-    worksheet.getColumn("C").width = 20;
-    worksheet.getColumn("D").width = 10;
-    worksheet.getColumn("E").width = 15;
+    worksheet.getColumn("A").width = 12; // Date
+    worksheet.getColumn("B").width = 20; // Payee
+    worksheet.getColumn("C").width = 30; // Description
+    worksheet.getColumn("D").width = 20; // Category
+    worksheet.getColumn("E").width = 20; // Source/Account
+    worksheet.getColumn("F").width = 15; // Amount
+    worksheet.getColumn("G").width = 15; // Balance
 
     // Save the file
     const buffer = await workbook.xlsx.writeBuffer();
@@ -178,20 +222,23 @@ export const TransactionViewer: React.FC<TransactionViewerProps> = ({
             <TableHeader className="bg-gray-50">
               <TableRow>
                 <TableHead className="text-left p-2 w-20">Date</TableHead>
+                <TableHead className="text-left p-2 w-32">Payee</TableHead>
                 <TableHead className="text-left p-2 w-auto">Description</TableHead>
                 <TableHead className="text-left p-2 w-32">Category</TableHead>
-                <TableHead className="text-left p-2 w-20">Source</TableHead>
-                <TableHead className="text-right p-2 w-20">Amount</TableHead>
+                <TableHead className="text-left p-2 w-32">Source/Account</TableHead>
+                <TableHead className="text-right p-2 w-24">Amount</TableHead>
+                <TableHead className="text-right p-2 w-24">Balance</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {selectedCategoryTransactions.map((tx) => (
+              {transactionsWithBalance.map(({ transaction: tx, balance }) => (
                 <TableRow
                   key={tx.id}
                   className={`${onTransactionClick ? "cursor-pointer hover:bg-gray-100" : "hover:bg-gray-50"}`}
                   onClick={() => onTransactionClick && onTransactionClick(tx)}
                 >
                   <TableCell className="p-2">{tx.date}</TableCell>
+                  <TableCell className="p-2">{getPayeeName(tx)}</TableCell>
                   <TableCell className="p-2 w-auto max-w-0">
                     <div className="truncate cursor-default" title={tx.description}>
                       {tx.description}
@@ -201,22 +248,27 @@ export const TransactionViewer: React.FC<TransactionViewerProps> = ({
                     {viewerModal.category ? getCategoryName(tx, viewerModal.category) : ""}
                   </TableCell>
                   <TableCell className="p-2">
-                    <span
-                      className={`px-2 py-1 rounded-full text-xs ${
-                        tx.source === "manual" ? "bg-blue-100 text-blue-800" : "bg-gray-100 text-gray-800"
-                      }`}
-                    >
-                      {tx.source === "manual" ? "Manual" : "Journal"}
-                    </span>
+                    {getAccountName(tx) || (
+                      <span
+                        className={`px-2 py-1 rounded-full text-xs ${
+                          tx.source === "manual" ? "bg-blue-100 text-blue-800" : "bg-gray-100 text-gray-800"
+                        }`}
+                      >
+                        {tx.source === "manual" ? "Manual" : "Journal"}
+                      </span>
+                    )}
                   </TableCell>
                   <TableCell className="p-2 text-right">
                     {formatNumber(getTransactionDisplayAmount(tx, viewerModal.category?.type || ""))}
+                  </TableCell>
+                  <TableCell className="p-2 text-right">
+                    {formatNumber(balance)}
                   </TableCell>
                 </TableRow>
               ))}
               {selectedCategoryTransactions.length > 0 && (
                 <TableRow className="bg-gray-50 font-semibold">
-                  <TableCell colSpan={4} className="p-2 text-right">
+                  <TableCell colSpan={5} className="p-2 text-right">
                     Total
                   </TableCell>
                   <TableCell className="p-2 text-right">
@@ -225,6 +277,13 @@ export const TransactionViewer: React.FC<TransactionViewerProps> = ({
                         (sum, tx) => sum + getTransactionDisplayAmount(tx, viewerModal.category?.type || ""),
                         0
                       )
+                    )}
+                  </TableCell>
+                  <TableCell className="p-2 text-right">
+                    {formatNumber(
+                      transactionsWithBalance.length > 0 
+                        ? transactionsWithBalance[transactionsWithBalance.length - 1].balance 
+                        : 0
                     )}
                   </TableCell>
                 </TableRow>

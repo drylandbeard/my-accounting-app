@@ -34,6 +34,9 @@ export type Transaction = {
   credit: number;
   transaction_id: string;
   source: "journal" | "manual";
+  payee_id?: string;
+  plaid_account_id?: string | null;
+  plaid_account_name?: string | null;
 };
 
 export type ViewerModalState = {

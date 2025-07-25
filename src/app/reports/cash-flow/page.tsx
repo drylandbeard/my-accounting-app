@@ -1592,6 +1592,8 @@ export default function CashFlowPage() {
           companyName={currentCompany.name}
           getCategoryName={getCategoryName}
           onTransactionClick={handleTransactionClick}
+          payees={payees}
+          accounts={transactionAccounts}
         />
 
         {/* Transaction Modals */}
