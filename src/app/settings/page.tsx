@@ -5,7 +5,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { api } from "@/lib/api";
-import { Plus, CreditCard, Trash, ArrowRight, AlertTriangle } from "lucide-react";
+import { CreditCard, Trash, ArrowRight, AlertTriangle } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
@@ -579,7 +579,7 @@ function DeleteCompanyModal({ isOpen, onClose, companyName, onDeleteCompany }: D
 }
 
 export default function SettingsPage() {
-  const { user, currentCompany, updateCompany, removeCompany } = useAuthStore();
+  const { user, companies, currentCompany, updateCompany, removeCompany } = useAuthStore();
   const router = useRouter();
 
   // Team Members State
@@ -610,11 +610,19 @@ export default function SettingsPage() {
     onConfirm: () => {},
   });
 
-  // Get current user's role in the company
-  const currentUserRole = user?.role;
+  // Get current user's role in the current company
+  const currentUserRole = currentCompany 
+    ? companies.find(uc => uc.company_id === currentCompany.id)?.role 
+    : null;
   const isOwner = currentUserRole === "Owner";
 
-  console.log("currentUserRole", currentUserRole);
+  console.log("currentUserRole in current company", currentUserRole);
+
+  // Determine if we should show the Actions column
+  // Show if user is Owner OR if there are members they can manage (non-Owners)
+  const shouldShowActionsColumn = isOwner || companyMembers.some(member => 
+    member.id !== user?.id && member.role !== "Owner"
+  );
 
   // Fetch company members when component mounts or current company changes
   useEffect(() => {
@@ -1031,7 +1039,6 @@ export default function SettingsPage() {
                 onClick={() => setAddMemberModal(true)}
                 className="bg-gray-100 hover:bg-gray-200 border px-3 py-1 rounded text-sm flex items-center space-x-1"
               >
-                <Plus className="w-4 h-4" />
                 <span>Add Member</span>
               </button>
             </div>
@@ -1053,9 +1060,11 @@ export default function SettingsPage() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Access
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
+                  {shouldShowActionsColumn && (
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Actions
+                    </th>
+                  )}
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -1081,33 +1090,35 @@ export default function SettingsPage() {
                         {member.is_access_enabled ? "Enabled" : "Disabled"}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      {member.id !== user.id && (
-                        <>
-                          {(isOwner || member.role !== "Owner") && (
-                            <>
-                              <button 
-                                onClick={() => handleEditMember(member)}
-                                className="text-blue-600 hover:text-blue-800 mr-3"
-                              >
-                                Edit
-                              </button>
-                              <button
-                                onClick={() => handleDeleteMember(member.id)}
-                                className="text-red-600 hover:text-red-800"
-                              >
-                                Remove
-                              </button>
-                            </>
-                          )}
-                        </>
-                      )}
-                    </td>
+                    {shouldShowActionsColumn && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                        {member.id !== user.id && (
+                          <>
+                            {(isOwner || member.role !== "Owner") && (
+                              <>
+                                <button 
+                                  onClick={() => handleEditMember(member)}
+                                  className="text-blue-600 hover:text-blue-800 mr-3"
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteMember(member.id)}
+                                  className="text-red-600 hover:text-red-800"
+                                >
+                                  Remove
+                                </button>
+                              </>
+                            )}
+                          </>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 ))}
                 {companyMembers.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-6 py-4 text-center text-sm text-gray-500">
+                    <td colSpan={shouldShowActionsColumn ? 5 : 4} className="px-6 py-4 text-center text-sm text-gray-500">
                       No team members found.
                     </td>
                   </tr>
