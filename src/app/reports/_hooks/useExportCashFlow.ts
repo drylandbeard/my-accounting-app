@@ -253,13 +253,17 @@ export const useExportCashFlow = (params: UseExportCashFlowParams) => {
         const months = getMonthsInRange(startDate, endDate);
         let col = 2;
         months.forEach((month, index) => {
-          const monthStart = `${month}-01`;
-          const prevMonthEnd =
-            index === 0
-              ? new Date(new Date(monthStart).getTime() - 24 * 60 * 60 * 1000).toISOString().split("T")[0]
-              : new Date(new Date(monthStart).getTime() - 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+          let balance;
+          if (index === 0) {
+            balance = beginningBankBalance;
+          } else {
+            // For subsequent months, use the ending balance of the previous month as the beginning balance
+            const prevMonth = months[index - 1];
+            const lastDay = new Date(parseInt(prevMonth.split("-")[0]), parseInt(prevMonth.split("-")[1]), 0).getDate();
+            const prevMonthEnd = `${prevMonth}-${String(lastDay).padStart(2, "0")}`;
+            balance = calculateBankBalanceForPeriod(prevMonthEnd);
+          }
           
-          const balance = index === 0 ? beginningBankBalance : calculateBankBalanceForPeriod(prevMonthEnd);
           worksheet.getCell(currentRow, col).value = balance;
           worksheet.getCell(currentRow, col).style = numberStyle;
           col++;
@@ -271,15 +275,23 @@ export const useExportCashFlow = (params: UseExportCashFlowParams) => {
         const quarters = getQuartersInRange(startDate, endDate);
         let col = 2;
         quarters.forEach((quarter, index) => {
-          const [year, q] = quarter.split("-Q");
-          const quarterNum = parseInt(q);
-          const quarterStart = `${year}-${String((quarterNum - 1) * 3 + 1).padStart(2, "0")}-01`;
-          const prevQuarterEnd =
-            index === 0
-              ? new Date(new Date(quarterStart).getTime() - 24 * 60 * 60 * 1000).toISOString().split("T")[0]
-              : new Date(new Date(quarterStart).getTime() - 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+          let balance;
+          if (index === 0) {
+            balance = beginningBankBalance;
+          } else {
+            // For subsequent quarters, use the ending balance of the previous quarter as the beginning balance
+            const prevQuarter = quarters[index - 1];
+            const [prevYear, prevQ] = prevQuarter.split("-Q");
+            const prevQuarterNum = parseInt(prevQ);
+            const prevQuarterEndMonth = prevQuarterNum * 3;
+            const prevQuarterEnd = `${prevYear}-${String(prevQuarterEndMonth).padStart(2, "0")}-${new Date(
+              parseInt(prevYear),
+              prevQuarterEndMonth,
+              0
+            ).getDate()}`;
+            balance = calculateBankBalanceForPeriod(prevQuarterEnd);
+          }
           
-          const balance = index === 0 ? beginningBankBalance : calculateBankBalanceForPeriod(prevQuarterEnd);
           worksheet.getCell(currentRow, col).value = balance;
           worksheet.getCell(currentRow, col).style = numberStyle;
           col++;
