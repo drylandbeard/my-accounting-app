@@ -3982,7 +3982,7 @@ export default function TransactionsPage() {
           </button>
           {(() => {
             const selected = accounts.find((a) => a.plaid_account_id === selectedAccountId);
-            if (!selected || selected.is_manual) return null;
+            if (!selected) return null;
             return (
               <div className="ml-4 flex items-center gap-3 my-auto">
                 <div className="flex items-center gap-1 px-2 py-1 bg-gray-50 border border-gray-200 rounded-md">
