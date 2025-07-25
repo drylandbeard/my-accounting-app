@@ -325,6 +325,7 @@ interface TransactionsState {
   
   // CSV Import
   importTransactionsFromCSV: (transactions: Transaction[], companyId: string) => Promise<{ success: boolean; count?: number; error?: string }>;
+  importManualJournalEntriesFromCSV: (entries: { id: string; description: string; debit: string; credit: string; payee_id?: string; chart_account_id?: string }[], date: string, jeName: string, companyId: string) => Promise<{ success: boolean; referenceNumber?: string; error?: string }>;
   
   // Real-time subscriptions
   subscribeToTransactions: (companyId: string) => () => void;
@@ -1887,6 +1888,49 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
     } catch (error) {
       console.error('CSV Import error:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to import transactions. Please try again.';
+      set({ error: errorMessage });
+      return { success: false, error: errorMessage };
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  importManualJournalEntriesFromCSV: async (entries, date: string, jeName: string, companyId: string) => {
+    try {
+      set({ isLoading: true, error: null });
+
+      if (entries.length === 0) {
+        throw new Error('No entries selected for import.');
+      }
+
+      // Import manual journal entries via API
+      const response = await api.post('/api/manual-journal/import-csv', {
+        companyId,
+        date,
+        jeName,
+        entries
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to import manual journal entries');
+      }
+
+      const data = await response.json();
+
+      if (!data || !data.success) {
+        throw new Error(data?.error || 'Failed to import manual journal entries');
+      }
+
+      // Refresh the manual journal entries list
+      await get().fetchManualJournalEntries(companyId);
+
+      showSuccessToast(`Successfully imported ${entries.length} journal entries!`);
+
+      return { success: true, referenceNumber: data.referenceNumber };
+    } catch (error) {
+      console.error('Manual Journal CSV Import error:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to import manual journal entries. Please try again.';
       set({ error: errorMessage });
       return { success: false, error: errorMessage };
     } finally {
