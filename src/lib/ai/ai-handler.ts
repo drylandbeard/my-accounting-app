@@ -8,8 +8,10 @@ import {
   PayeeValidationContext
 } from './types';
 import { PayeeExecutor } from './payee-executor';
+import { CategoryExecutor } from './category-executor';
 import { ChatService } from './chat-service';
 import { PayeeValidator } from './payee-validator';
+import { CategoryValidator } from './category-validator';
 
 /**
  * Main AI handler that coordinates all AI operations
@@ -17,6 +19,7 @@ import { PayeeValidator } from './payee-validator';
  */
 export class AIHandler {
   private payeeExecutor: PayeeExecutor;
+  private categoryExecutor: CategoryExecutor;
   private chatService: ChatService;
   private payeesStore: {
     payees: Array<{ id: string; name: string; company_id: string }>;
@@ -25,6 +28,24 @@ export class AIHandler {
     updatePayee: (id: string, updates: { name: string }) => Promise<boolean>;
     deletePayee: (id: string) => Promise<boolean>;
     refreshPayees: () => Promise<void>;
+  };
+  private categoriesStore: {
+    categories: Array<{ 
+      id: string; 
+      name: string; 
+      type: string; 
+      company_id: string;
+      parent_id?: string | null;
+      subtype?: string;
+      plaid_account_id?: string | null;
+    }>;
+    error: string | null;
+    addCategory: (category: { name: string; type: string; parent_id?: string | null }) => Promise<{ id: string; name: string; type: string } | null>;
+    updateCategory: (idOrName: string, updates: { name?: string; type?: string; parent_id?: string | null }) => Promise<boolean>;
+    deleteCategory: (idOrName: string) => Promise<boolean>;
+    moveCategory: (categoryIdOrName: string, newParentIdOrName: string | null) => Promise<boolean>;
+    refreshCategories: () => Promise<void>;
+    findCategoryByName: (name: string, caseSensitive?: boolean) => { id: string; name: string; type: string; parent_id?: string | null } | null;
   };
 
   constructor(
@@ -36,11 +57,31 @@ export class AIHandler {
       deletePayee: (id: string) => Promise<boolean>;
       refreshPayees: () => Promise<void>;
     },
+    categoriesStore: {
+      categories: Array<{ 
+        id: string; 
+        name: string; 
+        type: string; 
+        company_id: string;
+        parent_id?: string | null;
+        subtype?: string;
+        plaid_account_id?: string | null;
+      }>;
+      error: string | null;
+      addCategory: (category: { name: string; type: string; parent_id?: string | null }) => Promise<{ id: string; name: string; type: string } | null>;
+      updateCategory: (idOrName: string, updates: { name?: string; type?: string; parent_id?: string | null }) => Promise<boolean>;
+      deleteCategory: (idOrName: string) => Promise<boolean>;
+      moveCategory: (categoryIdOrName: string, newParentIdOrName: string | null) => Promise<boolean>;
+      refreshCategories: () => Promise<void>;
+      findCategoryByName: (name: string, caseSensitive?: boolean) => { id: string; name: string; type: string; parent_id?: string | null } | null;
+    },
     currentCompany: { id: string; name: string } | null,
     apiKey: string
   ) {
     this.payeesStore = payeesStore;
+    this.categoriesStore = categoriesStore;
     this.payeeExecutor = new PayeeExecutor(payeesStore, currentCompany);
+    this.categoryExecutor = new CategoryExecutor(categoriesStore, currentCompany);
     this.chatService = new ChatService(apiKey);
   }
 
@@ -50,7 +91,8 @@ export class AIHandler {
   async processUserMessage(
     userMessage: string,
     existingMessages: Message[],
-    payees: Array<{ name: string }>
+    payees: Array<{ name: string }>,
+    categories: Array<{ name: string; type: string; parent_id?: string | null }>
   ): Promise<{
     success: boolean;
     response?: Message;
@@ -59,25 +101,51 @@ export class AIHandler {
     try {
       // Check for vague prompts - route through AI for dynamic response
       if (this.isVaguePrompt(userMessage)) {
-        return await this.generateAIResponse(userMessage, existingMessages, payees, 'vague_prompt');
+        return await this.generateAIResponse(userMessage, existingMessages, payees, categories, 'vague_prompt');
       }
 
-      // Prepare messages for OpenAI
-      const systemPrompt = this.chatService.getPayeeSystemPrompt(payees);
+      // Detect operation type
+      const operationType = this.detectOperationType(userMessage);
+
+      // Prepare messages for OpenAI based on operation type
+      let systemPrompt: string;
+      let tools: unknown[];
+
+      switch (operationType) {
+        case 'category':
+          systemPrompt = this.chatService.getCategorySystemPrompt(categories);
+          tools = this.chatService.getCategoryTools();
+          console.log(`🎯 Category operation detected - using category-specific prompt and tools`);
+          break;
+        case 'payee':
+          systemPrompt = this.chatService.getPayeeSystemPrompt(payees);
+          tools = this.chatService.getPayeeTools();
+          console.log(`🎯 Payee operation detected - using payee-specific prompt and tools`);
+          break;
+        case 'mixed':
+          systemPrompt = this.chatService.getUnifiedSystemPrompt(payees, categories);
+          tools = this.chatService.getUnifiedTools();
+          console.log(`🎯 Mixed operation detected - using unified prompt and tools`);
+          break;
+        case 'general':
+        default:
+          // For general queries, use unified prompt to allow AI to determine the best approach
+          systemPrompt = this.chatService.getUnifiedSystemPrompt(payees, categories);
+          tools = this.chatService.getUnifiedTools();
+          console.log(`📨 General operation - using unified prompt and tools`);
+          break;
+      }
       
-      // For payee operations, limit chat history to prevent confusion from stale operations
-      // Check if this is a payee operation that might be affected by stale history
-      const isPayeeOperation = /(?:create|add|delete|remove|update|rename|edit)\s+(?:payee|.*(?:mark|aenon|justine|ryland))/i.test(userMessage);
-      
+      // For operations, limit chat history to prevent confusion from stale operations
       let recentMessages: Message[] = [];
-      if (isPayeeOperation) {
-        // For payee operations, only include the most recent 2 messages to minimize conflicting context
+      if (operationType !== 'general') {
+        // For specific operations, only include the most recent 2 messages to minimize conflicting context
         recentMessages = existingMessages.slice(-2);
-        console.log(`🎯 Payee operation detected, using minimal context: ${recentMessages.length} messages`);
+        console.log(`🎯 ${operationType} operation detected, using minimal context: ${recentMessages.length} messages`);
       } else {
-        // For non-payee operations, include more context
+        // For general operations, include more context
         recentMessages = existingMessages.slice(-6);
-        console.log(`📨 Regular operation, using ${recentMessages.length} recent messages`);
+        console.log(`📨 General operation, using ${recentMessages.length} recent messages`);
       }
       
       const chatMessages: ChatMessage[] = [
@@ -93,7 +161,7 @@ export class AIHandler {
           model: 'gpt-4o-mini-2024-07-18',
           temperature: 0.2,
           maxTokens: 512,
-          tools: this.chatService.getPayeeTools()
+          tools: tools
         }
       );
 
@@ -107,6 +175,7 @@ export class AIHandler {
           userMessage,
           existingMessages,
           payees,
+          categories,
           errorContent
         );
       }
@@ -122,6 +191,36 @@ export class AIHandler {
   }
 
   /**
+   * Detects the type of operation from user message
+   */
+  private detectOperationType(userMessage: string): 'payee' | 'category' | 'mixed' | 'general' {
+    const lowerMessage = userMessage.toLowerCase();
+    
+    // Category operation keywords
+    const categoryKeywords = [
+      'category', 'categories', 'account', 'accounts', 'chart of accounts',
+      'asset', 'liability', 'equity', 'revenue', 'expense', 'cogs',
+      'bank account', 'credit card'
+    ];
+    
+    // Payee operation keywords
+    const payeeKeywords = ['payee', 'payees'];
+    
+    const hasCategoryKeywords = categoryKeywords.some(keyword => lowerMessage.includes(keyword));
+    const hasPayeeKeywords = payeeKeywords.some(keyword => lowerMessage.includes(keyword));
+    
+    if (hasCategoryKeywords && hasPayeeKeywords) {
+      return 'mixed';
+    } else if (hasCategoryKeywords) {
+      return 'category';
+    } else if (hasPayeeKeywords) {
+      return 'payee';
+    } else {
+      return 'general';
+    }
+  }
+
+  /**
    * Executes a confirmed action and generates AI response
    */
   async executeAction(action: Record<string, unknown>): Promise<string> {
@@ -132,27 +231,96 @@ export class AIHandler {
       }
       
       if (action.action === 'batch_execute') {
-        const operations = action.operations as PayeeOperation[];
-        const result = await this.payeeExecutor.executeBatchOperations(operations);
+        const operations = action.operations as (PayeeOperation | { action: string; params: Record<string, unknown> })[];
+        
+        // Separate payee and category operations
+        const payeeOperations: PayeeOperation[] = [];
+        const categoryOperations: { action: string; params: Record<string, unknown> }[] = [];
+        
+        operations.forEach(op => {
+          if (op.action.includes('_payee')) {
+            payeeOperations.push(op as PayeeOperation);
+          } else if (op.action.includes('_category')) {
+            categoryOperations.push(op);
+          }
+        });
+        
+        const results: string[] = [];
+        
+        // Execute payee operations if any
+        if (payeeOperations.length > 0) {
+          const payeeResult = await this.payeeExecutor.executeBatchOperations(payeeOperations);
+          results.push(this.formatBatchResult(payeeResult));
+        }
+        
+        // Execute category operations if any
+        if (categoryOperations.length > 0) {
+          const categoryResults = await Promise.all(
+            categoryOperations.map(op => 
+              this.categoryExecutor.executeCategoryOperation(op.action, op.params)
+            )
+          );
+          
+          const successCount = categoryResults.filter(r => r.success).length;
+          const categoryBatchResult = {
+            success: successCount === categoryOperations.length,
+            message: successCount === categoryOperations.length 
+              ? `Successfully completed ${successCount} category operation${successCount === 1 ? '' : 's'}`
+              : `Completed ${successCount}/${categoryOperations.length} category operations`,
+            results: categoryResults,
+            completedOperations: successCount,
+            failedAt: categoryResults.findIndex(r => !r.success)
+          };
+          
+          results.push(this.formatBatchResult(categoryBatchResult));
+        }
+        
+        const combinedResult = results.join('\n\n');
+        const allSuccessful = payeeOperations.length === 0 || categoryOperations.length === 0 
+          ? true 
+          : results.every(r => r.includes('✅'));
+          
         return await this.generateActionResponseWithAI(
-          this.formatBatchResult(result), 
-          result.success ? 'batch_success' : 'batch_failure',
-          { result, operations }
+          combinedResult, 
+          allSuccessful ? 'batch_success' : 'batch_failure',
+          { operations }
         );
       }
 
       // Single operation
       const operationName = action.action as string;
-      const result = await this.payeeExecutor.executePayeeOperation(
-        operationName,
-        action
-      );
+      
+      // Determine if this is a payee or category operation
+      if (operationName.includes('_payee')) {
+        const result = await this.payeeExecutor.executePayeeOperation(
+          operationName,
+          action
+        );
 
-      return await this.generateActionResponseWithAI(
-        this.formatOperationResult(result, operationName),
-        result.success ? 'operation_success' : 'operation_failure',
-        { result, operation: operationName, action }
-      );
+        return await this.generateActionResponseWithAI(
+          this.formatOperationResult(result, operationName),
+          result.success ? 'operation_success' : 'operation_failure',
+          { result, operation: operationName, action }
+        );
+      } else if (operationName.includes('_category')) {
+        const result = await this.categoryExecutor.executeCategoryOperation(
+          operationName,
+          action
+        );
+
+        return await this.generateActionResponseWithAI(
+          this.formatOperationResult(result, operationName),
+          result.success ? 'operation_success' : 'operation_failure',
+          { result, operation: operationName, action }
+        );
+      } else {
+        // Unknown operation type - return error
+        return await this.generateActionResponseWithAI(
+          `Unknown operation type: ${operationName}. Supported operations are payee operations (_payee) and category operations (_category).`,
+          'execution_error',
+          { operation: operationName, action }
+        );
+      }
     } catch (error) {
       console.error('Error executing action:', error);
       return await this.generateActionResponseWithAI(
@@ -232,7 +400,7 @@ export class AIHandler {
     response: Message;
   } {
     let confirmationMessage = "I will perform the following actions:\n\n";
-    const operations: PayeeOperation[] = [];
+    const operations: (PayeeOperation | { action: string; params: Record<string, unknown> })[] = [];
     const validationErrors: string[] = [];
 
     // First pass: validate all operations
@@ -282,8 +450,32 @@ export class AIHandler {
           confirmationMessage += `${index + 1}. Delete payee${deleteName ? ` "${deleteName}"` : ''}\n`;
           operations.push({ action: 'delete_payee', params: args });
           break;
+        case 'create_category':
+          const categoryName = this.sanitizeDisplayValue(args.name);
+          const categoryType = this.sanitizeDisplayValue(args.type);
+          confirmationMessage += `${index + 1}. Create ${categoryType ? `${categoryType} ` : ''}category${categoryName ? ` "${categoryName}"` : ''}\n`;
+          operations.push({ action: 'create_category', params: args });
+          break;
+        case 'update_category':
+          const currentCategoryName = this.sanitizeDisplayValue(args.categoryName || args.categoryId);
+          const newCategoryName = this.sanitizeDisplayValue(args.name);
+          confirmationMessage += `${index + 1}. Update category${currentCategoryName ? ` "${currentCategoryName}"` : ''}${newCategoryName ? ` to "${newCategoryName}"` : ''}\n`;
+          operations.push({ action: 'update_category', params: args });
+          break;
+        case 'delete_category':
+          const deleteCategoryName = this.sanitizeDisplayValue(args.categoryName || args.categoryId);
+          confirmationMessage += `${index + 1}. Delete category${deleteCategoryName ? ` "${deleteCategoryName}"` : ''}\n`;
+          operations.push({ action: 'delete_category', params: args });
+          break;
+        case 'move_category':
+          const moveCategoryName = this.sanitizeDisplayValue(args.categoryName || args.categoryId);
+          const newParentName = this.sanitizeDisplayValue(args.newParentName || args.newParentId);
+          confirmationMessage += `${index + 1}. Move category${moveCategoryName ? ` "${moveCategoryName}"` : ''}${newParentName ? ` under "${newParentName}"` : ' to top level'}\n`;
+          operations.push({ action: 'move_category', params: args });
+          break;
         default:
           confirmationMessage += `${index + 1}. ${functionName || 'Unknown operation'}\n`;
+          operations.push({ action: functionName || 'unknown', params: args });
           break;
       }
     });
@@ -345,6 +537,25 @@ export class AIHandler {
       case 'delete_payee':
         const payeeToDelete = this.sanitizeDisplayValue(args.payeeName || args.payeeId);
         confirmationMessage = `I'll delete the payee${payeeToDelete ? ` "${payeeToDelete}"` : ''}. Would you like to proceed?`;
+        break;
+      case 'create_category':
+        const categoryName = this.sanitizeDisplayValue(args.name);
+        const categoryType = this.sanitizeDisplayValue(args.type);
+        confirmationMessage = `I'll create a new ${categoryType ? `${categoryType} ` : ''}category${categoryName ? ` named "${categoryName}"` : ''}. Would you like to proceed?`;
+        break;
+      case 'update_category':
+        const currentCategory = this.sanitizeDisplayValue(args.categoryName || args.categoryId);
+        const newCategoryName = this.sanitizeDisplayValue(args.name);
+        confirmationMessage = `I'll update the category${currentCategory ? ` "${currentCategory}"` : ''}${newCategoryName ? ` to "${newCategoryName}"` : ''}. Would you like to proceed?`;
+        break;
+      case 'delete_category':
+        const categoryToDelete = this.sanitizeDisplayValue(args.categoryName || args.categoryId);
+        confirmationMessage = `I'll delete the category${categoryToDelete ? ` "${categoryToDelete}"` : ''}. Would you like to proceed?`;
+        break;
+      case 'move_category':
+        const categoryToMove = this.sanitizeDisplayValue(args.categoryName || args.categoryId);
+        const newParent = this.sanitizeDisplayValue(args.newParentName || args.newParentId);
+        confirmationMessage = `I'll move the category${categoryToMove ? ` "${categoryToMove}"` : ''}${newParent ? ` under "${newParent}"` : ' to the top level'}. Would you like to proceed?`;
         break;
       case 'batch_execute':
         const operations = args.operations || [];
@@ -494,41 +705,89 @@ export class AIHandler {
     functionName: string,
     args: Record<string, unknown>
   ): { isValid: boolean; errorMessage?: string } {
-    const existingPayees = this.payeesStore.payees || [];
-    
-    // Create validation context
-    const context: PayeeValidationContext = {
-      existingPayees,
-      operation: functionName as 'create' | 'update' | 'delete'
-    };
-    
-    // Map function names to operation types
-    const operationMap: Record<string, 'create' | 'update' | 'delete'> = {
-      'create_payee': 'create',
-      'update_payee': 'update',
-      'delete_payee': 'delete'
-    };
-    
-    const operation = operationMap[functionName];
-    if (!operation) {
-      return { isValid: false, errorMessage: `Unknown operation: ${functionName}` };
-    }
-    
-    // Use the comprehensive PayeeValidator
-    const validation = PayeeValidator.validatePayeeOperation(operation, args, context);
-    
-    if (!validation.isValid) {
-      // Combine errors and suggestions into a user-friendly message
-      let errorMessage = validation.errors.join('; ');
+    // Handle payee operations
+    if (functionName.includes('_payee')) {
+      const existingPayees = this.payeesStore.payees || [];
       
-      if (validation.suggestions.length > 0) {
-        errorMessage += '\n\nSuggestions:\n' + validation.suggestions.map(s => `• ${s}`).join('\n');
+      // Create validation context
+      const context: PayeeValidationContext = {
+        existingPayees,
+        operation: functionName.replace('_payee', '') as 'create' | 'update' | 'delete'
+      };
+      
+      // Map function names to operation types
+      const operationMap: Record<string, 'create' | 'update' | 'delete'> = {
+        'create_payee': 'create',
+        'update_payee': 'update',
+        'delete_payee': 'delete'
+      };
+      
+      const operation = operationMap[functionName];
+      if (!operation) {
+        return { isValid: false, errorMessage: `Unknown payee operation: ${functionName}` };
       }
       
-      return { isValid: false, errorMessage };
+      // Use the comprehensive PayeeValidator
+      const validation = PayeeValidator.validatePayeeOperation(operation, args, context);
+      
+      if (!validation.isValid) {
+        // Combine errors and suggestions into a user-friendly message
+        let errorMessage = validation.errors.join('; ');
+        
+        if (validation.suggestions.length > 0) {
+          errorMessage += '\n\nSuggestions:\n' + validation.suggestions.map(s => `• ${s}`).join('\n');
+        }
+        
+        return { isValid: false, errorMessage };
+      }
+      
+      return { isValid: true };
     }
     
-    return { isValid: true };
+    // Handle category operations
+    if (functionName.includes('_category')) {
+      const existingCategories = this.categoriesStore.categories || [];
+      
+      // Import CategoryValidator for validation
+      
+      // Create validation context
+      const context = {
+        existingCategories,
+        operation: functionName.replace('_category', '') as 'create' | 'update' | 'delete' | 'move'
+      };
+      
+      // Map function names to operation types
+      const operationMap: Record<string, 'create' | 'update' | 'delete' | 'move'> = {
+        'create_category': 'create',
+        'update_category': 'update',
+        'delete_category': 'delete',
+        'move_category': 'move'
+      };
+      
+      const operation = operationMap[functionName];
+      if (!operation) {
+        return { isValid: false, errorMessage: `Unknown category operation: ${functionName}` };
+      }
+      
+      // Use the comprehensive CategoryValidator
+      const validation = CategoryValidator.validateCategoryOperation(operation, args, context);
+      
+      if (!validation.isValid) {
+        // Combine errors and suggestions into a user-friendly message
+        let errorMessage = validation.errors.join('; ');
+        
+        if (validation.suggestions.length > 0) {
+          errorMessage += '\n\nSuggestions:\n' + validation.suggestions.map((s: string) => `• ${s}`).join('\n');
+        }
+        
+        return { isValid: false, errorMessage };
+      }
+      
+      return { isValid: true };
+    }
+    
+    // Unknown operation type
+    return { isValid: false, errorMessage: `Unknown operation type: ${functionName}` };
   }
 
   /**
@@ -629,6 +888,7 @@ export class AIHandler {
     userMessage: string,
     existingMessages: Message[],
     payees: Array<{ name: string }>,
+    categories: Array<{ name: string; type: string; parent_id?: string | null }>,
     responseType: 'vague_prompt' | 'validation_error',
     validationDetails?: {
       operation: string;
@@ -643,6 +903,7 @@ export class AIHandler {
   }> {
     try {
       // Prepare enhanced system prompt for different response types
+      // For now, use payee prompt but we can enhance this later to support categories
       const systemPrompt = this.chatService.getEnhancedSystemPrompt(payees, responseType, validationDetails);
       
       // For special responses, include minimal context to avoid confusion
@@ -693,6 +954,7 @@ export class AIHandler {
     userMessage: string,
     existingMessages: Message[],
     payees: Array<{ name: string }>,
+    categories: Array<{ name: string; type: string; parent_id?: string | null }>,
     operation: string,
     validationDetails: {
       operation: string;
@@ -709,6 +971,7 @@ export class AIHandler {
       userMessage, 
       existingMessages, 
       payees, 
+      categories,
       'validation_error', 
       validationDetails
     );
@@ -721,6 +984,7 @@ export class AIHandler {
     userMessage: string,
     existingMessages: Message[],
     payees: Array<{ name: string }>,
+    categories: Array<{ name: string; type: string; parent_id?: string | null }>,
     errorMessage: string
   ): Promise<{
     success: boolean;
@@ -729,7 +993,7 @@ export class AIHandler {
   }> {
     // Parse the error message to extract validation details
     const validationDetails = {
-      operation: 'payee_operation',
+      operation: 'operation',
       errors: [errorMessage],
       warnings: [],
       suggestions: this.extractSuggestionsFromErrorMessage(errorMessage)
@@ -739,6 +1003,7 @@ export class AIHandler {
       userMessage, 
       existingMessages, 
       payees, 
+      categories,
       'validation_error', 
       validationDetails
     );
