@@ -1844,17 +1844,19 @@ export default function TransactionsPage() {
       if (success) {
         // Remove the deleted account from the modal's accounts list
         const updatedAccounts = accountNamesModal.accounts.filter((acc) => acc.id !== accountId);
-        setAccountNamesModal((prev) => ({
-          ...prev,
-          accounts: updatedAccounts,
-          accountToDelete: null,
-          deleteConfirmation: "",
-        }));
-
+        
         // If the deleted account was selected, select the first remaining account
         if (selectedAccountId === accountId && updatedAccounts.length > 0) {
           setSelectedAccountId(updatedAccounts[0].id);
         }
+
+        // Close the modal after successful deletion
+        setAccountNamesModal({
+          isOpen: false,
+          accounts: [],
+          accountToDelete: null,
+          deleteConfirmation: "",
+        });
       }
     } catch (error) {
       console.error("Error deleting account:", error);
