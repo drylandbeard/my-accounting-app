@@ -120,14 +120,18 @@ function SortableAccountItem({
   account,
   onNameChange,
   onDelete,
+  onConfirmDelete,
+  onCancelDelete,
   deleteConfirmation,
   onDeleteConfirmationChange,
   accountToDelete,
 }: {
-  account: { id: string; name: string; order?: number };
+  account: { plaid_account_id: string; id: string; name: string; order?: number };
   index?: number;
   onNameChange: (value: string) => void;
   onDelete: () => void;
+  onConfirmDelete: () => void;
+  onCancelDelete: () => void;
   deleteConfirmation: string;
   onDeleteConfirmationChange: (value: string) => void;
   accountToDelete: string | null;
@@ -165,7 +169,7 @@ function SortableAccountItem({
         </button>
       </div>
       {accountToDelete === account.id && (
-        <div className="bg-red-50 p-3 rounded border border-red-200">
+        <div className="bg-red-50 p-3 rounded border border-red-200 w-full">
           <p className="text-sm text-red-700 mb-2">
             Warning: This will permanently delete the account and all its transactions. Type &quot;delete&quot; to
             confirm.
@@ -179,21 +183,14 @@ function SortableAccountItem({
               className="flex-1 border px-2 py-1 rounded"
             />
             <button
-              onClick={() => {
-                if (deleteConfirmation === "delete") {
-                  // Call a deletion handler that will be passed from parent
-                  onDelete();
-                }
-              }}
+              onClick={onConfirmDelete}
               disabled={deleteConfirmation !== "delete"}
               className="px-3 py-1 bg-red-600 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Confirm
             </button>
             <button
-              onClick={() => {
-                onDeleteConfirmationChange("");
-              }}
+              onClick={onCancelDelete}
               className="px-3 py-1 border rounded"
             >
               Cancel
@@ -412,7 +409,12 @@ export default function TransactionsPage() {
   // Add new state for account names modal
   const [accountNamesModal, setAccountNamesModal] = useState<{
     isOpen: boolean;
-    accounts: { id: string; name: string; order?: number }[];
+    accounts: {
+      plaid_account_id: string;
+      id: string;
+      name: string;
+      order?: number;
+    }[];
     accountToDelete: string | null;
     deleteConfirmation: string;
   }>({
@@ -421,6 +423,9 @@ export default function TransactionsPage() {
     accountToDelete: null,
     deleteConfirmation: "",
   });
+
+  console.log("accountNamesModal", accountNamesModal);
+  console.log("accounts", accounts);
 
   // Add journal entry modal state
   const [journalEntryModal, setJournalEntryModal] = useState<{
@@ -2665,6 +2670,7 @@ export default function TransactionsPage() {
                 accounts: accounts
                   .filter((acc) => acc.plaid_account_id)
                   .map((acc, index) => ({
+                    plaid_account_id: acc.plaid_account_id || "",
                     id: acc.plaid_account_id || "",
                     name: acc.name || "Unknown Account",
                     order: index,
@@ -3331,7 +3337,7 @@ export default function TransactionsPage() {
             setAccountNamesModal({ isOpen: false, accounts: [], accountToDelete: null, deleteConfirmation: "" })
           }
         >
-          <DialogContent className="w-[100rem] max-h-[90vh] overflow-y-auto">
+          <DialogContent className="w-[400px] max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Edit Accounts</DialogTitle>
               <p className="text-sm text-gray-600">Drag accounts to reorder them</p>
@@ -3357,17 +3363,20 @@ export default function TransactionsPage() {
                         }));
                       }}
                       onDelete={() => {
-                        if (
-                          accountNamesModal.deleteConfirmation === "delete" &&
-                          accountNamesModal.accountToDelete === account.id
-                        ) {
-                          handleDeleteAccount(account.id);
-                        } else {
-                          setAccountNamesModal((prev) => ({
-                            ...prev,
-                            accountToDelete: account.id,
-                          }));
-                        }
+                        setAccountNamesModal((prev) => ({
+                          ...prev,
+                          accountToDelete: account.id,
+                        }));
+                      }}
+                      onConfirmDelete={() => {
+                        handleDeleteAccount(account.id);
+                      }}
+                      onCancelDelete={() => {
+                        setAccountNamesModal((prev) => ({
+                          ...prev,
+                          accountToDelete: null,
+                          deleteConfirmation: "",
+                        }));
                       }}
                       deleteConfirmation={accountNamesModal.deleteConfirmation}
                       onDeleteConfirmationChange={(value: string) =>
