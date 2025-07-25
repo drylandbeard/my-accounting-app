@@ -2744,10 +2744,13 @@ export default function TransactionsPage() {
                       <div className="space-y-2">
                         <label className="block text-sm font-medium text-gray-700">Select Account</label>
                         <Select
-                          options={accounts.map((acc) => ({
-                            value: acc.plaid_account_id || "",
-                            label: acc.name,
-                          }))}
+                          options={[
+                            { value: "add_new", label: "+ Add manual account" },
+                            ...accounts.map((acc) => ({
+                              value: acc.plaid_account_id || "",
+                              label: acc.name,
+                            }))
+                          ]}
                           value={
                             importModal.selectedAccount
                               ? {
@@ -2759,11 +2762,15 @@ export default function TransactionsPage() {
                           onChange={(selectedOption) => {
                             const option = selectedOption as SelectOption | null;
                             if (option) {
-                              const selectedAccount = accounts.find((acc) => acc.plaid_account_id === option.value);
-                              setImportModal((prev) => ({
-                                ...prev,
-                                selectedAccount: selectedAccount || null,
-                              }));
+                              if (option.value === "add_new") {
+                                setManualAccountModal({ isOpen: true, name: "", type: "Asset", startingBalance: "0" });
+                              } else {
+                                const selectedAccount = accounts.find((acc) => acc.plaid_account_id === option.value);
+                                setImportModal((prev) => ({
+                                  ...prev,
+                                  selectedAccount: selectedAccount || null,
+                                }));
+                              }
                             }
                           }}
                           isSearchable
@@ -2789,10 +2796,7 @@ export default function TransactionsPage() {
                               • <strong>Description:</strong> Any text describing the transaction
                             </li>
                             <li>
-                              • <strong>Spent:</strong> Amount spent (expenses). Use 0.00 if no amount spent.
-                            </li>
-                            <li>
-                              • <strong>Received:</strong> Amount received (income). Use 0.00 if no amount received.
+                              • <strong>Amount:</strong> Amount spent or received. Use 0.00 if no amount.
                             </li>
                           </ul>
                           <p className="text-xs text-blue-600 mt-2">
