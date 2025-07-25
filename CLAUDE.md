@@ -88,7 +88,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `next.config.ts` - Next.js configuration
 - `supabase/config.toml` - Supabase local configuration
 - `middleware.ts` - Request middleware for auth and CORS
-- `.cursor/rules/database-schema.mdc` - Complete database schema reference
+- `supabase/database-schema.md` - Complete database schema reference
 
 ### Authentication
 - `src/lib/auth.ts` - Server-side auth utilities
