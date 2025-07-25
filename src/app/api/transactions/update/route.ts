@@ -173,14 +173,16 @@ export async function POST(request: NextRequest) {
         }
       : baseUpdateData
 
-    // Update the transaction
-    const { error: updateError } = await supabase
+    // Update the transaction and get the updated data
+    const { data: updatedTransaction, error: updateError } = await supabase
       .from(tableName)
       .update(updateData)
       .eq('id', transactionId)
       .eq('company_id', companyId)
+      .select('*')
+      .single()
 
-    if (updateError) {
+    if (updateError || !updatedTransaction) {
       console.error('Error updating transaction:', updateError)
       return NextResponse.json(
         { error: 'Failed to update transaction' },
@@ -188,11 +190,50 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Prepare response based on table type
+    let responseData
+    
+    if (tableName === 'transactions') {
+      // Get journal entry count to detect splits
+      const { data: journalCount } = await supabase
+        .from('journal')
+        .select('id')
+        .eq('transaction_id', transactionId)
+        .eq('company_id', companyId)
+      
+      const journalEntryCount = journalCount?.length || 0
+      
+      responseData = {
+        ...updatedTransaction,
+        spent: updatedTransaction.spent ? updatedTransaction.spent.toString() : undefined,
+        received: updatedTransaction.received ? updatedTransaction.received.toString() : undefined,
+        has_split: journalEntryCount > 2
+      }
+    } else {
+      // For imported_transactions, check split table
+      const { data: splitCount } = await supabase
+        .from('imported_transactions_split')
+        .select('id')
+        .eq('imported_transaction_id', transactionId)
+        .eq('company_id', companyId)
+      
+      const splitEntryCount = splitCount?.length || 0
+      
+      responseData = {
+        ...updatedTransaction,
+        spent: updatedTransaction.spent ? updatedTransaction.spent.toString() : undefined,
+        received: updatedTransaction.received ? updatedTransaction.received.toString() : undefined,
+        has_split: splitEntryCount > 2
+      }
+    }
+
     return NextResponse.json(
       { 
         success: true, 
         message: 'Transaction updated successfully',
-        transactionId 
+        transactionId,
+        transaction: responseData,
+        tableName
       },
       { status: 200 }
     )

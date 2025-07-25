@@ -15,6 +15,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npx supabase stop` - Stop local Supabase instance
 - `npx supabase db reset` - Reset database with migrations and seed data
 - `npx supabase migration new <name>` - Create new migration
+- `npx supabase gen types typescript --local > supabase/database.types.ts` - Generate TypeScript types
 - `npx supabase studio` - Open Supabase Studio (localhost:54323)
 
 ### Utility Scripts
@@ -24,13 +25,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Architecture Overview
 
 ### Technology Stack
-- **Frontend**: Next.js 14+ with React, TypeScript, Tailwind CSS
+- **Frontend**: Next.js 15.3.1 with React 19, TypeScript, Tailwind CSS
 - **Backend**: Next.js API routes with server-side functions
 - **Database**: Supabase (PostgreSQL) with real-time subscriptions
 - **Authentication**: Custom JWT-based system with bcrypt password hashing
 - **State Management**: Zustand for client-side state
+- **UI Components**: Radix UI, React Hook Form, ShadCN components
 - **Email**: Pluggable provider system (MailHog, SendGrid, Mailtrap)
 - **Banking**: Plaid API for transaction synchronization
+- **Charts**: Recharts for data visualization
+- **Data Processing**: ExcelJS for Excel export, PapaParse for CSV handling
 
 ### Multi-Tenant Architecture
 - Companies are the primary organizational unit
@@ -43,6 +47,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Three-tier security: middleware → API token validation → database scoping
 - Email verification with 6-digit codes
 - Invitation system for team members
+- Refresh tokens stored in HTTP-only cookies
 
 ### Key Database Tables
 - `users` - User accounts with basic info
@@ -77,90 +82,67 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - SendGrid/Mailtrap for production
 - Template system for verification and invitations
 
-## Development Patterns
-
-### Security Patterns
-- All database operations must include company_id filtering
-- API routes validate JWT tokens and extract user/company context
-- Use parameterized queries via Supabase client
-- Input validation on all user inputs
-
-### Error Handling
-- Consistent error responses across API routes
-- Client-side error boundaries with user-friendly messages
-- Structured error logging
-
-### Database Migrations
-- Version-controlled schema changes via Supabase migrations
-- Incremental migration pattern with timestamps
-- Always include company_id in new tables for multi-tenancy
-
-### Real-time Features
-- Supabase subscriptions for live data updates
-- Company-scoped subscriptions
-- Optimistic updates with rollback mechanisms
-
 ## Key File Locations
 
 ### Configuration
 - `next.config.ts` - Next.js configuration
 - `supabase/config.toml` - Supabase local configuration
 - `middleware.ts` - Request middleware for auth and CORS
+- `supabase/database-schema.md` - Complete database schema reference
 
 ### Authentication
 - `src/lib/auth.ts` - Server-side auth utilities
 - `src/lib/auth-client.ts` - Client-side auth utilities
 - `src/lib/jwt.ts` - JWT token management
 - `src/components/AuthProvider.tsx` - Auth context provider
+- `docs/authentication_system.md` - Detailed auth documentation
 
 ### Database
 - `src/lib/supabase.ts` - Supabase client configuration
 - `supabase/migrations/` - Database schema migrations
-- `.cursor/rules/database-schema.mdc` - Complete database schema reference
+- `supabase/seed.sql` - Database seed data
 
 ### Email System
 - `src/lib/email/` - Email service implementation
 - `src/lib/email/providers/` - Email provider implementations
 - `src/lib/email/templates.ts` - Email templates
+- `docs/email_service_architecture.md` - Email service documentation
 
 ### Financial Logic
 - `src/lib/financial.ts` - Financial calculations and utilities
 - `src/lib/plaid.ts` - Plaid API integration
 - `src/lib/preset-categories.ts` - Default chart of accounts
+- `docs/multi_company_plaid_integration.md` - Plaid integration documentation
 
 ### API Routes
 - `src/app/api/auth/` - Authentication endpoints
 - `src/app/api/accountant/` - Accountant-specific endpoints
 - `src/app/api/transactions/` - Transaction management
 - `src/app/api/reports/` - Financial reporting
+- `src/app/api/plaid/` - Plaid integration endpoints
+- `src/app/api/companies/` - Company management
+- `src/app/api/journal/` - Journal entries
 
-## Common Development Tasks
+### UI Components
+- `src/components/ui/` - Base UI components (ShadCN)
+- `src/components/auth/` - Authentication components
+- `src/components/transactions/` - Transaction management UI
+- `src/components/charts/` - Data visualization components
 
-### Adding New Features
-1. Create API routes in `src/app/api/`
-2. Add Zustand store if needed for state management
-3. Create UI components in `src/components/` or page components
-4. Add database migrations if schema changes are needed
-5. Update types and ensure company_id scoping
+## Database Operations
 
-### Database Changes
+### Migration Pattern
 1. Create migration: `npx supabase migration new <name>`
-2. Write SQL in the migration file
+2. Write SQL in `supabase/migrations/<timestamp>_<name>.sql`
 3. Always include company_id for multi-tenancy
 4. Test with `npx supabase db reset`
-5. Update schema documentation in `.cursor/rules/database-schema.mdc`
+5. Update schema documentation if needed
 
-### Authentication Changes
-1. Server-side auth logic in `src/lib/auth.ts`
-2. Client-side auth logic in `src/lib/auth-client.ts`
-3. Update middleware if needed for new protected routes
-4. Test with both authenticated and unauthenticated states
-
-### Testing Email
-1. Use MailHog for development (localhost:54324)
-2. Test all email templates and providers
-3. Verify token generation and validation
-4. Check email delivery in production environments
+### Key Patterns
+- All queries must filter by company_id
+- Use parameterized queries via Supabase client
+- Implement optimistic updates for better UX
+- Use Supabase subscriptions for real-time updates
 
 ## Environment Configuration
 
@@ -173,16 +155,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `PLAID_CLIENT_ID` - Plaid client ID
 - `PLAID_SECRET` - Plaid secret key
 - `PLAID_ENV` - Plaid environment (sandbox/development/production)
+- `PLAID_WEBHOOK_URL` - Webhook URL for Plaid events
 
 ### Email Provider Configuration
 - `EMAIL_PROVIDER` - Email provider (mailhog/sendgrid/mailtrap)
 - `SENDGRID_API_KEY` - SendGrid API key (if using SendGrid)
 - `MAILTRAP_TOKEN` - Mailtrap token (if using Mailtrap)
 
+### Optional Configuration
+- `NEXT_PUBLIC_APP_URL` - Application URL for email links
+- `ANTHROPIC_API_KEY` - For AI features
+
 ## Security Considerations
 
 ### Database Security
-- DO NOT RUN ANY SUPABASE COMMANDS
 - Always scope queries by company_id
 - Use Row Level Security (RLS) policies where appropriate
 - Validate user access to company resources
@@ -218,3 +204,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Subscribe only to necessary data updates
 - Unsubscribe from Supabase subscriptions when components unmount
 - Use company-scoped subscriptions to reduce data transfer
+
+## Testing Approach
+
+### Local Development
+1. Use MailHog for email testing (localhost:54324)
+2. Use Supabase Studio for database inspection (localhost:54323)
+3. Test with multiple companies and user roles
+4. Verify JWT token refresh flow
+
+### Common Test Scenarios
+- User registration and email verification
+- Multi-company switching
+- Transaction import and categorization
+- Real-time subscription updates
+- Accountant access to client companies

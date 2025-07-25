@@ -216,12 +216,12 @@ export default function TransactionsPage() {
     accounts,
     importedTransactions,
     transactions,
+    isLoading,
     isSyncing,
     isAddingTransactions,
     isUndoingTransactions,
     setSelectedAccountId,
     createLinkToken,
-    refreshAll,
     addTransactions,
     undoTransactions,
     syncTransactions: storeSyncTransactions,
@@ -239,8 +239,13 @@ export default function TransactionsPage() {
     importTransactionsFromCSV,
     saveImportedTransactionSplit,
     getImportedTransactionSplitsByTransactionId,
+    fetchImportedTransactionSplits,
     saveAutomationState,
     loadAutomationState,
+    fetchAccounts,
+    fetchImportedTransactions,
+    fetchConfirmedTransactions,
+    fetchJournalEntries,
   } = useTransactionsStore();
 
   const { categories, refreshCategories, createCategoryForTransaction, subscribeToCategories } = useCategoriesStore();
@@ -818,11 +823,17 @@ export default function TransactionsPage() {
 
   useEffect(() => {
     if (hasCompanyContext && currentCompany?.id) {
-      refreshAll(currentCompany.id);
+      // Use individual fetch functions with incremental sync (default behavior)
+      fetchAccounts(currentCompany.id);
+      fetchImportedTransactions(currentCompany.id);
+      fetchConfirmedTransactions(currentCompany.id);
+      fetchJournalEntries(currentCompany.id);
       refreshCategories();
       refreshPayees();
+      // Initial fetch for imported transaction splits (subsequent updates via subscription)
+      fetchImportedTransactionSplits(currentCompany.id);
     }
-  }, [currentCompany?.id, hasCompanyContext, refreshAll, refreshCategories, refreshPayees]); // Refresh when company changes
+  }, [currentCompany?.id, hasCompanyContext, fetchAccounts, fetchImportedTransactions, fetchConfirmedTransactions, fetchJournalEntries, refreshCategories, refreshPayees, fetchImportedTransactionSplits]); // Refresh when company changes
 
   // Real-time subscriptions managed by stores
   useEffect(() => {
@@ -2466,8 +2477,11 @@ export default function TransactionsPage() {
         throw new Error("Failed to update journal entries");
       }
 
-      // Refresh all data
-      await refreshAll(currentCompany!.id);
+      // Refresh data with incremental sync
+      await Promise.all([
+        fetchConfirmedTransactions(currentCompany!.id),
+        fetchJournalEntries(currentCompany!.id)
+      ]);
 
       showSuccessToast("Journal entries updated successfully!");
 
@@ -2989,11 +3003,6 @@ export default function TransactionsPage() {
                                   csvData: [],
                                   selectedTransactions: new Set(),
                                 }));
-
-                                // Show success message
-                                showSuccessToast(
-                                  `Successfully imported ${result.count || selectedTransactions.length} transactions!`
-                                );
 
                                 // Note: Automations will be triggered automatically by the main automation effect
                                 // when it detects the new imported transactions
@@ -3997,8 +4006,9 @@ export default function TransactionsPage() {
               onChange={(e) => setSearchQuery(e.target.value)}
               className="border px-2 py-1 w-full text-xs mb-2"
             />
-            <table className="w-full border-collapse border border-gray-300">
-              <thead className="bg-gray-100">
+            <div className="overflow-auto max-h-[calc(100vh-300px)] border border-gray-300 rounded">
+              <table className="w-full border-collapse border border-gray-300">
+              <thead className="bg-gray-100 sticky top-0 z-10">
                 <tr>
                   <th 
                     className="border p-1 w-8 text-center cursor-pointer"
@@ -4065,7 +4075,17 @@ export default function TransactionsPage() {
                 </tr>
               </thead>
               <tbody>
-                {imported.map((tx) => {
+                {isLoading ? (
+                  <tr>
+                    <td colSpan={8} className="border p-4 text-center">
+                      <div className="flex flex-col items-center space-y-3">
+                        <Loader2 className="h-8 w-8 animate-spin" />
+                        <span className="text-xs">Loading transactions...</span>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  imported.map((tx) => {
                   return (
                     <tr
                       key={tx.id}
@@ -4335,9 +4355,11 @@ export default function TransactionsPage() {
                       </td>
                     </tr>
                   );
-                })}
+                })
+                )}
               </tbody>
             </table>
+            </div>
 
             <div className="flex justify-between items-center">
               {/* Pagination for To Add table */}
@@ -4364,8 +4386,9 @@ export default function TransactionsPage() {
               onChange={(e) => setSearchQuery(e.target.value)}
               className="border px-2 py-1 w-full text-xs mb-2"
             />
-            <table className="w-full border-collapse border border-gray-300">
-              <thead className="bg-gray-100">
+            <div className="overflow-auto max-h-[calc(100vh-300px)] border border-gray-300 rounded">
+              <table className="w-full border-collapse border border-gray-300">
+              <thead className="bg-gray-100 sticky top-0 z-10">
                 <tr>
                   <th
                     className="border p-1 w-8 text-center cursor-pointer"
@@ -4432,7 +4455,17 @@ export default function TransactionsPage() {
                 </tr>
               </thead>
               <tbody>
-                {confirmed.map((tx) => {
+                {isLoading ? (
+                  <tr>
+                    <td colSpan={8} className="border p-4 text-center">
+                      <div className="flex flex-col items-center space-y-3">
+                        <Loader2 className="h-8 w-8 animate-spin" />
+                        <span className="text-xs">Loading transactions...</span>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  confirmed.map((tx) => {
                   const category = categories.find((c) => c.id === tx.selected_category_id);
                   return (
                     <tr
@@ -4523,9 +4556,11 @@ export default function TransactionsPage() {
                       </td>
                     </tr>
                   );
-                })}
+                })
+                )}
               </tbody>
             </table>
+            </div>
 
             <div className="flex justify-between items-center">
               {/* Pagination for Added table */}

@@ -301,20 +301,19 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
     overflow: "hidden",
     boxShadow: isOpen ? "rgba(0,0,0,0.1) 0px 0px 16px" : "none",
     background: "white",
-    height: "100%",
+    height: "calc(100vh - 2.75rem)", // Account for navbar height (h-11 = 2.75rem)
     display: "flex",
     flexDirection: "column" as const,
     borderLeft: isOpen ? "1px solid #e5e7eb" : "none",
-    position: "relative" as const,
+    position: "sticky" as const,
+    top: "2.75rem", // Position below navbar (h-11 = 2.75rem)
+    zIndex: 30, // Lower than navbar but above content
   };
-
-  if (!isOpen) {
-    return null;
-  }
 
   return (
     <div style={panelStyle} className={isResizing ? "select-none" : ""}>
-      <div className="flex h-screen flex-col bg-white shadow-xl font-sans text-xs" style={{height: "calc(100vh - 2.7rem)"}}>
+      {isOpen && (
+        <div className="flex h-full flex-col bg-white shadow-xl font-sans text-xs">
         {/* Header */}
         <div className="px-4 py-6 sm:px-6 bg-gray-50 border-b border-gray-200">
           <div className="flex items-start justify-between">
@@ -427,16 +426,19 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
           </div>
         </div>
       </div>
+      )}
 
-      {/* Resize handle */}
-      <div
-        ref={resizeRef}
-        className={`absolute left-0 top-0 h-full w-0.5 cursor-ew-resize group ${
-          isResizing ? "bg-gray-500" : "bg-gray-200 hover:bg-gray-400"
-        } transition-colors duration-200`}
-        onMouseDown={handleResizeStart}
-        title="Drag to resize panel"
-      />
+      {/* Resize handle - only show when panel is open */}
+      {isOpen && (
+        <div
+          ref={resizeRef}
+          className={`absolute left-0 top-0 h-full w-0.5 cursor-ew-resize group ${
+            isResizing ? "bg-gray-500" : "bg-gray-200 hover:bg-gray-400"
+          } transition-colors duration-200`}
+          onMouseDown={handleResizeStart}
+          title="Drag to resize panel"
+        />
+      )}
       
       {isResizing && (
         <div className="fixed inset-0 z-50 cursor-ew-resize" style={{ background: "transparent" }} />

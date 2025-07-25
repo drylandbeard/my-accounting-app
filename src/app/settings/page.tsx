@@ -5,7 +5,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { api } from "@/lib/api";
-import { X, Plus, CreditCard, Trash, ArrowRight, AlertTriangle } from "lucide-react";
+import { CreditCard, Trash, ArrowRight, AlertTriangle } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
@@ -14,93 +14,8 @@ interface CompanyMember {
   email: string;
   role: "Owner" | "Member" | "Accountant";
   is_access_enabled: boolean;
-}
-
-interface EditCompanyModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  company: { id: string; name: string; description?: string };
-  onUpdateCompany: (updatedData: { name: string; description: string }) => Promise<void>;
-}
-
-function EditCompanyModal({ isOpen, onClose, company, onUpdateCompany }: EditCompanyModalProps) {
-  const [name, setName] = useState(company.name);
-  const [description, setDescription] = useState(company.description || "");
-  const [isUpdating, setIsUpdating] = useState(false);
-  const [error, setError] = useState("");
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim()) return;
-
-    setIsUpdating(true);
-    setError("");
-
-    try {
-      await onUpdateCompany({ name: name.trim(), description: description.trim() });
-      onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update company");
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
-  if (!isOpen) return null;
-
-  return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="w-96">
-        <DialogHeader>
-          <DialogTitle>Edit Company Info</DialogTitle>
-        </DialogHeader>
-
-        <form onSubmit={handleSubmit}>
-          <div className="space-y-4">
-            {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm">{error}</div>
-            )}
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Company Name *</label>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 placeholder-gray-500 focus:border-black focus:outline-none focus:ring-black"
-                placeholder="Enter company name"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Description (Optional)</label>
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={3}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900 placeholder-gray-500 focus:border-black focus:outline-none focus:ring-black"
-                placeholder="Enter description"
-              />
-            </div>
-          </div>
-
-          <div className="flex justify-end gap-3 mt-6">
-            <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isUpdating || !name.trim()}
-              className="px-4 py-2 text-sm font-medium text-white bg-black rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {isUpdating ? "Updating..." : "Update"}
-            </button>
-          </div>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
+  first_name?: string;
+  last_name?: string;
 }
 
 interface AddMemberModalProps {
@@ -220,6 +135,175 @@ function AddMemberModal({ isOpen, onClose, onAddMember }: AddMemberModalProps) {
               className="px-4 py-2 text-sm font-medium text-white bg-black rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {isAdding ? "Adding..." : "Add"}
+            </button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+interface EditMemberModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  member: CompanyMember | null;
+  onUpdateMember: (memberId: string, updates: { role?: "Owner" | "Member" | "Accountant"; is_access_enabled?: boolean }) => Promise<void>;
+}
+
+function EditMemberModal({ isOpen, onClose, member, onUpdateMember }: EditMemberModalProps) {
+  const [role, setRole] = useState<"Owner" | "Member" | "Accountant">("Member");
+  const [isAccessEnabled, setIsAccessEnabled] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [error, setError] = useState("");
+
+  // Reset form when modal opens or member changes
+  useEffect(() => {
+    if (isOpen && member) {
+      setRole(member.role);
+      setIsAccessEnabled(member.is_access_enabled);
+      setError("");
+    }
+  }, [isOpen, member]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!member) return;
+
+    setIsUpdating(true);
+    setError("");
+
+    try {
+      const updates: { role?: "Owner" | "Member" | "Accountant"; is_access_enabled?: boolean } = {};
+      
+      if (role !== member.role) {
+        updates.role = role;
+      }
+      
+      if (isAccessEnabled !== member.is_access_enabled) {
+        updates.is_access_enabled = isAccessEnabled;
+      }
+
+      // Only call API if there are changes
+      if (Object.keys(updates).length > 0) {
+        await onUpdateMember(member.id, updates);
+      }
+      
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update member");
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const hasChanges = () => {
+    if (!member) return false;
+    return role !== member.role || isAccessEnabled !== member.is_access_enabled;
+  };
+
+  if (!isOpen || !member) return null;
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="w-96">
+        <DialogHeader>
+          <DialogTitle>Edit Member</DialogTitle>
+        </DialogHeader>
+
+        <form onSubmit={handleSubmit}>
+          <div className="space-y-4">
+            {error && (
+              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm">{error}</div>
+            )}
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
+              <input
+                type="text"
+                value={member.email}
+                disabled
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-500 bg-gray-50"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Role</label>
+              <Select
+                value={{ value: role, label: role }}
+                onChange={(newValue) => {
+                  const selectedOption = newValue as { value: string; label: string } | null;
+                  setRole(selectedOption?.value as "Owner" | "Member" | "Accountant");
+                }}
+                options={[
+                  { value: "Member", label: "Member" },
+                  { value: "Accountant", label: "Accountant" }
+                ]}
+                isDisabled={member.role === "Owner"} // Don't allow changing owner role through this modal
+                styles={{
+                  control: (base) => ({
+                      ...base,
+                      minHeight: "32px",
+                      height: "41px",
+                      fontSize: "14px",
+                      border: "1px solid #d1d5db",
+                      borderRadius: "6px",
+                      padding: "0 8px",
+                      boxShadow: "none",
+                      "&:hover": {
+                        borderColor: "#d1d5db",
+                      },
+                    }),
+                    valueContainer: (base) => ({
+                      ...base,
+                      padding: "0",
+                    }),
+                    input: (base) => ({
+                      ...base,
+                      margin: "0",
+                      padding: "0",
+                    }),
+                    indicatorsContainer: (base) => ({
+                      ...base,
+                      height: "41px",
+                    }),
+                    dropdownIndicator: (base) => ({
+                      ...base,
+                      padding: "0 4px",
+                    }),
+                }}
+              />
+              {member.role === "Owner" && (
+                <p className="text-xs text-gray-500 mt-1">Use &quot;Transfer Ownership&quot; to change owner role</p>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Access</label>
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="access-enabled"
+                  checked={isAccessEnabled}
+                  onChange={(e) => setIsAccessEnabled(e.target.checked)}
+                  className="h-4 w-4 text-black focus:ring-black border-gray-300 rounded"
+                />
+                <label htmlFor="access-enabled" className="text-sm text-gray-700">
+                  Enable access to the application
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3 mt-6">
+            <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isUpdating || !hasChanges()}
+              className="px-4 py-2 text-sm font-medium text-white bg-black rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {isUpdating ? "Updating..." : "Update"}
             </button>
           </div>
         </form>
@@ -495,19 +579,21 @@ function DeleteCompanyModal({ isOpen, onClose, companyName, onDeleteCompany }: D
 }
 
 export default function SettingsPage() {
-  const { user, currentCompany, updateCompany, removeCompany } = useAuthStore();
+  const { user, companies, currentCompany, updateCompany, removeCompany } = useAuthStore();
   const router = useRouter();
 
   // Team Members State
   const [companyMembers, setCompanyMembers] = useState<CompanyMember[]>([]);
-  const [editCompanyModal, setEditCompanyModal] = useState<{
-    isOpen: boolean;
-    company: { id: string; name: string; description?: string } | null;
-  }>({
-    isOpen: false,
-    company: null,
-  });
   const [addMemberModal, setAddMemberModal] = useState(false);
+  const [editMemberModal, setEditMemberModal] = useState(false);
+  const [memberToEdit, setMemberToEdit] = useState<CompanyMember | null>(null);
+
+  // Inline company editing state
+  const [isEditingCompany, setIsEditingCompany] = useState(false);
+  const [editCompanyName, setEditCompanyName] = useState(currentCompany?.name || "");
+  const [editCompanyDescription, setEditCompanyDescription] = useState(currentCompany?.description || "");
+  const [isUpdatingCompany, setIsUpdatingCompany] = useState(false);
+  const [companyUpdateError, setCompanyUpdateError] = useState("");
   const [transferOwnershipModal, setTransferOwnershipModal] = useState(false);
   const [deleteCompanyModal, setDeleteCompanyModal] = useState(false);
   const [confirmationModal, setConfirmationModal] = useState<{
@@ -524,16 +610,27 @@ export default function SettingsPage() {
     onConfirm: () => {},
   });
 
-  // Get current user's role in the company
-  const currentUserRole = user?.role;
+  // Get current user's role in the current company
+  const currentUserRole = currentCompany 
+    ? companies.find(uc => uc.company_id === currentCompany.id)?.role 
+    : null;
   const isOwner = currentUserRole === "Owner";
 
-  console.log("currentUserRole", currentUserRole);
+  console.log("currentUserRole in current company", currentUserRole);
+
+  // Determine if we should show the Actions column
+  // Show if user is Owner OR if there are members they can manage (non-Owners)
+  const shouldShowActionsColumn = isOwner || companyMembers.some(member => 
+    member.id !== user?.id && member.role !== "Owner"
+  );
 
   // Fetch company members when component mounts or current company changes
   useEffect(() => {
     if (currentCompany) {
       fetchCompanyMembers(currentCompany.id);
+      // Update edit fields when currentCompany changes
+      setEditCompanyName(currentCompany.name);
+      setEditCompanyDescription(currentCompany.description || "");
     }
   }, [currentCompany]);
 
@@ -557,20 +654,22 @@ export default function SettingsPage() {
       const userIds = companyUsers.map((cu) => cu.user_id);
       const { data: users, error: usersError } = await supabase
         .from("users")
-        .select("id, email, is_access_enabled")
+        .select("id, email, is_access_enabled, first_name, last_name")
         .in("id", userIds);
 
       if (usersError) throw usersError;
 
       // Combine the data
       const members: CompanyMember[] = (users || []).map(
-        (user: { id: string; email: string; is_access_enabled: boolean }) => {
+        (user: { id: string; email: string; is_access_enabled: boolean; first_name?: string; last_name?: string }) => {
           const companyUser = companyUsers.find((cu) => cu.user_id === user.id);
           return {
             id: user.id,
             email: user.email,
             role: companyUser?.role as "Owner" | "Member" | "Accountant",
             is_access_enabled: user.is_access_enabled,
+            first_name: user.first_name,
+            last_name: user.last_name,
           };
         }
       );
@@ -582,10 +681,32 @@ export default function SettingsPage() {
     }
   };
 
-  const handleUpdateCompany = async (updatedData: { name: string; description: string }) => {
-    if (!currentCompany || !user) return;
+  const handleInlineCompanyEdit = () => {
+    setIsEditingCompany(true);
+    setEditCompanyName(currentCompany?.name || "");
+    setEditCompanyDescription(currentCompany?.description || "");
+    setCompanyUpdateError("");
+  };
+
+  const handleCancelCompanyEdit = () => {
+    setIsEditingCompany(false);
+    setEditCompanyName(currentCompany?.name || "");
+    setEditCompanyDescription(currentCompany?.description || "");
+    setCompanyUpdateError("");
+  };
+
+  const handleSaveCompanyEdit = async () => {
+    if (!currentCompany || !editCompanyName.trim()) return;
+
+    setIsUpdatingCompany(true);
+    setCompanyUpdateError("");
 
     try {
+      const updatedData = { 
+        name: editCompanyName.trim(), 
+        description: editCompanyDescription.trim() 
+      };
+
       // Use API endpoint for better security and validation
       const response = await api.put("/api/company/update", updatedData);
 
@@ -598,9 +719,11 @@ export default function SettingsPage() {
 
       // Update company in Zustand state with the response data
       updateCompany(currentCompany.id, result.company);
-      setEditCompanyModal({ isOpen: false, company: null });
+      setIsEditingCompany(false);
     } catch (error) {
-      throw new Error(error instanceof Error ? error.message : "Failed to update company");
+      setCompanyUpdateError(error instanceof Error ? error.message : "Failed to update company");
+    } finally {
+      setIsUpdatingCompany(false);
     }
   };
 
@@ -634,6 +757,40 @@ export default function SettingsPage() {
         confirmText: "OK",
         confirmButtonStyle: "danger",
       });
+    }
+  };
+
+  const handleEditMember = (member: CompanyMember) => {
+    setMemberToEdit(member);
+    setEditMemberModal(true);
+  };
+
+  const handleUpdateMember = async (memberId: string, updates: { role?: "Owner" | "Member" | "Accountant"; is_access_enabled?: boolean }) => {
+    if (!currentCompany) return;
+
+    try {
+      const response = await api.post("/api/member/update", {
+        memberId,
+        ...updates
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to update member");
+      }
+
+      // Refresh team members list to show the updated member
+      await fetchCompanyMembers(currentCompany.id);
+
+      setConfirmationModal({
+        isOpen: true,
+        title: "Member Updated",
+        message: "Team member details have been updated successfully.",
+        onConfirm: () => setConfirmationModal({ ...confirmationModal, isOpen: false }),
+        confirmText: "OK",
+      });
+    } catch (error) {
+      throw error; // Re-throw to let the modal handle the error display
     }
   };
 
@@ -793,30 +950,74 @@ export default function SettingsPage() {
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-base font-semibold text-gray-900">Company Info</h2>
-            <button
-              onClick={() =>
-                setEditCompanyModal({
-                  isOpen: true,
-                  company: currentCompany,
-                })
-              }
-              className="text-sm text-blue-600 hover:text-blue-800"
-            >
-              Edit
-            </button>
+            {!isEditingCompany ? (
+              <button
+                onClick={handleInlineCompanyEdit}
+                className="text-sm text-blue-600 hover:text-blue-800"
+              >
+                Edit
+              </button>
+            ) : (
+              <div className="flex gap-2">
+                <button
+                  onClick={handleCancelCompanyEdit}
+                  className="text-sm text-gray-400 hover:text-gray-600"
+                  disabled={isUpdatingCompany}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveCompanyEdit}
+                  disabled={isUpdatingCompany || !editCompanyName.trim()}
+                  className="text-sm text-blue-600 hover:text-blue-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isUpdatingCompany ? "Saving..." : "Save"}
+                </button>
+              </div>
+            )}
           </div>
+
+          {companyUpdateError && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-md text-sm mb-4">
+              {companyUpdateError}
+            </div>
+          )}
 
           <div className="space-y-3">
             <div>
               <label className="block text-sm font-medium text-gray-700">Company Name</label>
-              <p className="text-sm text-gray-900 mt-1">{currentCompany.name}</p>
+              {!isEditingCompany ? (
+                <p className="text-sm text-gray-900 mt-1">{currentCompany.name}</p>
+              ) : (
+                <input
+                  type="text"
+                  value={editCompanyName}
+                  onChange={(e) => setEditCompanyName(e.target.value)}
+                  className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:border-black focus:outline-none focus:ring-black"
+                  placeholder="Enter company name"
+                  disabled={isUpdatingCompany}
+                />
+              )}
             </div>
-            {currentCompany.description && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Description</label>
-                <p className="text-sm text-gray-900 mt-1">{currentCompany.description}</p>
-              </div>
-            )}
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Description</label>
+              {!isEditingCompany ? (
+                currentCompany.description ? (
+                  <p className="text-sm text-gray-900 mt-1">{currentCompany.description}</p>
+                ) : (
+                  <p className="text-sm text-gray-500 mt-1">No description</p>
+                )
+              ) : (
+                <textarea
+                  value={editCompanyDescription}
+                  onChange={(e) => setEditCompanyDescription(e.target.value)}
+                  className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:border-black focus:outline-none focus:ring-black"
+                  placeholder="Enter description (optional)"
+                  rows={3}
+                  disabled={isUpdatingCompany}
+                />
+              )}
+            </div>
           </div>
         </div>
 
@@ -838,7 +1039,6 @@ export default function SettingsPage() {
                 onClick={() => setAddMemberModal(true)}
                 className="bg-gray-100 hover:bg-gray-200 border px-3 py-1 rounded text-sm flex items-center space-x-1"
               >
-                <Plus className="w-4 h-4" />
                 <span>Add Member</span>
               </button>
             </div>
@@ -852,14 +1052,19 @@ export default function SettingsPage() {
                     Email
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Name
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Role
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Access
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
+                  {shouldShowActionsColumn && (
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Actions
+                    </th>
+                  )}
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -868,6 +1073,12 @@ export default function SettingsPage() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {member.email}
                       {member.id === user.id && <span className="ml-2 text-xs text-blue-600">(You)</span>}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {member.first_name || member.last_name 
+                        ? `${member.first_name || ''} ${member.last_name || ''}`.trim()
+                        : <span className="text-gray-500">-</span>
+                      }
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{member.role}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -879,28 +1090,35 @@ export default function SettingsPage() {
                         {member.is_access_enabled ? "Enabled" : "Disabled"}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      {member.id !== user.id && (
-                        <>
-                          {(isOwner || member.role !== "Owner") && (
-                            <>
-                              <button className="text-blue-600 hover:text-blue-900 mr-3">Edit</button>
-                              <button
-                                onClick={() => handleDeleteMember(member.id)}
-                                className="text-red-600 hover:text-red-900"
-                              >
-                                Remove
-                              </button>
-                            </>
-                          )}
-                        </>
-                      )}
-                    </td>
+                    {shouldShowActionsColumn && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                        {member.id !== user.id && (
+                          <>
+                            {(isOwner || member.role !== "Owner") && (
+                              <>
+                                <button 
+                                  onClick={() => handleEditMember(member)}
+                                  className="text-blue-600 hover:text-blue-800 mr-3"
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteMember(member.id)}
+                                  className="text-red-600 hover:text-red-800"
+                                >
+                                  Remove
+                                </button>
+                              </>
+                            )}
+                          </>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 ))}
                 {companyMembers.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="px-6 py-4 text-center text-sm text-gray-500">
+                    <td colSpan={shouldShowActionsColumn ? 5 : 4} className="px-6 py-4 text-center text-sm text-gray-500">
                       No team members found.
                     </td>
                   </tr>
@@ -959,18 +1177,19 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* Edit Company Modal */}
-      {editCompanyModal.company && (
-        <EditCompanyModal
-          isOpen={editCompanyModal.isOpen}
-          onClose={() => setEditCompanyModal({ isOpen: false, company: null })}
-          company={editCompanyModal.company}
-          onUpdateCompany={handleUpdateCompany}
-        />
-      )}
-
       {/* Add Member Modal */}
       <AddMemberModal isOpen={addMemberModal} onClose={() => setAddMemberModal(false)} onAddMember={handleAddMember} />
+
+      {/* Edit Member Modal */}
+      <EditMemberModal 
+        isOpen={editMemberModal} 
+        onClose={() => {
+          setEditMemberModal(false);
+          setMemberToEdit(null);
+        }} 
+        member={memberToEdit}
+        onUpdateMember={handleUpdateMember} 
+      />
 
       {/* Transfer Ownership Modal */}
       <TransferOwnershipModal

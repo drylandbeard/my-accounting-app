@@ -190,7 +190,7 @@ export default function NavBar({
 
   return (
     <>
-      <nav className="flex justify-between items-center px-6 py-2 bg-gray-100 border-b border-gray-300 text-xs font-normal">
+      <nav className="sticky top-0 z-40 flex justify-between items-center px-6 py-2 bg-gray-100 border-b border-gray-300 text-xs font-normal h-11">
         {/* Left side - Navigation or Empty for Gateway */}
         <div className="space-x-6 flex">
           {!isGatewayPage && (
@@ -223,13 +223,18 @@ export default function NavBar({
 
           {/* Switch Company Button - only show when not on gateway page */}
           {!isGatewayPage && (
-            <button
-              onClick={handleSwitchCompany}
-              className="flex items-center space-x-2 text-gray-700 hover:text-black px-3 py-1 rounded border border-gray-300 hover:border-gray-400 transition-colors"
-            >
-              <span className="text-xs">Switch Company</span>
-              {currentCompany && <span className="text-xs font-medium text-blue-600">({currentCompany.name})</span>}
-            </button>
+            <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-2 text-gray-700">
+                <span className="text-xs">Currently Viewing: </span>
+                {currentCompany && <span className="text-xs font-medium text-blue-600">{currentCompany.name}</span>}
+              </div>
+              <button
+                onClick={handleSwitchCompany}
+                className="flex items-center space-x-2 text-gray-700 hover:text-black px-3 py-1 rounded border border-gray-300 hover:border-gray-400 transition-colors"
+              >
+                <span className="text-xs">Switch Company</span>
+              </button>
+            </div>
           )}
 
           {/* Logout button for gateway page */}
