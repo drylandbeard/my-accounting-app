@@ -162,7 +162,9 @@ export default function TransactionModal({
                     onAccountChange(option?.value || '');
                   }}
                   isSearchable
-                  menuPortalTarget={document.body}
+                  closeMenuOnSelect={true}
+                  blurInputOnSelect={false}
+                  menuPortalTarget={null}
                   styles={{
                     control: (base) => ({
                       ...base,
@@ -170,12 +172,13 @@ export default function TransactionModal({
                     }),
                     menu: (base) => ({ 
                       ...base, 
-                      zIndex: 9999,
-                      fontSize: '14px'
+                      zIndex: 99999,
+                      fontSize: '12px',
+                      position: 'absolute'
                     }),
                     menuPortal: (base) => ({ 
                       ...base, 
-                      zIndex: 9999 
+                      zIndex: 99999 
                     })
                   }}
                 />
@@ -213,7 +216,9 @@ export default function TransactionModal({
                               onUpdateLine(line.id, 'payeeId', option?.value || '');
                             }}
                             isSearchable
-                            menuPortalTarget={document.body}
+                            closeMenuOnSelect={true}
+                            blurInputOnSelect={false}
+                            menuPortalTarget={null}
                             styles={{
                               control: (base) => ({
                                 ...base,
@@ -227,12 +232,13 @@ export default function TransactionModal({
                               }),
                               menu: (base) => ({ 
                                 ...base, 
-                                zIndex: 9999,
-                                fontSize: '12px'
+                                zIndex: 99999,
+                                fontSize: '12px',
+                                position: 'absolute'
                               }),
                               menuPortal: (base) => ({ 
                                 ...base, 
-                                zIndex: 9999 
+                                zIndex: 99999 
                               })
                             }}
                           />
@@ -262,7 +268,9 @@ export default function TransactionModal({
                               }
                             }}
                             isSearchable
-                            menuPortalTarget={document.body}
+                            closeMenuOnSelect={true}
+                            blurInputOnSelect={false}
+                            menuPortalTarget={null}
                             styles={{
                               control: (base) => ({
                                 ...base,
@@ -276,12 +284,13 @@ export default function TransactionModal({
                               }),
                               menu: (base) => ({ 
                                 ...base, 
-                                zIndex: 9999,
-                                fontSize: '12px'
+                                zIndex: 99999,
+                                fontSize: '12px',
+                                position: 'absolute'
                               }),
                               menuPortal: (base) => ({ 
                                 ...base, 
-                                zIndex: 9999 
+                                zIndex: 99999 
                               })
                             }}
                           />

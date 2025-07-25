@@ -1258,7 +1258,7 @@ export default function JournalTablePage() {
       
       {/* Add Journal Entry Modal */}
       <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
-        <DialogContent className="w-[800px] max-w-[800px] max-h-[90vh] overflow-y-auto">
+        <DialogContent className="min-w-[80%] overflow-visible">
           <DialogHeader>
             <DialogTitle>Add Journal Entry</DialogTitle>
           </DialogHeader>
@@ -1299,7 +1299,7 @@ export default function JournalTablePage() {
             </div>
             
             {/* Journal Entry Table */}
-            <div className="border rounded-lg overflow-hidden">
+            <div className="border rounded-lg overflow-visible">
               <table className="w-full border-collapse">
                 <thead className="bg-gray-50">
                   <tr>
@@ -1341,7 +1341,9 @@ export default function JournalTablePage() {
                             }
                           }}
                           isSearchable
-                          menuPortalTarget={document.body}
+                          closeMenuOnSelect={true}
+                          blurInputOnSelect={false}
+                          menuPortalTarget={null}
                           styles={{
                             control: (base) => ({
                               ...base,
@@ -1355,12 +1357,13 @@ export default function JournalTablePage() {
                             }),
                             menu: (base) => ({ 
                               ...base, 
-                              zIndex: 9999,
-                              fontSize: '12px'
+                              zIndex: 99999,
+                              fontSize: '12px',
+                              position: 'absolute'
                             }),
                             menuPortal: (base) => ({ 
                               ...base, 
-                              zIndex: 9999 
+                              zIndex: 99999 
                             })
                           }}
                         />
@@ -1456,22 +1459,27 @@ export default function JournalTablePage() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Type
                 </label>
-                <select
-                  value={newCategoryModal.type}
-                  onChange={(e) => setNewCategoryModal(prev => ({
-                    ...prev,
-                    type: e.target.value
-                  }))}
-                  className="w-full border px-2 py-1 rounded"
+                <Select
+                  options={[
+                    { value: 'Expense', label: 'Expense' },
+                    { value: 'Revenue', label: 'Revenue' },
+                    { value: 'Asset', label: 'Asset' },
+                    { value: 'Liability', label: 'Liability' },
+                    { value: 'Equity', label: 'Equity' },
+                    { value: 'Bank Account', label: 'Bank Account' },
+                    { value: 'Credit Card', label: 'Credit Card' }
+                  ]}
+                  value={{ value: newCategoryModal.type, label: newCategoryModal.type }}
+                    onChange={(selectedOption) => {
+                    const option = selectedOption as SelectOption | null;
+                    setNewCategoryModal(prev => ({
+                      ...prev,
+                      type: option?.value || 'Expense'
+                    }));
+                  }}
+                  className="w-full"
                 >
-                  <option value="Expense">Expense</option>
-                  <option value="Revenue">Revenue</option>
-                  <option value="Asset">Asset</option>
-                  <option value="Liability">Liability</option>
-                  <option value="Equity">Equity</option>
-                  <option value="Bank Account">Bank Account</option>
-                  <option value="Credit Card">Credit Card</option>
-                </select>
+                </Select>
               </div>
 
               <div>

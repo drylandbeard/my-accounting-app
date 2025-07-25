@@ -3099,25 +3099,27 @@ export default function TransactionsPage() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
-                <select
-                  value={newCategoryModal.type}
-                  onChange={(e) =>
-                    setNewCategoryModal((prev) => ({
+                <Select
+                  options={[
+                    { value: 'Expense', label: 'Expense' },
+                    { value: 'Revenue', label: 'Revenue' },
+                    { value: 'Asset', label: 'Asset' },
+                    { value: 'Liability', label: 'Liability' },
+                    { value: 'Equity', label: 'Equity' },
+                    { value: 'Bank Account', label: 'Bank Account' },
+                    { value: 'Credit Card', label: 'Credit Card' }
+                  ]}
+                   value={{ value: newCategoryModal.type, label: newCategoryModal.type }}
+                  onChange={(selectedOption) => {
+                    const option = selectedOption as SelectOption | null;
+                    setNewCategoryModal(prev => ({
                       ...prev,
-                      type: e.target.value,
-                    }))
-                  }
-                  className="w-full border px-2 py-1 rounded"
+                      type: option?.value || 'Expense'
+                    }));
+                  }}
+                  className="w-full"
                 >
-                  <option value="Expense">Expense</option>
-                  <option value="Revenue">Revenue</option>
-                  <option value="Asset">Asset</option>
-                  <option value="COGS">COGS</option>
-                  <option value="Liability">Liability</option>
-                  <option value="Equity">Equity</option>
-                  <option value="Bank Account">Bank Account</option>
-                  <option value="Credit Card">Credit Card</option>
-                </select>
+                </Select>
               </div>
 
               <div>
