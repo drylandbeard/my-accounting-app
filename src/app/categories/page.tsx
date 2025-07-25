@@ -9,7 +9,8 @@ import { usePayeesStore } from "@/zustand/payeesStore";
 import Papa from "papaparse";
 import { v4 as uuidv4 } from "uuid";
 import { useCSVUploadHandler, defaultFixEncoding, type CSVUploadConfig } from "@/components/CSVUploadHandler";
-import { Download, Plus, Loader2 } from "lucide-react";
+import { Download, Plus } from "lucide-react";
+import Loader from "@/components/ui/loader";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { showSuccessToast, showErrorToast } from "@/components/ui/toast";
@@ -1733,7 +1734,7 @@ export default function ChartOfAccountsPage() {
                   <tr>
                     <td colSpan={2} className="text-center p-6">
                       <div className="flex items-center justify-center flex-col">
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <Loader size="sm"/>
                         <span className="ml-2 text-xs text-gray-500">Loading payees...</span>
                       </div>
                     </td>
@@ -1956,7 +1957,7 @@ export default function ChartOfAccountsPage() {
                   <tr>
                     <td colSpan={4} className="text-center p-6">
                       <div className="flex items-center justify-center flex-col">
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <Loader size="sm" />
                         <span className="ml-2 text-xs text-gray-500">Loading categories...</span>
                       </div>
                     </td>
@@ -2006,7 +2007,7 @@ export default function ChartOfAccountsPage() {
 
           {payeeImportModal.isLoading ? (
             <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-8 w-8 animate-spin" />
+              <Loader size="md" />
             </div>
           ) : (
             <div className="space-y-1">
@@ -2281,7 +2282,7 @@ export default function ChartOfAccountsPage() {
 
           {categoryImportModal.isLoading ? (
             <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-8 w-8 animate-spin" />
+              <Loader size="md" />
             </div>
           ) : (
             <div className="space-y-1">
@@ -2850,7 +2851,7 @@ export default function ChartOfAccountsPage() {
 
           {renameMergeModal.isLoading ? (
             <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-8 w-8 animate-spin" />
+              <Loader size="md" />
             </div>
           ) : (
             <div className="space-y-4">
@@ -2987,7 +2988,7 @@ export default function ChartOfAccountsPage() {
 
           {mergeModal.isLoading ? (
             <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-8 w-8 animate-spin" />
+              <Loader size="md" />
               <span className="ml-3 text-gray-600">Merging categories...</span>
             </div>
           ) : (
@@ -3418,7 +3419,7 @@ export default function ChartOfAccountsPage() {
 
           {mergePayeeModal.isLoading ? (
             <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-8 w-8 animate-spin" />
+              <Loader size="md" />
               <span className="ml-3 text-gray-600">Merging payees...</span>
             </div>
           ) : (

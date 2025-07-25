@@ -9,7 +9,7 @@ import { showSuccessToast, showErrorToast } from "@/components/ui/toast";
 import { toast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Loader2 } from "lucide-react";
+import Loader from "@/components/ui/loader";
 
 interface CompanyModalProps {
   isOpen: boolean;
@@ -392,7 +392,7 @@ function ManageMemberModal({ isOpen, onClose, member, onMemberChanged }: ManageM
             <div className="flex items-center justify-center py-8">
               <div className="w-6 h-6 relative">
                 <div className="w-6 h-6 border-2 border-gray-200 rounded-full"></div>
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader size="sm" />
               </div>
               <span className="ml-2 text-gray-600">Loading member data...</span>
             </div>

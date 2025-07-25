@@ -5,7 +5,6 @@ import { usePlaidLink } from "react-plaid-link";
 
 import Papa from 'papaparse'
 import { v4 as uuidv4 } from 'uuid'
-import { Loader2 } from 'lucide-react'
 import Select from 'react-select'
 import TransactionModal, { 
   type EditJournalModalState
@@ -15,6 +14,7 @@ import { useTransactionsStore, Transaction as StoreTransaction } from '@/zustand
 import { useCategoriesStore } from '@/zustand/categoriesStore'
 import { usePayeesStore } from '@/zustand/payeesStore'
 import { api } from '@/lib/api'
+import Loader from "@/components/ui/loader"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { 
   Pagination,
@@ -2630,7 +2630,7 @@ export default function TransactionsPage() {
           >
             {isSyncing ? (
               <div className="flex items-center space-x-1">
-                <Loader2 className="h-3 w-3 animate-spin" />
+                <Loader size="sm" />
                 <span>Updating...</span>
               </div>
             ) : (
@@ -2720,7 +2720,7 @@ export default function TransactionsPage() {
 
             {importModal.isLoading ? (
               <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-8 w-8 animate-spin" />
+                <Loader size="md" />
               </div>
             ) : (
               <div className="space-y-1">
@@ -3931,7 +3931,7 @@ export default function TransactionsPage() {
       {/* Auto-add indicator */}
       {isAutoAddRunning && (
         <div className="fixed top-6 right-6 z-50 px-4 py-2 bg-blue-100 text-blue-800 border border-blue-300 rounded-lg shadow-lg flex items-center space-x-2">
-          <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+          <Loader size="sm" className="text-blue-600" />
           <span className="text-sm font-medium">Automation running...</span>
         </div>
       )}
@@ -4332,7 +4332,7 @@ export default function TransactionsPage() {
                           }`}
                           disabled={!selectedCategories[tx.id] || processingTransactions.has(tx.id)}
                         >
-                          {processingTransactions.has(tx.id) ? <Loader2 className="h-3 w-3 animate-spin" /> : "Add"}
+                          {processingTransactions.has(tx.id) ? <Loader size="sm" /> : "Add"}
                         </button>
                       </td>
                     </tr>
@@ -4520,7 +4520,7 @@ export default function TransactionsPage() {
                           }`}
                           disabled={processingTransactions.has(tx.id)}
                         >
-                          {processingTransactions.has(tx.id) ? <Loader2 className="h-3 w-3 animate-spin" /> : "Undo"}
+                          {processingTransactions.has(tx.id) ? <Loader size="sm" /> : "Undo"}
                         </button>
                       </td>
                     </tr>
@@ -4746,7 +4746,7 @@ export default function TransactionsPage() {
               >
                 {isProcessing ? (
                   <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <Loader size="sm" />
                     <span>Adding...</span>
                   </>
                 ) : (
@@ -4793,7 +4793,7 @@ export default function TransactionsPage() {
               >
                 {isProcessing ? (
                   <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <Loader size="sm" />
                     <span>Undoing...</span>
                   </>
                 ) : (

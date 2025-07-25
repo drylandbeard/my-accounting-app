@@ -6,10 +6,11 @@ import { supabase } from "../../lib/supabase";
 import { Select } from "@/components/ui/select";
 import Papa from "papaparse";
 import { v4 as uuidv4 } from "uuid";
-import { Plus, Loader2 } from "lucide-react";
+import { Plus } from "lucide-react";
 import { Dialog, DialogHeader } from "@/components/ui/dialog";
 import { DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import Loader from "@/components/ui/loader";
 
 type PayeeAutomation = {
   id: string;
@@ -1075,6 +1076,21 @@ export default function AutomationsPage() {
 
   return (
     <div className="p-6 w-full font-sans text-gray-900">
+      {/* Automation Running Indicator */}
+      {isAutomationRunning && (
+        <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+          <div className="flex items-center">
+            <Loader size="sm" className="text-blue-600 mr-3" />
+            <div className="text-sm font-medium text-blue-800">
+              🤖 Automations are running...
+            </div>
+          </div>
+          <p className="text-xs text-blue-600 mt-1">
+            Applying automation rules to imported transactions and saving to database.
+          </p>
+        </div>
+      )}
+
       {/* Conflicts Warning */}
       {conflicts.length > 0 && (
         <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
@@ -1167,7 +1183,7 @@ export default function AutomationsPage() {
                   <tr>
                     <td colSpan={4} className="text-center p-6">
                       <div className="flex items-center justify-center flex-col">
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <Loader size="sm" />
                         <div className="ml-2 text-xs text-gray-500">Loading payee automations...</div>
                       </div>
                     </td>
@@ -1264,7 +1280,7 @@ export default function AutomationsPage() {
                   <tr>
                     <td colSpan={5} className="text-center p-6">
                       <div className="flex items-center justify-center flex-col">
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <Loader size="sm" />
                         <div className="ml-2 text-xs text-gray-500">Loading category automations...</div>
                       </div>
                     </td>
@@ -1825,7 +1841,7 @@ export default function AutomationsPage() {
 
           {automationImportModal.isLoading ? (
             <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-8 w-8 animate-spin" />
+              <Loader size="md" />
             </div>
           ) : (
             <div className="space-y-1">

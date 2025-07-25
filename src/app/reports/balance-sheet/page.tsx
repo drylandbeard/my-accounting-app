@@ -6,7 +6,8 @@ import { useTransactionsStore } from "@/zustand/transactionsStore";
 import { useCategoriesStore } from "@/zustand/categoriesStore";
 import { usePayeesStore } from "@/zustand/payeesStore";
 import { supabase } from "@/lib/supabase";
-import { Loader2, ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
+import Loader from "@/components/ui/loader";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import TransactionModal, {
@@ -1465,7 +1466,7 @@ export default function BalanceSheetPage() {
                     <TableRow>
                       <TableCell colSpan={getTotalColumns()} className="border p-4 text-center">
                         <div className="flex flex-col items-center space-y-3">
-                          <Loader2 className="h-8 w-8 animate-spin" />
+                          <Loader size="md" />
                           <span className="text-xs">Loading financial data...</span>
                         </div>
                       </TableCell>

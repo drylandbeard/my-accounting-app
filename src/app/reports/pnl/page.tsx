@@ -35,7 +35,7 @@ import { AccountRowRenderer } from "../_components/AccountRowRenderer";
 import { SaveReportModal } from "../_components/SaveReportModal";
 import { useExportProfitLoss } from "../_hooks/useExportProfitLoss";
 import { api } from "@/lib/api";
-import { Loader2 } from "lucide-react";
+import Loader from "@/components/ui/loader";
 
 export default function PnLPage() {
   const { currentCompany } = useAuthStore();
@@ -624,7 +624,7 @@ export default function PnLPage() {
                     <TableRow>
                       <TableCell colSpan={getTotalColumns()} className="border p-4 text-center">
                         <div className="flex flex-col items-center space-y-3">
-                          <Loader2 className="h-8 w-8 animate-spin" />
+                          <Loader size="md" />
                           <span className="text-xs">Loading financial data...</span>
                         </div>
                       </TableCell>

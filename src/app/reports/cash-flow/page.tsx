@@ -6,7 +6,7 @@ import { useTransactionsStore } from "@/zustand/transactionsStore";
 import { useCategoriesStore } from "@/zustand/categoriesStore";
 import { usePayeesStore } from "@/zustand/payeesStore";
 import { supabase } from "@/lib/supabase";
-import { Loader2 } from "lucide-react";
+import Loader from "@/components/ui/loader";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import TransactionModal, { EditJournalModalState as TransactionModalState, JournalEntryLine } from "@/components/TransactionModal";
@@ -1116,7 +1116,7 @@ export default function CashFlowPage() {
                     <TableRow>
                       <TableCell colSpan={getTotalColumns()} className="py-8 text-center">
                         <div className="flex flex-col items-center space-y-3">
-                          <Loader2 className="h-8 w-8 animate-spin" />
+                          <Loader size="md" />
                           <span className="text-xs">Loading financial data...</span>
                         </div>
                       </TableCell>

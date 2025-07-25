@@ -1,6 +1,8 @@
 import React from 'react';
-import { X, Loader2 } from 'lucide-react';
+
+import { X } from 'lucide-react';
 import Select from 'react-select';
+import Loader from "@/components/ui/loader";
 import { DatePicker } from './ui/date-picker';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 
@@ -130,7 +132,7 @@ export default function TransactionModal({
 
         {modalState.isLoading ? (
           <div className="flex items-center justify-center py-8">
-            <Loader2 className="h-6 w-6 animate-spin" />
+            <Loader size="md" />
             <span className="ml-2">Loading journal entries...</span>
           </div>
         ) : (
