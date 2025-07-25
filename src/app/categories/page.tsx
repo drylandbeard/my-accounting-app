@@ -8,6 +8,7 @@ import { usePayeesStore } from "@/zustand/payeesStore";
 
 import Papa from "papaparse";
 import { v4 as uuidv4 } from "uuid";
+import { useCSVUploadHandler, defaultFixEncoding, type CSVUploadConfig } from "@/components/CSVUploadHandler";
 import { Download, Plus, Loader2 } from "lucide-react";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
@@ -115,6 +116,15 @@ type RenameMergeModalState = {
   error: string | null;
 };
 
+type MergePayeeModalState = {
+  isOpen: boolean;
+  selectedPayees: Set<string>;
+  targetPayeeId: string | null;
+  isLoading: boolean;
+  error: string | null;
+  searchTerm: string;
+};
+
 export default function ChartOfAccountsPage() {
   const { currentCompany } = useAuthStore();
   const hasCompanyContext = !!currentCompany;
@@ -145,6 +155,7 @@ export default function ChartOfAccountsPage() {
     addPayee,
     updatePayee,
     deletePayee,
+    mergePayees,
   } = usePayeesStore();
 
   // Create wrapper functions for refresh
@@ -241,6 +252,16 @@ export default function ChartOfAccountsPage() {
     existingCategory: null,
     isLoading: false,
     error: null,
+  });
+
+  // Merge payee modal state
+  const [mergePayeeModal, setMergePayeeModal] = useState<MergePayeeModalState>({
+    isOpen: false,
+    selectedPayees: new Set(),
+    targetPayeeId: null,
+    isLoading: false,
+    error: null,
+    searchTerm: "",
   });
 
   // Reset to first page when search term changes
@@ -422,7 +443,7 @@ export default function ChartOfAccountsPage() {
     } else if (data) {
       setParentOptions(data as Category[]);
     }
-  }, [currentCompany?.id, hasCompanyContext]);
+  }, [currentCompany?.id, hasCompanyContext, currentCompany]);
 
   useEffect(() => {
     fetchParentOptions();
@@ -929,44 +950,9 @@ export default function ChartOfAccountsPage() {
     return () => {
       document.removeEventListener("mousedown", handleClickToSave);
     };
-  }, [editingId]);
+  }, [editingId, handleUpdate]);
 
-  // Handle clicks outside payee input to save changes
-  useEffect(() => {
-    const handlePayeeClickToSave = (event: MouseEvent) => {
-      if (!editingPayeeId) return;
-
-      const target = event.target as Element;
-
-      // Check if the click is on the current editing payee input
-      const editingInput = document.querySelector('tr input[type="text"]:focus') as HTMLInputElement;
-
-      // If clicking on the current editing input, don't save
-      if (editingInput && (editingInput.contains(target) || editingInput === target)) {
-        return;
-      }
-
-      // Check if clicking on Save or Delete buttons - don't auto-save in these cases
-      if (target.tagName === "BUTTON") {
-        const buttonText = target.textContent?.trim();
-        if (buttonText === "Save" || buttonText === "Delete") {
-          console.log("Clicked on action button, not auto-saving:", buttonText);
-          return;
-        }
-      }
-
-      // Otherwise, save the changes
-      console.log("Auto-saving payee changes due to click outside");
-      handleUpdatePayee();
-    };
-
-    document.addEventListener("mousedown", handlePayeeClickToSave);
-    return () => {
-      document.removeEventListener("mousedown", handlePayeeClickToSave);
-    };
-  }, [editingPayeeId]);
-
-  const handleUpdatePayee = async () => {
+  const handleUpdatePayee = useCallback(async () => {
     if (!editingPayeeId) return;
 
     // Get the current value from the input field
@@ -1017,7 +1003,42 @@ export default function ChartOfAccountsPage() {
       console.error("Unexpected error during payee update:", error);
       alert("An unexpected error occurred. Please try again.");
     }
-  };
+  }, [editingPayeeId, editPayeeName, payees, updatePayee, payeesError]);
+
+  // Handle clicks outside payee input to save changes
+  useEffect(() => {
+    const handlePayeeClickToSave = (event: MouseEvent) => {
+      if (!editingPayeeId) return;
+
+      const target = event.target as Element;
+
+      // Check if the click is on the current editing payee input
+      const editingInput = document.querySelector('tr input[type="text"]:focus') as HTMLInputElement;
+
+      // If clicking on the current editing input, don't save
+      if (editingInput && (editingInput.contains(target) || editingInput === target)) {
+        return;
+      }
+
+      // Check if clicking on Save or Delete buttons - don't auto-save in these cases
+      if (target.tagName === "BUTTON") {
+        const buttonText = target.textContent?.trim();
+        if (buttonText === "Save" || buttonText === "Delete") {
+          console.log("Clicked on action button, not auto-saving:", buttonText);
+          return;
+        }
+      }
+
+      // Otherwise, save the changes
+      console.log("Auto-saving payee changes due to click outside");
+      handleUpdatePayee();
+    };
+
+    document.addEventListener("mousedown", handlePayeeClickToSave);
+    return () => {
+      document.removeEventListener("mousedown", handlePayeeClickToSave);
+    };
+  }, [editingPayeeId, handleUpdatePayee]);
 
   // Merge categories functionality
   const handleMergeCategories = async () => {
@@ -1066,10 +1087,55 @@ export default function ChartOfAccountsPage() {
     }
   };
 
+  // Merge payees functionality
+  const handleMergePayees = async () => {
+    if (mergePayeeModal.selectedPayees.size < 2 || !mergePayeeModal.targetPayeeId || !currentCompany?.id) {
+      setMergePayeeModal((prev) => ({
+        ...prev,
+        error: "Please select at least 2 payees to merge and choose a target payee.",
+      }));
+      return;
+    }
+
+    setMergePayeeModal((prev) => ({ ...prev, isLoading: true, error: null }));
+
+    try {
+      const selectedPayeeIds = Array.from(mergePayeeModal.selectedPayees);
+      const success = await mergePayees(selectedPayeeIds, mergePayeeModal.targetPayeeId, currentCompany.id);
+
+      if (success) {
+        // Success - close modal
+        setMergePayeeModal({
+          isOpen: false,
+          selectedPayees: new Set(),
+          targetPayeeId: null,
+          isLoading: false,
+          error: null,
+          searchTerm: "",
+        });
+      } else {
+        // Error is already set by the store
+        setMergePayeeModal((prev) => ({
+          ...prev,
+          isLoading: false,
+          error: payeesError || "Failed to merge payees. Please try again.",
+        }));
+      }
+    } catch (error) {
+      console.error("Error in handleMergePayees:", error);
+      setMergePayeeModal((prev) => ({
+        ...prev,
+        isLoading: false,
+        error: error instanceof Error ? error.message : "Failed to merge payees. Please try again.",
+      }));
+    }
+  };
+
   const downloadCategoriesTemplate = () => {
     const csvContent =
       "Name,Type,Parent\nOperating Expenses,Expense,\nOffice Supplies,Expense,Operating Expenses\nUtilities,Expense,Operating Expenses\nBank Fees,Expense,\nAdvertising,Expense,\nCurrent Assets,Asset,\nCash,Asset,Current Assets\nAccounts Receivable,Asset,Current Assets\nSales Revenue,Revenue,\nService Revenue,Revenue,";
-    const blob = new Blob([csvContent], { type: "text/csv" });
+    // Add BOM for proper UTF-8 encoding recognition
+    const blob = new Blob(['\ufeff' + csvContent], { type: "text/csv;charset=utf-8" });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -1081,7 +1147,8 @@ export default function ChartOfAccountsPage() {
   const downloadPayeesTemplate = () => {
     const csvContent =
       "Name\nOffice Depot\nAT&T Business\nAmazon Business\nStaples\nFedEx\nUPS\nMicrosoft Corporation\nGoogle Workspace\nCity Water & Power\nWaste Management Inc.";
-    const blob = new Blob([csvContent], { type: "text/csv" });
+    // Add BOM for proper UTF-8 encoding recognition
+    const blob = new Blob(['\ufeff' + csvContent], { type: "text/csv;charset=utf-8" });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -1103,7 +1170,8 @@ export default function ChartOfAccountsPage() {
     });
 
     const csvContent = Papa.unparse(csvData);
-    const blob = new Blob([csvContent], { type: "text/csv" });
+    // Add BOM for proper UTF-8 encoding recognition
+    const blob = new Blob(['\ufeff' + csvContent], { type: "text/csv;charset=utf-8" });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -1120,7 +1188,8 @@ export default function ChartOfAccountsPage() {
     }));
 
     const csvContent = Papa.unparse(csvData);
-    const blob = new Blob([csvContent], { type: "text/csv" });
+    // Add BOM for proper UTF-8 encoding recognition
+    const blob = new Blob(['\ufeff' + csvContent], { type: "text/csv;charset=utf-8" });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -1152,7 +1221,7 @@ export default function ChartOfAccountsPage() {
     for (let i = 0; i < nonEmptyRows.length; i++) {
       const row = nonEmptyRows[i];
 
-      if (!row.Name.trim()) {
+      if (!row.Name.trim().normalize('NFC')) {
         return `Empty name in row ${i + 1}. Please provide a name for each category.`;
       }
 
@@ -1291,7 +1360,7 @@ export default function ChartOfAccountsPage() {
     for (let i = 0; i < nonEmptyRows.length; i++) {
       const row = nonEmptyRows[i];
 
-      if (!row.Name.trim()) {
+      if (!row.Name.trim().normalize('NFC')) {
         return `Empty name in row ${i + 1}. Please provide a name for each payee.`;
       }
     }
@@ -1299,195 +1368,157 @@ export default function ChartOfAccountsPage() {
     return null;
   };
 
-  // Import file handling functions
-  const handleCategoryFileUpload = (event: React.ChangeEvent<HTMLInputElement> | DragEvent) => {
-    const file = event instanceof DragEvent ? event.dataTransfer?.files[0] : event.target.files?.[0];
+  // Use the imported defaultFixEncoding function
+  const fixEncoding = defaultFixEncoding;
 
-    if (!file) return;
+  // Parse handlers (defined before CSV config to avoid hoisting issues)
+  const handleCategoryParseComplete = (results: Papa.ParseResult<CategoryCSVRow>) => {
+    // Validation is handled by the CSV upload handler, so we proceed directly to processing
+    const categories: CategoryImportData[] = results.data
+      .filter((row: CategoryCSVRow) => row.Name && row.Type)
+      .map((row: CategoryCSVRow) => {
+        const parentCategory = row["Parent"] ? accounts.find((acc) => acc.name === row["Parent"]) : null;
+
+        return {
+          id: uuidv4(),
+          name: fixEncoding(row.Name.trim()).normalize('NFC'),
+          type: row.Type.trim(),
+          parent_id: parentCategory?.id || null,
+          company_id: currentCompany?.id || "",
+          parentName: row.Parent ? fixEncoding(row.Parent.trim()).normalize('NFC') : undefined,
+          // Initialize validation fields - will be populated by validateParentReferences
+          isValid: true,
+          validationMessage: "",
+          needsParentCreation: false,
+        };
+      });
+
+    // Validate parent references
+    const validatedCategories = validateParentReferences(categories);
 
     setCategoryImportModal((prev) => ({
       ...prev,
-      isLoading: true,
-      error: null,
+      isLoading: false,
+      csvData: validatedCategories,
+      step: "review",
     }));
-
-    Papa.parse(file, {
-      header: true,
-      skipEmptyLines: true,
-      complete: (results: Papa.ParseResult<CategoryCSVRow>) => {
-        const error = validateCategoryCSV(results);
-        if (error) {
-          setCategoryImportModal((prev) => ({
-            ...prev,
-            isLoading: false,
-            error,
-          }));
-          return;
-        }
-
-        const categories: CategoryImportData[] = results.data
-          .filter((row: CategoryCSVRow) => row.Name && row.Type)
-          .map((row: CategoryCSVRow) => {
-            const parentCategory = row["Parent"] ? accounts.find((acc) => acc.name === row["Parent"]) : null;
-
-            return {
-              id: uuidv4(),
-              name: row.Name.trim(),
-              type: row.Type,
-              parent_id: parentCategory?.id || null,
-              company_id: currentCompany?.id || "",
-              parentName: row.Parent?.trim() || undefined,
-              // Initialize validation fields - will be populated by validateParentReferences
-              isValid: true,
-              validationMessage: "",
-              needsParentCreation: false,
-            };
-          });
-
-        // Validate parent references
-        const validatedCategories = validateParentReferences(categories);
-
-        setCategoryImportModal((prev) => ({
-          ...prev,
-          isLoading: false,
-          csvData: validatedCategories,
-          step: "review",
-        }));
-      },
-      error: (error) => {
-        setCategoryImportModal((prev) => ({
-          ...prev,
-          isLoading: false,
-          error: `Error parsing CSV: ${error.message}`,
-        }));
-      },
-    });
   };
 
-  const handlePayeeFileUpload = (event: React.ChangeEvent<HTMLInputElement> | DragEvent) => {
-    const file = event instanceof DragEvent ? event.dataTransfer?.files[0] : event.target.files?.[0];
+  const handleCategoryParseError = (error: Error) => {
+    setCategoryImportModal((prev) => ({
+      ...prev,
+      isLoading: false,
+      error: `Error parsing CSV: ${error.message}`,
+    }));
+  };
 
-    if (!file) return;
+  const handlePayeeParseComplete = (results: Papa.ParseResult<PayeeCSVRow>) => {
+    // Validation is handled by the CSV upload handler, so we proceed directly to processing
+    const payeeData = results.data
+      .filter((row: PayeeCSVRow) => row.Name)
+      .map((row: PayeeCSVRow) => {
+        const name = fixEncoding(row.Name.trim()).normalize('NFC');
+
+        // Check if payee already exists in database (case-insensitive)
+        const existsInDb = payees.some((payee) => payee.name.toLowerCase() === name.toLowerCase());
+
+        // Check for duplicates within CSV data
+        const duplicatesInCsv = results.data.filter(
+          (csvRow: PayeeCSVRow) => csvRow.Name && fixEncoding(csvRow.Name.trim()).toLowerCase() === name.toLowerCase()
+        );
+
+        return {
+          id: uuidv4(),
+          name,
+          company_id: currentCompany?.id || "",
+          isValid: !existsInDb && duplicatesInCsv.length === 1,
+          validationMessage: existsInDb
+            ? `Payee "${name}" already exists in database`
+            : duplicatesInCsv.length > 1
+            ? `Duplicate payee "${name}" found in CSV`
+            : "",
+        };
+      });
 
     setPayeeImportModal((prev) => ({
       ...prev,
-      isLoading: true,
-      error: null,
+      isLoading: false,
+      csvData: payeeData,
+      step: "review",
     }));
-
-    Papa.parse(file, {
-      header: true,
-      skipEmptyLines: true,
-      complete: (results: Papa.ParseResult<PayeeCSVRow>) => {
-        const error = validatePayeeCSV(results);
-        if (error) {
-          setPayeeImportModal((prev) => ({
-            ...prev,
-            isLoading: false,
-            error,
-          }));
-          return;
-        }
-
-        const payeeData = results.data
-          .filter((row: PayeeCSVRow) => row.Name)
-          .map((row: PayeeCSVRow) => {
-            const name = row.Name.trim();
-
-            // Check if payee already exists in database (case-insensitive)
-            const existsInDb = payees.some((payee) => payee.name.toLowerCase() === name.toLowerCase());
-
-            // Check for duplicates within CSV data
-            const duplicatesInCsv = results.data.filter(
-              (csvRow: PayeeCSVRow) => csvRow.Name && csvRow.Name.trim().toLowerCase() === name.toLowerCase()
-            );
-
-            return {
-              id: uuidv4(),
-              name,
-              company_id: currentCompany?.id || "",
-              isValid: !existsInDb && duplicatesInCsv.length === 1,
-              validationMessage: existsInDb
-                ? `Payee "${name}" already exists in database`
-                : duplicatesInCsv.length > 1
-                ? `Duplicate payee "${name}" found in CSV`
-                : "",
-            };
-          });
-
-        setPayeeImportModal((prev) => ({
-          ...prev,
-          isLoading: false,
-          csvData: payeeData,
-          step: "review",
-        }));
-      },
-      error: (error) => {
-        setPayeeImportModal((prev) => ({
-          ...prev,
-          isLoading: false,
-          error: `Error parsing CSV: ${error.message}`,
-        }));
-      },
-    });
   };
 
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const handlePayeeParseError = (error: Error) => {
+    setPayeeImportModal((prev) => ({
+      ...prev,
+      isLoading: false,
+      error: `Error parsing CSV: ${error.message}`,
+    }));
   };
 
-  const handleCategoryDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const file = e.dataTransfer?.files[0];
-    if (file) {
-      const event = {
-        target: { files: [file] },
-      } as unknown as React.ChangeEvent<HTMLInputElement>;
-      handleCategoryFileUpload(event);
-    }
+  // CSV upload configurations
+  const categoryCSVConfig: CSVUploadConfig<CategoryCSVRow> = {
+    onParseComplete: handleCategoryParseComplete,
+    onParseError: handleCategoryParseError,
+    validateCSV: validateCategoryCSV,
   };
 
-  const handlePayeeDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const file = e.dataTransfer?.files[0];
-    if (file) {
-      const event = {
-        target: { files: [file] },
-      } as unknown as React.ChangeEvent<HTMLInputElement>;
-      handlePayeeFileUpload(event);
-    }
+  const payeeCSVConfig: CSVUploadConfig<PayeeCSVRow> = {
+    onParseComplete: handlePayeeParseComplete,
+    onParseError: handlePayeeParseError,
+    validateCSV: validatePayeeCSV,
   };
+
+  // CSV upload handlers
+  const categoryUploadHandler = useCSVUploadHandler({
+    config: categoryCSVConfig,
+    onLoadingChange: (loading) => {
+      setCategoryImportModal((prev) => ({ ...prev, isLoading: loading, error: null }));
+    },
+  });
+
+  const payeeUploadHandler = useCSVUploadHandler({
+    config: payeeCSVConfig,
+    onLoadingChange: (loading) => {
+      setPayeeImportModal((prev) => ({ ...prev, isLoading: loading, error: null }));
+    },
+  });
+
+  // Import file handling functions
+  const handleCategoryFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    categoryUploadHandler.handleFileInputChange(event);
+  };
+
+  const handlePayeeFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    payeeUploadHandler.handleFileInputChange(event);
+  };
+
+  // Drag and drop handlers are now provided by the CSV upload handlers
+  const handleCategoryDrop = categoryUploadHandler.handleDrop;
+  const handlePayeeDrop = payeeUploadHandler.handleDrop;
+  const handleDragOver = categoryUploadHandler.handleDragOver; // Both handlers have the same drag over logic
 
   // Helper to display subaccounts indented with AI highlighting
-  const renderAccounts = (accounts: Category[], level = 0) => {
-    // Get all parent accounts
-    const parentAccounts = accounts.filter((acc) => acc.parent_id === null);
-
-    return parentAccounts
-      .flatMap((parent) => {
-        // Get subaccounts for this parent
-        const subAccounts = accounts.filter((acc) => acc.parent_id === parent.id);
-
-        // If there are no subaccounts and parent doesn't match search, don't show parent
-        if (subAccounts.length === 0 && !accounts.includes(parent)) {
-          return [];
-        }
-
-        // Return an array of <tr> elements: parent row + subaccount rows
-        return [
+  const renderAccounts = (accounts: Category[]) => {
+    // For paginated data, we render accounts as they come without trying to maintain strict hierarchy
+    // This is because pagination may split parent-child pairs across pages
+    return accounts.map((account) => {
+      // Determine if this is a subaccount by checking if it has a parent_id
+      const isSubAccount = account.parent_id !== null;
+      const parentAccount = isSubAccount ? filteredAccounts.find(acc => acc.id === account.parent_id) : null;
+      const paddingLeft = isSubAccount ? 20 : 4; // Indent subaccounts
+      
+      return (
           <tr
-            key={parent.id}
-            id={`category-${parent.id}`}
+            key={account.id}
+            id={`category-${account.id}`}
             className={`transition-colors duration-1000 ${
-              highlightedCategoryIds.has(parent.id) ? "bg-green-100" : "hover:bg-gray-50"
+              highlightedCategoryIds.has(account.id) ? "bg-green-100" : "hover:bg-gray-50"
             }`}
           >
-            <td style={{ paddingLeft: `${level * 16 + 4}px` }} className="border p-1 text-xs">
+            <td style={{ paddingLeft: `${paddingLeft}px` }} className="border p-1 text-xs">
               <div className="flex items-center">
-                {editingId === parent.id ? (
+                {editingId === account.id ? (
                   <input
                     type="text"
                     value={editName}
@@ -1497,17 +1528,17 @@ export default function ChartOfAccountsPage() {
                     autoFocus
                   />
                 ) : (
-                  <span className={highlightedCategoryIds.has(parent.id) ? "font-bold text-green-800" : ""}>
-                    {parent.name}
+                  <span className={highlightedCategoryIds.has(account.id) ? "font-bold text-green-800" : ""}>
+                    {account.name}
                   </span>
                 )}
-                {lastActionCategoryId === parent.id && (
+                {lastActionCategoryId === account.id && (
                   <span className="ml-2 inline-block text-green-600 flex-shrink-0">✨</span>
                 )}
               </div>
             </td>
             <td className="border p-1 text-xs">
-              {editingId === parent.id ? (
+              {editingId === account.id ? (
                 <Select
                   options={typeOptions}
                   value={typeOptions.find((opt) => opt.value === editType) || typeOptions[0]}
@@ -1534,16 +1565,16 @@ export default function ChartOfAccountsPage() {
                   }}
                 />
               ) : (
-                parent.type
+                account.type
               )}
             </td>
             <td className="border p-1 text-xs">
-              {editingId === parent.id ? (
+              {editingId === account.id ? (
                 <Select
-                  options={getParentOptions(parent.id, editType)}
+                  options={getParentOptions(account.id, editType)}
                   value={
-                    getParentOptions(parent.id, editType).find((opt) => opt.value === (editParentId || "")) ||
-                    getParentOptions(parent.id, editType)[0]
+                    getParentOptions(account.id, editType).find((opt) => opt.value === (editParentId || "")) ||
+                    getParentOptions(account.id, editType)[0]
                   }
                   onChange={(selectedOption) => {
                     const option = selectedOption as SelectOption | null;
@@ -1566,149 +1597,30 @@ export default function ChartOfAccountsPage() {
                   }}
                 />
               ) : (
-                ""
+                parentAccount?.name || ""
               )}
             </td>
             <td className="border p-1 text-xs">
               <div className="flex gap-2 justify-center">
-                {editingId === parent.id ? (
+                {editingId === account.id ? (
                   <>
                     <button onClick={handleUpdate} className="text-xs hover:underline text-blue-600">
                       Save
                     </button>
-                    <button onClick={() => handleDelete(parent.id)} className="text-xs hover:underline text-red-600">
+                    <button onClick={() => handleDelete(account.id)} className="text-xs hover:underline text-red-600">
                       Delete
                     </button>
                   </>
                 ) : (
-                  <button onClick={() => handleEdit(parent)} className="text-xs hover:underline text-blue-600">
+                  <button onClick={() => handleEdit(account)} className="text-xs hover:underline text-blue-600">
                     Edit
                   </button>
                 )}
               </div>
             </td>
-          </tr>,
-          ...subAccounts.map((subAcc) => (
-            <tr
-              key={subAcc.id}
-              id={`category-${subAcc.id}`}
-              className={`transition-colors duration-1000 ${
-                highlightedCategoryIds.has(subAcc.id) ? "bg-green-100" : "hover:bg-gray-50"
-              }`}
-            >
-              <td
-                style={{
-                  paddingLeft: `${(level + 1) * 16 + 4}px`,
-                }}
-                className="border p-1 text-xs"
-              >
-                <div className="flex items-center">
-                  {editingId === subAcc.id ? (
-                    <input
-                      type="text"
-                      value={editName}
-                      onChange={(e) => setEditName(e.target.value)}
-                      className="flex-1 border-none outline-none bg-transparent text-xs"
-                      onKeyDown={(e) => e.key === "Enter" && handleUpdate()}
-                      autoFocus
-                    />
-                  ) : (
-                    <span className={highlightedCategoryIds.has(subAcc.id) ? "font-bold text-green-800" : ""}>
-                      {subAcc.name}
-                    </span>
-                  )}
-                  {lastActionCategoryId === subAcc.id && (
-                    <span className="ml-2 inline-block text-green-600 flex-shrink-0">✨</span>
-                  )}
-                </div>
-              </td>
-              <td className="border p-1 text-xs">
-                {editingId === subAcc.id ? (
-                  <Select
-                    options={typeOptions}
-                    value={typeOptions.find((opt) => opt.value === editType) || typeOptions[0]}
-                    onChange={(selectedOption) => {
-                      const option = selectedOption as SelectOption | null;
-                      if (option) {
-                        setEditType(option.value);
-                        editTypeRef.current = option.value; // Store in ref for immediate access
-                        // Clear parent when type changes since parent must match type
-                        setEditParentId(null);
-                        editParentIdRef.current = null;
-                      }
-                    }}
-                    isSearchable
-                    className="w-full"
-                    classNames={{
-                      container: () => "w-full",
-                      control: () => "w-full h-7 min-h-7 border border-gray-300 rounded text-xs",
-                      input: () => "w-px",
-                      valueContainer: () => "px-1 py-0.5 h-7",
-                      indicatorsContainer: () => "h-7",
-                      indicatorSeparator: () => "bg-gray-300",
-                      dropdownIndicator: () => "text-gray-500 p-1",
-                    }}
-                  />
-                ) : (
-                  subAcc.type
-                )}
-              </td>
-              <td className="border p-1 text-xs">
-                {editingId === subAcc.id ? (
-                  <Select
-                    options={getParentOptions(subAcc.id, editType)}
-                    value={
-                      getParentOptions(subAcc.id, editType).find((opt) => opt.value === (editParentId || "")) ||
-                      getParentOptions(subAcc.id, editType)[0]
-                    }
-                    onChange={(selectedOption) => {
-                      const option = selectedOption as SelectOption | null;
-                      if (option) {
-                        const newParentId = option.value === "" ? null : option.value;
-                        setEditParentId(newParentId);
-                        editParentIdRef.current = newParentId; // Store in ref for immediate access
-                      }
-                    }}
-                    isSearchable
-                    className="w-full"
-                    classNames={{
-                      container: () => "w-full",
-                      control: () => "w-full h-7 min-h-7 border border-gray-300 rounded text-xs",
-                      input: () => "w-px", // Prevents input from expanding based on content
-                      valueContainer: () => "px-1 py-0.5 h-7",
-                      indicatorsContainer: () => "h-7",
-                      indicatorSeparator: () => "bg-gray-300",
-                      dropdownIndicator: () => "text-gray-500 p-1",
-                    }}
-                  />
-                ) : (
-                  parent.name
-                )}
-              </td>
-              <td className="border p-1 text-xs">
-                <div className="flex gap-2 justify-center">
-                  {editingId === subAcc.id ? (
-                    <>
-                      <button onClick={handleUpdate} className="text-xs hover:underline text-blue-600">
-                        Save
-                      </button>
-                      <button onClick={() => handleDelete(subAcc.id)} className="text-xs hover:underline text-red-600">
-                        Delete
-                      </button>
-                    </>
-                  ) : (
-                    <button onClick={() => handleEdit(subAcc)} className="text-xs hover:underline text-blue-600">
-                      Edit
-                    </button>
-                  )}
-                </div>
-              </td>
-            </tr>
-          )),
-        ];
+          </tr>
+        );
       })
-      .filter(Boolean)
-      .flat(); // Remove null entries and flatten
   };
 
   if (!hasCompanyContext) {
@@ -1732,6 +1644,17 @@ export default function ChartOfAccountsPage() {
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-semibold">Payees</h2>
             <div className="flex gap-2">
+              <button
+                onClick={() =>
+                  setMergePayeeModal((prev) => ({
+                    ...prev,
+                    isOpen: true,
+                  }))
+                }
+                className="border px-3 py-1 rounded text-xs flex items-center space-x-1 bg-gray-100 hover:bg-gray-200"
+              >
+                Merge
+              </button>
               <button
                 onClick={() =>
                   setPayeeImportModal((prev) => ({
@@ -2052,7 +1975,7 @@ export default function ChartOfAccountsPage() {
           </div>
 
           {/* Categories Pagination */}
-          <div className="flex justify-between items-center mt-2">
+          <div className="flex justify-between items-center mt-2 gap-3">
             <span className="text-xs text-gray-600 whitespace-nowrap">
               {`${displayedCategories.length} of ${categoryPaginationData.totalItems} categories`}
             </span>
@@ -2154,7 +2077,7 @@ export default function ChartOfAccountsPage() {
                     <div className="flex justify-between items-center">
                       <h3 className="text-sm font-medium text-gray-700">Review Payees</h3>
                     </div>
-                    <div className="border rounded-lg overflow-hidden">
+                    <div className="border rounded-lg overflow-hidden max-h-96 overflow-y-auto">
                       <table className="min-w-full divide-y divide-gray-200">
                         <thead className="bg-gray-50">
                           <tr>
@@ -2946,19 +2869,11 @@ export default function ChartOfAccountsPage() {
                 <h4 className="text-sm font-medium text-blue-800 mb-2">This merge will:</h4>
                 <ul className="text-sm text-blue-700 space-y-1">
                   <li>
-                    • Move all transactions from &quot;{renameMergeModal.originalCategory?.name}&quot; to &quot;
-                    {renameMergeModal.existingCategory?.name}&quot;
-                  </li>
-                  <li>
-                    • Move all journal entries from &quot;{renameMergeModal.originalCategory?.name}&quot; to &quot;
-                    {renameMergeModal.existingCategory?.name}&quot;
-                  </li>
-                  <li>
-                    • Move all subcategories from &quot;{renameMergeModal.originalCategory?.name}&quot; to &quot;
+                    • Move all transactions, journal entries, and subcategories from &quot;{renameMergeModal.originalCategory?.name}&quot; to &quot;
                     {renameMergeModal.existingCategory?.name}&quot;
                   </li>
                   <li>• Update all automation rules to use &quot;{renameMergeModal.existingCategory?.name}&quot;</li>
-                  <li>• Delete &quot;{renameMergeModal.originalCategory?.name}&quot;</li>
+                  <li>• Delete all selected non-target categories.</li>
                   <li>
                     • Keep the type and properties of &quot;{renameMergeModal.existingCategory?.name}&quot; (
                     {renameMergeModal.existingCategory?.type})
@@ -3077,7 +2992,7 @@ export default function ChartOfAccountsPage() {
             </div>
           ) : (
             <div className="space-y-4">
-              {mergeModal.selectedCategories.size === 0 ? (
+              {mergeModal.selectedCategories.size === 0 && (
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                   <h4 className="text-sm font-medium text-blue-800 mb-2">How Merging Works:</h4>
                   <ul className="text-sm text-blue-700 space-y-1">
@@ -3091,19 +3006,6 @@ export default function ChartOfAccountsPage() {
                     <li>• If merging parent categories into a subcategory, it will become a parent</li>
                   </ul>
                 </div>
-              ) : (
-                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                  <h4 className="text-sm font-medium text-yellow-800 mb-2">
-                    {mergeModal.selectedCategories.size} categories selected for merge
-                  </h4>
-                  <p className="text-sm text-yellow-700">
-                    {mergeModal.targetCategoryId
-                      ? `All selected categories will be merged into "${
-                          accounts.find((acc) => acc.id === mergeModal.targetCategoryId)?.name
-                        }".`
-                      : "Please select a target category using the radio buttons below."}
-                  </p>
-                </div>
               )}
 
               {mergeModal.selectedCategories.size >= 2 && mergeModal.targetCategoryId && (
@@ -3111,15 +3013,7 @@ export default function ChartOfAccountsPage() {
                   <h4 className="text-sm font-medium text-blue-800 mb-2">This merge will:</h4>
                   <ul className="text-sm text-blue-700 space-y-1">
                     <li>
-                      • Move all transactions to &quot;
-                      {accounts.find((acc) => acc.id === mergeModal.targetCategoryId)?.name}&quot;
-                    </li>
-                    <li>
-                      • Move all journal entries to &quot;
-                      {accounts.find((acc) => acc.id === mergeModal.targetCategoryId)?.name}&quot;
-                    </li>
-                    <li>
-                      • Move all subcategories to &quot;
+                      • Move all transactions, journal entries, and subcategories to &quot;
                       {accounts.find((acc) => acc.id === mergeModal.targetCategoryId)?.name}&quot;
                     </li>
                     <li>
@@ -3127,11 +3021,7 @@ export default function ChartOfAccountsPage() {
                       {accounts.find((acc) => acc.id === mergeModal.targetCategoryId)?.name}&quot;
                     </li>
                     <li>
-                      • Delete{" "}
-                      {Array.from(mergeModal.selectedCategories)
-                        .filter((id) => id !== mergeModal.targetCategoryId)
-                        .map((id) => `"${accounts.find((acc) => acc.id === id)?.name}"`)
-                        .join(", ")}
+                      • Delete all selected non-target categories.
                     </li>
                     <li>
                       • Keep the type and properties of &quot;
@@ -3433,7 +3323,7 @@ export default function ChartOfAccountsPage() {
               {mergeModal.selectedCategories.size > 0 && (
                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
                   <h4 className="text-sm font-medium text-gray-700 mb-2">Selected for Merge:</h4>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-2 max-h-16 overflow-y-auto">
                     {Array.from(mergeModal.selectedCategories).map((id) => {
                       const category = accounts.find((acc) => acc.id === id);
                       if (!category) return null;
@@ -3490,6 +3380,294 @@ export default function ChartOfAccountsPage() {
                   <Button
                     onClick={handleMergeCategories}
                     disabled={mergeModal.selectedCategories.size < 2 || !mergeModal.targetCategoryId}
+                  >
+                    Merge
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Merge Payees Modal */}
+      <Dialog
+        open={mergePayeeModal.isOpen}
+        onOpenChange={(open) =>
+          setMergePayeeModal((prev) => ({
+            ...prev,
+            isOpen: open,
+            selectedPayees: new Set(),
+            targetPayeeId: null,
+            isLoading: false,
+            error: null,
+            searchTerm: "",
+          }))
+        }
+      >
+        <DialogContent className="min-w-[700px]">
+          <DialogHeader>
+            <DialogTitle>Merge Payees</DialogTitle>
+          </DialogHeader>
+
+          {mergePayeeModal.error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded">
+              {mergePayeeModal.error}
+            </div>
+          )}
+
+          {mergePayeeModal.isLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-8 w-8 animate-spin" />
+              <span className="ml-3 text-gray-600">Merging payees...</span>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {mergePayeeModal.selectedPayees.size === 0 && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <h4 className="text-sm font-medium text-blue-800 mb-2">How Merging Works:</h4>
+                  <ul className="text-sm text-blue-700 space-y-1">
+                    <li>• Select 2 or more payees to merge</li>
+                    <li>• Choose which payee to keep as the &quot;target&quot; (others will be deleted)</li>
+                    <li>• All transaction references will be updated to point to the target payee</li>
+                    <li>• All journal entries will be updated to point to the target payee</li>
+                    <li>• All automation rules will be updated to use the target payee</li>
+                  </ul>
+                </div>
+              )}
+
+              {mergePayeeModal.selectedPayees.size >= 2 && mergePayeeModal.targetPayeeId && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <h4 className="text-sm font-medium text-blue-800 mb-2">This merge will:</h4>
+                  <ul className="text-sm text-blue-700 space-y-1">
+                    <li>
+                      • Move all transactions and journal entries to &quot;
+                      {payees.find((payee) => payee.id === mergePayeeModal.targetPayeeId)?.name}&quot;
+                    </li>
+                    <li>
+                      • Move all journal entries to &quot;
+                      {payees.find((payee) => payee.id === mergePayeeModal.targetPayeeId)?.name}&quot;
+                    </li>
+                    <li>
+                      • Update all automation rules to use &quot;
+                      {payees.find((payee) => payee.id === mergePayeeModal.targetPayeeId)?.name}&quot;
+                    </li>
+                    <li>
+                      • Delete all selected non-target payees.
+                    </li>
+                  </ul>
+                </div>
+              )}
+
+              {mergePayeeModal.selectedPayees.size >= 2 && mergePayeeModal.targetPayeeId && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                  <p className="text-sm text-red-700 font-medium">⚠️ This action cannot be undone.</p>
+                </div>
+              )}
+
+              <div>
+                <h3 className="text-sm font-medium text-gray-700 mb-2">
+                  Select Payees to Merge:
+                  {mergePayeeModal.selectedPayees.size > 0 && (
+                    <span className="ml-2 text-xs text-gray-500">({mergePayeeModal.selectedPayees.size} selected)</span>
+                  )}
+                </h3>
+
+                {/* Search Bar */}
+                <div className="mb-3">
+                  <input
+                    type="text"
+                    placeholder="Search payees..."
+                    value={mergePayeeModal.searchTerm}
+                    onChange={(e) =>
+                      setMergePayeeModal((prev) => ({
+                        ...prev,
+                        searchTerm: e.target.value,
+                      }))
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+
+                <div className="border rounded-lg overflow-hidden max-h-64 overflow-y-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50 sticky top-0">
+                      <tr>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-8">
+                          <input
+                            type="checkbox"
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                // Select all payees
+                                const allPayeeIds = payees.map((payee) => payee.id);
+                                setMergePayeeModal((prev) => ({
+                                  ...prev,
+                                  selectedPayees: new Set(allPayeeIds),
+                                  error: null,
+                                }));
+                              } else {
+                                setMergePayeeModal((prev) => ({
+                                  ...prev,
+                                  selectedPayees: new Set(),
+                                  targetPayeeId: null,
+                                  error: null,
+                                }));
+                              }
+                            }}
+                            className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                          />
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Name
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Keep
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {(() => {
+                        // Filter payees by search term
+                        const filteredPayees = payees.filter((payee) => {
+                          if (!mergePayeeModal.searchTerm.trim()) return true;
+                          const searchLower = mergePayeeModal.searchTerm.toLowerCase();
+                          return payee.name.toLowerCase().includes(searchLower);
+                        });
+
+                        return filteredPayees.map((payee) => {
+                          const isSelected = mergePayeeModal.selectedPayees.has(payee.id);
+                          const isTarget = mergePayeeModal.targetPayeeId === payee.id;
+
+                          return (
+                            <tr
+                              key={payee.id}
+                              className={`hover:bg-gray-50 ${
+                                isTarget ? "bg-green-50 border-l-4 border-green-400" : isSelected ? "bg-blue-50" : ""
+                              }`}
+                            >
+                              <td className="px-3 py-2 whitespace-nowrap w-8">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={(e) => {
+                                    const newSelected = new Set(mergePayeeModal.selectedPayees);
+                                    if (e.target.checked) {
+                                      newSelected.add(payee.id);
+                                    } else {
+                                      newSelected.delete(payee.id);
+                                      // If unchecking target, clear target selection
+                                      if (mergePayeeModal.targetPayeeId === payee.id) {
+                                        setMergePayeeModal((prev) => ({ ...prev, targetPayeeId: null }));
+                                      }
+                                    }
+                                    setMergePayeeModal((prev) => ({
+                                      ...prev,
+                                      selectedPayees: newSelected,
+                                      error: null,
+                                    }));
+                                  }}
+                                  className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                                />
+                              </td>
+                              <td className="px-3 py-2 text-sm">
+                                <div className="flex items-center">
+                                  <span
+                                    className={isTarget ? "font-semibold text-green-800" : "text-gray-900"}
+                                  >
+                                    {payee.name}
+                                  </span>
+                                  {isTarget && (
+                                    <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                      Target
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="px-3 py-2 whitespace-nowrap w-8 text-center">
+                                <input
+                                  type="radio"
+                                  name="targetPayee"
+                                  checked={isTarget}
+                                  disabled={!isSelected}
+                                  onChange={() => {
+                                    setMergePayeeModal((prev) => ({
+                                      ...prev,
+                                      targetPayeeId: payee.id,
+                                      error: null,
+                                    }));
+                                  }}
+                                  className="rounded border-gray-300 text-green-600 focus:ring-green-600 disabled:opacity-30"
+                                />
+                              </td>
+                            </tr>
+                          );
+                        });
+                      })()}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {mergePayeeModal.selectedPayees.size > 0 && (
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">Selected for Merge:</h4>
+                  <div className="flex flex-wrap gap-2 max-h-16 overflow-y-auto">
+                    {Array.from(mergePayeeModal.selectedPayees).map((id) => {
+                      const payee = payees.find((p) => p.id === id);
+                      if (!payee) return null;
+
+                      return (
+                        <span
+                          key={id}
+                          className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                            mergePayeeModal.targetPayeeId === id
+                              ? "bg-green-100 text-green-800 border border-green-200"
+                              : "bg-blue-100 text-blue-800"
+                          }`}
+                        >
+                          {payee.name}
+                          {mergePayeeModal.targetPayeeId === id && " (Target)"}
+                        </span>
+                      );
+                    })}
+                  </div>
+                  {mergePayeeModal.selectedPayees.size >= 2 && !mergePayeeModal.targetPayeeId && (
+                    <p className="text-sm text-orange-600 mt-2">
+                      Please select which payee to keep as the target using the radio buttons.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              <div className="flex justify-between items-center pt-2">
+                <div className="text-sm text-gray-600">
+                  {mergePayeeModal.selectedPayees.size > 0 && mergePayeeModal.targetPayeeId && (
+                    <span>
+                      Merging {mergePayeeModal.selectedPayees.size - 1} payee
+                      {mergePayeeModal.selectedPayees.size - 1 === 1 ? "" : "s"} into &quot;
+                      {payees.find((payee) => payee.id === mergePayeeModal.targetPayeeId)?.name}&quot;
+                    </span>
+                  )}
+                </div>
+                <div className="flex space-x-3">
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      setMergePayeeModal({
+                        isOpen: false,
+                        selectedPayees: new Set(),
+                        targetPayeeId: null,
+                        isLoading: false,
+                        error: null,
+                        searchTerm: "",
+                      })
+                    }
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleMergePayees}
+                    disabled={mergePayeeModal.selectedPayees.size < 2 || !mergePayeeModal.targetPayeeId}
                   >
                     Merge
                   </Button>
