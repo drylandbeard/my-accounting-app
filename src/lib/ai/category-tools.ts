@@ -40,7 +40,7 @@ export const getCategoryTools = (): unknown[] => {
       type: "function",
       function: {
         name: "update_category",
-        description: "Updates an existing category's name, type, or other properties. Use this to rename categories or change their account type.",
+        description: "Updates an existing category's name, type, or other properties. Use this to rename categories or change their account type. Provide either categoryId OR categoryName to identify the category.",
         parameters: {
           type: "object",
           properties: {
@@ -63,11 +63,7 @@ export const getCategoryTools = (): unknown[] => {
             }
           },
           required: [],
-          additionalProperties: false,
-          anyOf: [
-            { required: ["categoryId"] },
-            { required: ["categoryName"] }
-          ]
+          additionalProperties: false
         }
       }
     },
@@ -75,7 +71,7 @@ export const getCategoryTools = (): unknown[] => {
       type: "function", 
       function: {
         name: "delete_category",
-        description: "Deletes a category from the chart of accounts. Categories with child categories or transaction history cannot be deleted without first handling dependencies.",
+        description: "Deletes a category from the chart of accounts. Categories with child categories or transaction history cannot be deleted without first handling dependencies. Provide either categoryId OR categoryName to identify the category.",
         parameters: {
           type: "object",
           properties: {
@@ -89,11 +85,7 @@ export const getCategoryTools = (): unknown[] => {
             }
           },
           required: [],
-          additionalProperties: false,
-          anyOf: [
-            { required: ["categoryId"] },
-            { required: ["categoryName"] }
-          ]
+          additionalProperties: false
         }
       }
     },
@@ -101,7 +93,7 @@ export const getCategoryTools = (): unknown[] => {
       type: "function",
       function: {
         name: "move_category", 
-        description: "Moves a category to a different parent category or to the top level. This changes the hierarchical structure of the chart of accounts.",
+        description: "Moves a category to a different parent category or to the top level. This changes the hierarchical structure of the chart of accounts. Provide either categoryId OR categoryName to identify the category to move.",
         parameters: {
           type: "object",
           properties: {
@@ -123,11 +115,7 @@ export const getCategoryTools = (): unknown[] => {
             }
           },
           required: [],
-          additionalProperties: false,
-          anyOf: [
-            { required: ["categoryId"] },
-            { required: ["categoryName"] }
-          ]
+          additionalProperties: false
         }
       }
     }

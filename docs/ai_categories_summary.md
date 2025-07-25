@@ -168,6 +168,8 @@ The implementation is ready for testing with:
 
 ## Next Steps
 
+✅ **Fixed OpenAI API Schema Issue**: Resolved the "Invalid schema for function 'update_category'" error by removing `anyOf` constraints from function parameters. OpenAI's function calling API requires schemas to have `type: 'object'` and cannot have `oneOf`/`anyOf`/`allOf`/`enum`/`not` at the top level.
+
 The implementation provides a solid foundation for:
 
 ### Phase 2 Enhancements (Future)
@@ -189,6 +191,18 @@ The implementation provides a solid foundation for:
 ✅ **Data Integrity**: Multi-layer validation prevents corruption  
 ✅ **User Experience**: Natural language understanding for categories  
 ✅ **Performance**: Efficient data management and operation routing  
+✅ **API Compatibility**: Fixed OpenAI function calling schema validation
+
+## Recent Issue Resolution
+
+**Problem**: OpenAI API was rejecting category function schemas with error:
+```
+API Error (400): Invalid schema for function 'update_category': schema must have type 'object' and not have 'oneOf'/'anyOf'/'allOf'/'enum'/'not' at the top level.
+```
+
+**Solution**: Removed `anyOf` constraints from `update_category`, `delete_category`, and `move_category` function parameters. The validation logic in CategoryExecutor already properly handles either `categoryId` OR `categoryName` parameters, so the schema constraint was redundant and incompatible with OpenAI's requirements.
+
+**Testing**: Build completed successfully with no TypeScript or compilation errors.  
 
 ## Conclusion
 
