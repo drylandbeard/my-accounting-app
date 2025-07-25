@@ -94,6 +94,14 @@ export const authApi = {
     });
   },
 
+  async patch(url: string, data?: unknown, options: RequestInit = {}) {
+    return makeAuthenticatedRequest(url, {
+      ...options,
+      method: "PATCH",
+      body: data ? JSON.stringify(data) : undefined,
+    });
+  },
+
   async delete(url: string, options: RequestInit = {}) {
     return makeAuthenticatedRequest(url, {
       ...options,
