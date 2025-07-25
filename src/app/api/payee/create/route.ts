@@ -6,11 +6,8 @@ export async function POST(request: NextRequest) {
   try {
     // Verify authentication and company context
     const contextResult = validateCompanyContext(request);
-    if ('error' in contextResult) {
-      return NextResponse.json(
-        { error: contextResult.error },
-        { status: 401 }
-      );
+    if ("error" in contextResult) {
+      return NextResponse.json({ error: contextResult.error }, { status: 401 });
     }
 
     const { companyId } = contextResult;
@@ -18,14 +15,13 @@ export async function POST(request: NextRequest) {
     // Get the payee data from the request body
     const { name } = await request.json();
 
-    if (!name || typeof name !== 'string' || !name.trim()) {
-      return NextResponse.json(
-        { error: "Payee name is required" },
-        { status: 400 }
-      );
+    if (!name || typeof name !== "string" || !name.trim()) {
+      return NextResponse.json({ error: "Payee name is required" }, { status: 400 });
     }
 
     const trimmedName = name.trim();
+    console.log("API received name:", name); // Debug log
+    console.log("API trimmed name:", trimmedName); // Debug log
 
     // Check for duplicate names (case-insensitive)
     const { data: existingPayees, error: checkError } = await supabase
@@ -36,35 +32,28 @@ export async function POST(request: NextRequest) {
 
     if (checkError) {
       console.error("Error checking for duplicate payees:", checkError);
-      return NextResponse.json(
-        { error: "Error checking for duplicate payees" },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: "Error checking for duplicate payees" }, { status: 500 });
     }
 
     if (existingPayees && existingPayees.length > 0) {
-      return NextResponse.json(
-        { error: `Payee "${trimmedName}" already exists.` },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: `Payee "${trimmedName}" already exists.` }, { status: 400 });
     }
 
     // Create the payee
     const { data: payee, error: createError } = await supabase
       .from("payees")
-      .insert([{
-        name: trimmedName,
-        company_id: companyId
-      }])
+      .insert([
+        {
+          name: trimmedName,
+          company_id: companyId,
+        },
+      ])
       .select()
       .single();
 
     if (createError) {
       console.error("Error creating payee:", createError);
-      return NextResponse.json(
-        { error: `Failed to create payee: ${createError.message}` },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: `Failed to create payee: ${createError.message}` }, { status: 500 });
     }
 
     // Get updated payees list
@@ -80,13 +69,10 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       payee,
-      payees: payees || []
+      payees: payees || [],
     });
   } catch (error) {
     console.error("Error in POST /api/payee:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
