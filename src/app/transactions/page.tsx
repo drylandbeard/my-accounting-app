@@ -148,13 +148,13 @@ function SortableAccountItem({
     <div
       ref={setNodeRef}
       style={style}
-      className={`space-y-2 p-2 border rounded transition-colors ${isDragging ? "bg-gray-100 shadow-lg" : "bg-white"}`}
+      className={`space-y-2 p-2 border rounded transition-colors ${isDragging ? "bg-gray-100 shadow-lg" : "bg-white"} overflow-hidden`}
     >
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 min-w-0">
         <button
           {...attributes}
           {...listeners}
-          className="text-gray-400 text-sm cursor-grab active:cursor-grabbing hover:text-gray-600"
+          className="text-gray-400 text-sm cursor-grab active:cursor-grabbing hover:text-gray-600 flex-shrink-0"
         >
           ⋮⋮
         </button>
@@ -162,39 +162,40 @@ function SortableAccountItem({
           type="text"
           value={account.name}
           onChange={(e) => onNameChange(e.target.value)}
-          className="flex-1 border px-2 py-1 rounded"
+          className="flex-1 border px-2 py-1 rounded min-w-0"
         />
-        <button onClick={onDelete} className="text-red-600 hover:text-red-800 px-2 py-1">
+        <button onClick={onDelete} className="text-red-600 hover:text-red-800 px-2 py-1 flex-shrink-0">
           Delete
         </button>
       </div>
       {accountToDelete === account.id && (
-        <div className="bg-red-50 p-3 rounded border border-red-200 w-full">
-          <p className="text-sm text-red-700 mb-2">
-            Warning: This will permanently delete the account and all its transactions. Type &quot;delete&quot; to
-            confirm.
+        <div className="bg-red-50 p-2 rounded border border-red-200 max-w-full overflow-hidden break-words">
+          <p className="text-xs text-red-700 mb-2">
+            Warning: This will permanently delete the account and all its transactions. Type &quot;delete&quot; to confirm.
           </p>
-          <div className="flex gap-2">
+          <div className="space-y-2">
             <input
               type="text"
               value={deleteConfirmation}
               onChange={(e) => onDeleteConfirmationChange(e.target.value)}
               placeholder="Type 'delete' to confirm"
-              className="flex-1 border px-2 py-1 rounded"
+              className="w-full border px-2 py-1 rounded text-sm max-w-full"
             />
-            <button
-              onClick={onConfirmDelete}
-              disabled={deleteConfirmation !== "delete"}
-              className="px-3 py-1 bg-red-600 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Confirm
-            </button>
-            <button
-              onClick={onCancelDelete}
-              className="px-3 py-1 border rounded"
-            >
-              Cancel
-            </button>
+            <div className="flex gap-1 justify-end flex-wrap">
+              <button
+                onClick={onCancelDelete}
+                className="px-2 py-1 border rounded text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={onConfirmDelete}
+                disabled={deleteConfirmation !== "delete"}
+                className="px-2 py-1 bg-red-600 text-white rounded disabled:opacity-50 text-xs"
+              >
+                Confirm
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -423,9 +424,6 @@ export default function TransactionsPage() {
     accountToDelete: null,
     deleteConfirmation: "",
   });
-
-  console.log("accountNamesModal", accountNamesModal);
-  console.log("accounts", accounts);
 
   // Add journal entry modal state
   const [journalEntryModal, setJournalEntryModal] = useState<{
@@ -3337,7 +3335,7 @@ export default function TransactionsPage() {
             setAccountNamesModal({ isOpen: false, accounts: [], accountToDelete: null, deleteConfirmation: "" })
           }
         >
-          <DialogContent className="w-[400px] max-h-[90vh] overflow-y-auto">
+          <DialogContent className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Edit Accounts</DialogTitle>
               <p className="text-sm text-gray-600">Drag accounts to reorder them</p>
