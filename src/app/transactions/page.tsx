@@ -2631,7 +2631,7 @@ export default function TransactionsPage() {
   }
 
   return (
-    <div className="p-4 bg-white text-gray-900 font-sans text-xs space-y-6">
+    <div className="relative p-4 bg-white text-gray-900 font-sans text-xs space-y-6">
       <div className="flex justify-end items-center mb-4">
 
         <div className="flex flex-row items-center space-x-2">
@@ -4733,7 +4733,7 @@ export default function TransactionsPage() {
             isAddingTransactions || selectedTransactions.some((tx) => processingTransactions.has(tx.id));
 
           return (
-            <div className="fixed bottom-6 right-6 z-40">
+            <div className="absolute bottom-6 right-6 z-40">
               <button
                 onClick={async () => {
                   const transactionRequests = selectedTransactions
@@ -4802,7 +4802,7 @@ export default function TransactionsPage() {
             isUndoingTransactions || selectedConfirmed.some((tx) => processingTransactions.has(tx.id));
 
           return (
-            <div className="fixed bottom-6 right-6 z-40">
+            <div className="absolute bottom-6 right-6 z-40">
               <button
                 onClick={async () => {
                   // Set flag to prevent automation during undo
