@@ -208,24 +208,17 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
     const thinkingMessageIndex = messages.length + 1; // +1 for the user message we just added
 
     try {
-      // Refresh both payees and categories to ensure we have the latest state from database
-      console.log('🔄 Refreshing payees and categories before AI processing...');
-      await Promise.all([
-        refreshPayeesFromStore(),
-        refreshCategoriesFromStore()
-      ]);
+      // Use current data from stores (no refresh needed since stores have real-time subscriptions)
+      const currentPayees = usePayeesStore.getState().payees;
+      const currentCategories = useCategoriesStore.getState().categories;
+      console.log(`✅ Using current data for AI: ${currentPayees.length} payees, ${currentCategories.length} categories`);
       
-      // Get fresh data from stores after refresh
-      const freshPayees = usePayeesStore.getState().payees;
-      const freshCategories = useCategoriesStore.getState().categories;
-      console.log(`✅ Using fresh data for AI: ${freshPayees.length} payees, ${freshCategories.length} categories`);
-      
-      // Process with AI Handler using fresh data
+      // Process with AI Handler using current data
       const result = await aiHandler.processUserMessage(
         userMessage,
         messages,
-        freshPayees,
-        freshCategories
+        currentPayees,
+        currentCategories
       );
 
       if (result.success && result.response) {
@@ -287,8 +280,7 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
         content: result
       });
 
-      // Refresh payees after successful operations
-      await refreshPayeesFromStore();
+      // Note: No need to refresh stores manually - they auto-update via real-time subscriptions
     } catch (error) {
       console.error('Error executing action:', error);
       // Replace processing message with error
