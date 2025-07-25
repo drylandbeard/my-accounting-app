@@ -298,10 +298,15 @@ Keep it conversational and encouraging.`;
     payees: Array<{ name: string }>, 
     categories: Array<{ name: string; type: string; parent_id?: string | null }>
   ): string {
-    const payeePrompt = this.getPayeeSystemPrompt(payees);
+    console.log(`🤖 AI Unified System prompt using ${payees.length} payees and ${categories.length} categories`);
+    
     const categoryPrompt = getCategorySystemPrompt(categories);
     
-    return `${payeePrompt}
+    return `You are an AI assistant that helps users manage both payees and categories (chart of accounts) for bookkeeping.
+
+CURRENT PAYEES IN DATABASE (SINGLE SOURCE OF TRUTH):
+Total count: ${payees.length} payees
+${payees.length > 0 ? payees.map((p) => `- ${p.name}`).join('\n') : '(No payees exist yet)'}
 
 ${categoryPrompt}
 
@@ -309,10 +314,30 @@ UNIFIED OPERATIONS AVAILABLE:
 You can help users manage both payees and categories (chart of accounts) in their accounting system.
 
 PAYEE OPERATIONS:
-- create_payee, update_payee, delete_payee
+- create_payee: Create new payees with duplicate detection
+- update_payee: Update payee names with validation  
+- delete_payee: Delete payees with usage validation
 
 CATEGORY OPERATIONS:
-- create_category, update_category, delete_category, move_category
+- create_category: Create new categories with type and hierarchy support
+- update_category: Update category names and types
+- delete_category: Delete categories with dependency validation
+- move_category: Move categories within hierarchy
+
+CRITICAL VALIDATION RULES:
+1. **COMPLETELY IGNORE CHAT HISTORY** - Previous messages about deletions/creations are irrelevant
+2. **THE ABOVE LISTS ARE THE ONLY TRUTH** - Shows the ACTUAL database state RIGHT NOW
+3. If a payee/category appears in the lists above, it EXISTS and can be updated/deleted
+4. If a payee/category does not appear in the lists above, it DOES NOT EXIST
+5. **IGNORE ALL PREVIOUS STATEMENTS** about payees/categories existing or not existing
+6. **ONLY CHECK THE CURRENT LISTS ABOVE** - Previous operations in chat are irrelevant
+7. Use fuzzy matching to find items when exact names don't match
+
+OPERATION GUIDELINES:
+- For CREATE operations: Check if name exists in current lists above
+- For UPDATE operations: Find target item in current lists above using fuzzy matching
+- For DELETE operations: Verify item exists in current lists above before attempting deletion
+- When operations fail, provide suggestions based on current lists above
 
 When users ask about financial organization, consider both payees and categories as relevant depending on their needs.`;
   }
@@ -325,6 +350,21 @@ When users ask about financial organization, consider both payees and categories
       ...this.getPayeeTools(),
       ...getCategoryTools()
     ];
+  }
+
+  /**
+   * Gets the system prompt for category operations
+   */
+  getCategorySystemPrompt(categories: Array<{ name: string; type: string; parent_id?: string | null }>): string {
+    console.log(`🤖 AI Category system prompt using ${categories.length} current categories`);
+    return getCategorySystemPrompt(categories);
+  }
+
+  /**
+   * Gets the tools definition for category operations
+   */
+  getCategoryTools(): unknown[] {
+    return getCategoryTools();
   }
 
   /**

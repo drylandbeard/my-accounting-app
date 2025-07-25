@@ -170,6 +170,16 @@ The implementation is ready for testing with:
 
 ✅ **Fixed OpenAI API Schema Issue**: Resolved the "Invalid schema for function 'update_category'" error by removing `anyOf` constraints from function parameters. OpenAI's function calling API requires schemas to have `type: 'object'` and cannot have `oneOf`/`anyOf`/`allOf`/`enum`/`not` at the top level.
 
+✅ **Fixed System Prompt Conflict**: Resolved issue where AI Assistant was responding "I can only manage payees" instead of supporting category operations. The `getUnifiedSystemPrompt()` method was concatenating the old payee-only prompt (which explicitly stated limitations) with category capabilities, creating conflicting instructions. Rewrote the unified prompt to be consistent and comprehensive.
+
+✅ **Enhanced Operation Routing**: Implemented intelligent operation detection with dedicated system prompts for maximum clarity and reliability:
+- **Category operations**: Use `getCategorySystemPrompt()` and `getCategoryTools()` for focused category-specific instructions
+- **Payee operations**: Use `getPayeeSystemPrompt()` and `getPayeeTools()` for focused payee-specific instructions  
+- **Mixed operations**: Use `getUnifiedSystemPrompt()` and `getUnifiedTools()` for comprehensive capabilities
+- **General queries**: Use unified prompt to allow AI to determine the best approach
+
+✅ **Removed Backward Compatibility**: Eliminated fallback logic that could cause confusion, making the AI more robust and fault-proof with explicit operation type handling.
+
 The implementation provides a solid foundation for:
 
 ### Phase 2 Enhancements (Future)
@@ -191,10 +201,14 @@ The implementation provides a solid foundation for:
 ✅ **Data Integrity**: Multi-layer validation prevents corruption  
 ✅ **User Experience**: Natural language understanding for categories  
 ✅ **Performance**: Efficient data management and operation routing  
-✅ **API Compatibility**: Fixed OpenAI function calling schema validation
+✅ **API Compatibility**: Fixed OpenAI function calling schema validation  
+✅ **System Prompt**: Resolved conflicting instructions in unified prompt  
+✅ **Operation Routing**: Intelligent detection with dedicated prompts  
+✅ **Robustness**: Fault-proof operation handling without backward compatibility
 
-## Recent Issue Resolution
+## Recent Issue Resolutions
 
+### 1. OpenAI API Schema Validation Error
 **Problem**: OpenAI API was rejecting category function schemas with error:
 ```
 API Error (400): Invalid schema for function 'update_category': schema must have type 'object' and not have 'oneOf'/'anyOf'/'allOf'/'enum'/'not' at the top level.
@@ -202,7 +216,17 @@ API Error (400): Invalid schema for function 'update_category': schema must have
 
 **Solution**: Removed `anyOf` constraints from `update_category`, `delete_category`, and `move_category` function parameters. The validation logic in CategoryExecutor already properly handles either `categoryId` OR `categoryName` parameters, so the schema constraint was redundant and incompatible with OpenAI's requirements.
 
-**Testing**: Build completed successfully with no TypeScript or compilation errors.  
+### 2. AI Assistant Rejecting Category Operations
+**Problem**: AI Assistant was responding with:
+```
+"It looks like there was a little mix-up! The operation you tried to perform is not recognized, as I can only manage payees for bookkeeping. Unfortunately, creating categories isn't something I can assist with right now."
+```
+
+**Root Cause**: The `getUnifiedSystemPrompt()` method was concatenating the old `getPayeeSystemPrompt()` (which explicitly stated "I can only manage payees for bookkeeping") with category instructions, creating conflicting directives. The AI was following the more specific/earlier restriction.
+
+**Solution**: Completely rewrote `getUnifiedSystemPrompt()` to create a cohesive prompt that presents payee and category operations as equal capabilities from the start, eliminating the conflicting "payees only" language.
+
+**Testing**: TypeScript compilation successful with no errors.  
 
 ## Conclusion
 

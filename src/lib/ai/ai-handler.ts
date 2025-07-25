@@ -11,6 +11,7 @@ import { PayeeExecutor } from './payee-executor';
 import { CategoryExecutor } from './category-executor';
 import { ChatService } from './chat-service';
 import { PayeeValidator } from './payee-validator';
+import { CategoryValidator } from './category-validator';
 
 /**
  * Main AI handler that coordinates all AI operations
@@ -110,13 +111,29 @@ export class AIHandler {
       let systemPrompt: string;
       let tools: unknown[];
 
-      if (operationType === 'category' || operationType === 'mixed') {
-        systemPrompt = this.chatService.getUnifiedSystemPrompt(payees, categories);
-        tools = this.chatService.getUnifiedTools();
-      } else {
-        // Default to payee operations for backward compatibility
-        systemPrompt = this.chatService.getPayeeSystemPrompt(payees);
-        tools = this.chatService.getPayeeTools();
+      switch (operationType) {
+        case 'category':
+          systemPrompt = this.chatService.getCategorySystemPrompt(categories);
+          tools = this.chatService.getCategoryTools();
+          console.log(`🎯 Category operation detected - using category-specific prompt and tools`);
+          break;
+        case 'payee':
+          systemPrompt = this.chatService.getPayeeSystemPrompt(payees);
+          tools = this.chatService.getPayeeTools();
+          console.log(`🎯 Payee operation detected - using payee-specific prompt and tools`);
+          break;
+        case 'mixed':
+          systemPrompt = this.chatService.getUnifiedSystemPrompt(payees, categories);
+          tools = this.chatService.getUnifiedTools();
+          console.log(`🎯 Mixed operation detected - using unified prompt and tools`);
+          break;
+        case 'general':
+        default:
+          // For general queries, use unified prompt to allow AI to determine the best approach
+          systemPrompt = this.chatService.getUnifiedSystemPrompt(payees, categories);
+          tools = this.chatService.getUnifiedTools();
+          console.log(`📨 General operation - using unified prompt and tools`);
+          break;
       }
       
       // For operations, limit chat history to prevent confusion from stale operations
@@ -214,12 +231,59 @@ export class AIHandler {
       }
       
       if (action.action === 'batch_execute') {
-        const operations = action.operations as PayeeOperation[];
-        const result = await this.payeeExecutor.executeBatchOperations(operations);
+        const operations = action.operations as (PayeeOperation | { action: string; params: Record<string, unknown> })[];
+        
+        // Separate payee and category operations
+        const payeeOperations: PayeeOperation[] = [];
+        const categoryOperations: { action: string; params: Record<string, unknown> }[] = [];
+        
+        operations.forEach(op => {
+          if (op.action.includes('_payee')) {
+            payeeOperations.push(op as PayeeOperation);
+          } else if (op.action.includes('_category')) {
+            categoryOperations.push(op);
+          }
+        });
+        
+        const results: string[] = [];
+        
+        // Execute payee operations if any
+        if (payeeOperations.length > 0) {
+          const payeeResult = await this.payeeExecutor.executeBatchOperations(payeeOperations);
+          results.push(this.formatBatchResult(payeeResult));
+        }
+        
+        // Execute category operations if any
+        if (categoryOperations.length > 0) {
+          const categoryResults = await Promise.all(
+            categoryOperations.map(op => 
+              this.categoryExecutor.executeCategoryOperation(op.action, op.params)
+            )
+          );
+          
+          const successCount = categoryResults.filter(r => r.success).length;
+          const categoryBatchResult = {
+            success: successCount === categoryOperations.length,
+            message: successCount === categoryOperations.length 
+              ? `Successfully completed ${successCount} category operation${successCount === 1 ? '' : 's'}`
+              : `Completed ${successCount}/${categoryOperations.length} category operations`,
+            results: categoryResults,
+            completedOperations: successCount,
+            failedAt: categoryResults.findIndex(r => !r.success)
+          };
+          
+          results.push(this.formatBatchResult(categoryBatchResult));
+        }
+        
+        const combinedResult = results.join('\n\n');
+        const allSuccessful = payeeOperations.length === 0 || categoryOperations.length === 0 
+          ? true 
+          : results.every(r => r.includes('✅'));
+          
         return await this.generateActionResponseWithAI(
-          this.formatBatchResult(result), 
-          result.success ? 'batch_success' : 'batch_failure',
-          { result, operations }
+          combinedResult, 
+          allSuccessful ? 'batch_success' : 'batch_failure',
+          { operations }
         );
       }
 
@@ -250,16 +314,11 @@ export class AIHandler {
           { result, operation: operationName, action }
         );
       } else {
-        // Default to payee operation for backward compatibility
-        const result = await this.payeeExecutor.executePayeeOperation(
-          operationName,
-          action
-        );
-
+        // Unknown operation type - return error
         return await this.generateActionResponseWithAI(
-          this.formatOperationResult(result, operationName),
-          result.success ? 'operation_success' : 'operation_failure',
-          { result, operation: operationName, action }
+          `Unknown operation type: ${operationName}. Supported operations are payee operations (_payee) and category operations (_category).`,
+          'execution_error',
+          { operation: operationName, action }
         );
       }
     } catch (error) {
@@ -341,7 +400,7 @@ export class AIHandler {
     response: Message;
   } {
     let confirmationMessage = "I will perform the following actions:\n\n";
-    const operations: PayeeOperation[] = [];
+    const operations: (PayeeOperation | { action: string; params: Record<string, unknown> })[] = [];
     const validationErrors: string[] = [];
 
     // First pass: validate all operations
@@ -391,8 +450,32 @@ export class AIHandler {
           confirmationMessage += `${index + 1}. Delete payee${deleteName ? ` "${deleteName}"` : ''}\n`;
           operations.push({ action: 'delete_payee', params: args });
           break;
+        case 'create_category':
+          const categoryName = this.sanitizeDisplayValue(args.name);
+          const categoryType = this.sanitizeDisplayValue(args.type);
+          confirmationMessage += `${index + 1}. Create ${categoryType ? `${categoryType} ` : ''}category${categoryName ? ` "${categoryName}"` : ''}\n`;
+          operations.push({ action: 'create_category', params: args });
+          break;
+        case 'update_category':
+          const currentCategoryName = this.sanitizeDisplayValue(args.categoryName || args.categoryId);
+          const newCategoryName = this.sanitizeDisplayValue(args.name);
+          confirmationMessage += `${index + 1}. Update category${currentCategoryName ? ` "${currentCategoryName}"` : ''}${newCategoryName ? ` to "${newCategoryName}"` : ''}\n`;
+          operations.push({ action: 'update_category', params: args });
+          break;
+        case 'delete_category':
+          const deleteCategoryName = this.sanitizeDisplayValue(args.categoryName || args.categoryId);
+          confirmationMessage += `${index + 1}. Delete category${deleteCategoryName ? ` "${deleteCategoryName}"` : ''}\n`;
+          operations.push({ action: 'delete_category', params: args });
+          break;
+        case 'move_category':
+          const moveCategoryName = this.sanitizeDisplayValue(args.categoryName || args.categoryId);
+          const newParentName = this.sanitizeDisplayValue(args.newParentName || args.newParentId);
+          confirmationMessage += `${index + 1}. Move category${moveCategoryName ? ` "${moveCategoryName}"` : ''}${newParentName ? ` under "${newParentName}"` : ' to top level'}\n`;
+          operations.push({ action: 'move_category', params: args });
+          break;
         default:
           confirmationMessage += `${index + 1}. ${functionName || 'Unknown operation'}\n`;
+          operations.push({ action: functionName || 'unknown', params: args });
           break;
       }
     });
@@ -454,6 +537,25 @@ export class AIHandler {
       case 'delete_payee':
         const payeeToDelete = this.sanitizeDisplayValue(args.payeeName || args.payeeId);
         confirmationMessage = `I'll delete the payee${payeeToDelete ? ` "${payeeToDelete}"` : ''}. Would you like to proceed?`;
+        break;
+      case 'create_category':
+        const categoryName = this.sanitizeDisplayValue(args.name);
+        const categoryType = this.sanitizeDisplayValue(args.type);
+        confirmationMessage = `I'll create a new ${categoryType ? `${categoryType} ` : ''}category${categoryName ? ` named "${categoryName}"` : ''}. Would you like to proceed?`;
+        break;
+      case 'update_category':
+        const currentCategory = this.sanitizeDisplayValue(args.categoryName || args.categoryId);
+        const newCategoryName = this.sanitizeDisplayValue(args.name);
+        confirmationMessage = `I'll update the category${currentCategory ? ` "${currentCategory}"` : ''}${newCategoryName ? ` to "${newCategoryName}"` : ''}. Would you like to proceed?`;
+        break;
+      case 'delete_category':
+        const categoryToDelete = this.sanitizeDisplayValue(args.categoryName || args.categoryId);
+        confirmationMessage = `I'll delete the category${categoryToDelete ? ` "${categoryToDelete}"` : ''}. Would you like to proceed?`;
+        break;
+      case 'move_category':
+        const categoryToMove = this.sanitizeDisplayValue(args.categoryName || args.categoryId);
+        const newParent = this.sanitizeDisplayValue(args.newParentName || args.newParentId);
+        confirmationMessage = `I'll move the category${categoryToMove ? ` "${categoryToMove}"` : ''}${newParent ? ` under "${newParent}"` : ' to the top level'}. Would you like to proceed?`;
         break;
       case 'batch_execute':
         const operations = args.operations || [];
@@ -603,41 +705,89 @@ export class AIHandler {
     functionName: string,
     args: Record<string, unknown>
   ): { isValid: boolean; errorMessage?: string } {
-    const existingPayees = this.payeesStore.payees || [];
-    
-    // Create validation context
-    const context: PayeeValidationContext = {
-      existingPayees,
-      operation: functionName as 'create' | 'update' | 'delete'
-    };
-    
-    // Map function names to operation types
-    const operationMap: Record<string, 'create' | 'update' | 'delete'> = {
-      'create_payee': 'create',
-      'update_payee': 'update',
-      'delete_payee': 'delete'
-    };
-    
-    const operation = operationMap[functionName];
-    if (!operation) {
-      return { isValid: false, errorMessage: `Unknown operation: ${functionName}` };
-    }
-    
-    // Use the comprehensive PayeeValidator
-    const validation = PayeeValidator.validatePayeeOperation(operation, args, context);
-    
-    if (!validation.isValid) {
-      // Combine errors and suggestions into a user-friendly message
-      let errorMessage = validation.errors.join('; ');
+    // Handle payee operations
+    if (functionName.includes('_payee')) {
+      const existingPayees = this.payeesStore.payees || [];
       
-      if (validation.suggestions.length > 0) {
-        errorMessage += '\n\nSuggestions:\n' + validation.suggestions.map(s => `• ${s}`).join('\n');
+      // Create validation context
+      const context: PayeeValidationContext = {
+        existingPayees,
+        operation: functionName.replace('_payee', '') as 'create' | 'update' | 'delete'
+      };
+      
+      // Map function names to operation types
+      const operationMap: Record<string, 'create' | 'update' | 'delete'> = {
+        'create_payee': 'create',
+        'update_payee': 'update',
+        'delete_payee': 'delete'
+      };
+      
+      const operation = operationMap[functionName];
+      if (!operation) {
+        return { isValid: false, errorMessage: `Unknown payee operation: ${functionName}` };
       }
       
-      return { isValid: false, errorMessage };
+      // Use the comprehensive PayeeValidator
+      const validation = PayeeValidator.validatePayeeOperation(operation, args, context);
+      
+      if (!validation.isValid) {
+        // Combine errors and suggestions into a user-friendly message
+        let errorMessage = validation.errors.join('; ');
+        
+        if (validation.suggestions.length > 0) {
+          errorMessage += '\n\nSuggestions:\n' + validation.suggestions.map(s => `• ${s}`).join('\n');
+        }
+        
+        return { isValid: false, errorMessage };
+      }
+      
+      return { isValid: true };
     }
     
-    return { isValid: true };
+    // Handle category operations
+    if (functionName.includes('_category')) {
+      const existingCategories = this.categoriesStore.categories || [];
+      
+      // Import CategoryValidator for validation
+      
+      // Create validation context
+      const context = {
+        existingCategories,
+        operation: functionName.replace('_category', '') as 'create' | 'update' | 'delete' | 'move'
+      };
+      
+      // Map function names to operation types
+      const operationMap: Record<string, 'create' | 'update' | 'delete' | 'move'> = {
+        'create_category': 'create',
+        'update_category': 'update',
+        'delete_category': 'delete',
+        'move_category': 'move'
+      };
+      
+      const operation = operationMap[functionName];
+      if (!operation) {
+        return { isValid: false, errorMessage: `Unknown category operation: ${functionName}` };
+      }
+      
+      // Use the comprehensive CategoryValidator
+      const validation = CategoryValidator.validateCategoryOperation(operation, args, context);
+      
+      if (!validation.isValid) {
+        // Combine errors and suggestions into a user-friendly message
+        let errorMessage = validation.errors.join('; ');
+        
+        if (validation.suggestions.length > 0) {
+          errorMessage += '\n\nSuggestions:\n' + validation.suggestions.map((s: string) => `• ${s}`).join('\n');
+        }
+        
+        return { isValid: false, errorMessage };
+      }
+      
+      return { isValid: true };
+    }
+    
+    // Unknown operation type
+    return { isValid: false, errorMessage: `Unknown operation type: ${functionName}` };
   }
 
   /**
