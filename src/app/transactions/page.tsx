@@ -4046,6 +4046,12 @@ export default function TransactionsPage() {
                   </th>
                   <th
                     className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
+                    onClick={() => handleSort("payee", "toAdd")}
+                  >
+                    Payee {toAddSortConfig.key === "payee" && (toAddSortConfig.direction === "asc" ? "↑" : "↓")}
+                  </th>
+                  <th
+                    className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
                     onClick={() => handleSort("description", "toAdd")}
                   >
                     Description{" "}
@@ -4062,12 +4068,6 @@ export default function TransactionsPage() {
                     onClick={() => handleSort("received", "toAdd")}
                   >
                     Received {toAddSortConfig.key === "received" && (toAddSortConfig.direction === "asc" ? "↑" : "↓")}
-                  </th>
-                  <th
-                    className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
-                    onClick={() => handleSort("payee", "toAdd")}
-                  >
-                    Payee {toAddSortConfig.key === "payee" && (toAddSortConfig.direction === "asc" ? "↑" : "↓")}
                   </th>
                   <th
                     className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
@@ -4094,13 +4094,13 @@ export default function TransactionsPage() {
                     <tr
                       key={tx.id}
                       onClick={(e) => {
-                        // Only open modal if click is in columns 1-4 (date, description, spent, received)
+                        // Only open modal if click is in columns 1, 3-5 (date, description, spent, received) - skip payee column 2
                         const clickedTd = (e.target as HTMLElement).closest("td");
                         if (!clickedTd) return;
 
                         const tdIndex = Array.from(clickedTd.parentElement!.children).indexOf(clickedTd);
-                        // Allow clicks on columns 1-4 (date, description, spent, received) - skip checkbox column (0)
-                        if (tdIndex >= 1 && tdIndex <= 4) {
+                        // Allow clicks on columns 1, 3, 4, 5 (date, description, spent, received) - skip checkbox column (0) and payee column (2)
+                        if (tdIndex === 1 || (tdIndex >= 3 && tdIndex <= 5)) {
                           // Open the transaction edit modal for imported transactions
                           openImportedTransactionModal(tx);
                         }
@@ -4136,16 +4136,6 @@ export default function TransactionsPage() {
                         />
                       </td>
                       <td className="border p-1 w-20 text-center text-xs cursor-pointer">{formatDate(tx.date)}</td>
-                      <td className="border p-1 w-8 text-center text-xs cursor-pointer" style={{ minWidth: 250 }}>
-                        {tx.description}
-                        {(tx.has_split || getImportedTransactionSplitsByTransactionId(tx.id).length > 0) && (
-                          <span className="ml-1 inline-block bg-blue-100 text-blue-800 text-xs px-1 rounded">
-                            Split
-                          </span>
-                        )}
-                      </td>
-                      <td className="border p-1 w-8 text-center cursor-pointer">{tx.spent ? formatAmount(tx.spent) : ""}</td>
-                      <td className="border p-1 w-8 text-center cursor-pointer">{tx.received ? formatAmount(tx.received) : ""}</td>
                       <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
                         <Select
                           options={payeeOptions}
@@ -4228,6 +4218,16 @@ export default function TransactionsPage() {
                           }}
                         />
                       </td>
+                      <td className="border p-1 w-8 text-center text-xs cursor-pointer" style={{ minWidth: 250 }}>
+                        {tx.description}
+                        {(tx.has_split || getImportedTransactionSplitsByTransactionId(tx.id).length > 0) && (
+                          <span className="ml-1 inline-block bg-blue-100 text-blue-800 text-xs px-1 rounded">
+                            Split
+                          </span>
+                        )}
+                      </td>
+                      <td className="border p-1 w-8 text-center cursor-pointer">{tx.spent ? formatAmount(tx.spent) : ""}</td>
+                      <td className="border p-1 w-8 text-center cursor-pointer">{tx.received ? formatAmount(tx.received) : ""}</td>
                       <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
                         <Select
                           options={categoryOptions}
@@ -4426,6 +4426,12 @@ export default function TransactionsPage() {
                   </th>
                   <th
                     className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
+                    onClick={() => handleSort("payee", "added")}
+                  >
+                    Payee {addedSortConfig.key === "payee" && (addedSortConfig.direction === "asc" ? "↑" : "↓")}
+                  </th>
+                  <th
+                    className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
                     onClick={() => handleSort("description", "added")}
                   >
                     Description{" "}
@@ -4442,12 +4448,6 @@ export default function TransactionsPage() {
                     onClick={() => handleSort("received", "added")}
                   >
                     Received {addedSortConfig.key === "received" && (addedSortConfig.direction === "asc" ? "↑" : "↓")}
-                  </th>
-                  <th
-                    className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
-                    onClick={() => handleSort("payee", "added")}
-                  >
-                    Payee {addedSortConfig.key === "payee" && (addedSortConfig.direction === "asc" ? "↑" : "↓")}
                   </th>
                   <th
                     className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
@@ -4482,7 +4482,7 @@ export default function TransactionsPage() {
                         if (!clickedTd || clickedButton) return;
 
                         const tdIndex = Array.from(clickedTd.parentElement!.children).indexOf(clickedTd);
-                        // Allow clicks on columns 1-6 (date, description, spent, received, payee, category) - skip checkbox column (0) and action column (7)
+                        // Allow clicks on columns 1-6 (date, payee, description, spent, received, category) - skip checkbox column (0) and action column (7)
                         if (tdIndex >= 1 && tdIndex <= 6) {
                           // Open journal entry modal instead of edit modal
                           openJournalEntryModal(tx);
@@ -4519,6 +4519,12 @@ export default function TransactionsPage() {
                         />
                       </td>
                       <td className="border p-1 w-20 text-center text-xs cursor-pointer">{formatDate(tx.date)}</td>
+                      <td className="border p-1 w-8 text-center cursor-pointer" style={{ minWidth: 150 }}>
+                        {(() => {
+                          const payee = payees.find((p) => p.id === tx.payee_id);
+                          return payee ? payee.name : "";
+                        })()}
+                      </td>
                       <td className="border p-1 w-8 text-center text-xs cursor-pointer" style={{ minWidth: 250 }}>
                         {tx.description}
                         {tx.has_split && (
@@ -4532,12 +4538,6 @@ export default function TransactionsPage() {
                       </td>
                       <td className="border p-1 w-8 text-center cursor-pointer">
                         {tx.received ? formatAmount(tx.received) : ""}
-                      </td>
-                      <td className="border p-1 w-8 text-center cursor-pointer" style={{ minWidth: 150 }}>
-                        {(() => {
-                          const payee = payees.find((p) => p.id === tx.payee_id);
-                          return payee ? payee.name : "";
-                        })()}
                       </td>
                       <td className="border p-1 w-8 text-center cursor-pointer" style={{ minWidth: 150 }}>
                         {tx.has_split ? "-- Split --" : category ? category.name : "Uncategorized"}
