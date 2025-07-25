@@ -3331,7 +3331,7 @@ export default function TransactionsPage() {
             setAccountNamesModal({ isOpen: false, accounts: [], accountToDelete: null, deleteConfirmation: "" })
           }
         >
-          <DialogContent className="w-[400px] max-h-[90vh] overflow-y-auto">
+          <DialogContent className="w-[100rem] max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Edit Accounts</DialogTitle>
               <p className="text-sm text-gray-600">Drag accounts to reorder them</p>
