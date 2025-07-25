@@ -95,9 +95,11 @@ export default function CashFlowPage() {
   } = usePeriodSelection();
 
   // Get all account types needed for cash flow
+  // For cash flow, we need ALL historical data to calculate beginning balances properly
+  // So we fetch from a very early date instead of just the reporting period
   const { categories, actualBankAccounts, journalEntries, loading } = useFinancialData({
     companyId: currentCompany?.id || null,
-    startDate: startDate,
+    startDate: "2020-01-01", // Fetch all historical data
     endDate: endDate,
     accountTypes: ["Asset", "Liability", "Equity", "Revenue", "COGS", "Expense", "Bank Account", "Credit Card"],
   });
@@ -167,25 +169,38 @@ export default function CashFlowPage() {
     return actualBankAccounts.filter((acc) => acc.type === "Bank Account");
   }, [actualBankAccounts]);
 
+  const bankAccountTypeCategories = useMemo(() => {
+    return categories.filter((acc) => acc.type === "Bank Account");
+  }, [categories]);
+
   // Beginning Bank Balance: starting balance + all transactions before start date (as per business requirements)
   const beginningBankBalance = useMemo(() => {
-    return bankAccounts.reduce((total, account) => {
-      // Start with the account's starting balance
-      const startingBalance = Number(account.starting_balance) || 0;
+    // Get all category IDs that have matching bank accounts
+    const matchingCategoryIds = bankAccountTypeCategories
+      .filter(category => bankAccounts.some(acc => acc.plaid_account_id === category.plaid_account_id))
+      .map(category => category.id);
 
-      // Add all transactions before the start date
-      const transactionsBeforeStart = journalEntries.filter(
-        (tx) => tx.chart_account_id === account.plaid_account_id && tx.date < startDate
-      );
-      const transactionTotal = transactionsBeforeStart.reduce(
-        (sum, tx) => sum + Number(tx.debit) - Number(tx.credit),
-        0
-      );
+    // Sum up starting balances from bank accounts that have matching categories
+    const totalStartingBalance = bankAccounts
+      .filter(account => 
+        bankAccountTypeCategories.some(category => 
+          category.plaid_account_id === account.plaid_account_id
+        )
+      )
+      .reduce((sum, account) => sum + (Number(account.starting_balance) || 0), 0);
+    
 
-      // Beginning balance = starting balance + transactions before start date
-      return total + startingBalance + transactionTotal;
-    }, 0);
-  }, [actualBankAccounts, journalEntries, startDate]);
+    // Add all transactions before the start date, but only for categories with matching bank accounts
+    const transactionTotal = journalEntries
+      .filter(tx => 
+        matchingCategoryIds.includes(tx.chart_account_id) && 
+        tx.date < startDate
+      )
+      .reduce((sum, tx) => sum + Number(tx.debit) - Number(tx.credit), 0);
+
+    // Beginning balance = starting balance + transactions before start date
+    return totalStartingBalance + transactionTotal;
+  }, [bankAccounts, bankAccountTypeCategories, journalEntries, startDate]);
 
   // Period-specific calculation functions
   const calculateOperatingActivitiesForPeriod = useCallback(
@@ -351,33 +366,35 @@ export default function CashFlowPage() {
   // Calculate bank balance for period (defined after other calculation functions)
   const calculateBankBalanceForPeriod = useCallback(
     (periodEnd: string) => {
-      // Calculate ending bank balance for a specific period using the cash flow formula
-      const periodStartBalance = actualBankAccounts.reduce((total, account) => {
-        // Start with the account's starting balance
-        const startingBalance = Number(account.starting_balance) || 0;
+      // Get all category IDs that have matching bank accounts
+      const matchingCategoryIds = bankAccountTypeCategories
+        .filter(category => bankAccounts.some(acc => acc.plaid_account_id === category.plaid_account_id))
+        .map(category => category.id);
 
-        // Add all transactions before the start date
-        const accountTransactions = journalEntries.filter(
-          (tx) => tx.chart_account_id === account.plaid_account_id && tx.date < startDate
-        );
-        const transactionTotal = accountTransactions.reduce((sum, tx) => sum + Number(tx.debit) - Number(tx.credit), 0);
+      // Sum up starting balances from bank accounts that have matching categories
+      const totalStartingBalance = bankAccounts
+        .filter(account => 
+          bankAccountTypeCategories.some(category => 
+            category.plaid_account_id === account.plaid_account_id
+          )
+        )
+        .reduce((sum, account) => sum + (Number(account.starting_balance) || 0), 0);
 
-        return total + startingBalance + transactionTotal;
-      }, 0);
+      // Add all transactions up to the period end, but only for categories with matching bank accounts
+      const transactionTotal = journalEntries
+        .filter(tx => 
+          matchingCategoryIds.includes(tx.chart_account_id) && 
+          tx.date <= periodEnd
+        )
+        .reduce((sum, tx) => sum + Number(tx.debit) - Number(tx.credit), 0);
 
-      const operating = calculateOperatingActivitiesForPeriod(startDate, periodEnd);
-      const investing = calculateInvestingActivitiesForPeriod(startDate, periodEnd);
-      const financing = calculateFinancingActivitiesForPeriod(startDate, periodEnd);
-
-      return periodStartBalance + operating.netIncome + investing.netInvestingChange + financing.netFinancingChange;
+      // Period balance = starting balance + transactions up to period end
+      return totalStartingBalance + transactionTotal;
     },
     [
-      actualBankAccounts,
+      bankAccounts,
+      bankAccountTypeCategories,
       journalEntries,
-      startDate,
-      calculateOperatingActivitiesForPeriod,
-      calculateInvestingActivitiesForPeriod,
-      calculateFinancingActivitiesForPeriod,
     ]
   );
 
@@ -1112,17 +1129,16 @@ export default function CashFlowPage() {
                         {isMonthlyView ? (
                           <>
                             {getMonthsInRange(startDate, endDate).map((month, index) => {
-                              const monthStart = `${month}-01`;
-                              const prevMonthEnd =
-                                index === 0
-                                  ? new Date(new Date(monthStart).getTime() - 24 * 60 * 60 * 1000)
-                                      .toISOString()
-                                      .split("T")[0]
-                                  : new Date(new Date(monthStart).getTime() - 24 * 60 * 60 * 1000)
-                                      .toISOString()
-                                      .split("T")[0];
-                              const balance =
-                                index === 0 ? beginningBankBalance : calculateBankBalanceForPeriod(prevMonthEnd);
+                              let balance;
+                              if (index === 0) {
+                                balance = beginningBankBalance;
+                              } else {
+                                // For subsequent months, use the ending balance of the previous month as the beginning balance
+                                const prevMonth = getMonthsInRange(startDate, endDate)[index - 1];
+                                const lastDay = new Date(parseInt(prevMonth.split("-")[0]), parseInt(prevMonth.split("-")[1]), 0).getDate();
+                                const prevMonthEnd = `${prevMonth}-${String(lastDay).padStart(2, "0")}`;
+                                balance = calculateBankBalanceForPeriod(prevMonthEnd);
+                              }
 
                               return (
                                 <React.Fragment key={month}>
@@ -1135,18 +1151,22 @@ export default function CashFlowPage() {
                         ) : isQuarterlyView ? (
                           <>
                             {getQuartersInRange(startDate, endDate).map((quarter, index) => {
-                              const [year, q] = quarter.split("-Q");
-                              const quarterStart = `${year}-${String((parseInt(q) - 1) * 3 + 1).padStart(2, "0")}-01`;
-                              const prevQuarterEnd =
-                                index === 0
-                                  ? new Date(new Date(quarterStart).getTime() - 24 * 60 * 60 * 1000)
-                                      .toISOString()
-                                      .split("T")[0]
-                                  : new Date(new Date(quarterStart).getTime() - 24 * 60 * 60 * 1000)
-                                      .toISOString()
-                                      .split("T")[0];
-                              const balance =
-                                index === 0 ? beginningBankBalance : calculateBankBalanceForPeriod(prevQuarterEnd);
+                              let balance;
+                              if (index === 0) {
+                                balance = beginningBankBalance;
+                              } else {
+                                // For subsequent quarters, use the ending balance of the previous quarter as the beginning balance
+                                const prevQuarter = getQuartersInRange(startDate, endDate)[index - 1];
+                                const [prevYear, prevQ] = prevQuarter.split("-Q");
+                                const prevQuarterNum = parseInt(prevQ);
+                                const prevQuarterEndMonth = prevQuarterNum * 3;
+                                const prevQuarterEnd = `${prevYear}-${String(prevQuarterEndMonth).padStart(2, "0")}-${new Date(
+                                  parseInt(prevYear),
+                                  prevQuarterEndMonth,
+                                  0
+                                ).getDate()}`;
+                                balance = calculateBankBalanceForPeriod(prevQuarterEnd);
+                              }
 
                               return (
                                 <React.Fragment key={quarter}>
@@ -1536,7 +1556,7 @@ export default function CashFlowPage() {
                                 </React.Fragment>
                               );
                             })}
-                            <TableCell isValue>{formatNumber(endingBankBalance)}</TableCell>
+                            <TableCell isValue>{formatNumber(calculateBankBalanceForPeriod(endDate))}</TableCell>
                           </>
                         ) : isQuarterlyView ? (
                           <>
@@ -1557,11 +1577,11 @@ export default function CashFlowPage() {
                                 </React.Fragment>
                               );
                             })}
-                            <TableCell isValue>{formatNumber(endingBankBalance)}</TableCell>
+                            <TableCell isValue>{formatNumber(calculateBankBalanceForPeriod(endDate))}</TableCell>
                           </>
                         ) : (
                           <>
-                            <TableCell isValue>{formatNumber(endingBankBalance)}</TableCell>
+                            <TableCell isValue>{formatNumber(calculateBankBalanceForPeriod(endDate))}</TableCell>
                           </>
                         )}
                       </TableRow>
