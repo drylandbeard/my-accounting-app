@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { initializeAuth } from "@/zustand/authStore";
 import { usePathname } from "next/navigation";
-import { Loader2 } from "lucide-react";
+import Loader from "@/components/ui/loader";
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isInitialized, setIsInitialized] = useState(false);
@@ -40,7 +40,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   if (!isInitialized) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="h-8 w-8 animate-spin" />
+        <Loader size="md" />
       </div>
     );
   }

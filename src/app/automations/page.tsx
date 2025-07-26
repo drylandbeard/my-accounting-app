@@ -1,15 +1,20 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import { useAuthStore } from "@/zustand/authStore";
 import { supabase } from "../../lib/supabase";
 import { Select } from "@/components/ui/select";
 import Papa from "papaparse";
 import { v4 as uuidv4 } from "uuid";
-import { Plus, Loader2 } from "lucide-react";
+import { Plus } from "lucide-react";
 import { Dialog, DialogHeader } from "@/components/ui/dialog";
 import { DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { useTransactionsStore } from "@/zustand/transactionsStore";
+import { useCategoriesStore } from "@/zustand/categoriesStore";
+import { usePayeesStore } from "@/zustand/payeesStore";
+import { showSuccessToast, showErrorToast } from '@/components/ui/toast';
+import Loader from "@/components/ui/loader";
 
 type PayeeAutomation = {
   id: string;
@@ -80,6 +85,96 @@ type AutomationCSVRow = {
 export default function AutomationsPage() {
   const { currentCompany } = useAuthStore();
   const hasCompanyContext = !!currentCompany;
+
+  // Store hooks for automation functionality
+  const {
+    selectedAccountId,
+    importedTransactions,
+    applyAutomationsToTransactions,
+    refreshAll
+  } = useTransactionsStore();
+  
+  const { categories } = useCategoriesStore();
+  const { payees } = usePayeesStore();
+
+  // Version-based automation control instead of session-based
+  const hasRunAutomationsThisSession = useRef(false);
+  const sessionKey = `automation_run_${currentCompany?.id || 'no_company'}_automations_page`;
+  
+  const updateAutomationVersion = useCallback(() => {
+    const versionKey = `automation_version_${currentCompany?.id || 'no_company'}`;
+    const newVersion = Date.now().toString();
+    localStorage.setItem(versionKey, newVersion);
+    
+    // Clear all automation session flags to force re-run
+    const sessionsToReset = [
+      `automation_run_${currentCompany?.id}_transactions_page`,
+      `automation_run_${currentCompany?.id}_automations_page`,
+      `automations-run-transactions-${currentCompany?.id}-${selectedAccountId}`
+    ];
+    sessionsToReset.forEach(key => sessionStorage.removeItem(key));
+    
+    return newVersion;
+  }, [currentCompany?.id, selectedAccountId]);
+  
+  // State for automation running indicator
+  const [isAutomationRunning, setIsAutomationRunning] = useState(false);
+  
+  // Page refresh detection
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      sessionStorage.removeItem(sessionKey);
+    };
+    
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [sessionKey]);
+
+  // Session-based automation runner (same logic as transactions page)
+  const runAutomationsOncePerSession = useCallback(async (force = false) => {
+    if (!hasCompanyContext || !currentCompany?.id || !selectedAccountId) return;
+    if (importedTransactions.length === 0) return;
+    
+    const sessionFlag = sessionStorage.getItem(sessionKey);
+    if (!force && (sessionFlag === 'true' || hasRunAutomationsThisSession.current)) {
+      return;
+    }
+    
+    // Set flags immediately to prevent duplicate runs
+    hasRunAutomationsThisSession.current = true;
+    sessionStorage.setItem(sessionKey, 'true');
+    
+    // Set automation running state
+    setIsAutomationRunning(true);
+    
+    // Show loading toast
+    showSuccessToast('🤖 Running automations...');
+    
+    try {
+      const result = await applyAutomationsToTransactions(currentCompany.id, selectedAccountId, categories, payees);
+      
+      if (result.success && result.data) {
+        const { appliedCategories, appliedPayees } = result.data;
+        
+        // Show success notification if automations were applied (store handles database persistence)
+        if (Object.keys(appliedCategories).length > 0 || Object.keys(appliedPayees).length > 0) {
+          const appliedCount = Object.keys(appliedCategories).length + Object.keys(appliedPayees).length;
+          showSuccessToast(`✨ ${appliedCount} automation${appliedCount === 1 ? '' : 's'} applied and saved!`);
+        }
+      }
+    } catch (error) {
+      console.error('Error running automations:', error);
+      showErrorToast('Failed to run automations');
+    } finally {
+      // Automation complete
+      setIsAutomationRunning(false);
+    }
+  }, [hasCompanyContext, currentCompany?.id, selectedAccountId, categories, payees, importedTransactions, sessionKey, refreshAll, applyAutomationsToTransactions]);
+
+  // Run automation once per session on page load
+  useEffect(() => {
+    runAutomationsOncePerSession();
+  }, [runAutomationsOncePerSession]);
 
   // State for payee automations
   const [payeeAutomations, setPayeeAutomations] = useState<PayeeAutomation[]>([]);
@@ -209,19 +304,10 @@ export default function AutomationsPage() {
     automationType: null,
   });
 
-  useEffect(() => {
-    if (hasCompanyContext) {
-      fetchPayeeAutomations();
-      fetchCategoryAutomations();
-      fetchAvailablePayees();
-      fetchAvailableCategories();
-    }
-  }, [currentCompany?.id, hasCompanyContext]);
-
   // Apply automations whenever automations or available payees/categories change
   // Note: Automation application removed - automations now only apply in transactions page
 
-  const fetchPayeeAutomations = async () => {
+  const fetchPayeeAutomations = useCallback(async () => {
     if (!hasCompanyContext) return;
 
     setIsLoadingPayeeAutomations(true);
@@ -259,9 +345,9 @@ export default function AutomationsPage() {
     } finally {
       setIsLoadingPayeeAutomations(false);
     }
-  };
+  }, [hasCompanyContext, currentCompany]);
 
-  const fetchCategoryAutomations = async () => {
+  const fetchCategoryAutomations = useCallback(async () => {
     if (!hasCompanyContext) return;
 
     setIsLoadingCategoryAutomations(true);
@@ -299,9 +385,9 @@ export default function AutomationsPage() {
     } finally {
       setIsLoadingCategoryAutomations(false);
     }
-  };
+  }, [hasCompanyContext, currentCompany]);
 
-  const fetchAvailablePayees = async () => {
+  const fetchAvailablePayees = useCallback(async () => {
     if (!hasCompanyContext) return;
 
     const { data, error } = await supabase
@@ -313,9 +399,9 @@ export default function AutomationsPage() {
     if (!error && data) {
       setAvailablePayees(data);
     }
-  };
+  }, [hasCompanyContext, currentCompany]);
 
-  const fetchAvailableCategories = async () => {
+  const fetchAvailableCategories = useCallback(async () => {
     if (!hasCompanyContext) return;
 
     const { data, error } = await supabase
@@ -327,7 +413,17 @@ export default function AutomationsPage() {
     if (!error && data) {
       setAvailableCategories(data);
     }
-  };
+  }, [hasCompanyContext, currentCompany]);
+
+  // Fetch data when component mounts or company changes
+  useEffect(() => {
+    if (hasCompanyContext) {
+      fetchPayeeAutomations();
+      fetchCategoryAutomations();
+      fetchAvailablePayees();
+      fetchAvailableCategories();
+    }
+  }, [currentCompany?.id, hasCompanyContext, fetchPayeeAutomations, fetchCategoryAutomations, fetchAvailablePayees, fetchAvailableCategories]);
 
   const handleDeletePayeeAutomation = async (id: string) => {
     try {
@@ -345,6 +441,14 @@ export default function AutomationsPage() {
 
       // Update local state
       setPayeeAutomations((prev) => prev.filter((automation) => automation.id !== id));
+      
+      // Update automation version to force re-run across all pages
+      updateAutomationVersion();
+      
+      // Run automations immediately to apply updated rules (if any remain)
+      setTimeout(() => {
+        runAutomationsOncePerSession(true); // Force run even if already run this session
+      }, 500); // Small delay to ensure database update is propagated
     } catch (error) {
       console.error("Error deleting payee automation:", error);
     }
@@ -366,6 +470,14 @@ export default function AutomationsPage() {
 
       // Update local state
       setCategoryAutomations((prev) => prev.filter((automation) => automation.id !== id));
+      
+      // Update automation version to force re-run across all pages
+      updateAutomationVersion();
+      
+      // Run automations immediately to apply updated rules (if any remain)
+      setTimeout(() => {
+        runAutomationsOncePerSession(true); // Force run even if already run this session
+      }, 500); // Small delay to ensure database update is propagated
     } catch (error) {
       console.error("Error deleting category automation:", error);
     }
@@ -469,6 +581,14 @@ export default function AutomationsPage() {
           );
           return updated.sort((a, b) => a.name.localeCompare(b.name));
         });
+        
+        // Update automation version to force re-run across all pages
+        updateAutomationVersion();
+        
+        // Run automations immediately with the updated rules
+        setTimeout(() => {
+          runAutomationsOncePerSession(true); // Force run even if already run this session
+        }, 500); // Small delay to ensure database update is propagated
       } else {
         // Create new automation
         const { data, error } = await supabase
@@ -507,6 +627,14 @@ export default function AutomationsPage() {
           const updated = [...prev, newAutomation];
           return updated.sort((a, b) => a.name.localeCompare(b.name));
         });
+        
+        // Update automation version to force re-run across all pages
+        updateAutomationVersion();
+        
+        // Run automations immediately with the new rules
+        setTimeout(() => {
+          runAutomationsOncePerSession(true); // Force run even if already run this session
+        }, 500); // Small delay to ensure database update is propagated
       }
 
       setPayeeAutomationModal({
@@ -589,6 +717,14 @@ export default function AutomationsPage() {
           );
           return updated.sort((a, b) => a.name.localeCompare(b.name));
         });
+        
+        // Update automation version to force re-run across all pages
+        updateAutomationVersion();
+        
+        // Run automations immediately with the updated rules
+        setTimeout(() => {
+          runAutomationsOncePerSession(true); // Force run even if already run this session
+        }, 500); // Small delay to ensure database update is propagated
       } else {
         // Create new automation
         const { data, error } = await supabase
@@ -628,6 +764,14 @@ export default function AutomationsPage() {
           const updated = [...prev, newAutomation];
           return updated.sort((a, b) => a.name.localeCompare(b.name));
         });
+        
+        // Update automation version to force re-run across all pages
+        updateAutomationVersion();
+        
+        // Run automations immediately with the new rules
+        setTimeout(() => {
+          runAutomationsOncePerSession(true); // Force run even if already run this session
+        }, 500); // Small delay to ensure database update is propagated
       }
 
       setCategoryAutomationModal({
@@ -1075,6 +1219,21 @@ export default function AutomationsPage() {
 
   return (
     <div className="p-6 w-full font-sans text-gray-900">
+      {/* Automation Running Indicator */}
+      {isAutomationRunning && (
+        <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+          <div className="flex items-center">
+            <Loader size="sm" className="text-blue-600 mr-3" />
+            <div className="text-sm font-medium text-blue-800">
+              🤖 Automations are running...
+            </div>
+          </div>
+          <p className="text-xs text-blue-600 mt-1">
+            Applying automation rules to imported transactions and saving to database.
+          </p>
+        </div>
+      )}
+
       {/* Conflicts Warning */}
       {conflicts.length > 0 && (
         <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
@@ -1167,7 +1326,7 @@ export default function AutomationsPage() {
                   <tr>
                     <td colSpan={4} className="text-center p-6">
                       <div className="flex items-center justify-center flex-col">
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <Loader size="sm" />
                         <div className="ml-2 text-xs text-gray-500">Loading payee automations...</div>
                       </div>
                     </td>
@@ -1264,7 +1423,7 @@ export default function AutomationsPage() {
                   <tr>
                     <td colSpan={5} className="text-center p-6">
                       <div className="flex items-center justify-center flex-col">
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <Loader size="sm" />
                         <div className="ml-2 text-xs text-gray-500">Loading category automations...</div>
                       </div>
                     </td>
@@ -1825,7 +1984,7 @@ export default function AutomationsPage() {
 
           {automationImportModal.isLoading ? (
             <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-8 w-8 animate-spin" />
+              <Loader size="md" />
             </div>
           ) : (
             <div className="space-y-1">
@@ -2208,6 +2367,14 @@ export default function AutomationsPage() {
                             // Refresh the automations lists
                             fetchPayeeAutomations();
                             fetchCategoryAutomations();
+                            
+                            // Update automation version to force re-run across all pages
+                            updateAutomationVersion();
+                            
+                            // Run automations immediately with the imported rules
+                            setTimeout(() => {
+                              runAutomationsOncePerSession(true); // Force run even if already run this session
+                            }, 1000); // Longer delay to ensure all database updates and fetches are complete
                           } catch (error) {
                             setAutomationImportModal((prev) => ({
                               ...prev,

@@ -209,32 +209,90 @@ export const useExportProfitLoss = (params: UseExportProfitLossParams) => {
 
       // Helper function to add account rows
       const addAccountRows = (accountsToRender: Category[], sectionName: string, level = 0) => {
-        if (accountsToRender.length === 0) return 0;
-
-        // Section header
+        // Always add section header, even if no accounts
         worksheet.mergeCells(`A${currentRow}:${numberToExcelColumn(totalColumns)}${currentRow}`);
         worksheet.getCell(`A${currentRow}`).value = sectionName;
         worksheet.getCell(`A${currentRow}`).style = sectionStyle;
         currentRow++;
 
+        if (accountsToRender.length === 0) {
+          // No individual accounts, but still add section total row
+          const sectionTotal = 0;
+          let colIndex = 1;
+          worksheet.getCell(currentRow, colIndex++).value = `Total ${sectionName}`;
+          worksheet.getCell(currentRow, 1).style = totalStyle;
+
+          if (isMonthlyView) {
+            months.forEach(() => {
+              worksheet.getCell(currentRow, colIndex++).value = 0;
+              worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
+
+              if (showPercentages) {
+                worksheet.getCell(currentRow, colIndex++).value = null;
+                worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
+              }
+            });
+
+            // Total column
+            worksheet.getCell(currentRow, colIndex++).value = sectionTotal;
+            worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
+
+            if (showPercentages) {
+              worksheet.getCell(currentRow, colIndex++).value = null;
+              worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
+            }
+          } else if (isQuarterlyView) {
+            quarters.forEach(() => {
+              worksheet.getCell(currentRow, colIndex++).value = 0;
+              worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
+
+              if (showPercentages) {
+                worksheet.getCell(currentRow, colIndex++).value = null;
+                worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
+              }
+            });
+
+            // Total column
+            worksheet.getCell(currentRow, colIndex++).value = sectionTotal;
+            worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
+
+            if (showPercentages) {
+              worksheet.getCell(currentRow, colIndex++).value = null;
+              worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
+            }
+          } else {
+            worksheet.getCell(currentRow, colIndex++).value = sectionTotal;
+            worksheet.getCell(currentRow, colIndex - 1).style = totalStyle;
+
+            if (showPercentages) {
+              worksheet.getCell(currentRow, colIndex++).value = null;
+              worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
+            }
+          }
+          currentRow++;
+          return sectionTotal;
+        }
+
         // Account rows
         accountsToRender.forEach((account) => {
           const addAccountRow = (acc: Category, accountLevel: number) => {
-            const subaccounts = getSubaccounts(categories, acc.id).filter((sub) =>
+            const allSubaccounts = getSubaccounts(categories, acc.id);
+            const subaccounts = allSubaccounts.filter((sub) =>
               hasTransactions(sub, journalEntries, categories)
             );
 
-            const isParent = subaccounts.length > 0;
+            const isParent = allSubaccounts.length > 0;
             const isCollapsed = collapsedAccounts.has(acc.id);
             const accountTotal = calculateAccountTotal(acc);
             const directTotal = calculateAccountDirectTotal(acc);
 
-            // Use the same logic as the web table: show account total if collapsed, direct total if expanded
-            if (Math.abs(isParent && isCollapsed ? accountTotal : directTotal) < 0.01 && !isParent) return;
+            // Always include accounts in export, even with zero values for complete financial statement
+            // Only skip if it's not a parent and has no subaccounts and no transactions
+            if (!isParent && subaccounts.length === 0 && !hasTransactions(acc, journalEntries, categories)) return;
 
             let colIndex = 1;
             const indent = "        ".repeat(accountLevel);
-            worksheet.getCell(currentRow, colIndex++).value = `${indent}${acc.name}`;
+            worksheet.getCell(currentRow, colIndex++).value = `  ${indent}${acc.name}`;
             worksheet.getCell(currentRow, 1).style = { font: { size: 10 } };
 
             if (isMonthlyView) {
@@ -319,7 +377,7 @@ export const useExportProfitLoss = (params: UseExportProfitLossParams) => {
 
             // Add subaccounts and total row only if not collapsed (same as web table)
             if (isParent && !isCollapsed) {
-              subaccounts.forEach((sub) => {
+              allSubaccounts.forEach((sub) => {
                 addAccountRow(sub, accountLevel + 1);
               });
 
@@ -412,7 +470,7 @@ export const useExportProfitLoss = (params: UseExportProfitLossParams) => {
 
             if (showPercentages) {
               const percentValue =
-                sectionName === "Revenue" ? "100.0%" : calculatePercentageForMonth(monthlyTotal, month);
+                sectionName === "Revenue" && monthlyTotal !== 0 ? "100.0%" : calculatePercentageForMonth(monthlyTotal, month);
               worksheet.getCell(currentRow, colIndex++).value =
                 percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
               worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
@@ -442,7 +500,7 @@ export const useExportProfitLoss = (params: UseExportProfitLossParams) => {
 
             if (showPercentages) {
               const percentValue =
-                sectionName === "Revenue" ? "100.0%" : calculatePercentageForQuarter(quarterlyTotal, quarter);
+                sectionName === "Revenue" && quarterlyTotal !== 0 ? "100.0%" : calculatePercentageForQuarter(quarterlyTotal, quarter);
               worksheet.getCell(currentRow, colIndex++).value =
                 percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
               worksheet.getCell(currentRow, colIndex - 1).style = { ...totalStyle, numFmt: '0.0%;-0.0%;"—"' };
@@ -587,7 +645,7 @@ export const useExportProfitLoss = (params: UseExportProfitLossParams) => {
               percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
             worksheet.getCell(currentRow, colIndex - 1).style = {
               font: { bold: true },
-              numFmt: "0.0%",
+              numFmt: '0.0%;-0.0%;\"—\"',
               alignment: { horizontal: "right" as const },
             };
           }
@@ -631,7 +689,7 @@ export const useExportProfitLoss = (params: UseExportProfitLossParams) => {
               percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
             worksheet.getCell(currentRow, colIndex - 1).style = {
               font: { bold: true },
-              numFmt: "0.0%",
+              numFmt: '0.0%;-0.0%;\"—\"',
               alignment: { horizontal: "right" as const },
             };
           }

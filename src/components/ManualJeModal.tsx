@@ -114,7 +114,7 @@ export default function ManualJeModal({
           onOpenChange={() => setShowAddModal(false)}
         >
           <DialogContent 
-            className="min-w-[80%]"
+            className="min-w-[80%] overflow-visible"
             onClick={e => e.stopPropagation()}
           >
             <DialogHeader>
@@ -145,7 +145,7 @@ export default function ManualJeModal({
             </div>
             
             {/* Journal Entry Table */}
-            <div className="border rounded-lg overflow-visible relative">
+            <div className="border rounded-lg relative" style={{ overflow: 'visible' }}>
               <table className="w-full border-collapse">
                 <thead className="bg-gray-50">
                   <tr>
@@ -178,7 +178,9 @@ export default function ManualJeModal({
                               updateJournalLine(line.id, 'payeeId', option?.value || '');
                             }}
                             isSearchable
-                            menuPortalTarget={document.body}
+                            closeMenuOnSelect={true}
+                            blurInputOnSelect={false}
+                            menuPortalTarget={null}
                             styles={{
                               control: (base) => ({
                                 ...base,
@@ -192,12 +194,13 @@ export default function ManualJeModal({
                               }),
                               menu: (base) => ({ 
                                 ...base, 
-                                zIndex: 9999,
-                                fontSize: '12px'
+                                zIndex: 99999,
+                                fontSize: '12px',
+                                position: 'absolute'
                               }),
                               menuPortal: (base) => ({ 
                                 ...base, 
-                                zIndex: 9999 
+                                zIndex: 99999 
                               })
                             }}
                           />
@@ -230,7 +233,9 @@ export default function ManualJeModal({
                               }
                             }}
                             isSearchable
-                            menuPortalTarget={document.body}
+                            closeMenuOnSelect={true}
+                            blurInputOnSelect={false}
+                            menuPortalTarget={null}
                             styles={{
                               control: (base) => ({
                                 ...base,
@@ -244,12 +249,13 @@ export default function ManualJeModal({
                               }),
                               menu: (base) => ({ 
                                 ...base, 
-                                zIndex: 9999,
-                                fontSize: '12px'
+                                zIndex: 99999,
+                                fontSize: '12px',
+                                position: 'absolute'
                               }),
                               menuPortal: (base) => ({ 
                                 ...base, 
-                                zIndex: 9999 
+                                zIndex: 99999 
                               })
                             }}
                           />
@@ -348,7 +354,7 @@ export default function ManualJeModal({
           onOpenChange={() => setEditModal(prev => ({ ...prev, isOpen: false }))}
         >
           <DialogContent 
-            className="min-w-[80%]"
+            className="min-w-[80%] overflow-visible"
             onClick={e => e.stopPropagation()}
           >
             <DialogHeader>
@@ -391,7 +397,7 @@ export default function ManualJeModal({
             </div>
             
             {/* Journal Entry Table */}
-            <div className="border rounded-lg overflow-visible relative">
+            <div className="border rounded-lg relative" style={{ overflow: 'visible' }}>
               <table className="w-full border-collapse">
                 <thead className="bg-gray-50">
                   <tr>
@@ -424,7 +430,9 @@ export default function ManualJeModal({
                               updateEditJournalLine(line.id, 'payeeId', option?.value || '');
                             }}
                             isSearchable
-                            menuPortalTarget={document.body}
+                            closeMenuOnSelect={true}
+                            blurInputOnSelect={false}
+                            menuPortalTarget={null}
                             styles={{
                               control: (base) => ({
                                 ...base,
@@ -438,12 +446,13 @@ export default function ManualJeModal({
                               }),
                               menu: (base) => ({ 
                                 ...base, 
-                                zIndex: 9999,
-                                fontSize: '12px'
+                                zIndex: 99999,
+                                fontSize: '12px',
+                                position: 'absolute'
                               }),
                               menuPortal: (base) => ({ 
                                 ...base, 
-                                zIndex: 9999 
+                                zIndex: 99999 
                               })
                             }}
                           />
@@ -476,7 +485,9 @@ export default function ManualJeModal({
                               }
                             }}
                             isSearchable
-                            menuPortalTarget={document.body}
+                            closeMenuOnSelect={true}
+                            blurInputOnSelect={false}
+                            menuPortalTarget={null}
                             styles={{
                               control: (base) => ({
                                 ...base,
@@ -490,12 +501,13 @@ export default function ManualJeModal({
                               }),
                               menu: (base) => ({ 
                                 ...base, 
-                                zIndex: 9999,
-                                fontSize: '12px'
+                                zIndex: 99999,
+                                fontSize: '12px',
+                                position: 'absolute'
                               }),
                               menuPortal: (base) => ({ 
                                 ...base, 
-                                zIndex: 9999 
+                                zIndex: 99999 
                               })
                             }}
                           />

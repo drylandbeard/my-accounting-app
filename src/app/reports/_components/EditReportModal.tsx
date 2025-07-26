@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2 } from "lucide-react";
+import Loader from "@/components/ui/loader";
 import { Select } from "@/components/ui/select";
 import { api } from "@/lib/api";
 import { DatePicker } from "@/components/ui/date-picker";
@@ -396,7 +396,7 @@ export const EditReportModal: React.FC<EditReportModalProps> = ({ report, isOpen
             <Button onClick={handleSave} disabled={loading}>
               {loading ? (
                 <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  <Loader size="sm" className="mr-2"/>
                   Updating...
                 </>
               ) : (

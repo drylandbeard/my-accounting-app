@@ -2,8 +2,9 @@
 
 import { useEffect, useState, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { CheckCircle, XCircle, Mail, Loader2 } from "lucide-react";
+import { CheckCircle, XCircle, Mail } from "lucide-react";
 import { api } from "@/lib/api";
+import Loader from "@/components/ui/loader";
 
 interface InvitationData {
   email: string;
@@ -159,7 +160,7 @@ export default function AcceptInvitationPage() {
         return (
           <div className="w-8 h-8 relative">
             <div className="w-8 h-8 border-2 border-gray-200 rounded-full"></div>
-            <Loader2 className="h-8 w-8 animate-spin" />
+            <Loader size="md" />
           </div>
         );
     }
@@ -254,7 +255,7 @@ export default function AcceptInvitationPage() {
             <div className="flex justify-center">
               <div className="w-6 h-6 relative">
                 <div className="w-6 h-6 border-2 border-green-100 rounded-full"></div>
-                <Loader2 className="h-6 w-6 animate-spin text-green-500" />
+                <Loader size="md" className="text-green-500" />
               </div>
             </div>
             <p className="text-xs text-gray-500 mt-3">Redirecting you to sign in...</p>

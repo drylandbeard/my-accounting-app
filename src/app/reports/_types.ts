@@ -6,6 +6,7 @@ export type Category = {
   type: string;
   subtype?: string;
   parent_id?: string | null;
+  plaid_account_id?: string;
   _viewerType?: string;
 };
 

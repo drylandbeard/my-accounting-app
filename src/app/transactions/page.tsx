@@ -5,7 +5,6 @@ import { usePlaidLink } from "react-plaid-link";
 
 import Papa from 'papaparse'
 import { v4 as uuidv4 } from 'uuid'
-import { Loader2 } from 'lucide-react'
 import Select from 'react-select'
 import TransactionModal, { 
   type EditJournalModalState
@@ -15,6 +14,8 @@ import { useTransactionsStore, Transaction as StoreTransaction } from '@/zustand
 import { useCategoriesStore } from '@/zustand/categoriesStore'
 import { usePayeesStore } from '@/zustand/payeesStore'
 import { api } from '@/lib/api'
+import { supabase } from '@/lib/supabase'
+import Loader from "@/components/ui/loader"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { 
   Pagination,
@@ -238,8 +239,6 @@ export default function TransactionsPage() {
     saveImportedTransactionSplit,
     getImportedTransactionSplitsByTransactionId,
     fetchImportedTransactionSplits,
-    saveAutomationState,
-    loadAutomationState,
     fetchAccounts,
     fetchImportedTransactions,
     fetchConfirmedTransactions,
@@ -253,51 +252,129 @@ export default function TransactionsPage() {
   // Shared search query between tabs
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Initialize automation state from persistence
-  const initializeAutomationState = () => {
-    if (!hasCompanyContext || !selectedAccountId) {
-      return {
-        selectedCategories: {},
-        selectedPayees: {},
-        autoAddedTransactions: new Set<string>()
-      };
-    }
-    
-    const stored = loadAutomationState(currentCompany!.id, selectedAccountId);
-    return {
-      selectedCategories: stored?.appliedCategories || {},
-      selectedPayees: stored?.appliedPayees || {},
-      autoAddedTransactions: new Set(stored?.autoAddedTransactionHashes || [])
-    };
+
+  // Local state removed - using database values directly
+  
+  // Helper functions for local state changes in "To Add" section (not saved to database until "Add" is clicked)
+  const updateTransactionCategory = (transactionId: string, categoryId: string) => {
+    setLocalSelectedCategories(prev => ({
+      ...prev,
+      [transactionId]: categoryId
+    }));
   };
 
-  // Add selected categories state
-  const [selectedCategories, setSelectedCategories] = useState<{ [txId: string]: string }>(() => 
-    initializeAutomationState().selectedCategories
-  );
+  const updateTransactionPayee = (transactionId: string, payeeId: string) => {
+    setLocalSelectedPayees(prev => ({
+      ...prev,
+      [transactionId]: payeeId
+    }));
+  };
 
-  // Add selected payees state
-  const [selectedPayees, setSelectedPayees] = useState<{ [txId: string]: string }>(() => 
-    initializeAutomationState().selectedPayees
-  );
+  // Helper functions to get effective values for display (priority: local > automation > database > default)
+  const getEffectiveCategoryId = (tx: Transaction): string => {
+    return localSelectedCategories[tx.id] || tx.selected_category_id || categoryOptions[0]?.value || '';
+  };
+
+  const getEffectivePayeeId = (tx: Transaction): string => {
+    return localSelectedPayees[tx.id] || tx.payee_id || payeeOptions[0]?.value || '';
+  };
+
+  // Function to detect which transactions have values that match automation rules
+  const detectAutomationAppliedValues = useCallback(async (restoredCategories: Record<string, string>, restoredPayees: Record<string, string>) => {
+    if (!hasCompanyContext || !currentCompany?.id || importedTransactions.length === 0) {
+      setAutomationAppliedCategories(restoredCategories);
+      setAutomationAppliedPayees(restoredPayees);
+      return;
+    }
+
+    try {
+      // Get current automations from the database
+      const { data: automations, error } = await supabase
+        .from('automations')
+        .select('*')
+        .eq('company_id', currentCompany.id)
+        .eq('enabled', true);
+
+      if (error) {
+        console.error('Error fetching automations for visual feedback:', error);
+        setAutomationAppliedCategories(restoredCategories);
+        setAutomationAppliedPayees(restoredPayees);
+        return;
+      }
+
+      const detectedCategories = { ...restoredCategories };
+      const detectedPayees = { ...restoredPayees };
+
+      // Check each imported transaction against automation rules
+      const filteredTransactions = importedTransactions.filter(tx => tx.plaid_account_id === selectedAccountId);
+      
+      for (const transaction of filteredTransactions) {
+        const description = transaction.description?.toLowerCase() || '';
+
+        // Check category automations - always check, regardless of session data
+        if (transaction.selected_category_id) {
+          for (const automation of automations.filter(a => a.automation_type === 'category')) {
+            const conditionValue = automation.condition_value?.toLowerCase() || '';
+            let matches = false;
+
+            if (automation.condition_type === 'contains') {
+              matches = description.includes(conditionValue);
+            } else if (automation.condition_type === 'is_exactly') {
+              matches = description === conditionValue;
+            }
+
+            if (matches) {
+              // Find the category by name
+              const matchedCategory = categories.find(c => c.name.toLowerCase() === automation.action_value?.toLowerCase());
+              if (matchedCategory && transaction.selected_category_id === matchedCategory.id) {
+                detectedCategories[transaction.id] = matchedCategory.id;
+              }
+              break; // Apply first matching rule only
+            }
+          }
+        }
+
+        // Check payee automations - always check, regardless of session data
+        if (transaction.payee_id) {
+          for (const automation of automations.filter(a => a.automation_type === 'payee')) {
+            const conditionValue = automation.condition_value?.toLowerCase() || '';
+            let matches = false;
+
+            if (automation.condition_type === 'contains') {
+              matches = description.includes(conditionValue);
+            } else if (automation.condition_type === 'is_exactly') {
+              matches = description === conditionValue;
+            }
+
+            if (matches) {
+              // Find the payee by name
+              const matchedPayee = payees.find(p => p.name.toLowerCase() === automation.action_value?.toLowerCase());
+              if (matchedPayee && transaction.payee_id === matchedPayee.id) {
+                detectedPayees[transaction.id] = matchedPayee.id;
+              }
+              break; // Apply first matching rule only
+            }
+          }
+        }
+      }
+
+      setAutomationAppliedCategories(detectedCategories);
+      setAutomationAppliedPayees(detectedPayees);
+    } catch (error) {
+      console.error('Error detecting automation-applied values:', error);
+      setAutomationAppliedCategories(restoredCategories);
+      setAutomationAppliedPayees(restoredPayees);
+    }
+  }, [hasCompanyContext, currentCompany?.id, importedTransactions, selectedAccountId, categories, payees]);
 
   // Add state for tracking react-select input values
   const [payeeInputValues, setPayeeInputValues] = useState<{ [txId: string]: string }>({});
   const [categoryInputValues, setCategoryInputValues] = useState<{ [txId: string]: string }>({});
 
-  // Add state to track automation-applied selections for visual feedback
-  const [automationAppliedCategories, setAutomationAppliedCategories] = useState<Set<string>>(() => 
-    new Set(Object.keys(initializeAutomationState().selectedCategories))
-  );
-  const [automationAppliedPayees, setAutomationAppliedPayees] = useState<Set<string>>(() => 
-    new Set(Object.keys(initializeAutomationState().selectedPayees))
-  );
+  // Automation visual feedback removed - using database persistence instead
 
-  // Add state to track which transactions have been auto-added to prevent duplicates
-  // Track by content hash instead of ID to handle undo scenarios
-  const [autoAddedTransactions, setAutoAddedTransactions] = useState<Set<string>>(() => 
-    initializeAutomationState().autoAddedTransactions
-  );
+  // Track auto-added transactions per session to prevent duplicates within the same session
+  const autoAddedThisSession = useRef<Set<string>>(new Set());
 
   // Add ref to prevent concurrent automation executions
   const isAutomationRunning = useRef(false);
@@ -307,6 +384,41 @@ export default function TransactionsPage() {
 
   // Add state for UI indicator
   const [isAutoAddRunning, setIsAutoAddRunning] = useState(false);
+
+  // Version-based automation control instead of session-based
+  const hasRunAutomationsThisSession = useRef(false);
+  const sessionKey = `automations-run-transactions-${currentCompany?.id}-${selectedAccountId}`;
+  const lastAutomationVersionRef = useRef<string>('0');
+  
+  // Track automation version to detect changes
+  const getAutomationVersion = useCallback(() => {
+    const versionKey = `automation_version_${currentCompany?.id || 'no_company'}`;
+    return localStorage.getItem(versionKey) || '0';
+  }, [currentCompany?.id]);
+  
+  // Check if automations need to be re-run based on version changes
+  const shouldRunAutomations = useCallback(() => {
+    if (!hasCompanyContext || !currentCompany?.id || !selectedAccountId) return false;
+    if (importedTransactions.length === 0) return false;
+    
+    const currentVersion = getAutomationVersion();
+    const lastVersion = lastAutomationVersionRef.current;
+    
+    // Run if version changed or never run before
+    const versionChanged = currentVersion !== lastVersion;
+    const sessionFlag = sessionStorage.getItem(sessionKey);
+    const neverRun = sessionFlag !== 'true' && !hasRunAutomationsThisSession.current;
+    
+    return versionChanged || neverRun;
+  }, [hasCompanyContext, currentCompany?.id, selectedAccountId, importedTransactions.length, getAutomationVersion, sessionKey]);
+
+  // State to track which transactions had automation applied for visual feedback
+  const [automationAppliedCategories, setAutomationAppliedCategories] = useState<Record<string, string>>({});
+  const [automationAppliedPayees, setAutomationAppliedPayees] = useState<Record<string, string>>({});
+
+  // Local state for manual changes in "To Add" section (temporary until added to main transactions)
+  const [localSelectedCategories, setLocalSelectedCategories] = useState<Record<string, string>>({});
+  const [localSelectedPayees, setLocalSelectedPayees] = useState<Record<string, string>>({});
 
   // Helper function to create a unique content hash for a transaction
   const getTransactionContentHash = useCallback((tx: Transaction) => {
@@ -661,86 +773,93 @@ export default function TransactionsPage() {
 
   // Data fetching now handled by stores
 
-  // Apply automations automatically when transactions or related data changes (UI state only)
-  const runAutomationsWithStateUpdate = useCallback(async () => {
-    if (!hasCompanyContext || !currentCompany?.id) return;
+  // Clear session flags on page refresh
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      // Clear all automation session flags
+      Object.keys(sessionStorage)
+        .filter(key => key.startsWith('automations-run-'))
+        .forEach(key => sessionStorage.removeItem(key));
+    };
+    
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
 
+  // New automation function that saves directly to database
+  const runAutomationsOncePerSession = useCallback(async () => {
+    // Check if automations should run based on version changes
+    if (!shouldRunAutomations()) {
+      return;
+    }
+    
     // Prevent concurrent executions
     if (isAutomationRunning.current) {
       return;
     }
-
+    
     // Prevent automation during undo operations
     if (isUndoInProgress.current) {
       return;
     }
-
+    
+    // Set flags immediately to prevent duplicate runs
+    hasRunAutomationsThisSession.current = true;
+    sessionStorage.setItem(sessionKey, 'true');
+    
+    // Update last automation version to current version
+    const currentVersion = getAutomationVersion();
+    lastAutomationVersionRef.current = currentVersion;
+    
     isAutomationRunning.current = true;
     setIsAutoAddRunning(true);
-
+    
     try {
-      const result = await applyAutomationsToTransactions(currentCompany.id, selectedAccountId, categories, payees);
-
+      const result = await applyAutomationsToTransactions(currentCompany!.id, selectedAccountId, categories, payees);
+      
       if (result.success && result.data) {
         const { appliedCategories, appliedPayees, autoAddTransactions } = result.data;
-
-        // Update local state with automation-applied values
-        if (Object.keys(appliedCategories).length > 0) {
-          setSelectedCategories((prev) => ({
-            ...prev,
-            ...appliedCategories,
-          }));
-          // Track which categories were applied by automation for visual feedback
-          setAutomationAppliedCategories((prev) => {
-            const newSet = new Set(prev);
-            Object.keys(appliedCategories).forEach((txId) => {
-              newSet.add(txId);
-            });
-            return newSet;
-          });
+        
+        // Store applied automation results for visual feedback and persist to sessionStorage
+        setAutomationAppliedCategories(appliedCategories);
+        setAutomationAppliedPayees(appliedPayees);
+        
+        // Persist automation visual feedback to sessionStorage for page refresh survival
+        const visualFeedbackKey = `automation-visual-feedback-${currentCompany!.id}-${selectedAccountId}`;
+        sessionStorage.setItem(visualFeedbackKey, JSON.stringify({
+          appliedCategories,
+          appliedPayees,
+          timestamp: Date.now()
+        }));
+        
+        // Show success notification if automations were applied (store handles database persistence)
+        if (Object.keys(appliedCategories).length > 0 || Object.keys(appliedPayees).length > 0) {
+          const appliedCount = Object.keys(appliedCategories).length + Object.keys(appliedPayees).length;
+          showSuccessToast(`✨ ${appliedCount} automation${appliedCount === 1 ? '' : 's'} applied and saved!`);
         }
-
-        if (Object.keys(appliedPayees).length > 0) {
-          setSelectedPayees((prev) => ({
-            ...prev,
-            ...appliedPayees,
-          }));
-          // Track which payees were applied by automation for visual feedback
-          setAutomationAppliedPayees((prev) => {
-            const newSet = new Set(prev);
-            Object.keys(appliedPayees).forEach((txId) => {
-              newSet.add(txId);
-            });
-            return newSet;
-          });
-        }
-
+        
         // Handle auto-add transactions
         if (autoAddTransactions.length > 0) {
           const transactionsToProcess = importedTransactions.filter((tx) => tx.plaid_account_id === selectedAccountId);
-
-          // Filter by content hash to prevent duplicates
+          
+          // Filter by content hash to prevent duplicates within this session
           const transactionsToActuallyAutoAdd = autoAddTransactions.filter((txId) => {
             const transaction = transactionsToProcess.find((tx) => tx.id === txId);
             if (!transaction) return false;
             const contentHash = getTransactionContentHash(transaction);
-            return !autoAddedTransactions.has(contentHash);
+            return !autoAddedThisSession.current.has(contentHash);
           });
-
+          
           if (transactionsToActuallyAutoAdd.length > 0) {
-            // Mark as auto-added
-            setAutoAddedTransactions((prev) => {
-              const newSet = new Set(prev);
-              transactionsToActuallyAutoAdd.forEach((txId) => {
-                const transaction = transactionsToProcess.find((tx) => tx.id === txId);
-                if (transaction) {
-                  const contentHash = getTransactionContentHash(transaction);
-                  newSet.add(contentHash);
-                }
-              });
-              return newSet;
+            // Mark as auto-added in this session
+            transactionsToActuallyAutoAdd.forEach((txId) => {
+              const transaction = transactionsToProcess.find((tx) => tx.id === txId);
+              if (transaction) {
+                const contentHash = getTransactionContentHash(transaction);
+                autoAddedThisSession.current.add(contentHash);
+              }
             });
-
+            
             // Process auto-add
             const transactionRequests = transactionsToActuallyAutoAdd
               .map((transactionId) => {
@@ -759,70 +878,63 @@ export default function TransactionsPage() {
               selectedCategoryId: string;
               selectedPayeeId?: string;
             }[];
-
+            
             // Find the selected account in chart_of_accounts by plaid_account_id
             const selectedAccount = categories.find((c) => c.plaid_account_id === selectedAccountId);
             const selectedAccountIdInCOA = selectedAccount?.id;
-
+            
             if (transactionRequests.length > 0 && selectedAccountIdInCOA) {
               try {
-                await addTransactions(transactionRequests, selectedAccountIdInCOA, currentCompany.id);
-
-                // Show success notification for auto-added transactions
+                await addTransactions(transactionRequests, selectedAccountIdInCOA, currentCompany!.id);
+                
                 showSuccessToast(`🤖 ${transactionRequests.length} transaction${
                   transactionRequests.length === 1 ? "" : "s"
                 } automatically added!`);
-
-                // Clean up state for auto-added transactions
-                setSelectedCategories((prev) => {
-                  const copy = { ...prev };
-                  transactionRequests.forEach((req) => delete copy[req.transaction.id]);
-                  return copy;
-                });
-                setSelectedPayees((prev) => {
-                  const copy = { ...prev };
-                  transactionRequests.forEach((req) => delete copy[req.transaction.id]);
-                  return copy;
-                });
               } catch (error) {
                 console.error("Error auto-adding transactions:", error);
-                // Remove from auto-added set if there was an error
-                setAutoAddedTransactions((prev) => {
-                  const newSet = new Set(prev);
-                  transactionRequests.forEach((req) => {
-                    const contentHash = getTransactionContentHash(req.transaction);
-                    newSet.delete(contentHash);
-                  });
-                  return newSet;
+                showErrorToast("Failed to auto-add some transactions");
+                // Remove from auto-added session set if there was an error
+                transactionRequests.forEach((req) => {
+                  const contentHash = getTransactionContentHash(req.transaction);
+                  autoAddedThisSession.current.delete(contentHash);
                 });
               }
             }
           }
         }
-
-        // Show notifications for applied automations (only if no auto-add happened to avoid duplicate notifications)
+        
+        // Show notifications for applied automations
         const appliedPayeeCount = Object.keys(appliedPayees).length;
         const appliedCategoryCount = Object.keys(appliedCategories).length;
-
+        
         if ((appliedPayeeCount > 0 || appliedCategoryCount > 0) && autoAddTransactions.length === 0) {
           const messages = [];
           if (appliedPayeeCount > 0) {
-            messages.push(`${appliedPayeeCount} suggested payee${appliedPayeeCount === 1 ? "" : "s"}`);
+            messages.push(`${appliedPayeeCount} payee assignment${appliedPayeeCount === 1 ? "" : "s"}`);
           }
           if (appliedCategoryCount > 0) {
-            messages.push(`${appliedCategoryCount} suggested categor${appliedCategoryCount === 1 ? "y" : "ies"}`);
+            messages.push(`${appliedCategoryCount} category assignment${appliedCategoryCount === 1 ? "" : "s"}`);
           }
 
-          showSuccessToast(`✨ ${messages.join(" and ")} applied!`);
+        }
+        
+        if (appliedPayeeCount === 0 && appliedCategoryCount === 0 && autoAddTransactions.length === 0) {
+          showSuccessToast('✅ Automations completed - no matches found');
         }
       }
     } catch (error) {
       console.error("Error applying automations:", error);
+      showErrorToast("Failed to run automations");
+      
+      // Reset flags on error to allow retry
+      hasRunAutomationsThisSession.current = false;
+      sessionStorage.removeItem(sessionKey);
     } finally {
       isAutomationRunning.current = false;
       setIsAutoAddRunning(false);
     }
-  }, [hasCompanyContext, currentCompany?.id, selectedAccountId, categories, payees]);
+  }, [shouldRunAutomations, getAutomationVersion, currentCompany?.id, selectedAccountId, categories, payees, getTransactionContentHash, addTransactions, applyAutomationsToTransactions]);
+
 
   useEffect(() => {
     if (hasCompanyContext && currentCompany?.id) {
@@ -855,141 +967,97 @@ export default function TransactionsPage() {
     };
   }, [currentCompany?.id, hasCompanyContext, subscribeToTransactions, subscribeToCategories, subscribeToPayees]);
 
-  // Add ref to track automation state and prevent duplicate runs
-  const automationState = useRef({
-    lastContextKey: '',
-    lastDataSignature: '',
-    isInitialized: false,
-    lastRunTime: 0
-  });
-
-  // Single consolidated automation trigger with proper debouncing and deduplication
+  // Initialize automation version tracking on component mount
   useEffect(() => {
-    if (!hasCompanyContext || !currentCompany?.id || !selectedAccountId) return;
-    if (importedTransactions.length === 0) return;
-    
-    const contextKey = `${currentCompany.id}_${selectedAccountId}`;
-    // Create a signature of the current data to detect actual changes
-    const dataSignature = `${importedTransactions.length}_${categories.length}_${payees.length}_${importedTransactions.map(t => t.id).join(',')}`;
-    const now = Date.now();
-    
-    // Don't run automations more than once every 2 seconds
-    if (now - automationState.current.lastRunTime < 2000) {
-      return;
+    if (hasCompanyContext && currentCompany?.id) {
+      lastAutomationVersionRef.current = getAutomationVersion();
     }
-    
-    // Check if this is a context change (new account/company)
-    const isContextChange = automationState.current.lastContextKey !== contextKey;
-    // Check if the data has actually changed (not just refetched)
-    const isDataChange = automationState.current.lastDataSignature !== dataSignature;
-    
-    // Run automations if:
-    // 1. Context changed (new account/company), OR
-    // 2. Data actually changed (not just refetched) and we've already initialized this context
-    const shouldRun = isContextChange || (automationState.current.isInitialized && automationState.current.lastContextKey === contextKey && isDataChange);
-    
-    if (!shouldRun) return;
-    
-    // Debounce automation execution
-    const timeoutId = setTimeout(() => {
-      if (process.env.NODE_ENV === 'development') {
-        console.log('🚀 Running automations for:', contextKey);
+  }, [hasCompanyContext, currentCompany?.id, getAutomationVersion]);
+  
+  // Run automation once per session on page load and when automation version changes
+  useEffect(() => {
+    runAutomationsOncePerSession();
+  }, [runAutomationsOncePerSession]);
+  
+  // Check for automation version changes when page becomes visible (better for SPA navigation)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        // Small delay to ensure any localStorage changes are processed
+        setTimeout(() => {
+          runAutomationsOncePerSession();
+        }, 100);
       }
-      automationState.current = {
-        lastContextKey: contextKey,
-        lastDataSignature: dataSignature,
-        isInitialized: true,
-        lastRunTime: Date.now()
-      };
-      runAutomationsWithStateUpdate();
-    }, 1000);
-    
-    return () => clearTimeout(timeoutId);
-  }, [importedTransactions, categories, payees, selectedAccountId, hasCompanyContext, currentCompany?.id]);
-
-  // Load persisted automation state when account changes
-  useEffect(() => {
-    if (!hasCompanyContext || !selectedAccountId) {
-      // Clear state for invalid context
-      setSelectedCategories({});
-      setSelectedPayees({});
-      setAutoAddedTransactions(new Set());
-      setAutomationAppliedCategories(new Set());
-      setAutomationAppliedPayees(new Set());
-      return;
-    }
-    
-    const stored = loadAutomationState(currentCompany!.id, selectedAccountId);
-    if (stored) {
-      setSelectedCategories(stored.appliedCategories);
-      setSelectedPayees(stored.appliedPayees);
-      setAutoAddedTransactions(new Set(stored.autoAddedTransactionHashes));
-      
-      // Update visual indicators
-      setAutomationAppliedCategories(new Set(Object.keys(stored.appliedCategories)));
-      setAutomationAppliedPayees(new Set(Object.keys(stored.appliedPayees)));
-    } else {
-      // Clear state for new account
-      setSelectedCategories({});
-      setSelectedPayees({});
-      setAutoAddedTransactions(new Set());
-      setAutomationAppliedCategories(new Set());
-      setAutomationAppliedPayees(new Set());
-      
-      // Note: Automation will be triggered automatically by the main automation effect
-      // when it detects the context change, so we don't need to trigger it here
-    }
-  }, [selectedAccountId, currentCompany?.id, hasCompanyContext, loadAutomationState, importedTransactions.length, currentCompany]);
-
-  // Save automation state whenever it changes
-  useEffect(() => {
-    if (!hasCompanyContext || !selectedAccountId) return;
-    
-    const state = {
-      appliedCategories: selectedCategories,
-      appliedPayees: selectedPayees,
-      autoAddedTransactionHashes: Array.from(autoAddedTransactions),
-      lastAutomationRun: new Date().toISOString()
     };
     
-    // Debounce the save operation to avoid excessive localStorage writes
-    const timeoutId = setTimeout(() => {
-      saveAutomationState(currentCompany!.id, selectedAccountId, state);
-    }, 500);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     
-    return () => clearTimeout(timeoutId);
-  }, [selectedCategories, selectedPayees, autoAddedTransactions, selectedAccountId, currentCompany?.id, hasCompanyContext, saveAutomationState, currentCompany]);
+    // Also listen for storage events (when localStorage is changed in other tabs/windows)
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key && event.key.startsWith('automation_version_')) {
+        setTimeout(() => {
+          runAutomationsOncePerSession();
+        }, 100);
+      }
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, [runAutomationsOncePerSession]);
 
-  // Clean up automation state for transactions that no longer exist
+  // Restore automation visual feedback from sessionStorage and detect automation-applied values
   useEffect(() => {
-    if (!hasCompanyContext || !selectedAccountId) return;
-    
-    const currentTransactionIds = new Set(importedTransactions.map(tx => tx.id));
-    const currentHashes = importedTransactions.map(tx => getTransactionContentHash(tx));
-    
-    // Remove categories/payees for transactions that no longer exist
-    setSelectedCategories(prev => {
-      const filtered = Object.fromEntries(
-        Object.entries(prev).filter(([txId]) => currentTransactionIds.has(txId))
-      );
-      return Object.keys(filtered).length !== Object.keys(prev).length ? filtered : prev;
-    });
-    
-    setSelectedPayees(prev => {
-      const filtered = Object.fromEntries(
-        Object.entries(prev).filter(([txId]) => currentTransactionIds.has(txId))
-      );
-      return Object.keys(filtered).length !== Object.keys(prev).length ? filtered : prev;
-    });
+    if (hasCompanyContext && currentCompany?.id && selectedAccountId) {
+      // Try to restore visual feedback from sessionStorage
+      const visualFeedbackKey = `automation-visual-feedback-${currentCompany.id}-${selectedAccountId}`;
+      const stored = sessionStorage.getItem(visualFeedbackKey);
+      let restoredCategories = {};
+      let restoredPayees = {};
+      
+      if (stored) {
+        try {
+          const { appliedCategories, appliedPayees, timestamp } = JSON.parse(stored);
+          // Only restore if the data is from the current session (less than 1 hour old)
+          const isRecent = Date.now() - timestamp < 60 * 60 * 1000; // 1 hour
+          
+          if (isRecent && appliedCategories && appliedPayees) {
+            restoredCategories = appliedCategories;
+            restoredPayees = appliedPayees;
+          } else {
+            // Clean up old data
+            sessionStorage.removeItem(visualFeedbackKey);
+          }
+        } catch (error) {
+          console.error('Error parsing stored automation visual feedback:', error);
+          sessionStorage.removeItem(visualFeedbackKey);
+        }
+      }
 
-    // Clean up auto-added hashes for transactions that no longer exist
-    setAutoAddedTransactions(prev => {
-      const validHashes = new Set(Array.from(prev).filter(hash => 
-        currentHashes.includes(hash)
-      ));
-      return validHashes.size !== prev.size ? validHashes : prev;
-    });
-  }, [importedTransactions, hasCompanyContext, selectedAccountId, getTransactionContentHash]);
+      // Also check current transactions against automation rules for visual feedback
+      // This handles transactions that were automated in previous sessions or page loads
+      if (importedTransactions.length > 0) {
+        detectAutomationAppliedValues(restoredCategories, restoredPayees);
+      } else {
+        // Just set restored values if no transactions to analyze
+        setAutomationAppliedCategories(restoredCategories);
+        setAutomationAppliedPayees(restoredPayees);
+      }
+    }
+    
+    // Clear local state when account changes
+    setLocalSelectedCategories({});
+    setLocalSelectedPayees({});
+  }, [selectedAccountId, hasCompanyContext, currentCompany?.id, importedTransactions, categories, payees, detectAutomationAppliedValues]);
+
+  // Automation state persistence removed - using database persistence instead
+
+  // State persistence removed - using database persistence instead
+
+  // Cleanup effects removed - using database persistence instead
 
   // Reset pagination when search query changes
   useEffect(() => {
@@ -1110,11 +1178,9 @@ export default function TransactionsPage() {
         let bPayeeName = "";
         
         if (isToAddTable) {
-          // For "To Add" table, use selected payees from state
-          const aPayeeId = selectedPayees[a.id];
-          const bPayeeId = selectedPayees[b.id];
-          aPayeeName = aPayeeId ? (payees.find(p => p.id === aPayeeId)?.name || "") : "";
-          bPayeeName = bPayeeId ? (payees.find(p => p.id === bPayeeId)?.name || "") : "";
+          // For "To Add" table, use database values only
+          aPayeeName = a.payee_id ? (payees.find(p => p.id === a.payee_id)?.name || "") : "";
+          bPayeeName = b.payee_id ? (payees.find(p => p.id === b.payee_id)?.name || "") : "";
         } else {
           // For "Added" table, use actual payee from transaction
           aPayeeName = a.payee_id ? (payees.find(p => p.id === a.payee_id)?.name || "") : "";
@@ -1130,11 +1196,9 @@ export default function TransactionsPage() {
         let bCategoryName = "";
         
         if (isToAddTable) {
-          // For "To Add" table, use selected categories from state
-          const aCategoryId = selectedCategories[a.id];
-          const bCategoryId = selectedCategories[b.id];
-          aCategoryName = aCategoryId ? (categories.find(c => c.id === aCategoryId)?.name || "") : "";
-          bCategoryName = bCategoryId ? (categories.find(c => c.id === bCategoryId)?.name || "") : "";
+          // For "To Add" table, use database values only
+          aCategoryName = a.selected_category_id ? (categories.find(c => c.id === a.selected_category_id)?.name || "") : "";
+          bCategoryName = b.selected_category_id ? (categories.find(c => c.id === b.selected_category_id)?.name || "") : "";
         } else {
           // For "Added" table, use actual category from transaction
           if (a.has_split) {
@@ -1717,21 +1781,18 @@ export default function TransactionsPage() {
               : null,
           }));
         }
-        // Check if the transaction is part of a selection and apply to all selected
-        else if (selectedToAdd.has(newCategoryModal.transactionId) && selectedToAdd.size > 1) {
-          const updates: { [key: string]: string } = {};
-          selectedToAdd.forEach((selectedId) => {
-            updates[selectedId] = result.categoryId || "";
-          });
-          setSelectedCategories((prev) => ({
-            ...prev,
-            ...updates,
-          }));
-        } else {
-          setSelectedCategories((prev) => ({
-            ...prev,
-            [newCategoryModal.transactionId!]: result.categoryId || "",
-          }));
+        // Update database directly with new category
+        if (result.categoryId) {
+          if (selectedToAdd.has(newCategoryModal.transactionId) && selectedToAdd.size > 1) {
+            // Update all selected transactions
+            const updatePromises = Array.from(selectedToAdd).map(selectedId =>
+              updateTransactionCategory(selectedId, result.categoryId!)
+            );
+            await Promise.all(updatePromises);
+          } else {
+            // Update single transaction
+            await updateTransactionCategory(newCategoryModal.transactionId!, result.categoryId);
+          }
         }
       }
 
@@ -1764,21 +1825,18 @@ export default function TransactionsPage() {
               : null,
           }));
         }
-        // Check if the transaction is part of a selection and apply to all selected
-        else if (selectedToAdd.has(newPayeeModal.transactionId) && selectedToAdd.size > 1) {
-          const updates: { [key: string]: string } = {};
-          selectedToAdd.forEach((selectedId) => {
-            updates[selectedId] = result.payeeId || "";
-          });
-          setSelectedPayees((prev) => ({
-            ...prev,
-            ...updates,
-          }));
-        } else {
-          setSelectedPayees((prev) => ({
-            ...prev,
-            [newPayeeModal.transactionId!]: result.payeeId || "",
-          }));
+        // Update database directly with new payee
+        if (result.payeeId) {
+          if (selectedToAdd.has(newPayeeModal.transactionId) && selectedToAdd.size > 1) {
+            // Update all selected transactions
+            const updatePromises = Array.from(selectedToAdd).map(selectedId =>
+              updateTransactionPayee(selectedId, result.payeeId!)
+            );
+            await Promise.all(updatePromises);
+          } else {
+            // Update single transaction
+            await updateTransactionPayee(newPayeeModal.transactionId!, result.payeeId);
+          }
         }
       }
 
@@ -2040,24 +2098,43 @@ export default function TransactionsPage() {
     const existingPayee = payees.find((p) => p.name.toLowerCase() === inputValue.trim().toLowerCase());
 
     if (existingPayee) {
-      // Check if this transaction is selected and apply to all selected transactions
-      if (selectedToAdd.has(txId) && selectedToAdd.size > 1) {
-        const updates: { [key: string]: string } = {};
-        selectedToAdd.forEach((selectedId) => {
-          updates[selectedId] = existingPayee.id;
-        });
-        setSelectedPayees((prev) => ({
-          ...prev,
-          ...updates,
-        }));
-        // Clear automation status for all selected transactions
-        setAutomationAppliedPayees((prev) => {
-          const newSet = new Set(prev);
-          selectedToAdd.forEach((selectedId) => {
-            newSet.delete(selectedId);
+      // Clear automation visual feedback when manually changed
+      setAutomationAppliedPayees(prev => {
+        const next = { ...prev };
+        if (selectedToAdd.has(txId) && selectedToAdd.size > 1) {
+          // Clear for all selected transactions
+          Array.from(selectedToAdd).forEach(selectedId => {
+            delete next[selectedId];
           });
-          return newSet;
+        } else {
+          delete next[txId];
+        }
+        
+        // Update sessionStorage with the cleared feedback
+        if (hasCompanyContext && currentCompany?.id && selectedAccountId) {
+          const visualFeedbackKey = `automation-visual-feedback-${currentCompany.id}-${selectedAccountId}`;
+          const stored = sessionStorage.getItem(visualFeedbackKey);
+          if (stored) {
+            try {
+              const data = JSON.parse(stored);
+              data.appliedPayees = next;
+              sessionStorage.setItem(visualFeedbackKey, JSON.stringify(data));
+            } catch (error) {
+              console.error('Error updating stored automation visual feedback:', error);
+            }
+          }
+        }
+        
+        return next;
+      });
+      
+      // Update local state (temporary until "Add" is clicked)
+      if (selectedToAdd.has(txId) && selectedToAdd.size > 1) {
+        // Update all selected transactions locally
+        Array.from(selectedToAdd).forEach(selectedId => {
+          updateTransactionPayee(selectedId, existingPayee.id);
         });
+        
         // Clear input values for all selected transactions
         const inputUpdates: { [key: string]: string } = {};
         selectedToAdd.forEach((selectedId) => {
@@ -2068,17 +2145,9 @@ export default function TransactionsPage() {
           ...inputUpdates,
         }));
       } else {
-        // Select the existing payee for single transaction
-        setSelectedPayees((prev) => ({
-          ...prev,
-          [txId]: existingPayee.id,
-        }));
-        // Clear automation status for single transaction
-        setAutomationAppliedPayees((prev) => {
-          const newSet = new Set(prev);
-          newSet.delete(txId);
-          return newSet;
-        });
+        // Update single transaction locally
+        updateTransactionPayee(txId, existingPayee.id);
+        
         // Clear the input value
         setPayeeInputValues((prev) => ({
           ...prev,
@@ -2107,24 +2176,43 @@ export default function TransactionsPage() {
     const existingCategory = categories.find((c) => c.name.toLowerCase() === inputValue.trim().toLowerCase());
 
     if (existingCategory) {
-      // Check if this transaction is selected and apply to all selected transactions
-      if (selectedToAdd.has(txId) && selectedToAdd.size > 1) {
-        const updates: { [key: string]: string } = {};
-        selectedToAdd.forEach((selectedId) => {
-          updates[selectedId] = existingCategory.id;
-        });
-        setSelectedCategories((prev) => ({
-          ...prev,
-          ...updates,
-        }));
-        // Clear automation status for all selected transactions
-        setAutomationAppliedCategories((prev) => {
-          const newSet = new Set(prev);
-          selectedToAdd.forEach((selectedId) => {
-            newSet.delete(selectedId);
+      // Clear automation visual feedback when manually changed
+      setAutomationAppliedCategories(prev => {
+        const next = { ...prev };
+        if (selectedToAdd.has(txId) && selectedToAdd.size > 1) {
+          // Clear for all selected transactions
+          Array.from(selectedToAdd).forEach(selectedId => {
+            delete next[selectedId];
           });
-          return newSet;
+        } else {
+          delete next[txId];
+        }
+        
+        // Update sessionStorage with the cleared feedback
+        if (hasCompanyContext && currentCompany?.id && selectedAccountId) {
+          const visualFeedbackKey = `automation-visual-feedback-${currentCompany.id}-${selectedAccountId}`;
+          const stored = sessionStorage.getItem(visualFeedbackKey);
+          if (stored) {
+            try {
+              const data = JSON.parse(stored);
+              data.appliedCategories = next;
+              sessionStorage.setItem(visualFeedbackKey, JSON.stringify(data));
+            } catch (error) {
+              console.error('Error updating stored automation visual feedback:', error);
+            }
+          }
+        }
+        
+        return next;
+      });
+      
+      // Update local state (temporary until "Add" is clicked)
+      if (selectedToAdd.has(txId) && selectedToAdd.size > 1) {
+        // Update all selected transactions locally
+        Array.from(selectedToAdd).forEach(selectedId => {
+          updateTransactionCategory(selectedId, existingCategory.id);
         });
+        
         // Clear input values for all selected transactions
         const inputUpdates: { [key: string]: string } = {};
         selectedToAdd.forEach((selectedId) => {
@@ -2135,17 +2223,9 @@ export default function TransactionsPage() {
           ...inputUpdates,
         }));
       } else {
-        // Select the existing category for single transaction
-        setSelectedCategories((prev) => ({
-          ...prev,
-          [txId]: existingCategory.id,
-        }));
-        // Clear automation status for single transaction
-        setAutomationAppliedCategories((prev) => {
-          const newSet = new Set(prev);
-          newSet.delete(txId);
-          return newSet;
-        });
+        // Update single transaction locally
+        updateTransactionCategory(txId, existingCategory.id);
+        
         // Clear the input value
         setCategoryInputValues((prev) => ({
           ...prev,
@@ -2649,7 +2729,7 @@ export default function TransactionsPage() {
           >
             {isSyncing ? (
               <div className="flex items-center space-x-1">
-                <Loader2 className="h-3 w-3 animate-spin" />
+                <Loader size="sm" />
                 <span>Updating...</span>
               </div>
             ) : (
@@ -2740,7 +2820,7 @@ export default function TransactionsPage() {
 
             {importModal.isLoading ? (
               <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-8 w-8 animate-spin" />
+                <Loader size="md" />
               </div>
             ) : (
               <div className="space-y-1">
@@ -3118,25 +3198,28 @@ export default function TransactionsPage() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
-                <select
-                  value={newCategoryModal.type}
-                  onChange={(e) =>
-                    setNewCategoryModal((prev) => ({
+                <Select
+                  options={[
+                    { value: 'Expense', label: 'Expense' },
+                    { value: 'Revenue', label: 'Revenue' },
+                    { value: 'COGS', label: 'COGS' },
+                    { value: 'Asset', label: 'Asset' },
+                    { value: 'Liability', label: 'Liability' },
+                    { value: 'Equity', label: 'Equity' },
+                    { value: 'Bank Account', label: 'Bank Account' },
+                    { value: 'Credit Card', label: 'Credit Card' }
+                  ]}
+                   value={{ value: newCategoryModal.type, label: newCategoryModal.type }}
+                  onChange={(selectedOption) => {
+                    const option = selectedOption as SelectOption | null;
+                    setNewCategoryModal(prev => ({
                       ...prev,
-                      type: e.target.value,
-                    }))
-                  }
-                  className="w-full border px-2 py-1 rounded"
+                      type: option?.value || 'Expense'
+                    }));
+                  }}
+                  className="w-full"
                 >
-                  <option value="Expense">Expense</option>
-                  <option value="Revenue">Revenue</option>
-                  <option value="Asset">Asset</option>
-                  <option value="COGS">COGS</option>
-                  <option value="Liability">Liability</option>
-                  <option value="Equity">Equity</option>
-                  <option value="Bank Account">Bank Account</option>
-                  <option value="Credit Card">Credit Card</option>
-                </select>
+                </Select>
               </div>
 
               <div>
@@ -3951,7 +4034,7 @@ export default function TransactionsPage() {
       {/* Auto-add indicator */}
       {isAutoAddRunning && (
         <div className="fixed top-6 right-6 z-50 px-4 py-2 bg-blue-100 text-blue-800 border border-blue-300 rounded-lg shadow-lg flex items-center space-x-2">
-          <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+          <Loader size="sm" className="text-blue-600" />
           <span className="text-sm font-medium">Automation running...</span>
         </div>
       )}
@@ -4092,7 +4175,7 @@ export default function TransactionsPage() {
                   <tr>
                     <td colSpan={8} className="border p-4 text-center">
                       <div className="flex flex-col items-center space-y-3">
-                        <Loader2 className="h-8 w-8 animate-spin" />
+                        <Loader size="md" />
                         <span className="text-xs">Loading transactions...</span>
                       </div>
                     </td>
@@ -4148,7 +4231,7 @@ export default function TransactionsPage() {
                       <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
                         <Select
                           options={payeeOptions}
-                          value={payeeOptions.find((opt) => opt.value === selectedPayees[tx.id]) || payeeOptions[0]}
+                          value={payeeOptions.find((opt) => opt.value === getEffectivePayeeId(tx)) || payeeOptions[0]}
                           onChange={(selectedOption) => {
                             const option = selectedOption as SelectOption | null;
                             if (option?.value === "add_new") {
@@ -4158,34 +4241,43 @@ export default function TransactionsPage() {
                                 transactionId: tx.id,
                               });
                             } else if (option?.value) {
-                              // Clear automation status when user manually changes selection
-                              setAutomationAppliedPayees((prev) => {
-                                const newSet = new Set(prev);
-                                newSet.delete(tx.id);
-                                return newSet;
-                              });
-
-                              // Check if this transaction is selected and apply to all selected transactions
-                              if (selectedToAdd.has(tx.id) && selectedToAdd.size > 1) {
-                                const updates: { [key: string]: string } = {};
-                                selectedToAdd.forEach((selectedId) => {
-                                  updates[selectedId] = option.value;
-                                  // Clear automation status for all selected transactions
-                                  setAutomationAppliedPayees((prev) => {
-                                    const newSet = new Set(prev);
-                                    newSet.delete(selectedId);
-                                    return newSet;
+                              // Clear automation visual feedback when manually changed
+                              setAutomationAppliedPayees(prev => {
+                                const next = { ...prev };
+                                if (selectedToAdd.has(tx.id) && selectedToAdd.size > 1) {
+                                  // Clear for all selected transactions
+                                  Array.from(selectedToAdd).forEach(selectedId => {
+                                    delete next[selectedId];
                                   });
+                                } else {
+                                  delete next[tx.id];
+                                }
+                                
+                                // Update sessionStorage with the cleared feedback
+                                const visualFeedbackKey = `automation-visual-feedback-${currentCompany?.id}-${selectedAccountId}`;
+                                const stored = sessionStorage.getItem(visualFeedbackKey);
+                                if (stored) {
+                                  try {
+                                    const data = JSON.parse(stored);
+                                    data.appliedPayees = next;
+                                    sessionStorage.setItem(visualFeedbackKey, JSON.stringify(data));
+                                  } catch (error) {
+                                    console.error('Error updating stored automation visual feedback:', error);
+                                  }
+                                }
+                                
+                                return next;
+                              });
+                              
+                              // Update local state (temporary until "Add" is clicked)
+                              if (selectedToAdd.has(tx.id) && selectedToAdd.size > 1) {
+                                // Update all selected transactions locally
+                                Array.from(selectedToAdd).forEach(selectedId => {
+                                  updateTransactionPayee(selectedId, option.value);
                                 });
-                                setSelectedPayees((prev) => ({
-                                  ...prev,
-                                  ...updates,
-                                }));
                               } else {
-                                setSelectedPayees((prev) => ({
-                                  ...prev,
-                                  [tx.id]: option.value,
-                                }));
+                                // Update single transaction locally
+                                updateTransactionPayee(tx.id, option.value);
                               }
                             }
                           }}
@@ -4207,9 +4299,10 @@ export default function TransactionsPage() {
                           styles={{
                             control: (base) => ({
                               ...base,
-                              backgroundColor: automationAppliedPayees.has(tx.id) ? "#dbeafe" : base.backgroundColor,
                               minHeight: "28px",
                               height: "28px",
+                              backgroundColor: (automationAppliedPayees[tx.id] && !localSelectedPayees[tx.id]) ? '#dcfce7' : base.backgroundColor, // Light green bg for automation-applied payees (only if no local override)
+                              borderColor: (automationAppliedPayees[tx.id] && !localSelectedPayees[tx.id]) ? '#22c55e' : base.borderColor, // Green border for automation-applied payees
                             }),
                             valueContainer: (base) => ({
                               ...base,
@@ -4241,7 +4334,7 @@ export default function TransactionsPage() {
                         <Select
                           options={categoryOptions}
                           value={
-                            categoryOptions.find((opt) => opt.value === selectedCategories[tx.id]) || categoryOptions[0]
+                            categoryOptions.find((opt) => opt.value === getEffectiveCategoryId(tx)) || categoryOptions[0]
                           }
                           onChange={(selectedOption) => {
                             const option = selectedOption as SelectOption | null;
@@ -4256,34 +4349,43 @@ export default function TransactionsPage() {
                                 transactionId: tx.id,
                               });
                             } else if (option?.value) {
-                              // Clear automation status when user manually changes selection
-                              setAutomationAppliedCategories((prev) => {
-                                const newSet = new Set(prev);
-                                newSet.delete(tx.id);
-                                return newSet;
-                              });
-
-                              // Check if this transaction is selected and apply to all selected transactions
-                              if (selectedToAdd.has(tx.id) && selectedToAdd.size > 1) {
-                                const updates: { [key: string]: string } = {};
-                                selectedToAdd.forEach((selectedId) => {
-                                  updates[selectedId] = option.value;
-                                  // Clear automation status for all selected transactions
-                                  setAutomationAppliedCategories((prev) => {
-                                    const newSet = new Set(prev);
-                                    newSet.delete(selectedId);
-                                    return newSet;
+                              // Clear automation visual feedback when manually changed
+                              setAutomationAppliedCategories(prev => {
+                                const next = { ...prev };
+                                if (selectedToAdd.has(tx.id) && selectedToAdd.size > 1) {
+                                  // Clear for all selected transactions
+                                  Array.from(selectedToAdd).forEach(selectedId => {
+                                    delete next[selectedId];
                                   });
+                                } else {
+                                  delete next[tx.id];
+                                }
+                                
+                                // Update sessionStorage with the cleared feedback
+                                const visualFeedbackKey = `automation-visual-feedback-${currentCompany?.id}-${selectedAccountId}`;
+                                const stored = sessionStorage.getItem(visualFeedbackKey);
+                                if (stored) {
+                                  try {
+                                    const data = JSON.parse(stored);
+                                    data.appliedCategories = next;
+                                    sessionStorage.setItem(visualFeedbackKey, JSON.stringify(data));
+                                  } catch (error) {
+                                    console.error('Error updating stored automation visual feedback:', error);
+                                  }
+                                }
+                                
+                                return next;
+                              });
+                              
+                              // Update local state (temporary until "Add" is clicked)
+                              if (selectedToAdd.has(tx.id) && selectedToAdd.size > 1) {
+                                // Update all selected transactions locally
+                                Array.from(selectedToAdd).forEach(selectedId => {
+                                  updateTransactionCategory(selectedId, option.value);
                                 });
-                                setSelectedCategories((prev) => ({
-                                  ...prev,
-                                  ...updates,
-                                }));
                               } else {
-                                setSelectedCategories((prev) => ({
-                                  ...prev,
-                                  [tx.id]: option.value,
-                                }));
+                                // Update single transaction locally
+                                updateTransactionCategory(tx.id, option.value);
                               }
                             }
                           }}
@@ -4305,11 +4407,10 @@ export default function TransactionsPage() {
                           styles={{
                             control: (base) => ({
                               ...base,
-                              backgroundColor: automationAppliedCategories.has(tx.id)
-                                ? "#dbeafe"
-                                : base.backgroundColor,
                               minHeight: "28px",
                               height: "28px",
+                              backgroundColor: (automationAppliedCategories[tx.id] && !localSelectedCategories[tx.id]) ? '#dbeafe' : base.backgroundColor, // Light yellow bg for automation-applied (only if no local override)
+                              borderColor: (automationAppliedCategories[tx.id] && !localSelectedCategories[tx.id]) ? '#4ab5fc' : base.borderColor, // Amber border for automation-applied
                             }),
                             valueContainer: (base) => ({
                               ...base,
@@ -4330,30 +4431,16 @@ export default function TransactionsPage() {
                       <td className="border p-1 w-8 text-center">
                         <button
                           onClick={async () => {
-                            if (selectedCategories[tx.id]) {
-                              await addTransaction(tx, selectedCategories[tx.id], selectedPayees[tx.id]);
-                              setSelectedCategories((prev) => {
-                                const copy = { ...prev };
-                                delete copy[tx.id];
-                                return copy;
-                              });
-                              setSelectedPayees((prev) => {
-                                const copy = { ...prev };
-                                delete copy[tx.id];
-                                return copy;
-                              });
+                            if (tx.selected_category_id) {
+                              await addTransaction(tx, tx.selected_category_id, tx.payee_id);
                               setSelectedToAdd((prev) => {
                                 const next = new Set(prev);
                                 next.delete(tx.id);
                                 return next;
                               });
-                              // Remove from auto-added tracking since it was manually added
-                              setAutoAddedTransactions((prev) => {
-                                const newSet = new Set(prev);
-                                const contentHash = getTransactionContentHash(tx);
-                                newSet.delete(contentHash);
-                                return newSet;
-                              });
+                              // Remove from auto-added session tracking since it was manually added
+                              const contentHash = getTransactionContentHash(tx);
+                              autoAddedThisSession.current.delete(contentHash);
                             }
                           }}
                           className={`border px-2 py-1 rounded w-12 flex items-center justify-center mx-auto ${
@@ -4361,9 +4448,9 @@ export default function TransactionsPage() {
                               ? "bg-gray-50 text-gray-400 cursor-not-allowed"
                               : "bg-gray-100 hover:bg-gray-200"
                           }`}
-                          disabled={!selectedCategories[tx.id] || processingTransactions.has(tx.id)}
+                          disabled={!tx.selected_category_id || processingTransactions.has(tx.id)}
                         >
-                          {processingTransactions.has(tx.id) ? <Loader2 className="h-3 w-3 animate-spin" /> : "Add"}
+                          {processingTransactions.has(tx.id) ? <Loader size="sm" /> : "Add"}
                         </button>
                       </td>
                     </tr>
@@ -4472,7 +4559,7 @@ export default function TransactionsPage() {
                   <tr>
                     <td colSpan={8} className="border p-4 text-center">
                       <div className="flex flex-col items-center space-y-3">
-                        <Loader2 className="h-8 w-8 animate-spin" />
+                        <Loader size="md" />
                         <span className="text-xs">Loading transactions...</span>
                       </div>
                     </td>
@@ -4564,7 +4651,7 @@ export default function TransactionsPage() {
                           }`}
                           disabled={processingTransactions.has(tx.id)}
                         >
-                          {processingTransactions.has(tx.id) ? <Loader2 className="h-3 w-3 animate-spin" /> : "Undo"}
+                          {processingTransactions.has(tx.id) ? <Loader size="sm" /> : "Undo"}
                         </button>
                       </td>
                     </tr>
@@ -4737,7 +4824,7 @@ export default function TransactionsPage() {
         selectedToAdd.size > 0 &&
         (() => {
           const selectedTransactions = imported.filter((tx) => selectedToAdd.has(tx.id));
-          const hasValidCategories = selectedTransactions.every((tx) => selectedCategories[tx.id]);
+          const hasValidCategories = selectedTransactions.every((tx) => tx.selected_category_id);
           const isProcessing =
             isAddingTransactions || selectedTransactions.some((tx) => processingTransactions.has(tx.id));
 
@@ -4746,11 +4833,11 @@ export default function TransactionsPage() {
               <button
                 onClick={async () => {
                   const transactionRequests = selectedTransactions
-                    .filter((tx) => selectedCategories[tx.id])
+                    .filter((tx): tx is Transaction & { selected_category_id: string } => !!tx.selected_category_id)
                     .map((tx) => ({
                       transaction: tx,
-                      selectedCategoryId: selectedCategories[tx.id],
-                      selectedPayeeId: selectedPayees[tx.id],
+                      selectedCategoryId: tx.selected_category_id,
+                      selectedPayeeId: tx.payee_id,
                     }));
 
                   // Get the corresponding category ID (the account category)
@@ -4762,24 +4849,11 @@ export default function TransactionsPage() {
 
                   await addTransactions(transactionRequests, correspondingCategoryId, currentCompany!.id);
 
-                  setSelectedCategories((prev) => {
-                    const copy = { ...prev };
-                    selectedTransactions.forEach((tx) => delete copy[tx.id]);
-                    return copy;
-                  });
-                  setSelectedPayees((prev) => {
-                    const copy = { ...prev };
-                    selectedTransactions.forEach((tx) => delete copy[tx.id]);
-                    return copy;
-                  });
-                  // Remove from auto-added tracking since they were manually added
-                  setAutoAddedTransactions((prev) => {
-                    const newSet = new Set(prev);
-                    selectedTransactions.forEach((tx) => {
-                      const contentHash = getTransactionContentHash(tx);
-                      newSet.delete(contentHash);
-                    });
-                    return newSet;
+                  // State cleanup removed - using database persistence
+                  // Remove from auto-added session tracking since they were manually added
+                  selectedTransactions.forEach((tx) => {
+                    const contentHash = getTransactionContentHash(tx);
+                    autoAddedThisSession.current.delete(contentHash);
                   });
                   setSelectedToAdd(new Set());
                 }}
@@ -4792,7 +4866,7 @@ export default function TransactionsPage() {
               >
                 {isProcessing ? (
                   <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <Loader size="sm" />
                     <span>Adding...</span>
                   </>
                 ) : (
@@ -4839,7 +4913,7 @@ export default function TransactionsPage() {
               >
                 {isProcessing ? (
                   <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <Loader size="sm" />
                     <span>Undoing...</span>
                   </>
                 ) : (

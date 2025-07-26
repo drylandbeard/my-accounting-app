@@ -31,6 +31,7 @@ interface PayeesState {
   createPayeeForTransaction: (payeeData: { name: string }) => Promise<{ success: boolean; payeeId?: string; error?: string }>;
   updatePayee: (idOrName: string, updates: { name: string }) => Promise<boolean>;
   deletePayee: (idOrName: string) => Promise<boolean>;
+  mergePayees: (selectedPayeeIds: string[], targetPayeeId: string, companyId: string) => Promise<boolean>;
   highlightPayee: (payeeId: string) => void;
   clearError: () => void;
   
@@ -293,6 +294,122 @@ export const usePayeesStore = create<PayeesState>((set, get) => ({
       // Revert optimistic delete by refreshing from API
       get().refreshPayees();
       set({ error: 'Failed to delete payee' });
+      return false;
+    }
+  },
+
+  mergePayees: async (selectedPayeeIds: string[], targetPayeeId: string, companyId: string) => {
+    const { payees } = get();
+    set({ error: null });
+
+    try {
+      // Validation
+      if (selectedPayeeIds.length < 2) {
+        throw new Error('Please select at least 2 payees to merge');
+      }
+
+      if (!selectedPayeeIds.includes(targetPayeeId)) {
+        throw new Error('Target payee must be one of the selected payees');
+      }
+
+      // Get payees to merge
+      const payeesToMerge = payees.filter(payee => selectedPayeeIds.includes(payee.id));
+      const targetPayee = payees.find(payee => payee.id === targetPayeeId);
+      
+      if (!targetPayee) {
+        throw new Error('Target payee not found');
+      }
+
+      // Get source payees (excluding target)
+      const sourcePayees = payeesToMerge.filter(payee => payee.id !== targetPayeeId);
+      const sourceIds = sourcePayees.map(payee => payee.id);
+      const sourceNames = sourcePayees.map(payee => payee.name);
+
+      // Execute merge in transaction-like manner using Supabase
+      // Step 1: Update all transaction references
+      if (sourceIds.length > 0) {
+        // Update payee_id references in transactions
+        const { error: transactionError } = await supabase
+          .from('transactions')
+          .update({ payee_id: targetPayeeId })
+          .in('payee_id', sourceIds)
+          .eq('company_id', companyId);
+
+        if (transactionError) {
+          throw new Error(`Failed to update transaction payee references: ${transactionError.message}`);
+        }
+
+        // Update payee_id references in imported_transactions
+        const { error: importedTxError } = await supabase
+          .from('imported_transactions')
+          .update({ payee_id: targetPayeeId })
+          .in('payee_id', sourceIds)
+          .eq('company_id', companyId);
+
+        if (importedTxError) {
+          throw new Error(`Failed to update imported_transactions: ${importedTxError.message}`);
+        }
+
+        // Update manual_journal_entries table references (if payee is referenced there)
+        const { error: manualJournalError } = await supabase
+          .from('manual_journal_entries')
+          .update({ payee_id: targetPayeeId })
+          .in('payee_id', sourceIds)
+          .eq('company_id', companyId);
+
+        if (manualJournalError) {
+          throw new Error(`Failed to update manual journal entries: ${manualJournalError.message}`);
+        }
+
+        // Update imported_transactions_split table references (if payee is referenced there)
+        const { error: splitError } = await supabase
+          .from('imported_transactions_split')
+          .update({ payee_id: targetPayeeId })
+          .in('payee_id', sourceIds)
+          .eq('company_id', companyId);
+
+        if (splitError) {
+          throw new Error(`Failed to update imported transactions split: ${splitError.message}`);
+        }
+      }
+
+      // Step 2: Update automations that reference source payee names
+      if (sourceNames.length > 0) {
+        const { error: automationsError } = await supabase
+          .from('automations')
+          .update({ action_value: targetPayee.name })
+          .eq('automation_type', 'payee')
+          .in('action_value', sourceNames)
+          .eq('company_id', companyId);
+
+        if (automationsError) {
+          throw new Error(`Failed to update automations: ${automationsError.message}`);
+        }
+      }
+
+      // Step 3: Delete source payees
+      if (sourceIds.length > 0) {
+        const { error: deleteError } = await supabase
+          .from('payees')
+          .delete()
+          .in('id', sourceIds);
+
+        if (deleteError) {
+          throw new Error(`Failed to delete source payees: ${deleteError.message}`);
+        }
+      }
+
+      // Refresh payees to get updated state
+      await get().refreshPayees();
+      
+      // Highlight the merged payee
+      get().highlightPayee(targetPayeeId);
+
+      return true;
+    } catch (err) {
+      console.error('Error in mergePayees:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to merge payees';
+      set({ error: errorMessage });
       return false;
     }
   },

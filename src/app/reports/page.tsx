@@ -2,8 +2,9 @@
 
 import React, { useState, useEffect } from "react";
 import { useAuthStore } from "@/zustand/authStore";
+import Loader from "@/components/ui/loader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { FileText, TrendingUp, DollarSign, BarChart3, Eye, Trash2, Edit2, Loader2 } from "lucide-react";
+import { FileText, TrendingUp, DollarSign, BarChart3, Eye, Trash2, Edit2 } from "lucide-react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { EditReportModal } from "@/app/reports/_components/EditReportModal";
@@ -209,7 +210,7 @@ export default function ReportsPage() {
                   <div className="text-center py-8">
                     {hasCompanySelected ? (
                       <div className="flex flex-col items-center gap-3">
-                        <Loader2 className="w-4 h-4 text-gray-400 animate-spin" />
+                        <Loader size="sm" />
                         <div className="text-sm text-gray-600">Loading saved reports...</div>
                       </div>
                     ) : (

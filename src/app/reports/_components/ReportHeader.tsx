@@ -1,7 +1,8 @@
 "use client";
 
 import React from "react";
-import { Download, Loader2, Save } from "lucide-react";
+import Loader from "@/components/ui/loader";
+import { Download, Save } from "lucide-react";
 import { PeriodSelector } from "@/components/ui/period-selector";
 import { DatePicker } from "@/components/ui/date-picker";
 import { format } from "date-fns";
@@ -54,7 +55,6 @@ export function ReportHeader({
   exportToXLSX,
   onSaveReport,
   loading,
-  isBalanceSheet,
   hideSecondaryDisplay,
 }: ReportHeaderProps) {
   // Calculate today's date once using date-fns
@@ -85,52 +85,35 @@ export function ReportHeader({
 
           {/* Manual date override option */}
           <div className="flex items-center justify-center gap-4 text-xs">
-            {isBalanceSheet ? (
-              <>
-                <span className="text-slate-600">As of</span>
-                <DatePicker
-                  value={endDate}
-                  max={new Date(today)}
-                  onChange={(date) => {
-                    if (date) {
-                      const formattedDate = format(date, "yyyy-MM-dd");
+            <>
+              <DatePicker
+                value={startDate}
+                max={new Date(endDate || today)}
+                onChange={(date) => {
+                  if (date) {
+                    const formattedDate = format(date, "yyyy-MM-dd");
+                    setStartDate(formattedDate);
+                    // If start date is after end date, update end date
+                    if (endDate && formattedDate > endDate) {
                       setEndDate(formattedDate);
                     }
-                  }}
-                  className="text-xs h-8 transition-none w-32"
-                />
-              </>
-            ) : (
-              <>
-                <DatePicker
-                  value={startDate}
-                  max={new Date(endDate || today)}
-                  onChange={(date) => {
-                    if (date) {
-                      const formattedDate = format(date, "yyyy-MM-dd");
-                      setStartDate(formattedDate);
-                      // If start date is after end date, update end date
-                      if (endDate && formattedDate > endDate) {
-                        setEndDate(formattedDate);
-                      }
-                    }
-                  }}
-                  className="text-xs h-8 transition-none w-32"
-                />
-                <span className="text-slate-600">to</span>
-                <DatePicker
-                  value={endDate}
-                  max={new Date(today)}
-                  onChange={(date) => {
-                    if (date) {
-                      const formattedDate = format(date, "yyyy-MM-dd");
-                      setEndDate(formattedDate);
-                    }
-                  }}
-                  className="text-xs h-8 transition-none w-32"
-                />
-              </>
-            )}
+                  }
+                }}
+                className="text-xs h-8 transition-none w-32"
+              />
+              <span className="text-slate-600">to</span>
+              <DatePicker
+                value={endDate}
+                max={new Date(today)}
+                onChange={(date) => {
+                  if (date) {
+                    const formattedDate = format(date, "yyyy-MM-dd");
+                    setEndDate(formattedDate);
+                  }
+                }}
+                className="text-xs h-8 transition-none w-32"
+              />
+            </>
           </div>
         </div>
 
@@ -150,7 +133,7 @@ export function ReportHeader({
             title="Export to XLSX"
             className="border px-3 py-1 rounded text-xs flex items-center space-x-1 bg-gray-100 hover:bg-gray-200"
           >
-            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+            {loading ? <Loader size="sm" /> : <Download className="w-4 h-4" />}
           </button>
         </div>
       </div>

@@ -281,15 +281,18 @@ export const formatMonth = (monthStr: string): string => {
 export const getTransactionDisplayAmount = (tx: Transaction, accountType: string): number => {
   if (accountType === "Revenue") {
     // For revenue: credits are positive, debits are negative
-    return Number(tx.credit) - Number(tx.debit);
+    return Number(tx.credit);
   } else if (accountType === "Expense" || accountType === "COGS") {
     // For expenses/COGS: debits are positive, credits are negative
+    return Number(tx.debit);
+  } else if (accountType === "Net Income") {
+    // For net income: credits are positive, debits are negative
+    return Number(tx.credit) - Number(tx.debit);
+  } else if (accountType === "Asset" || accountType === "Bank Account") {
+    // For assets and bank accounts: debits increase, credits decrease
     return Number(tx.debit) - Number(tx.credit);
-  } else if (accountType === "Asset") {
-    // For assets: debits increase, credits decrease
-    return Number(tx.debit) - Number(tx.credit);
-  } else if (accountType === "Liability" || accountType === "Equity") {
-    // For liabilities and equity: credits increase, debits decrease
+  } else if (accountType === "Liability" || accountType === "Equity" || accountType === "Credit Card") {
+    // For liabilities, equity, and credit cards: credits increase, debits decrease
     return Number(tx.credit) - Number(tx.debit);
   }
   return Number(tx.debit); // fallback

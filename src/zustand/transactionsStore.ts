@@ -2339,6 +2339,46 @@ export const useTransactionsStore = create<TransactionsState>((set, get) => ({
         }
       }
 
+      // Save category and payee assignments directly to database for imported transactions
+      if (Object.keys(appliedCategories).length > 0 || Object.keys(appliedPayees).length > 0) {
+        const updatePromises = [];
+        
+        // Update categories
+        for (const [txId, categoryId] of Object.entries(appliedCategories)) {
+          updatePromises.push(
+            supabase
+              .from('imported_transactions')
+              .update({ selected_category_id: categoryId })
+              .eq('id', txId)
+              .eq('company_id', companyId)
+          );
+        }
+        
+        // Update payees
+        for (const [txId, payeeId] of Object.entries(appliedPayees)) {
+          updatePromises.push(
+            supabase
+              .from('imported_transactions')
+              .update({ payee_id: payeeId })
+              .eq('id', txId)
+              .eq('company_id', companyId)
+          );
+        }
+        
+        // Execute all updates
+        const results = await Promise.all(updatePromises);
+        
+        // Check for errors
+        const errors = results.filter(result => result.error);
+        if (errors.length > 0) {
+          console.error('Some automation updates failed:', errors);
+          throw new Error(`Failed to save ${errors.length} automation updates to database`);
+        }
+        
+        // Refresh imported transactions to reflect the changes
+        await get().fetchImportedTransactions(companyId);
+      }
+
       return {
         appliedCategories,
         appliedPayees,
