@@ -1977,6 +1977,8 @@ export default function BalanceSheetPage() {
           companyName={currentCompany.name}
           getCategoryName={getCategoryName}
           onTransactionClick={handleTransactionClick}
+          payees={payees}
+          accounts={bankAccounts}
         />
       )}
 

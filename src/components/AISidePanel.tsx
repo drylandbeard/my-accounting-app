@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { X, RefreshCcw, ArrowUpCircle } from "lucide-react";
 import { usePayeesStore } from "@/zustand/payeesStore";
+import { useCategoriesStore } from "@/zustand/categoriesStore";
 import { useAuthStore } from "@/zustand/authStore";
 import { useChatHistory } from "@/hooks/useChatHistory";
 import { AIHandler } from "@/lib/ai/ai-handler";
@@ -30,6 +31,12 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
     error: payeesError
   } = usePayeesStore();
   
+  const { 
+    categories, 
+    refreshCategories: refreshCategoriesFromStore,
+    error: categoriesError
+  } = useCategoriesStore();
+  
   const { currentCompany, user } = useAuthStore();
   
   // Chat history hook
@@ -54,7 +61,7 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
       return;
     }
 
-    // Create new handler with current payees and store methods
+    // Create new handler with current payees, categories and store methods
     const handler = new AIHandler(
       {
         payees,
@@ -64,12 +71,22 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
         deletePayee: usePayeesStore.getState().deletePayee,
         refreshPayees: refreshPayeesFromStore
       },
+      {
+        categories,
+        error: categoriesError,
+        addCategory: useCategoriesStore.getState().addCategory,
+        updateCategory: useCategoriesStore.getState().updateCategory,
+        deleteCategory: useCategoriesStore.getState().deleteCategory,
+        moveCategory: useCategoriesStore.getState().moveCategory,
+        refreshCategories: refreshCategoriesFromStore,
+        findCategoryByName: useCategoriesStore.getState().findCategoryByName
+      },
       currentCompany,
       apiKey
     );
 
     setAiHandler(handler);
-  }, [payees, payeesError, currentCompany, refreshPayeesFromStore]);
+  }, [payees, payeesError, categories, categoriesError, currentCompany, refreshPayeesFromStore, refreshCategoriesFromStore]);
 
   // Load saved panel width from localStorage
   useEffect(() => {
@@ -191,19 +208,17 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
     const thinkingMessageIndex = messages.length + 1; // +1 for the user message we just added
 
     try {
-      // Refresh payees to ensure we have the latest state from database
-      console.log('🔄 Refreshing payees before AI processing...');
-      await refreshPayeesFromStore();
+      // Use current data from stores (no refresh needed since stores have real-time subscriptions)
+      const currentPayees = usePayeesStore.getState().payees;
+      const currentCategories = useCategoriesStore.getState().categories;
+      console.log(`✅ Using current data for AI: ${currentPayees.length} payees, ${currentCategories.length} categories`);
       
-      // Get fresh payees from store after refresh
-      const freshPayees = usePayeesStore.getState().payees;
-      console.log(`✅ Using fresh payees for AI: ${freshPayees.length} payees`);
-      
-      // Process with AI Handler using fresh payees
+      // Process with AI Handler using current data
       const result = await aiHandler.processUserMessage(
         userMessage,
         messages,
-        freshPayees
+        currentPayees,
+        currentCategories
       );
 
       if (result.success && result.response) {
@@ -265,8 +280,7 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
         content: result
       });
 
-      // Refresh payees after successful operations
-      await refreshPayeesFromStore();
+      // Note: No need to refresh stores manually - they auto-update via real-time subscriptions
     } catch (error) {
       console.error('Error executing action:', error);
       // Replace processing message with error
@@ -301,20 +315,19 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
     overflow: "hidden",
     boxShadow: isOpen ? "rgba(0,0,0,0.1) 0px 0px 16px" : "none",
     background: "white",
-    height: "100%",
+    height: "calc(100vh - 2.75rem)", // Account for navbar height (h-11 = 2.75rem)
     display: "flex",
     flexDirection: "column" as const,
     borderLeft: isOpen ? "1px solid #e5e7eb" : "none",
-    position: "relative" as const,
+    position: "sticky" as const,
+    top: "2.75rem", // Position below navbar (h-11 = 2.75rem)
+    zIndex: 30, // Lower than navbar but above content
   };
-
-  if (!isOpen) {
-    return null;
-  }
 
   return (
     <div style={panelStyle} className={isResizing ? "select-none" : ""}>
-      <div className="flex h-screen flex-col bg-white shadow-xl font-sans text-xs" style={{height: "calc(100vh - 2.7rem)"}}>
+      {isOpen && (
+        <div className="flex h-full flex-col bg-white shadow-xl font-sans text-xs">
         {/* Header */}
         <div className="px-4 py-6 sm:px-6 bg-gray-50 border-b border-gray-200">
           <div className="flex items-start justify-between">
@@ -427,16 +440,19 @@ export default function AISidePanel({ isOpen, setIsOpen }: AISidePanelProps) {
           </div>
         </div>
       </div>
+      )}
 
-      {/* Resize handle */}
-      <div
-        ref={resizeRef}
-        className={`absolute left-0 top-0 h-full w-0.5 cursor-ew-resize group ${
-          isResizing ? "bg-gray-500" : "bg-gray-200 hover:bg-gray-400"
-        } transition-colors duration-200`}
-        onMouseDown={handleResizeStart}
-        title="Drag to resize panel"
-      />
+      {/* Resize handle - only show when panel is open */}
+      {isOpen && (
+        <div
+          ref={resizeRef}
+          className={`absolute left-0 top-0 h-full w-0.5 cursor-ew-resize group ${
+            isResizing ? "bg-gray-500" : "bg-gray-200 hover:bg-gray-400"
+          } transition-colors duration-200`}
+          onMouseDown={handleResizeStart}
+          title="Drag to resize panel"
+        />
+      )}
       
       {isResizing && (
         <div className="fixed inset-0 z-50 cursor-ew-resize" style={{ background: "transparent" }} />

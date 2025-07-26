@@ -18,6 +18,7 @@ import ManualJeModal, {
 import { 
   isZeroAmount
 } from '@/lib/financial';
+import Loader from '@/components/ui/loader';
 import { showSuccessToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
 import { 
@@ -1196,7 +1197,17 @@ export default function JournalTablePage() {
                 </tr>
               </thead>
               <tbody>
-                {displayedEntries.map((entry) => (
+                {isLoading ? (
+                  <tr>
+                    <td colSpan={finalColumns.length} className="border p-4 text-center">
+                      <div className="flex flex-col items-center space-y-3">
+                        <Loader size="md" />
+                        <span className="text-xs">Loading journal entries...</span>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  displayedEntries.map((entry) => (
                   <tr 
                     key={String(entry.id)} 
                     className={`hover:bg-gray-50 cursor-pointer ${entry.is_split_item ? 'bg-blue-50' : ''}`}
@@ -1235,7 +1246,8 @@ export default function JournalTablePage() {
                       </td>
                     ))}
                   </tr>
-                ))}
+                ))
+                )}
               </tbody>
             </table>
           </div>

@@ -116,6 +116,7 @@ export const useFinancialData = ({
           credit: number;
           reference_number?: string;
           company_id: string;
+          payee_id?: string;
         }> = [];
         page = 0;
         hasMore = true;
@@ -171,6 +172,7 @@ export const useFinancialData = ({
           credit: entry.credit,
           transaction_id: entry.reference_number || entry.id,
           source: "manual" as const,
+          payee_id: entry.payee_id,
         }));
 
         // Combine all entries

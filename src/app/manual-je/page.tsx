@@ -10,8 +10,9 @@ import ManualJeModal, {
   type NewJournalEntry, 
   type EditJournalModalState 
 } from '@/components/ManualJeModal';
-
-import { Select } from '@/components/ui/select';
+import Select from 'react-select';
+import Papa from 'papaparse';
+import { v4 as uuidv4 } from 'uuid';
 import { 
   isZeroAmount
 } from '@/lib/financial';
@@ -27,6 +28,7 @@ import {
 import { DatePicker } from '@/components/ui/date-picker';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import Loader from '@/components/ui/loader';
 
 // Define types specific to the journal table
 
@@ -38,6 +40,12 @@ type SortConfig = {
 type SelectOption = {
   value: string;
   label: string;
+};
+
+type ImportModalState = {
+  isOpen: boolean;
+  isLoading: boolean;
+  error: string | null;
 };
 
 export default function JournalTablePage() {
@@ -133,6 +141,13 @@ export default function JournalTablePage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(50); // Fixed items per page
 
+  // Import modal state
+  const [importModal, setImportModal] = useState<ImportModalState>({
+    isOpen: false,
+    isLoading: false,
+    error: null
+  });
+
   // Category dropdown options
   const categoryOptions: SelectOption[] = [
     { value: '', label: 'Select category...' },
@@ -141,13 +156,13 @@ export default function JournalTablePage() {
   ];
 
   useEffect(() => {
-    if (hasCompanyContext) {
-      fetchManualJournalEntries(currentCompany!.id);
+    if (hasCompanyContext && currentCompany) {
+      fetchManualJournalEntries(currentCompany.id);
       refreshCategories();
       refreshPayees();
-      fetchAccounts(currentCompany!.id);
+      fetchAccounts(currentCompany.id);
     }
-  }, [currentCompany?.id, hasCompanyContext, refreshCategories, refreshPayees, fetchAccounts, fetchManualJournalEntries]);
+  }, [currentCompany?.id, hasCompanyContext, refreshCategories, refreshPayees, fetchAccounts, fetchManualJournalEntries, currentCompany]);
 
   // Reset to first page when search term or date filters change
   useEffect(() => {
@@ -802,7 +817,101 @@ export default function JournalTablePage() {
     }
   };
 
+  // CSV Import Functions
+  const downloadJournalTemplate = () => {
+    const template = `Description,Spent (Debit),Received (Credit)
+Office Supplies,100.00,0.00
+Sales Revenue,0.00,100.00
+Equipment Purchase,250.00,0.00
+Equipment Depreciation,0.00,250.00`;
 
+    const blob = new Blob([template], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'manual_journal_template.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement> | DragEvent) => {
+    const file = 'dataTransfer' in event ? event.dataTransfer?.files[0] : event.target.files?.[0];
+    if (!file) return;
+
+    setImportModal(prev => ({ ...prev, isLoading: true, error: null }));
+
+    Papa.parse(file, {
+      header: true,
+      complete: (results) => {
+        try {
+          const csvData = (results.data as Record<string, string>[])
+            .filter((row) => row.Description || row['Spent (Debit)'] || row['Received (Credit)'])
+            .map((row) => {
+              const id = uuidv4();
+              return {
+                id,
+                Description: row.Description || '',
+                'Spent (Debit)': row['Spent (Debit)'] || '0.00',
+                'Received (Credit)': row['Received (Credit)'] || '0.00',
+                chart_account_id: undefined
+              };
+            });
+
+          // Convert CSV data to journal entry lines
+          const journalLines: JournalEntryLine[] = csvData.map((entry, index) => ({
+            id: (index + 1).toString(),
+            description: entry.Description,
+            categoryId: '', // Will need to be selected by user
+            payeeId: '', // Empty since we removed payee from CSV
+            debit: entry['Spent (Debit)'] || '0.00',
+            credit: entry['Received (Credit)'] || '0.00'
+          }));
+
+          // Populate the new entry state with CSV data
+          setNewEntry({
+            date: new Date().toISOString().split('T')[0],
+            description: `Imported from CSV - ${file.name}`,
+            jeName: `CSV Import - ${new Date().toLocaleDateString()}`,
+            lines: journalLines
+          });
+
+          // Close import modal and open the add modal
+          setImportModal(prev => ({ ...prev, isOpen: false, isLoading: false }));
+          setShowAddModal(true);
+
+        } catch (error) {
+          console.error('Error parsing CSV:', error);
+          setImportModal(prev => ({
+            ...prev,
+            isLoading: false,
+            error: 'Failed to parse CSV file. Please check the format.'
+          }));
+        }
+      },
+      error: (error) => {
+        console.error('CSV parsing error:', error);
+        setImportModal(prev => ({
+          ...prev,
+          isLoading: false,
+          error: 'Failed to parse CSV file. Please check the format.'
+        }));
+      }
+    });
+
+    // Reset the input value
+    if ('target' in event && event.target && 'value' in event.target) {
+      (event.target as HTMLInputElement).value = '';
+    }
+  };
+
+  const handleCsvDragOver = (event: React.DragEvent) => {
+    event.preventDefault();
+  };
+
+  const handleCsvDrop = (event: React.DragEvent) => {
+    event.preventDefault();
+    handleFileUpload(event.nativeEvent);
+  };
 
   // Check if user has company context
   if (!hasCompanyContext) {
@@ -836,12 +945,18 @@ export default function JournalTablePage() {
         </div>
       ) : (
         <div className="space-y-4">
-          <div className="flex justify-end items-center mb-4">
+          <div className="flex justify-between items-center mb-4">
             <button
               onClick={() => setShowAddModal(true)}
               className="border px-3 py-1 rounded text-xs flex items-center space-x-1 bg-gray-100 hover:bg-gray-200"
             >
               Add Manual Entry
+            </button>
+            <button
+              onClick={() => setImportModal(prev => ({ ...prev, isOpen: true }))}
+              className="border px-3 py-1 rounded text-xs flex items-center space-x-1 bg-gray-100 hover:bg-gray-200"
+            >
+              Import
             </button>
           </div>
           <div className="flex gap-2 items-center mb-2">
@@ -891,7 +1006,17 @@ export default function JournalTablePage() {
                 </tr>
               </thead>
               <tbody>
-                {displayedEntries.map((entry) => (
+                {isLoading ? (
+                  <tr>
+                    <td colSpan={finalColumns.length} className="border p-4 text-center">
+                      <div className="flex flex-col items-center space-y-3">
+                        <Loader size="md" />
+                        <span className="text-xs">Loading journal entries...</span>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  displayedEntries.map((entry) => (
                   <tr 
                     key={String(entry.id)} 
                     className="hover:bg-gray-50 cursor-pointer"
@@ -921,7 +1046,8 @@ export default function JournalTablePage() {
                       </td>
                     ))}
                   </tr>
-                ))}
+                ))
+                )}
               </tbody>
             </table>
           </div>
@@ -1068,6 +1194,92 @@ export default function JournalTablePage() {
             </div>
           </DialogContent>
         </Dialog>
+
+        {/* Import Modal */}
+        {importModal.isOpen && (
+          <Dialog
+            open={importModal.isOpen}
+            onOpenChange={(open) => !open && setImportModal(prev => ({ ...prev, isOpen: false }))}
+          >
+            <DialogContent className="min-w-[720px] max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Import Manual Journal Entries</DialogTitle>
+              </DialogHeader>
+
+              {importModal.error && (
+                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded">{importModal.error}</div>
+              )}
+
+              {importModal.isLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader size="md" />
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <h3 className="text-sm font-medium text-gray-700">Upload CSV File</h3>
+                      <button onClick={downloadJournalTemplate} className="text-sm text-gray-600 hover:text-gray-800">
+                        Download Template
+                      </button>
+                    </div>
+
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                      <h4 className="text-sm font-medium text-blue-800 mb-2">CSV Format Instructions:</h4>
+                      <ul className="text-sm text-blue-700 space-y-1">
+                        <li>
+                          • <strong>Payee:</strong> Name of the payee (optional)
+                        </li>
+                        <li>
+                          • <strong>Description:</strong> Description of the journal entry
+                        </li>
+                        <li>
+                          • <strong>Spent (Debit):</strong> Debit amount (use 0.00 if no amount)
+                        </li>
+                        <li>
+                          • <strong>Received (Credit):</strong> Credit amount (use 0.00 if no amount)
+                        </li>
+                      </ul>
+                      <p className="text-xs text-blue-600 mt-2">
+                        Download the template above to see examples of proper formatting. After upload, you&apos;ll be able to review and edit the entries before saving.
+                      </p>
+                    </div>
+                  </div>
+                  <div
+                    className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center transition-colors duration-200 hover:border-gray-400"
+                    onDragOver={handleCsvDragOver}
+                    onDrop={handleCsvDrop}
+                  >
+                    <input
+                      type="file"
+                      accept=".csv"
+                      onChange={handleFileUpload}
+                      className="hidden"
+                      id="csv-upload"
+                    />
+                    <label
+                      htmlFor="csv-upload"
+                      className="cursor-pointer inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                    >
+                      Choose CSV File
+                    </label>
+                    <p className="mt-2 text-sm text-gray-500">
+                      Drag and drop your CSV file here, or click to browse
+                    </p>
+                  </div>
+                  <div className="flex justify-end space-x-2 mt-4">
+                    <button
+                      onClick={() => setImportModal(prev => ({ ...prev, isOpen: false }))}
+                      className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
+        )}
     </div>
   );
 } 

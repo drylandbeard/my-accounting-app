@@ -2442,6 +2442,7 @@ export default function AutomationsPage() {
                 <option value="Expense">Expense</option>
                 <option value="Revenue">Revenue</option>
                 <option value="Asset">Asset</option>
+                <option value="COGS">COGS</option>
                 <option value="Liability">Liability</option>
                 <option value="Equity">Equity</option>
                 <option value="Bank Account">Bank Account</option>

@@ -39,9 +39,27 @@ export interface PayeeOperationParams {
   [key: string]: unknown;
 }
 
+// Category operation types
+export interface CategoryOperation {
+  action: 'create_category' | 'update_category' | 'delete_category' | 'move_category';
+  params: CategoryOperationParams;
+}
+
+export interface CategoryOperationParams {
+  name?: string;
+  type?: string;
+  parent_id?: string | null;
+  parent_name?: string;
+  categoryId?: string;
+  categoryName?: string;
+  newParentId?: string | null;
+  newParentName?: string;
+  [key: string]: unknown;
+}
+
 export interface BatchOperation {
   action: 'batch_execute';
-  operations: PayeeOperation[];
+  operations: (PayeeOperation | CategoryOperation)[];
 }
 
 // Operation results
@@ -74,6 +92,15 @@ export interface PayeeValidationContext {
   targetName?: string;
   targetId?: string;
   operation: 'create' | 'update' | 'delete';
+}
+
+// Category validation context
+export interface CategoryValidationContext {
+  existingCategories: Array<{ id: string; name: string; type: string; parent_id?: string | null }>;
+  targetName?: string;
+  targetId?: string;
+  targetType?: string;
+  operation: 'create' | 'update' | 'delete' | 'move';
 }
 
 // AI Panel props
@@ -115,4 +142,14 @@ export interface PayeeError extends AIError {
   payeeName?: string;
   payeeId?: string;
   conflictingPayees?: string[];
+}
+
+// Category error types
+export interface CategoryError extends AIError {
+  categoryName?: string;
+  categoryId?: string;
+  categoryType?: string;
+  conflictingCategories?: string[];
+  parentName?: string;
+  parentId?: string;
 }

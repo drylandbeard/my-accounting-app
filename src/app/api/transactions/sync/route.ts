@@ -84,6 +84,9 @@ export async function POST(req: NextRequest) {
         access_token,
         start_date,
         end_date: new Date().toISOString().split('T')[0],
+        options: {
+          count: 500, // Maximum transactions per request (default is 100)
+        }
       });
       console.log('Plaid transactions:', transactionsResponse.data.transactions);
     } catch (err: unknown) {

@@ -1156,6 +1156,8 @@ export default function PnLPage() {
           companyName={currentCompany.name}
           getCategoryName={getCategoryName}
           onTransactionClick={handleTransactionClick}
+          payees={payees}
+          accounts={bankAccounts}
         />
       )}
       

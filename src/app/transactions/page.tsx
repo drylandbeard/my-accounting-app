@@ -121,14 +121,18 @@ function SortableAccountItem({
   account,
   onNameChange,
   onDelete,
+  onConfirmDelete,
+  onCancelDelete,
   deleteConfirmation,
   onDeleteConfirmationChange,
   accountToDelete,
 }: {
-  account: { id: string; name: string; order?: number };
+  account: { plaid_account_id: string; id: string; name: string; order?: number };
   index?: number;
   onNameChange: (value: string) => void;
   onDelete: () => void;
+  onConfirmDelete: () => void;
+  onCancelDelete: () => void;
   deleteConfirmation: string;
   onDeleteConfirmationChange: (value: string) => void;
   accountToDelete: string | null;
@@ -145,13 +149,13 @@ function SortableAccountItem({
     <div
       ref={setNodeRef}
       style={style}
-      className={`space-y-2 p-2 border rounded transition-colors ${isDragging ? "bg-gray-100 shadow-lg" : "bg-white"}`}
+      className={`space-y-2 p-2 border rounded transition-colors ${isDragging ? "bg-gray-100 shadow-lg" : "bg-white"} overflow-hidden`}
     >
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 min-w-0">
         <button
           {...attributes}
           {...listeners}
-          className="text-gray-400 text-sm cursor-grab active:cursor-grabbing hover:text-gray-600"
+          className="text-gray-400 text-sm cursor-grab active:cursor-grabbing hover:text-gray-600 flex-shrink-0"
         >
           ⋮⋮
         </button>
@@ -159,46 +163,40 @@ function SortableAccountItem({
           type="text"
           value={account.name}
           onChange={(e) => onNameChange(e.target.value)}
-          className="flex-1 border px-2 py-1 rounded"
+          className="flex-1 border px-2 py-1 rounded min-w-0"
         />
-        <button onClick={onDelete} className="text-red-600 hover:text-red-800 px-2 py-1">
+        <button onClick={onDelete} className="text-red-600 hover:text-red-800 px-2 py-1 flex-shrink-0">
           Delete
         </button>
       </div>
       {accountToDelete === account.id && (
-        <div className="bg-red-50 p-3 rounded border border-red-200">
-          <p className="text-sm text-red-700 mb-2">
-            Warning: This will permanently delete the account and all its transactions. Type &quot;delete&quot; to
-            confirm.
+        <div className="bg-red-50 p-2 rounded border border-red-200 max-w-full overflow-hidden break-words">
+          <p className="text-xs text-red-700 mb-2">
+            Warning: This will permanently delete the account and all its transactions. Type &quot;delete&quot; to confirm.
           </p>
-          <div className="flex gap-2">
+          <div className="space-y-2">
             <input
               type="text"
               value={deleteConfirmation}
               onChange={(e) => onDeleteConfirmationChange(e.target.value)}
               placeholder="Type 'delete' to confirm"
-              className="flex-1 border px-2 py-1 rounded"
+              className="w-full border px-2 py-1 rounded text-sm max-w-full"
             />
-            <button
-              onClick={() => {
-                if (deleteConfirmation === "delete") {
-                  // Call a deletion handler that will be passed from parent
-                  onDelete();
-                }
-              }}
-              disabled={deleteConfirmation !== "delete"}
-              className="px-3 py-1 bg-red-600 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Confirm
-            </button>
-            <button
-              onClick={() => {
-                onDeleteConfirmationChange("");
-              }}
-              className="px-3 py-1 border rounded"
-            >
-              Cancel
-            </button>
+            <div className="flex gap-1 justify-end flex-wrap">
+              <button
+                onClick={onCancelDelete}
+                className="px-2 py-1 border rounded text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={onConfirmDelete}
+                disabled={deleteConfirmation !== "delete"}
+                className="px-2 py-1 bg-red-600 text-white rounded disabled:opacity-50 text-xs"
+              >
+                Confirm
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -217,12 +215,12 @@ export default function TransactionsPage() {
     accounts,
     importedTransactions,
     transactions,
+    isLoading,
     isSyncing,
     isAddingTransactions,
     isUndoingTransactions,
     setSelectedAccountId,
     createLinkToken,
-    refreshAll,
     addTransactions,
     undoTransactions,
     syncTransactions: storeSyncTransactions,
@@ -240,6 +238,11 @@ export default function TransactionsPage() {
     importTransactionsFromCSV,
     saveImportedTransactionSplit,
     getImportedTransactionSplitsByTransactionId,
+    fetchImportedTransactionSplits,
+    fetchAccounts,
+    fetchImportedTransactions,
+    fetchConfirmedTransactions,
+    fetchJournalEntries,
   } = useTransactionsStore();
 
   const { categories, refreshCategories, createCategoryForTransaction, subscribeToCategories } = useCategoriesStore();
@@ -519,7 +522,12 @@ export default function TransactionsPage() {
   // Add new state for account names modal
   const [accountNamesModal, setAccountNamesModal] = useState<{
     isOpen: boolean;
-    accounts: { id: string; name: string; order?: number }[];
+    accounts: {
+      plaid_account_id: string;
+      id: string;
+      name: string;
+      order?: number;
+    }[];
     accountToDelete: string | null;
     deleteConfirmation: string;
   }>({
@@ -925,16 +933,22 @@ export default function TransactionsPage() {
       isAutomationRunning.current = false;
       setIsAutoAddRunning(false);
     }
-  }, [shouldRunAutomations, getAutomationVersion, currentCompany?.id, selectedAccountId, categories, payees, getTransactionContentHash, refreshAll, addTransactions, applyAutomationsToTransactions]);
+  }, [shouldRunAutomations, getAutomationVersion, currentCompany?.id, selectedAccountId, categories, payees, getTransactionContentHash, addTransactions, applyAutomationsToTransactions]);
 
 
   useEffect(() => {
     if (hasCompanyContext && currentCompany?.id) {
-      refreshAll(currentCompany.id);
+      // Use individual fetch functions with incremental sync (default behavior)
+      fetchAccounts(currentCompany.id);
+      fetchImportedTransactions(currentCompany.id);
+      fetchConfirmedTransactions(currentCompany.id);
+      fetchJournalEntries(currentCompany.id);
       refreshCategories();
       refreshPayees();
+      // Initial fetch for imported transaction splits (subsequent updates via subscription)
+      fetchImportedTransactionSplits(currentCompany.id);
     }
-  }, [currentCompany?.id, hasCompanyContext, refreshAll, refreshCategories, refreshPayees]); // Refresh when company changes
+  }, [currentCompany?.id, hasCompanyContext, fetchAccounts, fetchImportedTransactions, fetchConfirmedTransactions, fetchJournalEntries, refreshCategories, refreshPayees, fetchImportedTransactionSplits]); // Refresh when company changes
 
   // Real-time subscriptions managed by stores
   useEffect(() => {
@@ -1888,17 +1902,19 @@ export default function TransactionsPage() {
       if (success) {
         // Remove the deleted account from the modal's accounts list
         const updatedAccounts = accountNamesModal.accounts.filter((acc) => acc.id !== accountId);
-        setAccountNamesModal((prev) => ({
-          ...prev,
-          accounts: updatedAccounts,
-          accountToDelete: null,
-          deleteConfirmation: "",
-        }));
-
+        
         // If the deleted account was selected, select the first remaining account
         if (selectedAccountId === accountId && updatedAccounts.length > 0) {
           setSelectedAccountId(updatedAccounts[0].id);
         }
+
+        // Close the modal after successful deletion
+        setAccountNamesModal({
+          isOpen: false,
+          accounts: [],
+          accountToDelete: null,
+          deleteConfirmation: "",
+        });
       }
     } catch (error) {
       console.error("Error deleting account:", error);
@@ -2546,8 +2562,11 @@ export default function TransactionsPage() {
         throw new Error("Failed to update journal entries");
       }
 
-      // Refresh all data
-      await refreshAll(currentCompany!.id);
+      // Refresh data with incremental sync
+      await Promise.all([
+        fetchConfirmedTransactions(currentCompany!.id),
+        fetchJournalEntries(currentCompany!.id)
+      ]);
 
       showSuccessToast("Journal entries updated successfully!");
 
@@ -2697,7 +2716,7 @@ export default function TransactionsPage() {
   }
 
   return (
-    <div className="p-4 bg-white text-gray-900 font-sans text-xs space-y-6">
+    <div className="relative p-4 bg-white text-gray-900 font-sans text-xs space-y-6">
       <div className="flex justify-end items-center mb-4">
 
         <div className="flex flex-row items-center space-x-2">
@@ -2731,6 +2750,7 @@ export default function TransactionsPage() {
                 accounts: accounts
                   .filter((acc) => acc.plaid_account_id)
                   .map((acc, index) => ({
+                    plaid_account_id: acc.plaid_account_id || "",
                     id: acc.plaid_account_id || "",
                     name: acc.name || "Unknown Account",
                     order: index,
@@ -2810,10 +2830,13 @@ export default function TransactionsPage() {
                       <div className="space-y-2">
                         <label className="block text-sm font-medium text-gray-700">Select Account</label>
                         <Select
-                          options={accounts.map((acc) => ({
-                            value: acc.plaid_account_id || "",
-                            label: acc.name,
-                          }))}
+                          options={[
+                            { value: "add_new", label: "+ Add manual account" },
+                            ...accounts.map((acc) => ({
+                              value: acc.plaid_account_id || "",
+                              label: acc.name,
+                            }))
+                          ]}
                           value={
                             importModal.selectedAccount
                               ? {
@@ -2825,11 +2848,15 @@ export default function TransactionsPage() {
                           onChange={(selectedOption) => {
                             const option = selectedOption as SelectOption | null;
                             if (option) {
-                              const selectedAccount = accounts.find((acc) => acc.plaid_account_id === option.value);
-                              setImportModal((prev) => ({
-                                ...prev,
-                                selectedAccount: selectedAccount || null,
-                              }));
+                              if (option.value === "add_new") {
+                                setManualAccountModal({ isOpen: true, name: "", type: "Asset", startingBalance: "0" });
+                              } else {
+                                const selectedAccount = accounts.find((acc) => acc.plaid_account_id === option.value);
+                                setImportModal((prev) => ({
+                                  ...prev,
+                                  selectedAccount: selectedAccount || null,
+                                }));
+                              }
                             }
                           }}
                           isSearchable
@@ -2855,10 +2882,7 @@ export default function TransactionsPage() {
                               • <strong>Description:</strong> Any text describing the transaction
                             </li>
                             <li>
-                              • <strong>Spent:</strong> Amount spent (expenses). Use 0.00 if no amount spent.
-                            </li>
-                            <li>
-                              • <strong>Received:</strong> Amount received (income). Use 0.00 if no amount received.
+                              • <strong>Amount:</strong> Amount spent or received. Use 0.00 if no amount.
                             </li>
                           </ul>
                           <p className="text-xs text-blue-600 mt-2">
@@ -3069,11 +3093,6 @@ export default function TransactionsPage() {
                                   csvData: [],
                                   selectedTransactions: new Set(),
                                 }));
-
-                                // Show success message
-                                showSuccessToast(
-                                  `Successfully imported ${result.count || selectedTransactions.length} transactions!`
-                                );
 
                                 // Note: Automations will be triggered automatically by the main automation effect
                                 // when it detects the new imported transactions
@@ -3400,7 +3419,7 @@ export default function TransactionsPage() {
             setAccountNamesModal({ isOpen: false, accounts: [], accountToDelete: null, deleteConfirmation: "" })
           }
         >
-          <DialogContent className="w-[400px] max-h-[90vh] overflow-y-auto">
+          <DialogContent className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Edit Accounts</DialogTitle>
               <p className="text-sm text-gray-600">Drag accounts to reorder them</p>
@@ -3426,17 +3445,20 @@ export default function TransactionsPage() {
                         }));
                       }}
                       onDelete={() => {
-                        if (
-                          accountNamesModal.deleteConfirmation === "delete" &&
-                          accountNamesModal.accountToDelete === account.id
-                        ) {
-                          handleDeleteAccount(account.id);
-                        } else {
-                          setAccountNamesModal((prev) => ({
-                            ...prev,
-                            accountToDelete: account.id,
-                          }));
-                        }
+                        setAccountNamesModal((prev) => ({
+                          ...prev,
+                          accountToDelete: account.id,
+                        }));
+                      }}
+                      onConfirmDelete={() => {
+                        handleDeleteAccount(account.id);
+                      }}
+                      onCancelDelete={() => {
+                        setAccountNamesModal((prev) => ({
+                          ...prev,
+                          accountToDelete: null,
+                          deleteConfirmation: "",
+                        }));
                       }}
                       deleteConfirmation={accountNamesModal.deleteConfirmation}
                       onDeleteConfirmationChange={(value: string) =>
@@ -4051,7 +4073,7 @@ export default function TransactionsPage() {
           </button>
           {(() => {
             const selected = accounts.find((a) => a.plaid_account_id === selectedAccountId);
-            if (!selected || selected.is_manual) return null;
+            if (!selected) return null;
             return (
               <div className="ml-4 flex items-center gap-3 my-auto">
                 <div className="flex items-center gap-1 px-2 py-1 bg-gray-50 border border-gray-200 rounded-md">
@@ -4079,8 +4101,9 @@ export default function TransactionsPage() {
               onChange={(e) => setSearchQuery(e.target.value)}
               className="border px-2 py-1 w-full text-xs mb-2"
             />
-            <table className="w-full border-collapse border border-gray-300">
-              <thead className="bg-gray-100">
+            <div className="overflow-auto max-h-[calc(100vh-300px)] border border-gray-300 rounded">
+              <table className="w-full border-collapse border border-gray-300">
+              <thead className="bg-gray-100 sticky top-0 z-10">
                 <tr>
                   <th 
                     className="border p-1 w-8 text-center cursor-pointer"
@@ -4114,6 +4137,12 @@ export default function TransactionsPage() {
                   </th>
                   <th
                     className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
+                    onClick={() => handleSort("payee", "toAdd")}
+                  >
+                    Payee {toAddSortConfig.key === "payee" && (toAddSortConfig.direction === "asc" ? "↑" : "↓")}
+                  </th>
+                  <th
+                    className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
                     onClick={() => handleSort("description", "toAdd")}
                   >
                     Description{" "}
@@ -4133,12 +4162,6 @@ export default function TransactionsPage() {
                   </th>
                   <th
                     className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
-                    onClick={() => handleSort("payee", "toAdd")}
-                  >
-                    Payee {toAddSortConfig.key === "payee" && (toAddSortConfig.direction === "asc" ? "↑" : "↓")}
-                  </th>
-                  <th
-                    className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
                     onClick={() => handleSort("category", "toAdd")}
                   >
                     Category {toAddSortConfig.key === "category" && (toAddSortConfig.direction === "asc" ? "↑" : "↓")}
@@ -4147,18 +4170,28 @@ export default function TransactionsPage() {
                 </tr>
               </thead>
               <tbody>
-                {imported.map((tx) => {
+                {isLoading ? (
+                  <tr>
+                    <td colSpan={8} className="border p-4 text-center">
+                      <div className="flex flex-col items-center space-y-3">
+                        <Loader size="md" />
+                        <span className="text-xs">Loading transactions...</span>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  imported.map((tx) => {
                   return (
                     <tr
                       key={tx.id}
                       onClick={(e) => {
-                        // Only open modal if click is in columns 1-4 (date, description, spent, received)
+                        // Only open modal if click is in columns 1, 3-5 (date, description, spent, received) - skip payee column 2
                         const clickedTd = (e.target as HTMLElement).closest("td");
                         if (!clickedTd) return;
 
                         const tdIndex = Array.from(clickedTd.parentElement!.children).indexOf(clickedTd);
-                        // Allow clicks on columns 1-4 (date, description, spent, received) - skip checkbox column (0)
-                        if (tdIndex >= 1 && tdIndex <= 4) {
+                        // Allow clicks on columns 1, 3, 4, 5 (date, description, spent, received) - skip checkbox column (0) and payee column (2)
+                        if (tdIndex === 1 || (tdIndex >= 3 && tdIndex <= 5)) {
                           // Open the transaction edit modal for imported transactions
                           openImportedTransactionModal(tx);
                         }
@@ -4194,16 +4227,6 @@ export default function TransactionsPage() {
                         />
                       </td>
                       <td className="border p-1 w-20 text-center text-xs cursor-pointer">{formatDate(tx.date)}</td>
-                      <td className="border p-1 w-8 text-center text-xs cursor-pointer" style={{ minWidth: 250 }}>
-                        {tx.description}
-                        {(tx.has_split || getImportedTransactionSplitsByTransactionId(tx.id).length > 0) && (
-                          <span className="ml-1 inline-block bg-blue-100 text-blue-800 text-xs px-1 rounded">
-                            Split
-                          </span>
-                        )}
-                      </td>
-                      <td className="border p-1 w-8 text-center cursor-pointer">{tx.spent ? formatAmount(tx.spent) : ""}</td>
-                      <td className="border p-1 w-8 text-center cursor-pointer">{tx.received ? formatAmount(tx.received) : ""}</td>
                       <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
                         <Select
                           options={payeeOptions}
@@ -4296,6 +4319,16 @@ export default function TransactionsPage() {
                           }}
                         />
                       </td>
+                      <td className="border p-1 w-8 text-center text-xs cursor-pointer" style={{ minWidth: 250 }}>
+                        {tx.description}
+                        {(tx.has_split || getImportedTransactionSplitsByTransactionId(tx.id).length > 0) && (
+                          <span className="ml-1 inline-block bg-blue-100 text-blue-800 text-xs px-1 rounded">
+                            Split
+                          </span>
+                        )}
+                      </td>
+                      <td className="border p-1 w-8 text-center cursor-pointer">{tx.spent ? formatAmount(tx.spent) : ""}</td>
+                      <td className="border p-1 w-8 text-center cursor-pointer">{tx.received ? formatAmount(tx.received) : ""}</td>
                       <td className="border p-1 w-8 text-center" style={{ minWidth: 150 }}>
                         <Select
                           options={categoryOptions}
@@ -4421,9 +4454,11 @@ export default function TransactionsPage() {
                       </td>
                     </tr>
                   );
-                })}
+                })
+                )}
               </tbody>
             </table>
+            </div>
 
             <div className="flex justify-between items-center">
               {/* Pagination for To Add table */}
@@ -4450,8 +4485,9 @@ export default function TransactionsPage() {
               onChange={(e) => setSearchQuery(e.target.value)}
               className="border px-2 py-1 w-full text-xs mb-2"
             />
-            <table className="w-full border-collapse border border-gray-300">
-              <thead className="bg-gray-100">
+            <div className="overflow-auto max-h-[calc(100vh-300px)] border border-gray-300 rounded">
+              <table className="w-full border-collapse border border-gray-300">
+              <thead className="bg-gray-100 sticky top-0 z-10">
                 <tr>
                   <th
                     className="border p-1 w-8 text-center cursor-pointer"
@@ -4485,6 +4521,12 @@ export default function TransactionsPage() {
                   </th>
                   <th
                     className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
+                    onClick={() => handleSort("payee", "added")}
+                  >
+                    Payee {addedSortConfig.key === "payee" && (addedSortConfig.direction === "asc" ? "↑" : "↓")}
+                  </th>
+                  <th
+                    className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
                     onClick={() => handleSort("description", "added")}
                   >
                     Description{" "}
@@ -4504,12 +4546,6 @@ export default function TransactionsPage() {
                   </th>
                   <th
                     className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
-                    onClick={() => handleSort("payee", "added")}
-                  >
-                    Payee {addedSortConfig.key === "payee" && (addedSortConfig.direction === "asc" ? "↑" : "↓")}
-                  </th>
-                  <th
-                    className="border p-1 w-8 text-center cursor-pointer hover:bg-gray-200"
                     onClick={() => handleSort("category", "added")}
                   >
                     Category {addedSortConfig.key === "category" && (addedSortConfig.direction === "asc" ? "↑" : "↓")}
@@ -4518,7 +4554,17 @@ export default function TransactionsPage() {
                 </tr>
               </thead>
               <tbody>
-                {confirmed.map((tx) => {
+                {isLoading ? (
+                  <tr>
+                    <td colSpan={8} className="border p-4 text-center">
+                      <div className="flex flex-col items-center space-y-3">
+                        <Loader size="md" />
+                        <span className="text-xs">Loading transactions...</span>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  confirmed.map((tx) => {
                   const category = categories.find((c) => c.id === tx.selected_category_id);
                   return (
                     <tr
@@ -4531,7 +4577,7 @@ export default function TransactionsPage() {
                         if (!clickedTd || clickedButton) return;
 
                         const tdIndex = Array.from(clickedTd.parentElement!.children).indexOf(clickedTd);
-                        // Allow clicks on columns 1-6 (date, description, spent, received, payee, category) - skip checkbox column (0) and action column (7)
+                        // Allow clicks on columns 1-6 (date, payee, description, spent, received, category) - skip checkbox column (0) and action column (7)
                         if (tdIndex >= 1 && tdIndex <= 6) {
                           // Open journal entry modal instead of edit modal
                           openJournalEntryModal(tx);
@@ -4568,6 +4614,12 @@ export default function TransactionsPage() {
                         />
                       </td>
                       <td className="border p-1 w-20 text-center text-xs cursor-pointer">{formatDate(tx.date)}</td>
+                      <td className="border p-1 w-8 text-center cursor-pointer" style={{ minWidth: 150 }}>
+                        {(() => {
+                          const payee = payees.find((p) => p.id === tx.payee_id);
+                          return payee ? payee.name : "";
+                        })()}
+                      </td>
                       <td className="border p-1 w-8 text-center text-xs cursor-pointer" style={{ minWidth: 250 }}>
                         {tx.description}
                         {tx.has_split && (
@@ -4581,12 +4633,6 @@ export default function TransactionsPage() {
                       </td>
                       <td className="border p-1 w-8 text-center cursor-pointer">
                         {tx.received ? formatAmount(tx.received) : ""}
-                      </td>
-                      <td className="border p-1 w-8 text-center cursor-pointer" style={{ minWidth: 150 }}>
-                        {(() => {
-                          const payee = payees.find((p) => p.id === tx.payee_id);
-                          return payee ? payee.name : "";
-                        })()}
                       </td>
                       <td className="border p-1 w-8 text-center cursor-pointer" style={{ minWidth: 150 }}>
                         {tx.has_split ? "-- Split --" : category ? category.name : "Uncategorized"}
@@ -4609,9 +4655,11 @@ export default function TransactionsPage() {
                       </td>
                     </tr>
                   );
-                })}
+                })
+                )}
               </tbody>
             </table>
+            </div>
 
             <div className="flex justify-between items-center">
               {/* Pagination for Added table */}
@@ -4780,7 +4828,7 @@ export default function TransactionsPage() {
             isAddingTransactions || selectedTransactions.some((tx) => processingTransactions.has(tx.id));
 
           return (
-            <div className="fixed bottom-6 right-6 z-40">
+            <div className="absolute bottom-6 right-6 z-40">
               <button
                 onClick={async () => {
                   const transactionRequests = selectedTransactions
@@ -4836,7 +4884,7 @@ export default function TransactionsPage() {
             isUndoingTransactions || selectedConfirmed.some((tx) => processingTransactions.has(tx.id));
 
           return (
-            <div className="fixed bottom-6 right-6 z-40">
+            <div className="absolute bottom-6 right-6 z-40">
               <button
                 onClick={async () => {
                   // Set flag to prevent automation during undo
