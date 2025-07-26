@@ -807,7 +807,7 @@ export default function TransactionsPage() {
     setIsAutoAddRunning(true);
     
     try {
-      const result = await applyAutomationsToTransactions(currentCompany.id, selectedAccountId, categories, payees);
+      const result = await applyAutomationsToTransactions(currentCompany!.id, selectedAccountId, categories, payees);
       
       if (result.success && result.data) {
         const { appliedCategories, appliedPayees, autoAddTransactions } = result.data;
@@ -817,7 +817,7 @@ export default function TransactionsPage() {
         setAutomationAppliedPayees(appliedPayees);
         
         // Persist automation visual feedback to sessionStorage for page refresh survival
-        const visualFeedbackKey = `automation-visual-feedback-${currentCompany.id}-${selectedAccountId}`;
+        const visualFeedbackKey = `automation-visual-feedback-${currentCompany!.id}-${selectedAccountId}`;
         sessionStorage.setItem(visualFeedbackKey, JSON.stringify({
           appliedCategories,
           appliedPayees,
@@ -877,7 +877,7 @@ export default function TransactionsPage() {
             
             if (transactionRequests.length > 0 && selectedAccountIdInCOA) {
               try {
-                await addTransactions(transactionRequests, selectedAccountIdInCOA, currentCompany.id);
+                await addTransactions(transactionRequests, selectedAccountIdInCOA, currentCompany!.id);
                 
                 showSuccessToast(`🤖 ${transactionRequests.length} transaction${
                   transactionRequests.length === 1 ? "" : "s"
