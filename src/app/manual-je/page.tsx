@@ -1139,6 +1139,7 @@ Equipment Depreciation,0.00,250.00`;
                   options={[
                     { value: 'Expense', label: 'Expense' },
                     { value: 'Revenue', label: 'Revenue' },
+                    { value: 'COGS', label: 'COGS' },
                     { value: 'Asset', label: 'Asset' },
                     { value: 'Liability', label: 'Liability' },
                     { value: 'Equity', label: 'Equity' },
