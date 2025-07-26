@@ -1433,24 +1433,20 @@ export default function BalanceSheetPage() {
                         <TableHead style={{ width: `${65 / (getMonthsInRange(startDate, endDate).length + 1)}%` }}>
                           Total
                         </TableHead>
-                        {showPercentages && (
-                          <TableHead style={{ width: `${65 / (getMonthsInRange(startDate, endDate).length + 1)}%` }}>
-                            %
-                          </TableHead>
-                        )}
+                        {showPercentages && <TableHead className="whitespace-nowrap">%</TableHead>}
                       </>
                     ) : isQuarterlyView ? (
                       <>
                         {getQuartersInRange(startDate, endDate).map((quarter) => (
                           <React.Fragment key={quarter}>
-                            <TableHead className="whitespace-nowrap" style={{ width: showPercentages ? "7%" : "10%" }}>
+                            <TableHead className="whitespace-nowrap" style={{ width: `${65 / ((getQuartersInRange(startDate, endDate).length + 1) * (showPercentages ? 2 : 1))}%` }}>
                               {formatQuarter(quarter)}
                             </TableHead>
-                            {showPercentages && <TableHead className="whitespace-nowrap">%</TableHead>}
+                            {showPercentages && <TableHead className="whitespace-nowrap" style={{ width: `${65 / ((getQuartersInRange(startDate, endDate).length + 1) * 2)}%` }}>%</TableHead>}
                           </React.Fragment>
                         ))}
-                        <TableHead style={{ width: showPercentages ? "7%" : "10%" }}>Total</TableHead>
-                        {showPercentages && <TableHead>%</TableHead>}
+                        <TableHead style={{ width: `${65 / ((getQuartersInRange(startDate, endDate).length + 1) * (showPercentages ? 2 : 1))}%` }}>Total</TableHead>
+                        {showPercentages && <TableHead className="whitespace-nowrap" style={{ width: `${65 / ((getQuartersInRange(startDate, endDate).length + 1) * 2)}%` }}>%</TableHead>}
                       </>
                     ) : (
                       <>

@@ -9,12 +9,13 @@ import { usePayeesStore } from "@/zustand/payeesStore";
 import Papa from "papaparse";
 import { v4 as uuidv4 } from "uuid";
 import { useCSVUploadHandler, defaultFixEncoding, type CSVUploadConfig } from "@/components/CSVUploadHandler";
-import { Download, Plus } from "lucide-react";
+import { Download, Plus, HelpCircle } from "lucide-react";
 import Loader from "@/components/ui/loader";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { showSuccessToast, showErrorToast } from "@/components/ui/toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Pagination,
   PaginationContent,
@@ -1720,7 +1721,8 @@ export default function ChartOfAccountsPage() {
   }
 
   return (
-    <div className="p-6 font-sans text-gray-900">
+    <TooltipProvider>
+      <div className="p-6 font-sans text-gray-900">
       <div className="flex gap-8">
         {/* Payees Section - Left Side */}
         <div className="w-2/5">
@@ -3110,7 +3112,30 @@ export default function ChartOfAccountsPage() {
       >
         <DialogContent className="min-w-[700px]">
           <DialogHeader>
-            <DialogTitle>Merge Categories</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              Merge Categories
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <HelpCircle className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-help" />
+                </TooltipTrigger>
+                <TooltipContent className="max-w-sm">
+                  <div className="text-xs">
+                    <div className="font-medium mb-2">How Category Merging Works:</div>
+                    <ul className="space-y-1 list-disc list-inside">
+                      <li>Select 2 or more categories with the same type to merge</li>
+                      <li>Choose which category to keep as the "target" (others will be deleted)</li>
+                      <li>All subcategories from merged categories will be moved to the target</li>
+                      <li>All transaction references will be updated to point to the target category</li>
+                      <li>All journal entries will be updated to point to the target category</li>
+                      <li>All automation rules will be updated to use the target category</li>
+                      <li>Circular parent-child relationships are automatically prevented</li>
+                      <li>If merging parent categories into a subcategory, it will become a parent</li>
+                    </ul>
+                    <div className="mt-2 text-red-600 font-medium">⚠️ This action cannot be undone.</div>
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            </DialogTitle>
           </DialogHeader>
 
           {mergeModal.error && (
@@ -3126,50 +3151,6 @@ export default function ChartOfAccountsPage() {
             </div>
           ) : (
             <div className="space-y-4">
-              {mergeModal.selectedCategories.size === 0 && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <h4 className="text-sm font-medium text-blue-800 mb-2">How Merging Works:</h4>
-                  <ul className="text-sm text-blue-700 space-y-1">
-                    <li>• Select 2 or more categories with the same type to merge</li>
-                    <li>• Choose which category to keep as the &quot;target&quot; (others will be deleted)</li>
-                    <li>• All subcategories from merged categories will be moved to the target</li>
-                    <li>• All transaction references will be updated to point to the target category</li>
-                    <li>• All journal entries will be updated to point to the target category</li>
-                    <li>• All automation rules will be updated to use the target category</li>
-                    <li>• Circular parent-child relationships are automatically prevented</li>
-                    <li>• If merging parent categories into a subcategory, it will become a parent</li>
-                  </ul>
-                </div>
-              )}
-
-              {mergeModal.selectedCategories.size >= 2 && mergeModal.targetCategoryId && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <h4 className="text-sm font-medium text-blue-800 mb-2">This merge will:</h4>
-                  <ul className="text-sm text-blue-700 space-y-1">
-                    <li>
-                      • Move all transactions, journal entries, and subcategories to &quot;
-                      {accounts.find((acc) => acc.id === mergeModal.targetCategoryId)?.name}&quot;
-                    </li>
-                    <li>
-                      • Update all automation rules to use &quot;
-                      {accounts.find((acc) => acc.id === mergeModal.targetCategoryId)?.name}&quot;
-                    </li>
-                    <li>
-                      • Delete all selected non-target categories.
-                    </li>
-                    <li>
-                      • Keep the type and properties of &quot;
-                      {accounts.find((acc) => acc.id === mergeModal.targetCategoryId)?.name}&quot;
-                    </li>
-                  </ul>
-                </div>
-              )}
-
-              {mergeModal.selectedCategories.size >= 2 && mergeModal.targetCategoryId && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                  <p className="text-sm text-red-700 font-medium">⚠️ This action cannot be undone.</p>
-                </div>
-              )}
 
               <div>
                 <h3 className="text-sm font-medium text-gray-700 mb-2">
@@ -3541,7 +3522,27 @@ export default function ChartOfAccountsPage() {
       >
         <DialogContent className="min-w-[700px]">
           <DialogHeader>
-            <DialogTitle>Merge Payees</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              Merge Payees
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <HelpCircle className="h-4 w-4 text-gray-400 hover:text-gray-600 cursor-help" />
+                </TooltipTrigger>
+                <TooltipContent className="max-w-sm">
+                  <div className="text-xs">
+                    <div className="font-medium mb-2">How Payee Merging Works:</div>
+                    <ul className="space-y-1 list-disc list-inside">
+                      <li>Select 2 or more payees to merge</li>
+                      <li>Choose which payee to keep as the "target" (others will be deleted)</li>
+                      <li>All transaction references will be updated to point to the target payee</li>
+                      <li>All journal entries will be updated to point to the target payee</li>
+                      <li>All automation rules will be updated to use the target payee</li>
+                    </ul>
+                    <div className="mt-2 text-red-600 font-medium">⚠️ This action cannot be undone.</div>
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            </DialogTitle>
           </DialogHeader>
 
           {mergePayeeModal.error && (
@@ -3557,47 +3558,6 @@ export default function ChartOfAccountsPage() {
             </div>
           ) : (
             <div className="space-y-4">
-              {mergePayeeModal.selectedPayees.size === 0 && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <h4 className="text-sm font-medium text-blue-800 mb-2">How Merging Works:</h4>
-                  <ul className="text-sm text-blue-700 space-y-1">
-                    <li>• Select 2 or more payees to merge</li>
-                    <li>• Choose which payee to keep as the &quot;target&quot; (others will be deleted)</li>
-                    <li>• All transaction references will be updated to point to the target payee</li>
-                    <li>• All journal entries will be updated to point to the target payee</li>
-                    <li>• All automation rules will be updated to use the target payee</li>
-                  </ul>
-                </div>
-              )}
-
-              {mergePayeeModal.selectedPayees.size >= 2 && mergePayeeModal.targetPayeeId && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <h4 className="text-sm font-medium text-blue-800 mb-2">This merge will:</h4>
-                  <ul className="text-sm text-blue-700 space-y-1">
-                    <li>
-                      • Move all transactions and journal entries to &quot;
-                      {payees.find((payee) => payee.id === mergePayeeModal.targetPayeeId)?.name}&quot;
-                    </li>
-                    <li>
-                      • Move all journal entries to &quot;
-                      {payees.find((payee) => payee.id === mergePayeeModal.targetPayeeId)?.name}&quot;
-                    </li>
-                    <li>
-                      • Update all automation rules to use &quot;
-                      {payees.find((payee) => payee.id === mergePayeeModal.targetPayeeId)?.name}&quot;
-                    </li>
-                    <li>
-                      • Delete all selected non-target payees.
-                    </li>
-                  </ul>
-                </div>
-              )}
-
-              {mergePayeeModal.selectedPayees.size >= 2 && mergePayeeModal.targetPayeeId && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                  <p className="text-sm text-red-700 font-medium">⚠️ This action cannot be undone.</p>
-                </div>
-              )}
 
               <div>
                 <h3 className="text-sm font-medium text-gray-700 mb-2">
@@ -3811,6 +3771,7 @@ export default function ChartOfAccountsPage() {
           )}
         </DialogContent>
       </Dialog>
-    </div>
+      </div>
+    </TooltipProvider>
   );
 }
