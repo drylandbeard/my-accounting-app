@@ -1120,18 +1120,15 @@ export const useExportBalanceSheet = (params: UseExportBalanceSheetParams) => {
       }
       currentRow++;
 
-      // Empty row
+      // Add Equity section (always show section header)
+      // Section header
+      worksheet.mergeCells(`A${currentRow}:${numberToExcelColumn(totalColumns)}${currentRow}`);
+      worksheet.getCell(`A${currentRow}`).value = "Equity";
+      worksheet.getCell(`A${currentRow}`).style = sectionStyle;
       currentRow++;
 
-      // Add Equity section (without total)
+      // Account rows (only if there are equity accounts)
       if (equityAccounts.length > 0) {
-        // Section header
-        worksheet.mergeCells(`A${currentRow}:${numberToExcelColumn(totalColumns)}${currentRow}`);
-        worksheet.getCell(`A${currentRow}`).value = "Equity";
-        worksheet.getCell(`A${currentRow}`).style = sectionStyle;
-        currentRow++;
-
-        // Account rows
         equityAccounts.forEach((account) => {
           const addAccountRow = (acc: Category, accountLevel: number) => {
             const subaccounts = getSubaccounts(categories, acc.id).filter((sub) =>
@@ -1295,77 +1292,75 @@ export const useExportBalanceSheet = (params: UseExportBalanceSheetParams) => {
 
           addAccountRow(account, 0);
         });
+      }
 
-        // Add Total Owner's Equity row
-        if (equityAccounts.length > 0) {
-          const totalEquityValue = equityAccounts.reduce((sum, a) => sum + calculateBalanceSheetAccountTotalWithSubaccounts(a), 0);
-          
-          colIndex = 1;
-          worksheet.getCell(currentRow, colIndex++).value = "Total Owner's Equity";
-          worksheet.getCell(currentRow, 1).style = { font: { size: 10, bold: true } };
+      // Add Total Owner's Equity row (always show)
+      const totalEquityValue = equityAccounts.reduce((sum, a) => sum + calculateBalanceSheetAccountTotalWithSubaccounts(a), 0);
+      
+      colIndex = 1;
+      worksheet.getCell(currentRow, colIndex++).value = "Total Owner's Equity";
+      worksheet.getCell(currentRow, 1).style = { font: { size: 10, bold: true } };
 
-          if (isMonthlyView) {
-            months.forEach((month) => {
-              const monthTotal = equityAccounts.reduce((sum, a) => sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month), 0);
-              worksheet.getCell(currentRow, colIndex++).value = monthTotal;
-              worksheet.getCell(currentRow, colIndex - 1).style = { ...numberStyle, font: { bold: true } };
+      if (isMonthlyView) {
+        months.forEach((month) => {
+          const monthTotal = equityAccounts.reduce((sum, a) => sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month), 0);
+          worksheet.getCell(currentRow, colIndex++).value = monthTotal;
+          worksheet.getCell(currentRow, colIndex - 1).style = { ...numberStyle, font: { bold: true } };
 
-              if (showPercentages) {
-                const percentValue = calculatePercentageForMonth(monthTotal, month);
-                worksheet.getCell(currentRow, colIndex++).value =
-                  percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
-                worksheet.getCell(currentRow, colIndex - 1).style = { ...percentStyle, font: { bold: true } };
-              }
-            });
-
-            // Total column
-            worksheet.getCell(currentRow, colIndex++).value = totalEquityValue;
-            worksheet.getCell(currentRow, colIndex - 1).style = { ...numberStyle, font: { bold: true } };
-
-            if (showPercentages) {
-              const totalPercentValue = formatPercentageForAccount(totalEquityValue);
-              worksheet.getCell(currentRow, colIndex++).value =
-                totalPercentValue === "—" ? null : parseFloat(totalPercentValue.replace("%", "")) / 100;
-              worksheet.getCell(currentRow, colIndex - 1).style = { ...percentStyle, font: { bold: true } };
-            }
-          } else if (isQuarterlyView) {
-            quarters.forEach((quarter) => {
-              const quarterTotal = equityAccounts.reduce((sum, a) => sum + calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter), 0);
-              worksheet.getCell(currentRow, colIndex++).value = quarterTotal;
-              worksheet.getCell(currentRow, colIndex - 1).style = { ...numberStyle, font: { bold: true } };
-
-              if (showPercentages) {
-                const percentValue = calculatePercentageForQuarter(quarterTotal, quarter);
-                worksheet.getCell(currentRow, colIndex++).value =
-                  percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
-                worksheet.getCell(currentRow, colIndex - 1).style = { ...percentStyle, font: { bold: true } };
-              }
-            });
-
-            // Total column
-            worksheet.getCell(currentRow, colIndex++).value = totalEquityValue;
-            worksheet.getCell(currentRow, colIndex - 1).style = { ...numberStyle, font: { bold: true } };
-
-            if (showPercentages) {
-              const totalPercentValue = formatPercentageForAccount(totalEquityValue);
-              worksheet.getCell(currentRow, colIndex++).value =
-                totalPercentValue === "—" ? null : parseFloat(totalPercentValue.replace("%", "")) / 100;
-              worksheet.getCell(currentRow, colIndex - 1).style = { ...percentStyle, font: { bold: true } };
-            }
-          } else {
-            worksheet.getCell(currentRow, colIndex++).value = totalEquityValue;
-            worksheet.getCell(currentRow, colIndex - 1).style = { ...numberStyle, font: { bold: true } };
-
-            if (showPercentages) {
-              const totalPercentValue = formatPercentageForAccount(totalEquityValue);
-              worksheet.getCell(currentRow, colIndex++).value =
-                totalPercentValue === "—" ? null : parseFloat(totalPercentValue.replace("%", "")) / 100;
-              worksheet.getCell(currentRow, colIndex - 1).style = { ...percentStyle, font: { bold: true } };
-            }
+          if (showPercentages) {
+            const percentValue = calculatePercentageForMonth(monthTotal, month);
+            worksheet.getCell(currentRow, colIndex++).value =
+              percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
+            worksheet.getCell(currentRow, colIndex - 1).style = { ...percentStyle, font: { bold: true } };
           }
-          currentRow++;
+        });
+
+        // Total column
+        worksheet.getCell(currentRow, colIndex++).value = totalEquityValue;
+        worksheet.getCell(currentRow, colIndex - 1).style = { ...numberStyle, font: { bold: true } };
+
+        if (showPercentages) {
+          const totalPercentValue = formatPercentageForAccount(totalEquityValue);
+          worksheet.getCell(currentRow, colIndex++).value =
+            totalPercentValue === "—" ? null : parseFloat(totalPercentValue.replace("%", "")) / 100;
+          worksheet.getCell(currentRow, colIndex - 1).style = { ...percentStyle, font: { bold: true } };
+        }
+      } else if (isQuarterlyView) {
+        quarters.forEach((quarter) => {
+          const quarterTotal = equityAccounts.reduce((sum, a) => sum + calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter), 0);
+          worksheet.getCell(currentRow, colIndex++).value = quarterTotal;
+          worksheet.getCell(currentRow, colIndex - 1).style = { ...numberStyle, font: { bold: true } };
+
+          if (showPercentages) {
+            const percentValue = calculatePercentageForQuarter(quarterTotal, quarter);
+            worksheet.getCell(currentRow, colIndex++).value =
+              percentValue === "—" ? null : parseFloat(percentValue.replace("%", "")) / 100;
+            worksheet.getCell(currentRow, colIndex - 1).style = { ...percentStyle, font: { bold: true } };
+          }
+        });
+
+        // Total column
+        worksheet.getCell(currentRow, colIndex++).value = totalEquityValue;
+        worksheet.getCell(currentRow, colIndex - 1).style = { ...numberStyle, font: { bold: true } };
+
+        if (showPercentages) {
+          const totalPercentValue = formatPercentageForAccount(totalEquityValue);
+          worksheet.getCell(currentRow, colIndex++).value =
+            totalPercentValue === "—" ? null : parseFloat(totalPercentValue.replace("%", "")) / 100;
+          worksheet.getCell(currentRow, colIndex - 1).style = { ...percentStyle, font: { bold: true } };
+        }
+      } else {
+        worksheet.getCell(currentRow, colIndex++).value = totalEquityValue;
+        worksheet.getCell(currentRow, colIndex - 1).style = { ...numberStyle, font: { bold: true } };
+
+        if (showPercentages) {
+          const totalPercentValue = formatPercentageForAccount(totalEquityValue);
+          worksheet.getCell(currentRow, colIndex++).value =
+            totalPercentValue === "—" ? null : parseFloat(totalPercentValue.replace("%", "")) / 100;
+          worksheet.getCell(currentRow, colIndex - 1).style = { ...percentStyle, font: { bold: true } };
         }
       }
+      currentRow++;
 
       // Net Income
       colIndex = 1;
