@@ -2089,7 +2089,7 @@ export default function AutomationsPage() {
                         </label>
                       </div>
                     )}
-                    <div className="border rounded-lg overflow-hidden">
+                    <div className="border rounded-lg max-h-96 overflow-y-auto">
                       <table className="min-w-full divide-y divide-gray-200">
                         <thead className="bg-gray-50">
                           <tr>

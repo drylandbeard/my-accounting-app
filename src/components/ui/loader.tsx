@@ -4,13 +4,13 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const loaderVariants = cva(
-  "flex items-center justify-center gap-1",
+  "flex items-center justify-center",
   {
     variants: {
       size: {
-        sm: "gap-1",
-        md: "gap-1.5",
-        lg: "gap-2",
+        sm: "h-1.5 w-1.5",
+        md: "h-3 w-3",
+        lg: "h-4 w-4",
       },
     },
     defaultVariants: {
@@ -44,15 +44,12 @@ const dotVariants = cva(
 interface LoaderProps
   extends React.HTMLAttributes<HTMLDivElement>,
     VariantProps<typeof loaderVariants>,
-    VariantProps<typeof dotVariants> {
-  dots?: number
-}
+    VariantProps<typeof dotVariants> {}
 
 function Loader({
   className,
   size,
   variant,
-  dots = 3,
   ...props
 }: LoaderProps) {
   return (
@@ -63,30 +60,23 @@ function Loader({
       <style jsx>{`
         @keyframes dotPulse {
           0%, 80%, 100% {
-            opacity: 0.3;
             transform: scale(1);
           }
           40% {
             opacity: 1;
-            transform: scale(1.1);
+            transform: scale(1.2);
           }
         }
         .dot-pulse {
-          animation: dotPulse 1.4s ease-in-out infinite;
+          animation: dotPulse 1s ease-in-out infinite;
         }
       `}</style>
-      {Array.from({ length: dots }).map((_, index) => (
-        <div
-          key={index}
-          className={cn(
-            dotVariants({ size, variant }),
-            "dot-pulse"
-          )}
-          style={{
-            animationDelay: `${index * 0.2}s`,
-          }}
-        />
-      ))}
+      <div
+        className={cn(
+          dotVariants({ size, variant }),
+          "dot-pulse"
+        )}
+      />
     </div>
   )
 }
