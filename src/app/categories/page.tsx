@@ -243,7 +243,7 @@ export default function ChartOfAccountsPage() {
 
   // Sorting state
   const [categorySortConfig, setCategorySortConfig] = useState<SortConfig>({
-    key: null,
+    key: "type",
     direction: "asc",
   });
   const [payeeSortConfig, setPayeeSortConfig] = useState<PayeeSortConfig>({
