@@ -4431,8 +4431,10 @@ export default function TransactionsPage() {
                       <td className="border p-1 w-8 text-center">
                         <button
                           onClick={async () => {
-                            if (tx.selected_category_id) {
-                              await addTransaction(tx, tx.selected_category_id, tx.payee_id);
+                            const effectiveCategoryId = getEffectiveCategoryId(tx);
+                            const effectivePayeeId = getEffectivePayeeId(tx);
+                            if (effectiveCategoryId) {
+                              await addTransaction(tx, effectiveCategoryId, effectivePayeeId);
                               setSelectedToAdd((prev) => {
                                 const next = new Set(prev);
                                 next.delete(tx.id);
@@ -4448,7 +4450,7 @@ export default function TransactionsPage() {
                               ? "bg-gray-50 text-gray-400 cursor-not-allowed"
                               : "bg-gray-100 hover:bg-gray-200"
                           }`}
-                          disabled={!tx.selected_category_id || processingTransactions.has(tx.id)}
+                          disabled={!getEffectiveCategoryId(tx) || processingTransactions.has(tx.id)}
                         >
                           {processingTransactions.has(tx.id) ? <Loader size="sm" /> : "Add"}
                         </button>
@@ -4824,7 +4826,7 @@ export default function TransactionsPage() {
         selectedToAdd.size > 0 &&
         (() => {
           const selectedTransactions = imported.filter((tx) => selectedToAdd.has(tx.id));
-          const hasValidCategories = selectedTransactions.every((tx) => tx.selected_category_id);
+          const hasValidCategories = selectedTransactions.every((tx) => getEffectiveCategoryId(tx));
           const isProcessing =
             isAddingTransactions || selectedTransactions.some((tx) => processingTransactions.has(tx.id));
 
@@ -4833,11 +4835,11 @@ export default function TransactionsPage() {
               <button
                 onClick={async () => {
                   const transactionRequests = selectedTransactions
-                    .filter((tx): tx is Transaction & { selected_category_id: string } => !!tx.selected_category_id)
+                    .filter((tx) => !!getEffectiveCategoryId(tx))
                     .map((tx) => ({
                       transaction: tx,
-                      selectedCategoryId: tx.selected_category_id,
-                      selectedPayeeId: tx.payee_id,
+                      selectedCategoryId: getEffectiveCategoryId(tx),
+                      selectedPayeeId: getEffectivePayeeId(tx),
                     }));
 
                   // Get the corresponding category ID (the account category)
