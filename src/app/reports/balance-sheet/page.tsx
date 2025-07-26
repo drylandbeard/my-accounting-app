@@ -1505,11 +1505,11 @@ export default function BalanceSheetPage() {
                                     )
                                   )}
                                 </TableCell>
-                                {showPercentages && <TableCell isValue>100.0%</TableCell>}
+                                {showPercentages && <TableCell isValue>{calculatePercentageForMonth(assetAccounts.reduce((sum, a) => sum + calculateBalanceSheetAccountTotalForMonthWithSubaccounts(a, month), 0), month)}</TableCell>}
                               </React.Fragment>
                             ))}
                             <TableCell isValue>{formatNumber(totalAssets)}</TableCell>
-                            {showPercentages && <TableCell isValue>100.0%</TableCell>}
+                            {showPercentages && <TableCell isValue>{formatPercentageForAccount(totalAssets)}</TableCell>}
                           </>
                         ) : isQuarterlyView ? (
                           <>
@@ -1524,16 +1524,16 @@ export default function BalanceSheetPage() {
                                     )
                                   )}
                                 </TableCell>
-                                {showPercentages && <TableCell isValue>100.0%</TableCell>}
+                                {showPercentages && <TableCell isValue>{calculatePercentageForQuarter(assetAccounts.reduce((sum, a) => sum + calculateBalanceSheetAccountTotalForQuarterWithSubaccounts(a, quarter), 0), quarter)}</TableCell>}
                               </React.Fragment>
                             ))}
                             <TableCell isValue>{formatNumber(totalAssets)}</TableCell>
-                            {showPercentages && <TableCell isValue>100.0%</TableCell>}
+                            {showPercentages && <TableCell isValue>{formatPercentageForAccount(totalAssets)}</TableCell>}
                           </>
                         ) : (
                           <>
                             <TableCell isValue>{formatNumber(totalAssets)}</TableCell>
-                            {showPercentages && <TableCell isValue>100.0%</TableCell>}
+                            {showPercentages && <TableCell isValue>{formatPercentageForAccount(totalAssets)}</TableCell>}
                           </>
                         )}
                       </TableRow>
